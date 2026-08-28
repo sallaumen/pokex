@@ -90,6 +90,10 @@ defmodule PokexWeb.CavebotLive do
      |> PokexWeb.HeaderState.relay_workers()
      |> assign(
        page_title: "Cavebot",
+       # Which half of the page he is on. Watching is the default because that
+       # is what the page is for most of the night; editing is one click away
+       # and says so in the URL, so a reload lands where he left it.
+       mode: :watch,
        routes: routes,
        active_route: default_active(routes),
        pos: World.snapshot().pos,
@@ -161,6 +165,16 @@ defmodule PokexWeb.CavebotLive do
        park_default: {Settings.get(:cavebot_park_tiles_x), Settings.get(:cavebot_park_tiles_y)},
        safety: safety_snapshot()
      )}
+  end
+
+  # The mode rides in the URL and nowhere else: `patch` swaps the half of the
+  # page being drawn without remounting, so the feed, the selected corner and
+  # a recording in progress all survive the switch. Anything that is not
+  # "editar" is watching — a typed query string must not blank the page.
+  @impl true
+  def handle_params(params, _uri, socket) do
+    mode = if params["modo"] == "editar", do: :edit, else: :watch
+    {:noreply, assign(socket, mode: mode)}
   end
 
   # Every minimap publish refreshes the position readout — and, while RECORDING,
@@ -2031,12 +2045,24 @@ defmodule PokexWeb.CavebotLive do
       max_width="max-w-[560px] xl:max-w-[1600px]"
       {Layouts.header(assigns)}
     >
-      <div class="flex flex-col gap-3 lg:h-[calc(100dvh-4.5rem)]">
-        <header class="flex flex-wrap items-end justify-between gap-2">
+      <%!-- TWO MODES, one page. Watching a hunt and editing a route want the
+           same screen and disagree about everything else: watching wants the
+           map, the bar and the feed and nothing that can be clicked by
+           accident; editing wants the map beside forty-five rows of corners.
+           Stacked, they were five strips and a workbench that did not fit a
+           notebook — "eu quero ver sempre o mapa inteiro aberto na minha tela"
+           (Lucas, 2026-08-28).
+
+           Both modes are bounded by the VIEWPORT: this block is exactly one
+           screen tall, and whatever scrolls, scrolls inside itself. The
+           `min-h-0` is what lets a flex or grid child shrink below its content
+           and scroll at all. --%>
+      <div class="flex flex-col gap-2 lg:h-[calc(100dvh-4.5rem)]">
+        <header class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <div>
             <%!-- The subtitle explained the page to someone reading it for the
-                 first time, and cost a line of a laptop screen on every one of
-                 the thousand times after that (2026-08-14). --%>
+             first time, and cost a line of a laptop screen on every one of
+             the thousand times after that (2026-08-14). --%>
             <h1 class="text-pk-body font-bold uppercase tracking-[0.14em] text-pk-text">
               Central da caçada
             </h1>
@@ -2046,8 +2072,8 @@ defmodule PokexWeb.CavebotLive do
               {hunt_progress(@hunt)} ·
             </span>
             <%!-- the night in five numbers, where he already looks for the
-                 route's size — incidents included, because "o que ocorreu"
-                 needs them (2026-08-15) --%>
+             route's size — incidents included, because "o que ocorreu"
+             needs them (2026-08-15) --%>
             <span :if={hunt_tally(@hunt)} id="cavebot-tally" class="text-pk-text-2">
               {hunt_tally(@hunt)} ·
             </span>
@@ -2055,1137 +2081,330 @@ defmodule PokexWeb.CavebotLive do
               @active_route
             )} tiles
           </p>
+          <.mode_tabs mode={@mode} />
         </header>
 
-        <section
-          :if={@minimap_gap?}
-          id="cavebot-minimap-gap"
-          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
-        >
-          <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
-            <.icon name="hero-map" class="size-4" /> O minimapa não está calibrado nesta tela
-          </p>
-          <p class="mt-1 text-pk-body text-pk-text-2">
-            Sem ele a posição não pode ser lida — nada de gravar rota nem de andar.
-            Refaça o passo <strong>Posição & minimapa</strong>
-            na <.link navigate={~p"/calibration"} class="underline">Calibração</.link>
-            e volte aqui.
-          </p>
-        </section>
-
-        <%!-- A STOPPED hunt is this page's loudest fact, and it lived in a
-              tile's small print: "parou POR QUÊ" needs no hunting of its own.
-              Three states, three tones — and the middle one only exists because
-              a hunt that is about to fix itself must not read like one asking
-              to be rescued (`comeback?`). --%>
-        <section
-          :if={@hunt && @hunt.state == :blocked && !@hunt[:comeback?]}
-          id="cavebot-blocked"
-          class="rounded-lg border border-pk-danger-line bg-pk-danger-dim p-3"
-        >
-          <p class="flex items-center gap-2 text-pk-body font-bold text-pk-danger">
-            <.icon name="hero-hand-raised" class="size-4" /> A caçada parou e não volta sozinha
-          </p>
-          <p class="mt-1 text-pk-body text-pk-text-2">
-            {@hunt.hold_reason || "bloqueada sem motivo escrito"} — resolva e solte a caçada de
-            novo no painel.
-          </p>
-        </section>
-
-        <section
-          :if={@hunt && @hunt.state == :blocked && @hunt[:comeback?]}
-          id="cavebot-comeback"
-          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
-        >
-          <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
-            <.icon name="hero-arrow-path" class="size-4" /> A caçada tropeçou — e vai tentar de novo
-          </p>
-          <p class="mt-1 text-pk-body text-pk-text-2">
-            {@hunt.hold_reason || "parada sem motivo escrito"}. Ela reentra pelo canto mais perto;
-            se as tentativas acabarem, aí sim precisa de você.
-          </p>
-        </section>
-
-        <section
-          :if={@hunt && @hunt.state != :blocked && @hunt.hold_reason}
-          id="cavebot-held"
-          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
-        >
-          <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
-            <.icon name="hero-pause-circle" class="size-4" /> A caçada está esperando
-          </p>
-          <p class="mt-1 text-pk-body text-pk-text-2">{@hunt.hold_reason}</p>
-        </section>
-
-        <%!-- WHO the fight is fighting as. He classifies each pokémon's keys on
-              /time and the hunt page said nothing about it: "sinto falta dele
-              falar ali qual pokémon que eu tô usando (…) pra eu saber que os
-              combos que ele tá me mostrando ali na caçada são de acordo com
-              aquele meu pokémon" (2026-08-12).
-
-              LIVE when the fight is running (that is the proof it is being
-              obeyed), the CONFIGURATION otherwise, and it says which. --%>
-        <section
-          id="cavebot-loadout"
-          class="rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
-        >
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-            <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
-              lutando como
-            </span>
-
-            <span :if={fighting_as(@combat)} class="text-pk-body font-bold">
-              {fighting_as(@combat).name}
-            </span>
-            <.link
-              :if={is_nil(fighting_as(@combat))}
-              navigate={~p"/time"}
-              class="text-pk-body font-bold text-pk-warn hover:underline"
-            >
-              ninguém escolhido — escolhe no /time
-            </.link>
-
-            <span
-              :if={@combat && @combat[:loadout]}
-              class="rounded bg-pk-ok-dim px-1.5 py-0.5 font-mono text-pk-meta text-pk-ok"
-              title="veio da luta que está rodando agora"
-            >
-              ao vivo
-            </span>
-            <span
-              :if={fighting_as(@combat) && is_nil(@combat && @combat[:loadout])}
-              class="rounded bg-pk-raised px-1.5 py-0.5 font-mono text-pk-meta text-pk-text-3"
-              title="a luta não está rodando — isto é o que está configurado"
-            >
-              configurado
-            </span>
-
-            <.link navigate={~p"/time"} class="ml-auto text-pk-meta text-pk-info hover:underline">
-              mudar no /time
-            </.link>
-          </div>
-
-          <p :if={fighting_as(@combat)} class="mt-0.5 flex flex-wrap gap-x-3 font-mono text-pk-meta">
-            <span class="text-pk-ok">
-              💥 abre com {keys_line(fighting_as(@combat).opening)}
-            </span>
-            <span :if={fighting_as(@combat).buffs != []} class="text-pk-text-2">
-              ✨ aura {keys_line(fighting_as(@combat).buffs)}
-            </span>
-            <span :if={fighting_as(@combat).heal != []} class="text-pk-text-2">
-              ❤️ cura {keys_line(fighting_as(@combat).heal)}
-            </span>
-            <span :if={fighting_as(@combat).reserved != []} class="text-pk-warn">
-              🌀 guarda {keys_line(fighting_as(@combat).reserved)} pro revive
-            </span>
-          </p>
-
-          <%!-- A BARRA, AGORA. Ele desconfiava que a rotação não estava usando
-                algumas skills e não tinha como olhar; virou uma fileira de
-                etiquetas com um `title`, que é uma resposta que só existe
-                quando o mouse pergunta. Em 27/08 o jogo escreveu 12, 32 e 32
-                em cima de três teclas enquanto a leitura dizia "prontas", e a
-                luta gastou dezenove segundos nelas — nada em tela nenhuma
-                dizia isso.
-
-                Então cada tecla é um QUADRADO, com quanto falta em contagem
-                regressiva, e as duas testemunhas ficam à vista quando
-                discordam: "importante irmos dando mais esses detalhes (…) pra
-                eu ir ajudando a debugar problemas de leitura do jogo"
-                (27/08). Ver `Pokex.Bots.SkillRack`. --%>
-          <div :if={fighting_as(@combat)} id="cavebot-rack" class="mt-1.5">
-            <div class="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
-                a barra agora
-              </span>
-              <span class="pk-num font-mono text-pk-meta text-pk-text-2">
-                {SkillRack.ready_count(@rack)}/{length(@rack)} prontas
-              </span>
-              <span
-                :if={Perception.ready_skills() == nil}
-                class="flex items-center gap-1 rounded border border-pk-warn-line bg-pk-warn-dim px-1.5 py-0.5 text-pk-meta font-bold text-pk-warn"
-                title="a barra do jogo não está sendo lida — quem responde é só o relógio das teclas"
-              >
-                <.icon name="hero-eye-slash" class="size-3" /> barra não lida
-              </span>
-              <span
-                :if={Enum.any?(@rack, & &1.disagree?)}
-                class="flex items-center gap-1 rounded border border-pk-danger-line bg-pk-danger-dim px-1.5 py-0.5 text-pk-meta font-bold text-pk-danger"
-                title="a leitura da barra e o relógio das teclas não estão contando a mesma coisa — recalibre a barra com TUDO pronto, fora de combate"
-              >
-                <.icon name="hero-exclamation-triangle" class="size-3" /> tela × relógio
-              </span>
-              <span class="ml-auto text-pk-meta text-pk-text-2">{burst_line()}</span>
-            </div>
-
-            <ol class="grid grid-cols-[repeat(auto-fill,minmax(78px,1fr))] gap-1">
-              <li
-                :for={tile <- @rack}
-                class={["relative overflow-hidden rounded border px-1.5 py-1", tile_class(tile)]}
-                title={tile_title(tile)}
-              >
-                <%!-- O TRILHO QUE ENCHE fica ATRÁS do texto: o quadrado inteiro
-                      é o medidor, então dá pra ler a barra de longe sem
-                      procurar onde está o número. --%>
-                <span
-                  :if={SkillRack.recovered_pct(tile)}
-                  class="absolute inset-y-0 left-0 bg-pk-ok/10 transition-[width] duration-1000 ease-linear"
-                  style={"width: #{SkillRack.recovered_pct(tile)}%"}
-                  aria-hidden="true"
-                ></span>
-
-                <span class="relative flex items-baseline justify-between gap-1">
-                  <span class={["pk-num font-mono text-pk-body font-bold", tile_key_class(tile)]}>
-                    {tile.key}
-                  </span>
-                  <span class="truncate text-pk-meta text-pk-text-3">{job_short(tile.job)}</span>
-                </span>
-
-                <span class="relative mt-0.5 block">
-                  <span
-                    :if={tile.state == :ready}
-                    class="text-pk-meta font-bold uppercase tracking-[0.1em] text-pk-ok"
-                  >
-                    pronta
-                  </span>
-                  <span
-                    :if={tile.state == :cooling}
-                    class="pk-num font-mono text-pk-body font-bold tabular-nums text-pk-warn"
-                  >
-                    {countdown(tile)}
-                  </span>
-                </span>
-
-                <%!-- POR QUE ESTA PEÇA NÃO CONFERE, dito nela mesma. A muda
-                      vem primeiro porque é a causa: "calada" já explica a
-                      discordância, e "a tela diz pronta" sozinho deixaria ele
-                      procurando o motivo. --%>
-                <span
-                  :if={tile.muted?}
-                  class="relative mt-0.5 block truncate text-pk-meta font-bold text-pk-danger"
-                >
-                  o jogo não reagiu
-                </span>
-                <span
-                  :if={!tile.muted? && tile.disagree?}
-                  class="relative mt-0.5 block truncate text-pk-meta text-pk-danger"
-                >
-                  tela diz {witness_text(tile.screen)}
-                </span>
-              </li>
-            </ol>
-
-            <p :if={@rack == []} class="text-pk-meta text-pk-text-3">
-              sem barra classificada
-            </p>
-
-            <p
-              :if={unwritten(@rack) > 0}
-              class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-text-3"
-            >
-              <.icon name="hero-clock" class="mt-px size-3.5 shrink-0" />
-              <span>
-                {unwritten(@rack)} tecla(s) sem o tempo escrito — sem ele não há
-                contagem, e o relógio chuta {div(SkillClock.assumed_ms(), 1_000)}s.
-                <.link navigate={~p"/time"} class="underline">escrever no /time</.link>
-              </span>
-            </p>
-          </div>
-
-          <%!-- A RAJADA CUSTA O QUE O INTERVALO MANDA. Um `gap` alto não parece
-                nada num arquivo de ajustes e é o teto de dano da caçada
-                inteira. --%>
-          <p :if={slow_burst?()} class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
-            <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
-            <span>
-              o intervalo entre teclas está em <b>{burst_gap_ms()}ms</b>
-              (o padrão é {default_burst_gap_ms()}ms) — cada rajada custa {burst_cost_ms()}ms, e é isso que limita o dano da caçada
-            </span>
-          </p>
-
-          <p
-            :if={fighting_as(@combat) && fighting_as(@combat).opening == []}
-            class="mt-1 text-pk-meta text-pk-warn"
-          >
-            sem skill de área nem de alvo único classificada — a luta cai na lista fixa do
-            <.link navigate={~p"/config"} class="underline">/config</.link>
-          </p>
-
-          <%!-- The proof he asked for: not what is configured, what the fight
-                last actually pressed. --%>
-          <p
-            :if={@combat && @combat[:last_action]}
-            id="cavebot-last-press"
-            class="mt-1 font-mono text-pk-meta text-pk-text-3"
-          >
-            último aperto da luta: {@combat.last_action.text}
-          </p>
-
-          <%!-- O CADERNINHO DO ESTOQUE. 189 revives saíram em menos de 2h na
-                noite de 27→28/08, o estoque acabou e ninguém viu. Digitar o
-                estoque no /config é o botão de repor (a conta zera quando o
-                número muda). --%>
-          <p
-            :if={revive_ledger()}
-            id="cavebot-revive-ledger"
-            class={["mt-1 flex items-center gap-1.5 font-mono text-pk-meta", ledger_tone()]}
-          >
-            <.icon name="hero-heart" class="size-3.5 shrink-0" />
-            <span>{revive_ledger()}</span>
-          </p>
-        </section>
-        <%!-- ONDE ELES ESTÃO. A lista de batalha sempre soube QUANTOS existem;
-              o que faltava era a distância — "não adianta a gente otimizar ele
-              ter mais cooldowns pra usar com Revives se ele não espera os
-              pokémons estarem próximos" (2026-08-26).
-
-              Isto é LEITURA: não manda em nada, e está aqui pra ele julgar se
-              merece virar regra. --%>
-        <section id="cavebot-crowd" class="rounded-pk border border-pk-line bg-pk-surface p-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <h3 class="text-pk-sm font-semibold text-pk-text-1">onde eles estão</h3>
-            <button
-              type="button"
-              phx-click="crowd_scan"
-              class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
-            >
-              olhar agora
-            </button>
-            <span class="text-pk-meta text-pk-text-3">
-              custa uma foto da tela (~0,3s) — só quando você pede
-            </span>
-          </div>
-
-          <p :if={@crowd == nil} class="mt-2 text-pk-meta text-pk-text-3">
-            ninguém olhou ainda
-          </p>
-
-          <p :if={@crowd && !@crowd.read?} class="mt-2 text-pk-meta text-pk-warn">
-            não deu pra olhar: {crowd_reason(@crowd.reason)}
-          </p>
-
-          <div :if={@crowd && @crowd.read?} class="mt-2">
-            <p class="text-pk-sm text-pk-text-1">{crowd_headline(@crowd)}</p>
-            <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">
-              {crowd_spread(@crowd)} · {crowd_anchor(@crowd.anchor)}
-            </p>
-
-            <%!-- A PROVA. Um número não diz se errou o detector, a âncora ou a
-                  régua — três bugs diferentes, um "2" indistinguível. Aqui dá
-                  pra ver: caixa azul é hostil, verde é o pokémon dele, e a cruz
-                  rosa é o ponto de onde a distância foi medida. --%>
-            <img
-              :if={@crowd.evidence}
-              src={@crowd.evidence}
-              alt="o que a leitura enxergou"
-              class="mt-2 w-full max-w-2xl rounded border border-pk-line"
-            />
-            <p :if={@crowd.evidence} class="mt-1 text-pk-meta text-pk-text-3">
-              caixa azul = hostil · verde = seu pokémon · cruz rosa = de onde mediu
-            </p>
-          </div>
-
-          <%!-- QUANTO A ÁREA ALCANÇA. O simulador resolve todo disparo de área
-                com `aoe_radius: 4`, debaixo de um comentário que diz que o
-                número foi inventado — e é ele que faz TODOS os knobs de
-                posicionamento darem chapado na bancada. O outro número
-                inventado daquele arquivo era um cooldown de 8s; o vídeo dele
-                mediu 45s. --%>
-          <div class="mt-3 border-t border-pk-line pt-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <h4 class="text-pk-sm font-semibold text-pk-text-1">o alcance da área</h4>
-              <button
-                type="button"
-                phx-click="toggle_area_probe"
-                class={[
-                  "rounded border px-2 py-0.5 text-pk-meta",
-                  if(@area_probe?,
-                    do: "border-pk-ok text-pk-ok",
-                    else: "border-pk-line text-pk-text-2 hover:bg-pk-surface-2"
-                  )
-                ]}
-              >
-                {if @area_probe?, do: "medindo — clique pra parar", else: "medir durante a caçada"}
-              </button>
-              <button
-                :if={@area}
-                type="button"
-                phx-click="refresh_area_probe"
-                class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
-              >
-                atualizar
-              </button>
-              <button
-                :if={@area}
-                type="button"
-                phx-click="clear_area_probe"
-                class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-surface-2"
-              >
-                zerar
-              </button>
-            </div>
-
-            <p :if={@area_probe?} class="mt-1 text-pk-meta text-pk-text-3">
-              custa uma foto a cada disparo de área — ligue por uma caçada, não deixe ligado
-            </p>
-
-            <p :if={@area == nil} class="mt-2 text-pk-meta text-pk-text-3">
-              nenhum disparo medido ainda
-            </p>
-
-            <div :if={@area} class="mt-2">
-              <p class="text-pk-sm text-pk-text-1">{area_headline(@area)}</p>
-              <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">{area_spread(@area)}</p>
-              <%!-- O confundidor, escrito onde ele lê o número: número de dano
-                    não diz QUEM causou. Nos quadros do vídeo dele os disparos de
-                    outros jogadores apareciam como um segundo grupo, de 7 a 17
-                    tiles — só inflam, nunca encolhem. --%>
-              <p class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
-                <.icon name="hero-users" class="mt-px size-3.5 shrink-0" />
-                <span>
-                  o dano de outro jogador na tela conta junto e só ESTICA o alcance — se o topo
-                  estiver muito acima da mediana, é isso
-                </span>
-              </p>
-            </div>
-          </div>
-
-          <%!-- QUANTO CADA TECLA TIRA, e quanto demora. Ideia dele inteira:
-                "ele e um inimigo de vida cheia, o sistema usa uma skill e
-                calcula a diferença e salva essa diferença associada a essa
-                skill... se ele se identificar aqui com a skill 4 sozinha, ele já
-                mata, não precisa ficar usando 4, 5, 6 sempre". --%>
-          <div class="mt-3 border-t border-pk-line pt-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <h4 class="text-pk-sm font-semibold text-pk-text-1">o que cada tecla tira</h4>
-              <button
-                type="button"
-                phx-click="toggle_skill_meter"
-                class={[
-                  "rounded border px-2 py-0.5 text-pk-meta",
-                  if(@meter?,
-                    do: "border-pk-ok text-pk-ok",
-                    else: "border-pk-line text-pk-text-2 hover:bg-pk-surface-2"
-                  )
-                ]}
-              >
-                {if @meter?, do: "medindo — clique pra parar", else: "medir durante a caçada"}
-              </button>
-              <button
-                :if={@meter != %{}}
-                type="button"
-                phx-click="refresh_skill_meter"
-                class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
-              >
-                atualizar
-              </button>
-              <button
-                :if={@meter != %{}}
-                type="button"
-                phx-click="clear_skill_meter"
-                class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-surface-2"
-              >
-                zerar
-              </button>
-            </div>
-
-            <p :if={@meter?} class="mt-1 text-pk-meta text-pk-text-3">
-              só mede apertos de UMA tecla — uma rajada de três tira uma queda só e ninguém
-              sabe de quem foi
-            </p>
-
-            <p :if={@meter == %{}} class="mt-2 text-pk-meta text-pk-text-3">
-              nenhuma tecla medida ainda
-            </p>
-
-            <table :if={@meter != %{}} class="mt-2 w-full font-mono text-pk-meta">
-              <thead class="text-pk-text-3">
-                <tr>
-                  <th class="text-left font-normal">tecla</th>
-                  <th class="text-right font-normal">tira</th>
-                  <th class="text-right font-normal">demora</th>
-                  <th class="text-right font-normal">pra matar</th>
-                  <th class="text-right font-normal">amostras</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr :for={{key, m} <- Enum.sort_by(@meter, &elem(&1, 0))} class="text-pk-text-2">
-                  <td class="text-left">{key}</td>
-                  <td class="text-right">{m.took_pct}%</td>
-                  <td class="text-right">{m.delay_ms}ms</td>
-                  <td class="text-right">{m.to_kill || "—"}×</td>
-                  <td class={["text-right", if(m.shots < 5, do: "text-pk-warn")]}>{m.shots}</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <%!-- As duas coisas que o número NÃO sabe, onde ele lê o número. --%>
-            <p :if={@meter != %{}} class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
-              <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
-              <span>
-                é MEDIANA: o dano de outro jogador na mesma linha entra na conta. E poucas
-                amostras (em amarelo) não merecem a mesma fé que muitas.
-              </span>
-            </p>
-
-            <%!-- O ponto cego, escrito onde ele lê o número: efeito de skill
-                  pinta por cima do nome, então some quem está DENTRO da área.
-                  Erra sempre pra menos. --%>
-            <p
-              :if={crowd_gap(@crowd) > 0}
-              class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn"
-            >
-              <.icon name="hero-eye-slash" class="mt-px size-3.5 shrink-0" />
-              <span>
-                a lista tem {@crowd.listed} e eu localizei {@crowd.seen} — {crowd_gap(@crowd)} sem nome legível (efeito na tela cobre o nome, ou está fora do alcance da vista)
-              </span>
-            </p>
-          </div>
-        </section>
-
-        <%!-- OS OLHOS ESTÃO DESLIGADOS. A cerca do simulador aponta os feeds pro
-              mundo falso de propósito — e o resultado, nesta página, é que NADA
-              chega: ela renderiza uma vez e congela. Foi assim que ele andou uma
-              rota inteira achando que gravava, olhando pra uma coordenada de uma
-              hora antes (26/08). O aviso vem antes de tudo porque enquanto ele
-              estiver de pé, todo o resto da página é ficção. --%>
-        <section
-          :if={@sim_armed?}
-          id="cavebot-sim-armed"
-          class="rounded-pk border border-pk-danger bg-pk-danger/10 p-3"
-        >
-          <p class="flex items-start gap-2 text-pk-sm font-semibold text-pk-danger">
-            <.icon name="hero-eye-slash" class="mt-px size-4 shrink-0" />
-            <span>
-              o simulador está armado — os olhos do bot estão apontados pro mundo falso
-            </span>
-          </p>
-          <p class="mt-1 text-pk-meta text-pk-text-2">
-            nada nesta página está sendo lido do jogo: a posição, os inimigos e a vida são do
-            momento em que você abriu. Gravar rota não grava nada.
-            <.link navigate={~p"/sim"} class="underline">Desarme no simulador</.link>
-            pra voltar a enxergar.
-          </p>
-        </section>
-
-        <%!-- UM DÍGITO QUE O ATLAS NÃO TEM não vira "não sei ler": vira OUTRO
-              dígito. A regra da margem do casador compara o que está no atlas
-              com o que está no atlas, e não tem como perceber que o certo nunca
-              esteve na disputa.
-
-              Em 27/08 o jogo dele mostrava `1088, 1409, 5` e o painel `1066,
-              1409` — e a rota gravada saltava pro outro lado do mapa. Só
-              aparece pela fonte que ESTA faixa usa: o atlas tem buraco em cinco
-              alturas, e quatro delas ele nunca lê. --%>
-        <section
-          :if={@world.coord_gap}
-          id="cavebot-glifos"
-          class="rounded-pk border border-pk-danger bg-pk-danger/10 p-3"
-        >
-          <p class="flex items-start gap-2 text-pk-sm font-semibold text-pk-danger">
-            <.icon name="hero-hashtag" class="mt-px size-4 shrink-0" />
-            <span>
-              a fonte da sua coordenada não tem
-              <span class="font-mono">{Enum.join(@world.coord_gap.faltam, " ")}</span>
-              no atlas — o número pode vir ERRADO, não vazio
-            </span>
-          </p>
-          <p class="mt-1 text-pk-meta text-pk-text-2">
-            a faixa que o bot lê é desenhada com {@world.coord_gap.px}px de altura, e nessa altura {gap_words(
-              @world.coord_gap.faltam
-            )} nunca foi ensinado. Um dígito que falta casa com o
-            mais parecido que existe, e casa com folga — o certo não entra na disputa. Ensine na <.link
-              navigate={~p"/calibration"}
-              class="underline"
-            >calibração</.link>, digitando a
-            coordenada que está na tela.
-          </p>
-        </section>
-
-        <%!-- THE WORLD, as the bot sees it. Everything here already existed as
-              facts; what was missing was a place to read them together while
-              the hunt runs. --%>
-        <section id="cavebot-world" class="grid grid-cols-3 gap-1.5 lg:grid-cols-6">
-          <.world_tile
-            id="tile-pos"
-            icon="hero-map-pin"
-            label="posição"
-            value={pos_text(@pos)}
-            note={PositionReadout.note(@pos, @world.pos_age_ms)}
-            tone={if @pos, do: :ok, else: :warn}
-          />
-          <.world_tile
-            id="tile-read"
-            icon="hero-eye"
-            label="leitura"
-            value={"#{@reads}/#{@reads + @misses}"}
-            note={read_note(@sim_armed?, @reads, @misses)}
-            tone={
-              cond do
-                @sim_armed? -> :warn
-                @misses > @reads -> :warn
-                true -> :neutral
-              end
-            }
-          />
-          <.world_tile
-            id="tile-enemies"
-            icon="hero-bolt"
-            label="inimigos"
-            value={to_string(enemy_count(@world))}
-            note={if @world.engaged?, do: "travado no alvo", else: "sem alvo travado"}
-            tone={if enemy_count(@world) > 0, do: :warn, else: :neutral}
-          />
-          <.world_tile
-            id="tile-hunt"
-            icon="hero-flag"
-            label="caçada"
-            value={hunt_state_text(@hunt)}
-            note={(@hunt && @hunt.hold_reason) || "solte a caçada no painel"}
-            tone={hunt_tone(@hunt)}
-          />
-          <.world_tile
-            id="tile-capture"
-            icon="hero-inbox-arrow-down"
-            label="captura"
-            value={to_string((@hunt && @hunt[:capture_pending]) || 0)}
-            note="corpos na fila"
-          />
-          <.world_tile
-            id="tile-hp"
-            icon="hero-heart"
-            label="vida"
-            value={if @world.me.hp_pct, do: "#{@world.me.hp_pct}%", else: "—"}
-            note="do pokémon ativo"
-            tone={hp_tone(@world)}
-          />
-        </section>
-
-        <%!-- …and what the engine MAKES of all that. The tiles above are facts;
-              this line is the reading of them, which until now only existed
-              inside a process. It says what WOULD happen — nobody obeys it
-              yet — and the feed below carries the same sentence beside what
-              the bot actually did. --%>
-        <.engine_brain
-          situation={@situation}
-          orders={@orders}
-          gather_piles={@gather_piles}
-          reset_revive={@reset_revive}
+        <.hunt_alerts
+          minimap_gap?={@minimap_gap?}
+          hunt={@hunt}
+          sim_armed?={@sim_armed?}
+          world={@world}
+          routes={@routes}
+          active_route={@active_route}
+          notice={@notice}
+          notice_kind={@notice_kind}
         />
 
-        <%!-- The pre-sleep checklist: whether TONIGHT's hunt survives without
-              him. The three switches are the support worker's (same settings
-              the panel flips); the guard is the cavebot's own. Shown HERE
-              because this is the page he checks before letting it run the
-              madrugada — "não podemos morrer" (2026-08-14). --%>
-        <%!-- ONE ROW. This card was 360px tall with 60% of its width empty —
-              two stacked forms, each with a paragraph under it, on the screen
-              he needs for the route ("altos espaços vazios", 2026-08-15). The
-              paragraphs became titles: they explain a knob he tunes twice a
-              month, and they were costing a third of the fold every day. --%>
-        <section
-          id="cavebot-safety"
-          class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
-        >
-          <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-            Segurança
-          </h2>
-
-          <div class="flex flex-wrap items-center gap-1.5">
-            <.safety_toggle
-              id="safety-rescue"
-              key="rescue"
-              armed?={@safety.rescue?}
-              icon="hero-lifebuoy"
-              on="resgate armado"
-              off="resgate desligado"
-            />
-            <.safety_toggle
-              id="safety-heal"
-              key="heal"
-              armed?={@safety.heal?}
-              icon="hero-heart"
-              on="cura armada"
-              off="cura desligada"
-            />
-            <.safety_toggle
-              id="safety-potion"
-              key="potion"
-              armed?={@safety.potion?}
-              icon="hero-beaker"
-              on="poção armada"
-              off="poção desligada"
-            />
-          </div>
-
-          <form
-            id="hp-guard-form"
-            phx-submit="hp_guard"
-            title="Abaixo do limite: solta o combo no que juntou, desiste do mob, e só volta a andar com ele recuperado. 0 desliga a guarda. Vale a partir da próxima caçada."
-            class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
-          >
-            <span>larga o mob &lt;</span>
-            <input
-              type="number"
-              name="abort"
-              value={@safety.abort_pct}
-              min="0"
-              max="100"
-              inputmode="numeric"
-              aria-label="Abandonar a mobada abaixo desta porcentagem de vida"
-              class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-            />
-            <span>% · volta em</span>
-            <input
-              type="number"
-              name="resume"
-              value={@safety.resume_pct}
-              min="1"
-              max="100"
-              inputmode="numeric"
-              aria-label="Retomar a rota nesta porcentagem de vida"
-              class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-            />
-            <span>%</span>
-            <button
-              aria-label="Salvar os limites da guarda de HP"
-              class="h-8 cursor-pointer rounded border border-pk-line-strong px-2.5 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
-            >
-              salvar
-            </button>
-          </form>
-
-          <form
-            id="comeback-form"
-            phx-submit="comeback_cfg"
-            title="Só pra tropeço local — mudar de andar ou o combate recusar continua parando de vez. Chegar num waypoint devolve as tentativas. 0 desliga a volta automática."
-            class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
-          >
-            <span>tropeço:</span>
-            <input
-              type="number"
-              name="retries"
-              value={@safety.block_retries}
-              min="0"
-              max="50"
-              inputmode="numeric"
-              aria-label="Quantas vezes a caçada tenta voltar sozinha"
-              class="pk-num h-8 w-12 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-            />
-            <span>× a cada</span>
-            <input
-              type="number"
-              name="wait_s"
-              value={div(@safety.block_retry_ms, 1000)}
-              min="1"
-              max="600"
-              inputmode="numeric"
-              aria-label="Quantos segundos ela espera antes de tentar voltar"
-              class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-            />
-            <span>s</span>
-            <button
-              aria-label="Salvar as tentativas de volta da caçada"
-              class="h-8 cursor-pointer rounded border border-pk-line-strong px-2.5 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
-            >
-              salvar
-            </button>
-          </form>
-
-          <span
-            :if={is_nil(@world.me.hp_pct)}
-            id="safety-no-reading"
-            class="ml-auto font-mono text-pk-meta text-pk-warn"
-          >
-            sem leitura de vida — a guarda e o resgate não enxergam o pokémon
-          </span>
-        </section>
-
-        <%!-- THE WORKBENCH, bounded by the screen. Everything above is a strip
-             of fixed height; this grid takes what is left of the viewport and
-             each column scrolls INSIDE itself. That is what makes the map and
-             the waypoints reachable without scrolling the page — "a parte de
-             waypoints tem que caber na minha tela com uma caixa que dentro
-             dela tem o scroll" (Lucas, 2026-08-15). The `min-h-0` is what lets
-             a grid child shrink below its content and scroll at all. --%>
+        <%!-- ASSISTIR: the map takes the left half whole, and everything that
+             changes on its own — who is fighting, the cooldown squares, the
+             world tiles, the feed — stacks down the right. Nothing here is a
+             route editor: the only page that scrolls is the feed, inside its
+             own box. --%>
         <div
-          id="cavebot-workbench"
-          class="grid gap-3 lg:min-h-[20rem] lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:grid-rows-[minmax(0,1fr)]"
+          :if={@mode == :watch}
+          id="cavebot-cockpit"
+          class="grid gap-2 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]"
         >
-          <%!-- LEFT: the drawing, what is selected, and the recorder that feeds
-               them. The map and the waypoint's controls are two ends of one
-               act, and putting a 45-row list between them made editing a
-               scrolling exercise (2026-08-11). --%>
-          <div class="relative space-y-3 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-            <section class="rounded-lg border border-pk-line bg-pk-surface p-3">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-                  {if @active_route, do: "Mapa de #{@active_route.name}", else: "Mapa"}
-                </h2>
+          <.route_map_card
+            active_route={@active_route}
+            pos={@pos}
+            selected={@selected}
+            hunt={@hunt}
+            recording?={@recording?}
+            fill?
+          />
+
+          <div class="flex flex-col gap-2 lg:min-h-0">
+            <%!-- WHO the fight is fighting as. He classifies each pokémon's keys on
+            /time and the hunt page said nothing about it: "sinto falta dele
+            falar ali qual pokémon que eu tô usando (…) pra eu saber que os
+            combos que ele tá me mostrando ali na caçada são de acordo com
+            aquele meu pokémon" (2026-08-12).
+
+            LIVE when the fight is running (that is the proof it is being
+            obeyed), the CONFIGURATION otherwise, and it says which. --%>
+            <section
+              id="cavebot-loadout"
+              class="rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
+            >
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
+                  lutando como
+                </span>
+
+                <span :if={fighting_as(@combat)} class="text-pk-body font-bold">
+                  {fighting_as(@combat).name}
+                </span>
+                <.link
+                  :if={is_nil(fighting_as(@combat))}
+                  navigate={~p"/time"}
+                  class="text-pk-body font-bold text-pk-warn hover:underline"
+                >
+                  ninguém escolhido — escolhe no /time
+                </.link>
+
                 <span
-                  :if={@active_route && @active_route.waypoints != []}
-                  class="font-mono text-pk-meta text-pk-text-2"
+                  :if={@combat && @combat[:loadout]}
+                  class="rounded bg-pk-ok-dim px-1.5 py-0.5 font-mono text-pk-meta text-pk-ok"
+                  title="veio da luta que está rodando agora"
                 >
-                  {floors_label(@active_route)}
+                  ao vivo
                 </span>
-              </div>
-
-              <%!-- The drawing is a SQUARE sized by its width, so capping the
-                   width in viewport heights is what keeps it from growing
-                   taller than the screen on a wide monitor. --%>
-              <div class="mt-2 mx-auto w-full max-w-[min(100%,52vh)]">
-                <.route_map
-                  floor={map_floor(@active_route, @pos)}
-                  waypoints={(@active_route && @active_route.waypoints) || []}
-                  pos={@pos}
-                  selected={@selected}
-                  heading_to={heading_to(@hunt, @active_route)}
-                  recording?={@recording?}
-                />
-              </div>
-
-              <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                <button
-                  id="toggle-recording"
-                  phx-click="toggle_recording"
-                  aria-label={
-                    if @recording?, do: "Parar de gravar a rota", else: "Gravar a rota andando"
-                  }
-                  class={[
-                    "flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-pk-body font-bold transition",
-                    if(@recording?,
-                      do: "border border-pk-danger-line bg-pk-danger-dim text-pk-danger",
-                      else: "border-0 bg-pk-ok text-pk-ok-dim hover:brightness-110"
-                    )
-                  ]}
+                <span
+                  :if={fighting_as(@combat) && is_nil(@combat && @combat[:loadout])}
+                  class="rounded bg-pk-raised px-1.5 py-0.5 font-mono text-pk-meta text-pk-text-3"
+                  title="a luta não está rodando — isto é o que está configurado"
                 >
-                  <.icon
-                    name={if @recording?, do: "hero-stop-circle", else: "hero-play-circle"}
-                    class="size-4"
-                  />
-                  {if @recording?, do: "Parar de gravar", else: "Gravar andando"}
-                </button>
-                <button
-                  id="walk-test"
-                  phx-click="walk_test"
-                  disabled={@walk_test == :running}
-                  aria-label="Testar se o personagem anda e se a posição é lida"
-                  class="flex cursor-pointer items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 py-2 text-pk-body text-pk-text-2 transition hover:border-pk-ok hover:text-pk-text disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <.icon name="hero-beaker" class="size-4" />
-                  {if @walk_test == :running, do: "andando…", else: "Testar movimento"}
-                </button>
-                <button
-                  id="mark-waypoint"
-                  phx-click="mark_waypoint"
-                  aria-label="Marcar um waypoint só, na posição atual"
-                  class="cursor-pointer rounded-lg border border-pk-line-strong px-3 py-2 text-pk-body text-pk-text-2 transition hover:border-pk-ok hover:text-pk-text"
-                >
-                  Marcar um só
-                </button>
-                <span :if={@recording?} class="font-mono text-pk-meta text-pk-warn">
-                  gravando — volte pro jogo e ande
+                  configurado
                 </span>
+
+                <.link navigate={~p"/time"} class="ml-auto text-pk-meta text-pk-info hover:underline">
+                  mudar no /time
+                </.link>
               </div>
 
               <p
-                :if={@walk_test not in [nil, :running]}
-                id="walk-test-result"
-                class={[
-                  "mt-3 font-mono text-pk-meta",
-                  if(match?({:ok, _}, @walk_test), do: "text-pk-ok", else: "text-pk-warn")
-                ]}
+                :if={fighting_as(@combat)}
+                class="mt-0.5 flex flex-wrap gap-x-3 font-mono text-pk-meta"
               >
-                {walk_test_text(@walk_test)}
-              </p>
-
-              <%!-- The route being EDITED and the route the hunt WALKS are two
-                    different things, and believing they were the same cost a
-                    live run: two routes armed, the hunt took the other one and
-                    blocked on the first step (2026-08-11). --%>
-              <p
-                :if={armed_elsewhere(@routes, @active_route)}
-                id="armed-elsewhere"
-                class="mt-3 flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
-              >
-                <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
-                <span class="min-w-0 flex-1">
-                  a caçada vai andar "{armed_elsewhere(@routes, @active_route)}", não esta.
+                <span class="text-pk-ok">
+                  💥 abre com {keys_line(fighting_as(@combat).opening)}
                 </span>
-                <button
-                  id="arm-this-route"
-                  phx-click="arm_route"
-                  aria-label={"Armar a rota #{@active_route.name} para a caçada"}
-                  class="shrink-0 cursor-pointer rounded border border-pk-warn px-2 py-0.5 font-mono text-pk-meta font-bold text-pk-warn transition hover:bg-pk-warn hover:text-pk-bg"
+                <span :if={fighting_as(@combat).buffs != []} class="text-pk-text-2">
+                  ✨ aura {keys_line(fighting_as(@combat).buffs)}
+                </span>
+                <span :if={fighting_as(@combat).heal != []} class="text-pk-text-2">
+                  ❤️ cura {keys_line(fighting_as(@combat).heal)}
+                </span>
+                <span :if={fighting_as(@combat).reserved != []} class="text-pk-warn">
+                  🌀 guarda {keys_line(fighting_as(@combat).reserved)} pro revive
+                </span>
+              </p>
+
+              <%!-- A BARRA, AGORA. Ele desconfiava que a rotação não estava usando
+              algumas skills e não tinha como olhar; virou uma fileira de
+              etiquetas com um `title`, que é uma resposta que só existe
+              quando o mouse pergunta. Em 27/08 o jogo escreveu 12, 32 e 32
+              em cima de três teclas enquanto a leitura dizia "prontas", e a
+              luta gastou dezenove segundos nelas — nada em tela nenhuma
+              dizia isso.
+
+              Então cada tecla é um QUADRADO, com quanto falta em contagem
+              regressiva, e as duas testemunhas ficam à vista quando
+              discordam: "importante irmos dando mais esses detalhes (…) pra
+              eu ir ajudando a debugar problemas de leitura do jogo"
+              (27/08). Ver `Pokex.Bots.SkillRack`. --%>
+              <div :if={fighting_as(@combat)} id="cavebot-rack" class="mt-1.5">
+                <div class="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
+                    a barra agora
+                  </span>
+                  <span class="pk-num font-mono text-pk-meta text-pk-text-2">
+                    {SkillRack.ready_count(@rack)}/{length(@rack)} prontas
+                  </span>
+                  <span
+                    :if={Perception.ready_skills() == nil}
+                    class="flex items-center gap-1 rounded border border-pk-warn-line bg-pk-warn-dim px-1.5 py-0.5 text-pk-meta font-bold text-pk-warn"
+                    title="a barra do jogo não está sendo lida — quem responde é só o relógio das teclas"
+                  >
+                    <.icon name="hero-eye-slash" class="size-3" /> barra não lida
+                  </span>
+                  <span
+                    :if={Enum.any?(@rack, & &1.disagree?)}
+                    class="flex items-center gap-1 rounded border border-pk-danger-line bg-pk-danger-dim px-1.5 py-0.5 text-pk-meta font-bold text-pk-danger"
+                    title="a leitura da barra e o relógio das teclas não estão contando a mesma coisa — recalibre a barra com TUDO pronto, fora de combate"
+                  >
+                    <.icon name="hero-exclamation-triangle" class="size-3" /> tela × relógio
+                  </span>
+                  <span class="ml-auto text-pk-meta text-pk-text-2">{burst_line()}</span>
+                </div>
+
+                <ol class="grid grid-cols-[repeat(auto-fill,minmax(78px,1fr))] gap-1">
+                  <li
+                    :for={tile <- @rack}
+                    class={["relative overflow-hidden rounded border px-1.5 py-1", tile_class(tile)]}
+                    title={tile_title(tile)}
+                  >
+                    <%!-- O TRILHO QUE ENCHE fica ATRÁS do texto: o quadrado inteiro
+                    é o medidor, então dá pra ler a barra de longe sem
+                    procurar onde está o número. --%>
+                    <span
+                      :if={SkillRack.recovered_pct(tile)}
+                      class="absolute inset-y-0 left-0 bg-pk-ok/10 transition-[width] duration-1000 ease-linear"
+                      style={"width: #{SkillRack.recovered_pct(tile)}%"}
+                      aria-hidden="true"
+                    ></span>
+
+                    <span class="relative flex items-baseline justify-between gap-1">
+                      <span class={["pk-num font-mono text-pk-body font-bold", tile_key_class(tile)]}>
+                        {tile.key}
+                      </span>
+                      <span class="truncate text-pk-meta text-pk-text-3">{job_short(tile.job)}</span>
+                    </span>
+
+                    <span class="relative mt-0.5 block">
+                      <span
+                        :if={tile.state == :ready}
+                        class="text-pk-meta font-bold uppercase tracking-[0.1em] text-pk-ok"
+                      >
+                        pronta
+                      </span>
+                      <span
+                        :if={tile.state == :cooling}
+                        class="pk-num font-mono text-pk-body font-bold tabular-nums text-pk-warn"
+                      >
+                        {countdown(tile)}
+                      </span>
+                    </span>
+
+                    <%!-- POR QUE ESTA PEÇA NÃO CONFERE, dito nela mesma. A muda
+                    vem primeiro porque é a causa: "calada" já explica a
+                    discordância, e "a tela diz pronta" sozinho deixaria ele
+                    procurando o motivo. --%>
+                    <span
+                      :if={tile.muted?}
+                      class="relative mt-0.5 block truncate text-pk-meta font-bold text-pk-danger"
+                    >
+                      o jogo não reagiu
+                    </span>
+                    <span
+                      :if={!tile.muted? && tile.disagree?}
+                      class="relative mt-0.5 block truncate text-pk-meta text-pk-danger"
+                    >
+                      tela diz {witness_text(tile.screen)}
+                    </span>
+                  </li>
+                </ol>
+
+                <p :if={@rack == []} class="text-pk-meta text-pk-text-3">
+                  sem barra classificada
+                </p>
+
+                <p
+                  :if={unwritten(@rack) > 0}
+                  class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-text-3"
                 >
-                  armar esta
-                </button>
+                  <.icon name="hero-clock" class="mt-px size-3.5 shrink-0" />
+                  <span>
+                    {unwritten(@rack)} tecla(s) sem o tempo escrito — sem ele não há
+                    contagem, e o relógio chuta {div(SkillClock.assumed_ms(), 1_000)}s.
+                    <.link navigate={~p"/time"} class="underline">escrever no /time</.link>
+                  </span>
+                </p>
+              </div>
+
+              <%!-- A RAJADA CUSTA O QUE O INTERVALO MANDA. Um `gap` alto não parece
+              nada num arquivo de ajustes e é o teto de dano da caçada
+              inteira. --%>
+              <p :if={slow_burst?()} class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
+                <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
+                <span>
+                  o intervalo entre teclas está em <b>{burst_gap_ms()}ms</b>
+                  (o padrão é {default_burst_gap_ms()}ms) — cada rajada custa {burst_cost_ms()}ms, e é isso que limita o dano da caçada
+                </span>
               </p>
 
               <p
-                :if={@routes != [] and armed_route(@routes) == nil}
-                id="none-armed"
-                class="mt-3 flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+                :if={fighting_as(@combat) && fighting_as(@combat).opening == []}
+                class="mt-1 text-pk-meta text-pk-warn"
               >
-                <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
-                nenhuma rota armada — a caçada não tem o que andar
+                sem skill de área nem de alvo único classificada — a luta cai na lista fixa do
+                <.link navigate={~p"/config"} class="underline">/config</.link>
               </p>
 
+              <%!-- The proof he asked for: not what is configured, what the fight
+              last actually pressed. --%>
               <p
-                :if={@notice}
-                id="cavebot-notice"
-                class={[
-                  "mt-3 font-mono text-pk-meta",
-                  if(@notice_kind == :ok, do: "text-pk-ok", else: "text-pk-warn")
-                ]}
+                :if={@combat && @combat[:last_action]}
+                id="cavebot-last-press"
+                class="mt-1 font-mono text-pk-meta text-pk-text-3"
               >
-                {@notice}
+                último aperto da luta: {@combat.last_action.text}
+              </p>
+
+              <%!-- O CADERNINHO DO ESTOQUE. 189 revives saíram em menos de 2h na
+              noite de 27→28/08, o estoque acabou e ninguém viu. Digitar o
+              estoque no /config é o botão de repor (a conta zera quando o
+              número muda). --%>
+              <p
+                :if={revive_ledger()}
+                id="cavebot-revive-ledger"
+                class={["mt-1 flex items-center gap-1.5 font-mono text-pk-meta", ledger_tone()]}
+              >
+                <.icon name="hero-heart" class="size-3.5 shrink-0" />
+                <span>{revive_ledger()}</span>
               </p>
             </section>
 
-            <%!-- The DETAIL of what is selected, pinned beside the drawing.
-                 Editing used to mean scrolling: the map at the top, the
-                 waypoint's controls at the bottom of a 45-row list, and no way
-                 to see both at once ("tenho que ficar scrollando pra cima e pra
-                 baixo pra saber o que estou editando", Lucas, 2026-08-11). The
-                 list stays the overview; this is the workbench. --%>
-            <section
-              :for={{wp, index} <- selected_pair(@active_route, @selected)}
-              id="waypoint-detail"
-              class="rounded-lg border border-pk-warn-line bg-pk-surface p-3"
-            >
-              <div class="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-warn">
-                  editando o waypoint {index + 1}
-                </h2>
-                <span class="pk-num font-mono text-pk-body text-pk-text">
-                  {wp.x}, {wp.y} <span class="text-pk-text-3">· andar {wp.z}</span>
-                </span>
-                <button
-                  id="waypoint-detail-close"
-                  phx-click="select_waypoint"
-                  phx-value-index={index}
-                  aria-label="Fechar o editor deste waypoint"
-                  class="cursor-pointer font-mono text-pk-meta text-pk-text-2 transition hover:text-pk-text"
-                >
-                  fechar
-                </button>
-              </div>
-              <%!-- The job lives on the SELECTED waypoint only: fourteen rows
-                     each carrying three more buttons is a wall, and the choice
-                     is rare — you mark a mob stretch once and hunt it for
-                     weeks. --%>
-              <%!-- The exact tile, typed. A recording is a walk, and a walk
-                     rounds: the staircase he could not take was one tile
-                     wide and the waypoint sat beside it, with no way to say
-                     so except walking the whole route again (2026-08-11). --%>
-              <form
-                id={"waypoint-place-#{index}"}
-                phx-submit="move_waypoint_to"
-                class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
-              >
-                <input type="hidden" name="index" value={index} />
-                <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                  lugar
-                </span>
-                <label
-                  :for={{field, value} <- [{"x", wp.x}, {"y", wp.y}, {"z", wp.z}]}
-                  class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
-                >
-                  {field}
-                  <input
-                    type="number"
-                    name={field}
-                    value={value}
-                    class="pk-num h-8 w-20 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-                  />
-                </label>
-                <button
-                  id={"waypoint-place-save-#{index}"}
-                  class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                >
-                  corrigir
-                </button>
-                <button
-                  :if={@pos}
-                  type="button"
-                  id={"waypoint-place-here-#{index}"}
-                  phx-click="move_waypoint_here"
-                  phx-value-index={index}
-                  title="usar a posição onde eu estou agora"
-                  class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                >
-                  é aqui que eu estou
-                </button>
-              </form>
-
-              <div
-                id={"waypoint-job-#{index}"}
-                class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
-              >
-                <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                  função
-                </span>
-                <button
-                  :for={{action, label, icon} <- waypoint_actions()}
-                  id={"waypoint-#{index}-#{action}"}
-                  phx-click="set_waypoint_action"
-                  phx-value-index={index}
-                  phx-value-action={action}
-                  aria-pressed={to_string(wp.action == action)}
-                  aria-label={"Waypoint #{index + 1}: #{label}"}
-                  class={[
-                    "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
-                    if(wp.action == action,
-                      do: "border-pk-info bg-pk-info-dim text-pk-info",
-                      else:
-                        "border-pk-line-strong text-pk-text-2 hover:border-pk-info/60 hover:text-pk-text"
-                    )
-                  ]}
-                >
-                  <.icon name={icon} class="size-3.5" />{label}
-                </button>
-
-                <span class="mx-1 h-5 w-px bg-pk-warn-line"></span>
-
-                <button
-                  :for={stop <- Route.stops()}
-                  id={"waypoint-#{index}-#{stop}"}
-                  phx-click="toggle_waypoint_stop"
-                  phx-value-index={index}
-                  phx-value-stop={stop}
-                  aria-pressed={to_string(stop in wp.stops)}
-                  aria-label={"Waypoint #{index + 1}: #{stop_label(stop)} depois da luta"}
-                  title={stop_hint(stop)}
-                  class={[
-                    "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
-                    if(stop in wp.stops,
-                      do: "border-pk-ok bg-pk-ok-dim text-pk-ok",
-                      else:
-                        "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:text-pk-text"
-                    )
-                  ]}
-                >
-                  {stop_icon(stop)} {stop_label(stop)}
-                </button>
-
-                <span class="mx-1 h-5 w-px bg-pk-warn-line"></span>
-
-                <%!-- The third axis: what the pokémon FIRES here, said by
-                      category. It lives beside the job and the stops for the
-                      reason they do — the corner of the aura is usually the
-                      corner already marked "até aqui" — and on the SELECTED
-                      waypoint only: five chips on each of his 67 corners is
-                      335 buttons for the handful of corners that carry one.
-                      A lit chip is an order; the key comes from whichever
-                      pokémon is in the field at the time. --%>
-                <button
-                  :for={{skill, on?} <- waypoint_skill_chips(wp)}
-                  id={"waypoint-skill-#{index}-#{skill}"}
-                  phx-click="toggle_waypoint_skill"
-                  phx-value-index={index}
-                  phx-value-skill={skill}
-                  aria-pressed={to_string(on?)}
-                  aria-label={"Waypoint #{index + 1}: #{SkillProfile.label(skill)}"}
-                  title={SkillProfile.moment(skill)}
-                  class={[
-                    "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
-                    if(on?,
-                      do: "border-pk-ok bg-pk-ok-dim text-pk-ok",
-                      else:
-                        "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:text-pk-text"
-                    )
-                  ]}
-                >
-                  {SkillProfile.icon(skill)} {SkillProfile.label(skill)}
-                </button>
-              </div>
-
-              <%!-- WHERE the pokémon waits for the pile. Recorded as a screen
-                     point from his own middle click, said here as a DISTANCE
-                     from the character: the form he can measure by eye, and
-                     the only one that survives the game window moving. The
-                     ruler rides in the same form because it is the unit of the
-                     two numbers beside it. --%>
-              <form
-                id={"waypoint-park-#{index}"}
-                phx-submit="save_park_tiles"
-                class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
-              >
-                <input type="hidden" name="index" value={index} />
-                <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                  pokémon
-                </span>
-                <label
-                  :for={{field, label, value} <- park_fields(wp, @calibration)}
-                  class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
-                >
-                  {label}
-                  <input
-                    type="number"
-                    name={field}
-                    value={value}
-                    class="pk-num h-8 w-16 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-                  />
-                </label>
-                <span class="font-mono text-pk-meta text-pk-text-3">tiles de você</span>
-                <label
-                  class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
-                  title="quantos pixels da tela tem um tile — a régua dessa distância"
-                >
-                  1 tile =
-                  <input
-                    type="number"
-                    name="tile_px"
-                    value={@tile_px}
-                    class="pk-num h-8 w-16 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-                  /> px
-                </label>
-                <button
-                  id={"waypoint-park-save-#{index}"}
-                  class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                >
-                  guardar
-                </button>
-                <button
-                  type="button"
-                  id={"waypoint-park-default-#{index}"}
-                  phx-click="park_tiles_default"
-                  phx-value-index={index}
-                  title="usar essa distância em todo canto de matar que não tem a sua"
-                  class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                >
-                  virar padrão
-                </button>
-                <button
-                  :if={park_tiles(wp, @calibration)}
-                  type="button"
-                  id={"waypoint-park-clear-#{index}"}
-                  phx-click="clear_park_tiles"
-                  phx-value-index={index}
-                  class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-warn/60 hover:text-white"
-                >
-                  tirar
-                </button>
-                <span
-                  id={"waypoint-park-hint-#{index}"}
-                  class="w-full font-mono text-pk-meta text-pk-text-3"
-                >
-                  {park_hint(wp, @calibration, @park_default)}
-                </span>
-              </form>
+            <%!-- THE WORLD, as the bot sees it. Everything here already existed as
+            facts; what was missing was a place to read them together while
+            the hunt runs. --%>
+            <section id="cavebot-world" class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+              <.world_tile
+                id="tile-pos"
+                icon="hero-map-pin"
+                label="posição"
+                value={pos_text(@pos)}
+                note={PositionReadout.note(@pos, @world.pos_age_ms)}
+                tone={if @pos, do: :ok, else: :warn}
+              />
+              <.world_tile
+                id="tile-read"
+                icon="hero-eye"
+                label="leitura"
+                value={"#{@reads}/#{@reads + @misses}"}
+                note={read_note(@sim_armed?, @reads, @misses)}
+                tone={
+                  cond do
+                    @sim_armed? -> :warn
+                    @misses > @reads -> :warn
+                    true -> :neutral
+                  end
+                }
+              />
+              <.world_tile
+                id="tile-enemies"
+                icon="hero-bolt"
+                label="inimigos"
+                value={to_string(enemy_count(@world))}
+                note={if @world.engaged?, do: "travado no alvo", else: "sem alvo travado"}
+                tone={if enemy_count(@world) > 0, do: :warn, else: :neutral}
+              />
+              <.world_tile
+                id="tile-hunt"
+                icon="hero-flag"
+                label="caçada"
+                value={hunt_state_text(@hunt)}
+                note={(@hunt && @hunt.hold_reason) || "solte a caçada no painel"}
+                tone={hunt_tone(@hunt)}
+              />
+              <.world_tile
+                id="tile-capture"
+                icon="hero-inbox-arrow-down"
+                label="captura"
+                value={to_string((@hunt && @hunt[:capture_pending]) || 0)}
+                note="corpos na fila"
+              />
+              <.world_tile
+                id="tile-hp"
+                icon="hero-heart"
+                label="vida"
+                value={if @world.me.hp_pct, do: "#{@world.me.hp_pct}%", else: "—"}
+                note="do pokémon ativo"
+                tone={hp_tone(@world)}
+              />
             </section>
 
             <%!-- The feed used to live in this tab's assigns: a reload erased
-                 the night, and overnight is exactly when things go wrong. It
-                 is seeded from the Journal now (which persists :macro and
-                 :alarm to ~/.pokex/journal), and the debug switch is the one
-                 the panel already has — "logs mais claros (…) talvez com botão
-                 de debug também que nem tem no painel" (Lucas, 2026-08-15). --%>
+             the night, and overnight is exactly when things go wrong. It
+             is seeded from the Journal now (which persists :macro and
+             :alarm to ~/.pokex/journal), and the debug switch is the one
+             the panel already has — "logs mais claros (…) talvez com botão
+             de debug também que nem tem no painel" (Lucas, 2026-08-15). --%>
             <section
               id="cavebot-log"
               phx-hook="CopyToClipboard"
-              class="rounded-lg border border-pk-line bg-pk-surface p-3"
+              class="flex flex-col rounded-lg border border-pk-line bg-pk-surface p-3 lg:min-h-0 lg:flex-1"
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -3223,7 +2442,7 @@ defmodule PokexWeb.CavebotLive do
 
               <ol
                 id="cavebot-log-lines"
-                class="relative mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1"
+                class="relative mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1"
               >
                 <li
                   :for={line <- visible_log(@log, @show_debug)}
@@ -3239,27 +2458,344 @@ defmodule PokexWeb.CavebotLive do
                 </li>
               </ol>
             </section>
+          </div>
+        </div>
 
-            <details
-              :if={@active_route}
-              id="route-photos"
-              class="rounded-lg border border-pk-line bg-pk-surface px-3 py-2"
-            >
-              <%!-- Reference material, not hunt material: it earns a click, not
-                   256px of the screen he watches the route on (2026-08-15). --%>
-              <summary class="cursor-pointer list-none font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3 hover:text-pk-text [&::-webkit-details-marker]:hidden">
-                Como é o lugar ▸
-              </summary>
-              <div class="mt-3 flex flex-wrap gap-3">
-                <.route_photo kind={:start} url={Photos.url(@active_route.name, :start)} />
-                <.route_photo kind={:finish} url={Photos.url(@active_route.name, :finish)} />
-              </div>
-            </details>
+        <%!-- EDITAR: the drawing stays put at the top of the left column while
+             the corner being edited scrolls under it, because those two are
+             the ends of one act — "tenho que ficar scrollando pra cima e pra
+             baixo pra saber o que estou editando" (2026-08-11). The list of
+             corners keeps its own column and its own scroll. --%>
+        <div
+          :if={@mode == :edit}
+          id="cavebot-workbench"
+          class="grid gap-2 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]"
+        >
+          <div class="flex flex-col gap-2 lg:min-h-0">
+            <.route_map_card
+              active_route={@active_route}
+              pos={@pos}
+              selected={@selected}
+              hunt={@hunt}
+              recording?={@recording?}
+            />
+
+            <div class="space-y-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+              <section
+                id="cavebot-recorder"
+                class="rounded-lg border border-pk-line bg-pk-surface p-3"
+              >
+                <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+                  Gravar
+                </h2>
+                <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                  <button
+                    id="toggle-recording"
+                    phx-click="toggle_recording"
+                    aria-label={
+                      if @recording?, do: "Parar de gravar a rota", else: "Gravar a rota andando"
+                    }
+                    class={[
+                      "flex cursor-pointer items-center gap-2 rounded-lg px-4 py-2 text-pk-body font-bold transition",
+                      if(@recording?,
+                        do: "border border-pk-danger-line bg-pk-danger-dim text-pk-danger",
+                        else: "border-0 bg-pk-ok text-pk-ok-dim hover:brightness-110"
+                      )
+                    ]}
+                  >
+                    <.icon
+                      name={if @recording?, do: "hero-stop-circle", else: "hero-play-circle"}
+                      class="size-4"
+                    />
+                    {if @recording?, do: "Parar de gravar", else: "Gravar andando"}
+                  </button>
+                  <button
+                    id="walk-test"
+                    phx-click="walk_test"
+                    disabled={@walk_test == :running}
+                    aria-label="Testar se o personagem anda e se a posição é lida"
+                    class="flex cursor-pointer items-center gap-1.5 rounded-lg border border-pk-line-strong px-3 py-2 text-pk-body text-pk-text-2 transition hover:border-pk-ok hover:text-pk-text disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <.icon name="hero-beaker" class="size-4" />
+                    {if @walk_test == :running, do: "andando…", else: "Testar movimento"}
+                  </button>
+                  <button
+                    id="mark-waypoint"
+                    phx-click="mark_waypoint"
+                    aria-label="Marcar um waypoint só, na posição atual"
+                    class="cursor-pointer rounded-lg border border-pk-line-strong px-3 py-2 text-pk-body text-pk-text-2 transition hover:border-pk-ok hover:text-pk-text"
+                  >
+                    Marcar um só
+                  </button>
+                  <span :if={@recording?} class="font-mono text-pk-meta text-pk-warn">
+                    gravando — volte pro jogo e ande
+                  </span>
+                </div>
+
+                <p
+                  :if={@walk_test not in [nil, :running]}
+                  id="walk-test-result"
+                  class={[
+                    "mt-3 font-mono text-pk-meta",
+                    if(match?({:ok, _}, @walk_test), do: "text-pk-ok", else: "text-pk-warn")
+                  ]}
+                >
+                  {walk_test_text(@walk_test)}
+                </p>
+              </section>
+
+              <%!-- The DETAIL of what is selected, pinned beside the drawing.
+             Editing used to mean scrolling: the map at the top, the
+             waypoint's controls at the bottom of a 45-row list, and no way
+             to see both at once ("tenho que ficar scrollando pra cima e pra
+             baixo pra saber o que estou editando", Lucas, 2026-08-11). The
+             list stays the overview; this is the workbench. --%>
+              <section
+                :for={{wp, index} <- selected_pair(@active_route, @selected)}
+                id="waypoint-detail"
+                class="rounded-lg border border-pk-warn-line bg-pk-surface p-3"
+              >
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-warn">
+                    editando o waypoint {index + 1}
+                  </h2>
+                  <span class="pk-num font-mono text-pk-body text-pk-text">
+                    {wp.x}, {wp.y} <span class="text-pk-text-3">· andar {wp.z}</span>
+                  </span>
+                  <button
+                    id="waypoint-detail-close"
+                    phx-click="select_waypoint"
+                    phx-value-index={index}
+                    aria-label="Fechar o editor deste waypoint"
+                    class="cursor-pointer font-mono text-pk-meta text-pk-text-2 transition hover:text-pk-text"
+                  >
+                    fechar
+                  </button>
+                </div>
+                <%!-- The job lives on the SELECTED waypoint only: fourteen rows
+                 each carrying three more buttons is a wall, and the choice
+                 is rare — you mark a mob stretch once and hunt it for
+                 weeks. --%>
+                <%!-- The exact tile, typed. A recording is a walk, and a walk
+                 rounds: the staircase he could not take was one tile
+                 wide and the waypoint sat beside it, with no way to say
+                 so except walking the whole route again (2026-08-11). --%>
+                <form
+                  id={"waypoint-place-#{index}"}
+                  phx-submit="move_waypoint_to"
+                  class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
+                >
+                  <input type="hidden" name="index" value={index} />
+                  <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+                    lugar
+                  </span>
+                  <label
+                    :for={{field, value} <- [{"x", wp.x}, {"y", wp.y}, {"z", wp.z}]}
+                    class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
+                  >
+                    {field}
+                    <input
+                      type="number"
+                      name={field}
+                      value={value}
+                      class="pk-num h-8 w-20 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                    />
+                  </label>
+                  <button
+                    id={"waypoint-place-save-#{index}"}
+                    class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                  >
+                    corrigir
+                  </button>
+                  <button
+                    :if={@pos}
+                    type="button"
+                    id={"waypoint-place-here-#{index}"}
+                    phx-click="move_waypoint_here"
+                    phx-value-index={index}
+                    title="usar a posição onde eu estou agora"
+                    class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                  >
+                    é aqui que eu estou
+                  </button>
+                </form>
+
+                <div
+                  id={"waypoint-job-#{index}"}
+                  class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
+                >
+                  <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+                    função
+                  </span>
+                  <button
+                    :for={{action, label, icon} <- waypoint_actions()}
+                    id={"waypoint-#{index}-#{action}"}
+                    phx-click="set_waypoint_action"
+                    phx-value-index={index}
+                    phx-value-action={action}
+                    aria-pressed={to_string(wp.action == action)}
+                    aria-label={"Waypoint #{index + 1}: #{label}"}
+                    class={[
+                      "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
+                      if(wp.action == action,
+                        do: "border-pk-info bg-pk-info-dim text-pk-info",
+                        else:
+                          "border-pk-line-strong text-pk-text-2 hover:border-pk-info/60 hover:text-pk-text"
+                      )
+                    ]}
+                  >
+                    <.icon name={icon} class="size-3.5" />{label}
+                  </button>
+
+                  <span class="mx-1 h-5 w-px bg-pk-warn-line"></span>
+
+                  <button
+                    :for={stop <- Route.stops()}
+                    id={"waypoint-#{index}-#{stop}"}
+                    phx-click="toggle_waypoint_stop"
+                    phx-value-index={index}
+                    phx-value-stop={stop}
+                    aria-pressed={to_string(stop in wp.stops)}
+                    aria-label={"Waypoint #{index + 1}: #{stop_label(stop)} depois da luta"}
+                    title={stop_hint(stop)}
+                    class={[
+                      "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
+                      if(stop in wp.stops,
+                        do: "border-pk-ok bg-pk-ok-dim text-pk-ok",
+                        else:
+                          "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:text-pk-text"
+                      )
+                    ]}
+                  >
+                    {stop_icon(stop)} {stop_label(stop)}
+                  </button>
+
+                  <span class="mx-1 h-5 w-px bg-pk-warn-line"></span>
+
+                  <%!-- The third axis: what the pokémon FIRES here, said by
+                  category. It lives beside the job and the stops for the
+                  reason they do — the corner of the aura is usually the
+                  corner already marked "até aqui" — and on the SELECTED
+                  waypoint only: five chips on each of his 67 corners is
+                  335 buttons for the handful of corners that carry one.
+                  A lit chip is an order; the key comes from whichever
+                  pokémon is in the field at the time. --%>
+                  <button
+                    :for={{skill, on?} <- waypoint_skill_chips(wp)}
+                    id={"waypoint-skill-#{index}-#{skill}"}
+                    phx-click="toggle_waypoint_skill"
+                    phx-value-index={index}
+                    phx-value-skill={skill}
+                    aria-pressed={to_string(on?)}
+                    aria-label={"Waypoint #{index + 1}: #{SkillProfile.label(skill)}"}
+                    title={SkillProfile.moment(skill)}
+                    class={[
+                      "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
+                      if(on?,
+                        do: "border-pk-ok bg-pk-ok-dim text-pk-ok",
+                        else:
+                          "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:text-pk-text"
+                      )
+                    ]}
+                  >
+                    {SkillProfile.icon(skill)} {SkillProfile.label(skill)}
+                  </button>
+                </div>
+
+                <%!-- WHERE the pokémon waits for the pile. Recorded as a screen
+                 point from his own middle click, said here as a DISTANCE
+                 from the character: the form he can measure by eye, and
+                 the only one that survives the game window moving. The
+                 ruler rides in the same form because it is the unit of the
+                 two numbers beside it. --%>
+                <form
+                  id={"waypoint-park-#{index}"}
+                  phx-submit="save_park_tiles"
+                  class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
+                >
+                  <input type="hidden" name="index" value={index} />
+                  <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
+                    pokémon
+                  </span>
+                  <label
+                    :for={{field, label, value} <- park_fields(wp, @calibration)}
+                    class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
+                  >
+                    {label}
+                    <input
+                      type="number"
+                      name={field}
+                      value={value}
+                      class="pk-num h-8 w-16 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                    />
+                  </label>
+                  <span class="font-mono text-pk-meta text-pk-text-3">tiles de você</span>
+                  <label
+                    class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
+                    title="quantos pixels da tela tem um tile — a régua dessa distância"
+                  >
+                    1 tile =
+                    <input
+                      type="number"
+                      name="tile_px"
+                      value={@tile_px}
+                      class="pk-num h-8 w-16 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+                    /> px
+                  </label>
+                  <button
+                    id={"waypoint-park-save-#{index}"}
+                    class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                  >
+                    guardar
+                  </button>
+                  <button
+                    type="button"
+                    id={"waypoint-park-default-#{index}"}
+                    phx-click="park_tiles_default"
+                    phx-value-index={index}
+                    title="usar essa distância em todo canto de matar que não tem a sua"
+                    class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
+                  >
+                    virar padrão
+                  </button>
+                  <button
+                    :if={park_tiles(wp, @calibration)}
+                    type="button"
+                    id={"waypoint-park-clear-#{index}"}
+                    phx-click="clear_park_tiles"
+                    phx-value-index={index}
+                    class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-warn/60 hover:text-white"
+                  >
+                    tirar
+                  </button>
+                  <span
+                    id={"waypoint-park-hint-#{index}"}
+                    class="w-full font-mono text-pk-meta text-pk-text-3"
+                  >
+                    {park_hint(wp, @calibration, @park_default)}
+                  </span>
+                </form>
+              </section>
+
+              <details
+                :if={@active_route}
+                id="route-photos"
+                class="rounded-lg border border-pk-line bg-pk-surface px-3 py-2"
+              >
+                <%!-- Reference material, not hunt material: it earns a click, not
+               256px of the screen he watches the route on (2026-08-15). --%>
+                <summary class="cursor-pointer list-none font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3 hover:text-pk-text [&::-webkit-details-marker]:hidden">
+                  Como é o lugar ▸
+                </summary>
+                <div class="mt-3 flex flex-wrap gap-3">
+                  <.route_photo kind={:start} url={Photos.url(@active_route.name, :start)} />
+                  <.route_photo kind={:finish} url={Photos.url(@active_route.name, :finish)} />
+                </div>
+              </details>
+            </div>
           </div>
 
-          <%!-- RIGHT: the routes and the waypoint editor, scrolling inside
-               its own column so the list never pushes the page down --%>
-          <div class="relative space-y-3 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+          <div class="space-y-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
             <section id="cavebot-routes" class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 Rotas
@@ -3381,7 +2917,7 @@ defmodule PokexWeb.CavebotLive do
                     </button>
                   </.form>
                   <%!-- A REAL button: as a bare text link he never found it —
-                        "não consegui encontrar esse botão" (2026-08-14). --%>
+                    "não consegui encontrar esse botão" (2026-08-14). --%>
                   <button
                     :if={@active_route.waypoints != []}
                     id="tidy-marks"
@@ -3433,9 +2969,9 @@ defmodule PokexWeb.CavebotLive do
               />
 
               <%!-- A 45-corner route made the page 45 rows tall on a laptop —
-                   "as coisas da rota ainda estão muito grandes" (2026-08-14).
-                   The list scrolls inside its own box now, so the map, the
-                   editor and the list stay on ONE screen. --%>
+               "as coisas da rota ainda estão muito grandes" (2026-08-14).
+               The list scrolls inside its own box now, so the map, the
+               editor and the list stay on ONE screen. --%>
               <ol
                 :if={@active_route.waypoints != []}
                 id="waypoint-list"
@@ -3461,7 +2997,7 @@ defmodule PokexWeb.CavebotLive do
                     phx-value-index={index}
                   >
                     <%!-- the hunt's place on the list, as a glyph and not only
-                         a colour: the selection is already a colour --%>
+                     a colour: the selection is already a colour --%>
                     <span
                       :if={heading_to(@hunt, @active_route) == index}
                       class="font-mono text-pk-meta text-pk-ok"
@@ -3479,8 +3015,8 @@ defmodule PokexWeb.CavebotLive do
                         {action_label(wp.action)}
                       </span>
                       <%!-- The floor is written only where it CHANGES: on a
-                            one-floor route it would be noise on every line, and
-                            on a route with stairs it is the whole story. --%>
+                        one-floor route it would be noise on every line, and
+                        on a route with stairs it is the whole story. --%>
                       <span
                         :for={stop <- wp.stops}
                         class="ml-1 rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 py-0.5 text-pk-meta text-pk-ok"
@@ -3488,9 +3024,9 @@ defmodule PokexWeb.CavebotLive do
                         {stop_icon(stop)} {stop_label(stop)}
                       </span>
                       <%!-- What the pokémon fires here, READ-ONLY: the chips
-                            that change it live in the editor above, on the
-                            selected waypoint. The badge only shows up where
-                            there is something to say. --%>
+                        that change it live in the editor above, on the
+                        selected waypoint. The badge only shows up where
+                        there is something to say. --%>
                       <span
                         :for={{icons, labels} <- skill_badge(wp)}
                         id={"waypoint-skills-#{index}"}
@@ -3506,10 +3042,10 @@ defmodule PokexWeb.CavebotLive do
                         {climb_label(@active_route.waypoints, index)}
                       </span>
                       <%!-- Same leg as the climb badge above it, by the list's
-                            convention: whether THAT floor change is a staircase
-                            the route describes exactly, and where its step is.
-                            The full sentence rides in `title` for the mouse and
-                            in `sr-only` for everyone else. --%>
+                        convention: whether THAT floor change is a staircase
+                        the route describes exactly, and where its step is.
+                        The full sentence rides in `title` for the mouse and
+                        in `sr-only` for everyone else. --%>
                       <span
                         :for={
                           {tone, short, full} <-
@@ -3529,8 +3065,8 @@ defmodule PokexWeb.CavebotLive do
                         {leg_label(index)} {leg_tiles(@active_route.waypoints, index)} tiles
                       </span>
                       <%!-- What he was DOING here, in the only unit that says
-                            it: a corner passed through vs half a minute
-                            standing on one tile. --%>
+                        it: a corner passed through vs half a minute
+                        standing on one tile. --%>
                       <span :if={dwell_label(wp)} class="ml-1 text-pk-warn">
                         {dwell_label(wp)}
                       </span>
@@ -3581,8 +3117,8 @@ defmodule PokexWeb.CavebotLive do
                   </div>
 
                   <%!-- What HE did here, learned from his own hands. Only
-                        where there is something to say: forty lines of "—"
-                        would bury the four that matter. --%>
+                    where there is something to say: forty lines of "—"
+                    would bury the four that matter. --%>
                   <p
                     :if={taught_label(wp)}
                     id={"waypoint-taught-#{index}"}
@@ -3590,8 +3126,8 @@ defmodule PokexWeb.CavebotLive do
                   >
                     {taught_label(wp)}
                     <%!-- The keys are here; what they MEAN lives on the team
-                          page. Without a way across, the two screens describe
-                          the same combo and never mention each other. --%>
+                      page. Without a way across, the two screens describe
+                      the same combo and never mention each other. --%>
                     <.link
                       :if={wp[:combo] not in [nil, []]}
                       navigate={~p"/time"}
@@ -3602,10 +3138,10 @@ defmodule PokexWeb.CavebotLive do
                   </p>
 
                   <%!-- The huddle only makes sense where the pile closes.
-                        Typed and SUBMITTED: the number is one he dials down
-                        again and again, so it needs somewhere to click that
-                        says the typing landed, the same way the park form
-                        does. --%>
+                    Typed and SUBMITTED: the number is one he dials down
+                    again and again, so it needs somewhere to click that
+                    says the typing landed, the same way the park form
+                    does. --%>
                   <.form
                     :if={wp.action == :lure_end}
                     id={"waypoint-gather-wait-#{index}"}
@@ -3640,11 +3176,11 @@ defmodule PokexWeb.CavebotLive do
                       guardar
                     </button>
                     <%!-- What his hands measured, with somewhere to click that
-                          adopts it: reading a number and retyping it is the
-                          same work twice. `type="button"` because this sits
-                          INSIDE the form — a click here is the adoption, not a
-                          submit of whatever is in the field. It is the same
-                          command the field sends, so it is the same event. --%>
+                      adopts it: reading a number and retyping it is the
+                      same work twice. `type="button"` because this sits
+                      INSIDE the form — a click here is the adoption, not a
+                      submit of whatever is in the field. It is the same
+                      command the field sends, so it is the same event. --%>
                     <span
                       :for={ms <- gather_suggestion(wp)}
                       class="font-mono text-pk-meta text-pk-text-3"
@@ -3667,8 +3203,650 @@ defmodule PokexWeb.CavebotLive do
             </section>
           </div>
         </div>
+
+        <div :if={@mode == :watch} class="lg:shrink-0">
+          <%!-- The pre-sleep checklist: whether TONIGHT's hunt survives without
+            him. The three switches are the support worker's (same settings
+            the panel flips); the guard is the cavebot's own. Shown HERE
+            because this is the page he checks before letting it run the
+            madrugada — "não podemos morrer" (2026-08-14). --%>
+          <%!-- ONE ROW. This card was 360px tall with 60% of its width empty —
+            two stacked forms, each with a paragraph under it, on the screen
+            he needs for the route ("altos espaços vazios", 2026-08-15). The
+            paragraphs became titles: they explain a knob he tunes twice a
+            month, and they were costing a third of the fold every day. --%>
+          <section
+            id="cavebot-safety"
+            class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
+          >
+            <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+              Segurança
+            </h2>
+
+            <div class="flex flex-wrap items-center gap-1.5">
+              <.safety_toggle
+                id="safety-rescue"
+                key="rescue"
+                armed?={@safety.rescue?}
+                icon="hero-lifebuoy"
+                on="resgate armado"
+                off="resgate desligado"
+              />
+              <.safety_toggle
+                id="safety-heal"
+                key="heal"
+                armed?={@safety.heal?}
+                icon="hero-heart"
+                on="cura armada"
+                off="cura desligada"
+              />
+              <.safety_toggle
+                id="safety-potion"
+                key="potion"
+                armed?={@safety.potion?}
+                icon="hero-beaker"
+                on="poção armada"
+                off="poção desligada"
+              />
+            </div>
+
+            <form
+              id="hp-guard-form"
+              phx-submit="hp_guard"
+              title="Abaixo do limite: solta o combo no que juntou, desiste do mob, e só volta a andar com ele recuperado. 0 desliga a guarda. Vale a partir da próxima caçada."
+              class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
+            >
+              <span>larga o mob &lt;</span>
+              <input
+                type="number"
+                name="abort"
+                value={@safety.abort_pct}
+                min="0"
+                max="100"
+                inputmode="numeric"
+                aria-label="Abandonar a mobada abaixo desta porcentagem de vida"
+                class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+              />
+              <span>% · volta em</span>
+              <input
+                type="number"
+                name="resume"
+                value={@safety.resume_pct}
+                min="1"
+                max="100"
+                inputmode="numeric"
+                aria-label="Retomar a rota nesta porcentagem de vida"
+                class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+              />
+              <span>%</span>
+              <button
+                aria-label="Salvar os limites da guarda de HP"
+                class="h-8 cursor-pointer rounded border border-pk-line-strong px-2.5 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+              >
+                salvar
+              </button>
+            </form>
+
+            <form
+              id="comeback-form"
+              phx-submit="comeback_cfg"
+              title="Só pra tropeço local — mudar de andar ou o combate recusar continua parando de vez. Chegar num waypoint devolve as tentativas. 0 desliga a volta automática."
+              class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
+            >
+              <span>tropeço:</span>
+              <input
+                type="number"
+                name="retries"
+                value={@safety.block_retries}
+                min="0"
+                max="50"
+                inputmode="numeric"
+                aria-label="Quantas vezes a caçada tenta voltar sozinha"
+                class="pk-num h-8 w-12 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+              />
+              <span>× a cada</span>
+              <input
+                type="number"
+                name="wait_s"
+                value={div(@safety.block_retry_ms, 1000)}
+                min="1"
+                max="600"
+                inputmode="numeric"
+                aria-label="Quantos segundos ela espera antes de tentar voltar"
+                class="pk-num h-8 w-14 rounded border border-pk-line-strong bg-pk-sunken px-1.5 text-center text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
+              />
+              <span>s</span>
+              <button
+                aria-label="Salvar as tentativas de volta da caçada"
+                class="h-8 cursor-pointer rounded border border-pk-line-strong px-2.5 font-semibold text-pk-text transition hover:border-pk-ok/60 hover:text-white"
+              >
+                salvar
+              </button>
+            </form>
+
+            <span
+              :if={is_nil(@world.me.hp_pct)}
+              id="safety-no-reading"
+              class="ml-auto font-mono text-pk-meta text-pk-warn"
+            >
+              sem leitura de vida — a guarda e o resgate não enxergam o pokémon
+            </span>
+          </section>
+        </div>
+      </div>
+
+      <%!-- BELOW THE FOLD, and deliberately: the reading of the engine and the
+           three instruments are what he opens when he is deciding a rule, not
+           what he watches while the hunt runs. They cost nothing closed and
+           they were costing a third of the screen open. --%>
+      <div :if={@mode == :watch} class="mt-3 space-y-3">
+        <%!-- …and what the engine MAKES of all that. The tiles above are facts;
+            this line is the reading of them, which until now only existed
+            inside a process. It says what WOULD happen — nobody obeys it
+            yet — and the feed below carries the same sentence beside what
+            the bot actually did. --%>
+        <.engine_brain
+          situation={@situation}
+          orders={@orders}
+          gather_piles={@gather_piles}
+          reset_revive={@reset_revive}
+        />
+
+        <details id="cavebot-instruments" class="rounded-lg border border-pk-line bg-pk-surface">
+          <summary class="cursor-pointer list-none px-3 py-2 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+            Instrumentos ▸
+          </summary>
+          <div class="space-y-3 px-3 pb-3">
+            <%!-- ONDE ELES ESTÃO. A lista de batalha sempre soube QUANTOS existem;
+            o que faltava era a distância — "não adianta a gente otimizar ele
+            ter mais cooldowns pra usar com Revives se ele não espera os
+            pokémons estarem próximos" (2026-08-26).
+
+            Isto é LEITURA: não manda em nada, e está aqui pra ele julgar se
+            merece virar regra. --%>
+            <section id="cavebot-crowd" class="rounded-pk border border-pk-line bg-pk-surface p-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <h3 class="text-pk-sm font-semibold text-pk-text-1">onde eles estão</h3>
+                <button
+                  type="button"
+                  phx-click="crowd_scan"
+                  class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
+                >
+                  olhar agora
+                </button>
+                <span class="text-pk-meta text-pk-text-3">
+                  custa uma foto da tela (~0,3s) — só quando você pede
+                </span>
+              </div>
+
+              <p :if={@crowd == nil} class="mt-2 text-pk-meta text-pk-text-3">
+                ninguém olhou ainda
+              </p>
+
+              <p :if={@crowd && !@crowd.read?} class="mt-2 text-pk-meta text-pk-warn">
+                não deu pra olhar: {crowd_reason(@crowd.reason)}
+              </p>
+
+              <div :if={@crowd && @crowd.read?} class="mt-2">
+                <p class="text-pk-sm text-pk-text-1">{crowd_headline(@crowd)}</p>
+                <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">
+                  {crowd_spread(@crowd)} · {crowd_anchor(@crowd.anchor)}
+                </p>
+
+                <%!-- A PROVA. Um número não diz se errou o detector, a âncora ou a
+                régua — três bugs diferentes, um "2" indistinguível. Aqui dá
+                pra ver: caixa azul é hostil, verde é o pokémon dele, e a cruz
+                rosa é o ponto de onde a distância foi medida. --%>
+                <img
+                  :if={@crowd.evidence}
+                  src={@crowd.evidence}
+                  alt="o que a leitura enxergou"
+                  class="mt-2 w-full max-w-2xl rounded border border-pk-line"
+                />
+                <p :if={@crowd.evidence} class="mt-1 text-pk-meta text-pk-text-3">
+                  caixa azul = hostil · verde = seu pokémon · cruz rosa = de onde mediu
+                </p>
+              </div>
+
+              <%!-- QUANTO A ÁREA ALCANÇA. O simulador resolve todo disparo de área
+              com `aoe_radius: 4`, debaixo de um comentário que diz que o
+              número foi inventado — e é ele que faz TODOS os knobs de
+              posicionamento darem chapado na bancada. O outro número
+              inventado daquele arquivo era um cooldown de 8s; o vídeo dele
+              mediu 45s. --%>
+              <div class="mt-3 border-t border-pk-line pt-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h4 class="text-pk-sm font-semibold text-pk-text-1">o alcance da área</h4>
+                  <button
+                    type="button"
+                    phx-click="toggle_area_probe"
+                    class={[
+                      "rounded border px-2 py-0.5 text-pk-meta",
+                      if(@area_probe?,
+                        do: "border-pk-ok text-pk-ok",
+                        else: "border-pk-line text-pk-text-2 hover:bg-pk-surface-2"
+                      )
+                    ]}
+                  >
+                    {if @area_probe?, do: "medindo — clique pra parar", else: "medir durante a caçada"}
+                  </button>
+                  <button
+                    :if={@area}
+                    type="button"
+                    phx-click="refresh_area_probe"
+                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
+                  >
+                    atualizar
+                  </button>
+                  <button
+                    :if={@area}
+                    type="button"
+                    phx-click="clear_area_probe"
+                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-surface-2"
+                  >
+                    zerar
+                  </button>
+                </div>
+
+                <p :if={@area_probe?} class="mt-1 text-pk-meta text-pk-text-3">
+                  custa uma foto a cada disparo de área — ligue por uma caçada, não deixe ligado
+                </p>
+
+                <p :if={@area == nil} class="mt-2 text-pk-meta text-pk-text-3">
+                  nenhum disparo medido ainda
+                </p>
+
+                <div :if={@area} class="mt-2">
+                  <p class="text-pk-sm text-pk-text-1">{area_headline(@area)}</p>
+                  <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">{area_spread(@area)}</p>
+                  <%!-- O confundidor, escrito onde ele lê o número: número de dano
+                  não diz QUEM causou. Nos quadros do vídeo dele os disparos de
+                  outros jogadores apareciam como um segundo grupo, de 7 a 17
+                  tiles — só inflam, nunca encolhem. --%>
+                  <p class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
+                    <.icon name="hero-users" class="mt-px size-3.5 shrink-0" />
+                    <span>
+                      o dano de outro jogador na tela conta junto e só ESTICA o alcance — se o topo
+                      estiver muito acima da mediana, é isso
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              <%!-- QUANTO CADA TECLA TIRA, e quanto demora. Ideia dele inteira:
+              "ele e um inimigo de vida cheia, o sistema usa uma skill e
+              calcula a diferença e salva essa diferença associada a essa
+              skill... se ele se identificar aqui com a skill 4 sozinha, ele já
+              mata, não precisa ficar usando 4, 5, 6 sempre". --%>
+              <div class="mt-3 border-t border-pk-line pt-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h4 class="text-pk-sm font-semibold text-pk-text-1">o que cada tecla tira</h4>
+                  <button
+                    type="button"
+                    phx-click="toggle_skill_meter"
+                    class={[
+                      "rounded border px-2 py-0.5 text-pk-meta",
+                      if(@meter?,
+                        do: "border-pk-ok text-pk-ok",
+                        else: "border-pk-line text-pk-text-2 hover:bg-pk-surface-2"
+                      )
+                    ]}
+                  >
+                    {if @meter?, do: "medindo — clique pra parar", else: "medir durante a caçada"}
+                  </button>
+                  <button
+                    :if={@meter != %{}}
+                    type="button"
+                    phx-click="refresh_skill_meter"
+                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
+                  >
+                    atualizar
+                  </button>
+                  <button
+                    :if={@meter != %{}}
+                    type="button"
+                    phx-click="clear_skill_meter"
+                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-surface-2"
+                  >
+                    zerar
+                  </button>
+                </div>
+
+                <p :if={@meter?} class="mt-1 text-pk-meta text-pk-text-3">
+                  só mede apertos de UMA tecla — uma rajada de três tira uma queda só e ninguém
+                  sabe de quem foi
+                </p>
+
+                <p :if={@meter == %{}} class="mt-2 text-pk-meta text-pk-text-3">
+                  nenhuma tecla medida ainda
+                </p>
+
+                <table :if={@meter != %{}} class="mt-2 w-full font-mono text-pk-meta">
+                  <thead class="text-pk-text-3">
+                    <tr>
+                      <th class="text-left font-normal">tecla</th>
+                      <th class="text-right font-normal">tira</th>
+                      <th class="text-right font-normal">demora</th>
+                      <th class="text-right font-normal">pra matar</th>
+                      <th class="text-right font-normal">amostras</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr :for={{key, m} <- Enum.sort_by(@meter, &elem(&1, 0))} class="text-pk-text-2">
+                      <td class="text-left">{key}</td>
+                      <td class="text-right">{m.took_pct}%</td>
+                      <td class="text-right">{m.delay_ms}ms</td>
+                      <td class="text-right">{m.to_kill || "—"}×</td>
+                      <td class={["text-right", if(m.shots < 5, do: "text-pk-warn")]}>{m.shots}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <%!-- As duas coisas que o número NÃO sabe, onde ele lê o número. --%>
+                <p :if={@meter != %{}} class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
+                  <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
+                  <span>
+                    é MEDIANA: o dano de outro jogador na mesma linha entra na conta. E poucas
+                    amostras (em amarelo) não merecem a mesma fé que muitas.
+                  </span>
+                </p>
+
+                <%!-- O ponto cego, escrito onde ele lê o número: efeito de skill
+                pinta por cima do nome, então some quem está DENTRO da área.
+                Erra sempre pra menos. --%>
+                <p
+                  :if={crowd_gap(@crowd) > 0}
+                  class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn"
+                >
+                  <.icon name="hero-eye-slash" class="mt-px size-3.5 shrink-0" />
+                  <span>
+                    a lista tem {@crowd.listed} e eu localizei {@crowd.seen} — {crowd_gap(@crowd)} sem nome legível (efeito na tela cobre o nome, ou está fora do alcance da vista)
+                  </span>
+                </p>
+              </div>
+            </section>
+          </div>
+        </details>
       </div>
     </Layouts.app>
+    """
+  end
+
+  # THE TWO MODES, as one control. A link and not a button: the mode belongs in
+  # the URL so a reload — and the tab he leaves open all night — comes back
+  # where he left it.
+  attr :mode, :atom, required: true
+
+  defp mode_tabs(assigns) do
+    ~H"""
+    <nav
+      id="cavebot-modes"
+      class="flex items-center gap-1 rounded-lg border border-pk-line bg-pk-sunken p-0.5"
+    >
+      <.link
+        :for={
+          {mode, label, icon} <- [
+            {:watch, "assistir", "hero-eye"},
+            {:edit, "editar", "hero-pencil-square"}
+          ]
+        }
+        id={"cavebot-mode-#{mode}"}
+        patch={if mode == :watch, do: ~p"/cavebot", else: ~p"/cavebot?modo=editar"}
+        aria-current={if @mode == mode, do: "page"}
+        class={[
+          "flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] transition",
+          if(@mode == mode,
+            do: "bg-pk-ok-dim text-pk-ok",
+            else: "text-pk-text-3 hover:bg-pk-raised hover:text-pk-text"
+          )
+        ]}
+      >
+        <.icon name={icon} class="size-3.5" /> {label}
+      </.link>
+    </nav>
+    """
+  end
+
+  # EVERYTHING THAT MAKES A READING WRONG, in one place and above both modes.
+  # These are conditional by nature: when one is up it pushes the rest of the
+  # page down, which is the correct price for the loudest fact on the screen.
+  attr :minimap_gap?, :boolean, required: true
+  attr :hunt, :map, required: true
+  attr :sim_armed?, :boolean, required: true
+  attr :world, :map, required: true
+  attr :routes, :list, required: true
+  attr :active_route, :any, required: true
+  attr :notice, :any, required: true
+  attr :notice_kind, :atom, required: true
+
+  defp hunt_alerts(assigns) do
+    ~H"""
+    <%!-- OS OLHOS ESTÃO DESLIGADOS. A cerca do simulador aponta os feeds pro
+          mundo falso de propósito — e o resultado, nesta página, é que NADA
+          chega: ela renderiza uma vez e congela. Foi assim que ele andou uma
+          rota inteira achando que gravava, olhando pra uma coordenada de uma
+          hora antes (26/08). O aviso vem antes de tudo porque enquanto ele
+          estiver de pé, todo o resto da página é ficção. --%>
+    <section
+      :if={@sim_armed?}
+      id="cavebot-sim-armed"
+      class="rounded-pk border border-pk-danger bg-pk-danger/10 p-3"
+    >
+      <p class="flex items-start gap-2 text-pk-sm font-semibold text-pk-danger">
+        <.icon name="hero-eye-slash" class="mt-px size-4 shrink-0" />
+        <span>
+          o simulador está armado — os olhos do bot estão apontados pro mundo falso
+        </span>
+      </p>
+      <p class="mt-1 text-pk-meta text-pk-text-2">
+        nada nesta página está sendo lido do jogo: a posição, os inimigos e a vida são do
+        momento em que você abriu. Gravar rota não grava nada.
+        <.link navigate={~p"/sim"} class="underline">Desarme no simulador</.link>
+        pra voltar a enxergar.
+      </p>
+    </section>
+
+    <section
+      :if={@minimap_gap?}
+      id="cavebot-minimap-gap"
+      class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
+    >
+      <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
+        <.icon name="hero-map" class="size-4" /> O minimapa não está calibrado nesta tela
+      </p>
+      <p class="mt-1 text-pk-body text-pk-text-2">
+        Sem ele a posição não pode ser lida — nada de gravar rota nem de andar.
+        Refaça o passo <strong>Posição & minimapa</strong>
+        na <.link navigate={~p"/calibration"} class="underline">Calibração</.link>
+        e volte aqui.
+      </p>
+    </section>
+
+    <%!-- A STOPPED hunt is this page's loudest fact, and it lived in a
+          tile's small print: "parou POR QUÊ" needs no hunting of its own.
+          Three states, three tones — and the middle one only exists because
+          a hunt that is about to fix itself must not read like one asking
+          to be rescued (`comeback?`). --%>
+    <section
+      :if={@hunt && @hunt.state == :blocked && !@hunt[:comeback?]}
+      id="cavebot-blocked"
+      class="rounded-lg border border-pk-danger-line bg-pk-danger-dim p-3"
+    >
+      <p class="flex items-center gap-2 text-pk-body font-bold text-pk-danger">
+        <.icon name="hero-hand-raised" class="size-4" /> A caçada parou e não volta sozinha
+      </p>
+      <p class="mt-1 text-pk-body text-pk-text-2">
+        {@hunt.hold_reason || "bloqueada sem motivo escrito"} — resolva e solte a caçada de
+        novo no painel.
+      </p>
+    </section>
+
+    <section
+      :if={@hunt && @hunt.state == :blocked && @hunt[:comeback?]}
+      id="cavebot-comeback"
+      class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
+    >
+      <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
+        <.icon name="hero-arrow-path" class="size-4" /> A caçada tropeçou — e vai tentar de novo
+      </p>
+      <p class="mt-1 text-pk-body text-pk-text-2">
+        {@hunt.hold_reason || "parada sem motivo escrito"}. Ela reentra pelo canto mais perto;
+        se as tentativas acabarem, aí sim precisa de você.
+      </p>
+    </section>
+
+    <section
+      :if={@hunt && @hunt.state != :blocked && @hunt.hold_reason}
+      id="cavebot-held"
+      class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
+    >
+      <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
+        <.icon name="hero-pause-circle" class="size-4" /> A caçada está esperando
+      </p>
+      <p class="mt-1 text-pk-body text-pk-text-2">{@hunt.hold_reason}</p>
+    </section>
+
+    <%!-- UM DÍGITO QUE O ATLAS NÃO TEM não vira "não sei ler": vira OUTRO
+          dígito. A regra da margem do casador compara o que está no atlas
+          com o que está no atlas, e não tem como perceber que o certo nunca
+          esteve na disputa.
+
+          Em 27/08 o jogo dele mostrava `1088, 1409, 5` e o painel `1066,
+          1409` — e a rota gravada saltava pro outro lado do mapa. Só
+          aparece pela fonte que ESTA faixa usa: o atlas tem buraco em cinco
+          alturas, e quatro delas ele nunca lê. --%>
+    <section
+      :if={@world.coord_gap}
+      id="cavebot-glifos"
+      class="rounded-pk border border-pk-danger bg-pk-danger/10 p-3"
+    >
+      <p class="flex items-start gap-2 text-pk-sm font-semibold text-pk-danger">
+        <.icon name="hero-hashtag" class="mt-px size-4 shrink-0" />
+        <span>
+          a fonte da sua coordenada não tem
+          <span class="font-mono">{Enum.join(@world.coord_gap.faltam, " ")}</span>
+          no atlas — o número pode vir ERRADO, não vazio
+        </span>
+      </p>
+      <p class="mt-1 text-pk-meta text-pk-text-2">
+        a faixa que o bot lê é desenhada com {@world.coord_gap.px}px de altura, e nessa altura {gap_words(
+          @world.coord_gap.faltam
+        )} nunca foi ensinado. Um dígito que falta casa com o
+        mais parecido que existe, e casa com folga — o certo não entra na disputa. Ensine na <.link
+          navigate={~p"/calibration"}
+          class="underline"
+        >calibração</.link>, digitando a
+        coordenada que está na tela.
+      </p>
+    </section>
+
+    <%!-- The route being EDITED and the route the hunt WALKS are two
+          different things, and believing they were the same cost a
+          live run: two routes armed, the hunt took the other one and
+          blocked on the first step (2026-08-11). --%>
+    <p
+      :if={armed_elsewhere(@routes, @active_route)}
+      id="armed-elsewhere"
+      class="mt-3 flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+    >
+      <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
+      <span class="min-w-0 flex-1">
+        a caçada vai andar "{armed_elsewhere(@routes, @active_route)}", não esta.
+      </span>
+      <button
+        id="arm-this-route"
+        phx-click="arm_route"
+        aria-label={"Armar a rota #{@active_route.name} para a caçada"}
+        class="shrink-0 cursor-pointer rounded border border-pk-warn px-2 py-0.5 font-mono text-pk-meta font-bold text-pk-warn transition hover:bg-pk-warn hover:text-pk-bg"
+      >
+        armar esta
+      </button>
+    </p>
+
+    <p
+      :if={@routes != [] and armed_route(@routes) == nil}
+      id="none-armed"
+      class="mt-3 flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+    >
+      <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
+      nenhuma rota armada — a caçada não tem o que andar
+    </p>
+
+    <p
+      :if={@notice}
+      id="cavebot-notice"
+      class={[
+        "mt-3 font-mono text-pk-meta",
+        if(@notice_kind == :ok, do: "text-pk-ok", else: "text-pk-warn")
+      ]}
+    >
+      {@notice}
+    </p>
+    """
+  end
+
+  # THE DRAWING, and only the drawing. It is the one thing on this page that
+  # must never be scrolled to, so it is a card of its own in both modes, and
+  # `fill?` says which way it is measured.
+  #
+  # Watching, the card takes the left column whole and the square is measured by
+  # its HEIGHT — that is the whole trick. `.route_map` is `aspect-square w-full`,
+  # so a width cap is the only lever it offers, and any cap written in `dvh` is
+  # a guess about how much of the screen the strips above happen to be using
+  # today. Measured at 1440×800: with the "minimapa não calibrado" banner up the
+  # drawing lands at 490px, and with it gone it grows to 567px on its own, both
+  # times with the safety strip still on screen. A guessed cap gets exactly one
+  # of those two right.
+  #
+  # Editing, the card shares the column with the corner's controls and the map
+  # is deliberately the smaller half, so there the width cap is right.
+  attr :active_route, :any, required: true
+  attr :pos, :any, required: true
+  attr :selected, :any, required: true
+  attr :hunt, :any, required: true
+  attr :recording?, :boolean, required: true
+  attr :fill?, :boolean, default: false
+
+  defp route_map_card(assigns) do
+    ~H"""
+    <section
+      id="cavebot-map"
+      class={[
+        "flex flex-col rounded-lg border border-pk-line bg-pk-surface p-3",
+        if(@fill?, do: "lg:min-h-0 lg:flex-1", else: "lg:shrink-0")
+      ]}
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+          {if @active_route, do: "Mapa de #{@active_route.name}", else: "Mapa"}
+        </h2>
+        <span
+          :if={@active_route && @active_route.waypoints != []}
+          class="font-mono text-pk-meta text-pk-text-2"
+        >
+          {floors_label(@active_route)}
+        </span>
+      </div>
+
+      <div class={[
+        "mt-2",
+        if(@fill?,
+          do: "grid min-h-0 flex-1 place-items-center",
+          else: "mx-auto w-full max-w-[min(100%,40dvh)]"
+        )
+      ]}>
+        <div class={@fill? && "aspect-square h-full max-w-full"}>
+          <.route_map
+            floor={map_floor(@active_route, @pos)}
+            waypoints={(@active_route && @active_route.waypoints) || []}
+            pos={@pos}
+            selected={@selected}
+            heading_to={heading_to(@hunt, @active_route)}
+            recording?={@recording?}
+          />
+        </div>
+      </div>
+    </section>
     """
   end
 

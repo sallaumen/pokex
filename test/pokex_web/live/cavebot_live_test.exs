@@ -31,7 +31,7 @@ defmodule PokexWeb.CavebotLiveTest do
   test "marking a waypoint records the current position on the active route", %{conn: conn} do
     put_pos({10, 20, 7})
 
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     view
     |> form("#new-route-form", %{"name" => "cavena", "dungeon" => "cavena-dg"})
@@ -52,7 +52,7 @@ defmodule PokexWeb.CavebotLiveTest do
     {:ok, route} = Route.append(route, {3, 4, 7})
     :ok = Store.add(route)
 
-    {:ok, view, html} = live(conn, ~p"/cavebot")
+    {:ok, view, html} = live(conn, ~p"/cavebot?modo=editar")
     assert html =~ "1, 2"
 
     view |> element("#waypoint-delete-0") |> render_click()
@@ -68,7 +68,7 @@ defmodule PokexWeb.CavebotLiveTest do
   # position. The gap must say WHERE to fix itself.
   test "without a minimap calibration the page says so and points at the calibration",
        %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/cavebot")
+    {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
     assert html =~ "minimapa não está calibrado"
     assert html =~ ~s(href="/calibration")
@@ -87,7 +87,7 @@ defmodule PokexWeb.CavebotLiveTest do
       })
     )
 
-    {:ok, _view, html} = live(conn, ~p"/cavebot")
+    {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
     refute html =~ "minimapa não está calibrado"
   end
@@ -95,7 +95,7 @@ defmodule PokexWeb.CavebotLiveTest do
   test "without a position read, marking warns and records nothing", %{conn: conn} do
     :ok = Store.add(Route.new("cavena"))
 
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     html = view |> element("#mark-waypoint") |> render_click()
 
@@ -111,7 +111,7 @@ defmodule PokexWeb.CavebotLiveTest do
     :ok = Store.add(route)
     put_pos({5, 6, 3})
 
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     html = view |> element("#mark-waypoint") |> render_click()
 
@@ -125,7 +125,7 @@ defmodule PokexWeb.CavebotLiveTest do
     :ok = Store.add(Route.new("segunda"))
     put_pos({10, 20, 7})
 
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     view
     |> form("#route-select-form", %{"name" => "segunda"})
@@ -145,7 +145,7 @@ defmodule PokexWeb.CavebotLiveTest do
     {:ok, route} = Route.append(Route.new("cavena"), {1, 2, 7})
     :ok = Store.add(route)
 
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     html =
       view
@@ -165,7 +165,7 @@ defmodule PokexWeb.CavebotLiveTest do
     conn: conn
   } do
     put_pos({10, 20, 7})
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     view
     |> form("#new-route-form", %{"name" => "cavena", "dungeon" => ""})
@@ -229,7 +229,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "a click while recording marks the spot and remembers the point", %{conn: conn} do
       put_pos({10, 20, 7})
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
       view |> element("#toggle-recording") |> render_click()
@@ -260,7 +260,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # monstro" (Lucas, 2026-08-11): the fight's boundaries, told by his hands.
     test "his own keys measure the fight, the huddle and the combo", %{conn: conn} do
       put_pos({10, 20, 7})
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
       view |> element("#toggle-recording") |> render_click()
@@ -316,7 +316,7 @@ defmodule PokexWeb.CavebotLiveTest do
       :ok = Store.add(route)
 
       put_pos({11, 20, 7})
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
       view |> element("#toggle-recording") |> render_click()
 
       send(view.pid, {:world, :minimap, %{pos: {11, 20, 7}}})
@@ -355,7 +355,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # It is collected in memory and written on a conclusion.
     test "the combo is not written to disk until the fight closes", %{conn: conn} do
       put_pos({10, 20, 7})
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
       view |> element("#toggle-recording") |> render_click()
@@ -392,7 +392,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "a combo he never closed is still written when recording stops", %{conn: conn} do
       put_pos({10, 20, 7})
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
       view |> element("#toggle-recording") |> render_click()
@@ -420,7 +420,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # competing with the game he is playing.
     test "stopping the recording disarms the key watcher", %{conn: conn} do
       put_pos({10, 20, 7})
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
       view |> element("#toggle-recording") |> render_click()
@@ -431,7 +431,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "no click, no mark", %{conn: conn} do
       put_pos({10, 20, 7})
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
       view |> element("#toggle-recording") |> render_click()
@@ -465,7 +465,7 @@ defmodule PokexWeb.CavebotLiveTest do
         )
         |> Store.add()
 
-      {:ok, _view, html} = live(conn, ~p"/cavebot")
+      {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert html =~ "🖱️ 2490, 417"
       assert html =~ "bolo 3.3s"
@@ -478,7 +478,7 @@ defmodule PokexWeb.CavebotLiveTest do
     test "a plain corner says nothing — forty empty lines would bury the four", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}])
 
-      {:ok, _view, html} = live(conn, ~p"/cavebot")
+      {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute html =~ ~s(id="waypoint-taught-0")
       refute html =~ ~s(id="waypoint-taught-1")
@@ -496,7 +496,7 @@ defmodule PokexWeb.CavebotLiveTest do
         |> Route.set_timing(1, fight_ms: 4_000)
         |> Store.add()
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert view |> element("#waypoint-taught-0") |> render() =~ ~s(href="/time")
       # the waypoint that only timed a fight has no keys to explain
@@ -528,7 +528,7 @@ defmodule PokexWeb.CavebotLiveTest do
       )
 
       put_pos({10, 20, 7})
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
       recording!(view)
 
       reading!(view, {10, 20, 7})
@@ -553,7 +553,7 @@ defmodule PokexWeb.CavebotLiveTest do
       )
 
       put_pos({10, 20, 7})
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
       recording!(view)
 
       reading!(view, {10, 20, 7})
@@ -571,7 +571,7 @@ defmodule PokexWeb.CavebotLiveTest do
   # there on a floor it never heard of.
   test "a CLIMB is always recorded, however little the tile moved", %{conn: conn} do
     put_pos({10, 20, 7})
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     view |> form("#new-route-form", %{"name" => "escada", "dungeon" => ""}) |> render_submit()
     view |> element("#toggle-recording") |> render_click()
@@ -591,7 +591,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
   test "recording without an active route warns instead of recording into the void", %{conn: conn} do
     put_pos({10, 20, 7})
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     html = view |> element("#toggle-recording") |> render_click()
 
@@ -672,7 +672,7 @@ defmodule PokexWeb.CavebotLiveTest do
     route_with([{10, 10, 7}, {20, 10, 7}, {20, 25, 7}])
     put_pos({12, 10, 7})
 
-    {:ok, _view, html} = live(conn, ~p"/cavebot")
+    {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
     assert html =~ ~s(id="route-map")
     assert html =~ ~s(id="map-waypoint-0")
@@ -684,7 +684,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
   test "clicking a waypoint on the map selects it in the editor", %{conn: conn} do
     route_with([{10, 10, 7}, {20, 10, 7}])
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     html = view |> element("#map-waypoint-1") |> render_click()
     assert html =~ "border-pk-warn bg-pk-warn-dim"
@@ -698,7 +698,7 @@ defmodule PokexWeb.CavebotLiveTest do
     route_with([{10, 10, 7}, {20, 10, 7}, {30, 10, 7}])
     put_pos({15, 10, 7})
 
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     view |> element("#waypoint-down-0") |> render_click()
     assert [%Route{waypoints: [%{x: 20}, %{x: 10}, %{x: 30}]}] = Store.all()
@@ -716,7 +716,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
   test "the ends of a route move nothing — the button is a no-op, never an error", %{conn: conn} do
     route_with([{10, 10, 7}, {20, 10, 7}])
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     assert view |> element("#waypoint-up-0") |> render() =~ "disabled"
     assert view |> element("#waypoint-down-1") |> render() =~ "disabled"
@@ -726,7 +726,7 @@ defmodule PokexWeb.CavebotLiveTest do
     conn: conn
   } do
     route_with([{10, 10, 7}])
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     view |> element("#toggle-route-enabled") |> render_click()
     assert [%Route{enabled?: false}] = Store.all()
@@ -766,7 +766,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
   test "the rehearsal names WHICH link broke, not just 'não andou'", %{conn: conn} do
     route_with([{10, 10, 7}])
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     # no position read: nothing is pressed, and the screen says why
     send(view.pid, {:walk_test, {:error, :no_position}})
@@ -789,7 +789,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
   test "the rehearsal button is there and arms without a hunt", %{conn: conn} do
     route_with([{10, 10, 7}])
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     html = view |> element("#walk-test") |> render_click()
     assert html =~ "andando…"
@@ -799,7 +799,7 @@ defmodule PokexWeb.CavebotLiveTest do
   # click — the state it was left in when its default hands did not exist.
   test "a rehearsal that dies mid-way says so instead of spinning forever", %{conn: conn} do
     route_with([{10, 10, 7}])
-    {:ok, view, _html} = live(conn, ~p"/cavebot")
+    {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
     view |> element("#walk-test") |> render_click()
     ref = :sys.get_state(view.pid).socket.assigns.walk_ref
@@ -812,7 +812,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
   test "the route photos have their place before they exist", %{conn: conn} do
     route_with([{10, 10, 7}])
-    {:ok, _view, html} = live(conn, ~p"/cavebot")
+    {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
     assert html =~ ~s(id="route-photos")
     assert html =~ "início da rota"
@@ -830,7 +830,7 @@ defmodule PokexWeb.CavebotLiveTest do
       :ok = Store.add(%{a | enabled?: true})
       :ok = Store.add(%{b | enabled?: true})
 
-      {:ok, view, html} = live(conn, ~p"/cavebot")
+      {:ok, view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       # "teste" is the one the hunt would take (first armed); the page is
       # showing it, so no warning yet
@@ -852,7 +852,7 @@ defmodule PokexWeb.CavebotLiveTest do
       {:ok, a} = Route.append(Route.new("teste"), {10, 10, 5})
       :ok = Store.add(%{a | enabled?: false})
 
-      {:ok, _view, html} = live(conn, ~p"/cavebot")
+      {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert html =~ ~s(id="none-armed")
     end
@@ -871,7 +871,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "the header counts the floors, not just the first", %{conn: conn} do
       stairs_route!()
-      {:ok, _view, html} = live(conn, ~p"/cavebot")
+      {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert html =~ "andares 6 e 7"
       refute html =~ "andar 7</span>"
@@ -879,7 +879,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "the climb is written on the waypoint it lands on, and drawn dotted", %{conn: conn} do
       stairs_route!()
-      {:ok, _view, html} = live(conn, ~p"/cavebot")
+      {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert html =~ "⇅ andar 6"
       assert html =~ ~s(stroke-dasharray="1 2")
@@ -894,7 +894,7 @@ defmodule PokexWeb.CavebotLiveTest do
       stairs_route!()
       put_pos({10, 10, 7})
 
-      {:ok, _view, html} = live(conn, ~p"/cavebot")
+      {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert html =~ ~s(id="map-floor-legend")
       assert html =~ "andar 7 · outros apagados"
@@ -905,14 +905,14 @@ defmodule PokexWeb.CavebotLiveTest do
       route_with([{10, 10, 7}, {20, 10, 7}])
       put_pos({10, 10, 7})
 
-      {:ok, _view, html} = live(conn, ~p"/cavebot")
+      {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute html =~ ~s(id="map-floor-legend")
     end
 
     test "a one-floor route says nothing about floors on its waypoints", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}])
-      {:ok, _view, html} = live(conn, ~p"/cavebot")
+      {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert html =~ "andar 7"
       refute html =~ "⇅ andar"
@@ -925,7 +925,7 @@ defmodule PokexWeb.CavebotLiveTest do
   describe "correcting a point by hand" do
     test "typing the tile moves the waypoint and keeps its marks", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-1") |> render_click()
       view |> element("#waypoint-1-lure_end") |> render_click()
@@ -941,7 +941,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "a blank field keeps what was there", %{conn: conn} do
       route_with([{10, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
       view |> form("#waypoint-place-0", %{"x" => "15", "y" => "", "z" => ""}) |> render_submit()
@@ -951,7 +951,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "garbage is refused, and nothing moves", %{conn: conn} do
       route_with([{10, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
       html = view |> form("#waypoint-place-0", %{"x" => "abc"}) |> render_submit()
@@ -963,7 +963,7 @@ defmodule PokexWeb.CavebotLiveTest do
     test "'é aqui que eu estou' uses the live position", %{conn: conn} do
       route_with([{10, 10, 7}])
       put_pos({33, 44, 5})
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
       html = view |> element("#waypoint-place-here-0") |> render_click()
@@ -994,7 +994,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "typing a distance saves it, and the hint says where it lands", %{conn: conn} do
       route_with([{10, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
 
@@ -1015,7 +1015,7 @@ defmodule PokexWeb.CavebotLiveTest do
       {:ok, route} = Route.append(Route.new("cavena"), {10, 10, 7})
       :ok = route |> Route.set_park_point(0, {2300, 500}) |> Store.add()
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
       view |> element("#map-waypoint-0") |> render_click()
 
       assert view |> element("#waypoint-park-0") |> render() =~ ~s(value="6")
@@ -1023,7 +1023,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "the ruler saved with it is the unit of the numbers above it", %{conn: conn} do
       route_with([{10, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
 
@@ -1046,7 +1046,7 @@ defmodule PokexWeb.CavebotLiveTest do
         Pokex.Settings.put(:cavebot_park_tiles_y, elem(before, 1))
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
 
@@ -1066,7 +1066,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "tirar takes the waypoint back to having no spot", %{conn: conn} do
       route_with([{10, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
 
@@ -1086,7 +1086,7 @@ defmodule PokexWeb.CavebotLiveTest do
   describe "a waypoint carries a job" do
     test "the job buttons appear on the SELECTED waypoint and nowhere else", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}])
-      {:ok, view, html} = live(conn, ~p"/cavebot")
+      {:ok, view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute html =~ ~s(id="waypoint-job-0")
 
@@ -1098,7 +1098,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "marking a stretch persists it and paints the leg blue", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}, {20, 20, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
       view |> element("#waypoint-0-lure_start") |> render_click()
@@ -1117,7 +1117,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "a plain route is not blue anywhere", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}, {20, 20, 7}])
-      {:ok, _view, html} = live(conn, ~p"/cavebot")
+      {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute html =~ "var(--color-pk-info)"
       refute html =~ ~s(id="map-lure-legend")
@@ -1127,7 +1127,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # "the hunt stopped fighting", with no error anywhere.
     test "a stretch left open warns, and closing it takes the warning away", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
       html = view |> element("#waypoint-0-lure_start") |> render_click()
@@ -1144,7 +1144,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # compete for the one slot.
     test "a waypoint can gather AND reset cooldowns AND wait", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-1") |> render_click()
       view |> element("#waypoint-1-lure_end") |> render_click()
@@ -1190,7 +1190,7 @@ defmodule PokexWeb.CavebotLiveTest do
       assert [%Route{name: ^name, waypoints: [%{stops: [:cooldown_revive]} | _rest]}] =
                Store.all()
 
-      {:ok, view, html} = live(conn, ~p"/cavebot")
+      {:ok, view, html} = live(conn, ~p"/cavebot?modo=editar")
       refute html =~ "varrer"
       refute has_element?(view, "#waypoint-0-sweep")
     end
@@ -1208,7 +1208,7 @@ defmodule PokexWeb.CavebotLiveTest do
         |> Route.set_action(2, :lure_end)
         |> Store.add()
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       html = view |> element("#tidy-marks") |> render_click()
 
@@ -1222,7 +1222,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     test "a job can be taken back", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
       view |> element("#waypoint-0-lure_start") |> render_click()
@@ -1405,7 +1405,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # waypoint. Five of them on each of his 67 corners was 335 buttons for the
     # handful of corners that carry one.
     test "os chips só existem no waypoint selecionado", %{conn: conn} do
-      {:ok, view, html} = live(conn, ~p"/cavebot")
+      {:ok, view, html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute html =~ ~s(id="waypoint-skill-0-buffs")
 
@@ -1415,7 +1415,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "clicar no chip liga a categoria no waypoint", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
 
@@ -1428,7 +1428,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "clicar de novo desliga", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
       view |> element("#waypoint-skill-0-buffs") |> render_click()
@@ -1444,7 +1444,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # `SkillProfile.label/1` to name it, which has one clause per category and
     # no catch-all.
     test "uma categoria forjada não derruba a página", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       render_click(view, "toggle_waypoint_skill", %{"index" => "0", "skill" => "swim"})
 
@@ -1456,7 +1456,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # The row keeps a read-only badge so the list still says which corners
     # carry an order, without carrying the buttons that change it.
     test "a linha mostra em selo o que o canto carrega, e só onde carrega", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
       view |> element("#waypoint-skill-0-buffs") |> render_click()
@@ -1474,7 +1474,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "a régua da rota é salva", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view
       |> form("#route-gather-wait", %{"gather_wait_ms" => "1800"})
@@ -1488,14 +1488,14 @@ defmodule PokexWeb.CavebotLiveTest do
     # same "guardar" the park form has: typing 1200 and clicking away must not
     # be the way he loses it.
     test "as duas réguas têm onde clicar pra guardar", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert has_element?(view, "#route-gather-wait-save")
       assert has_element?(view, "#waypoint-gather-wait-save-0")
     end
 
     test "campo vazio devolve o comando pro número global", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> form("#route-gather-wait", %{"gather_wait_ms" => "1800"}) |> render_submit()
       view |> form("#route-gather-wait", %{"gather_wait_ms" => ""}) |> render_submit()
@@ -1505,7 +1505,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "o respiro do waypoint é salvo e ganha da rota", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> form("#route-gather-wait", %{"gather_wait_ms" => "1800"}) |> render_submit()
 
@@ -1521,7 +1521,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # trip through the form, where an empty field means the opposite ("I have
     # no ruler here, ask the route").
     test "zero é guardado como zero, não como campo vazio", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> form("#waypoint-gather-wait-0", %{"gather_wait_ms" => "0"}) |> render_submit()
 
@@ -1533,7 +1533,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # The huddle exists where the pile closes and nowhere else: waypoint 1 is a
     # plain corner.
     test "o campo do respiro não existe num canto comum", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert has_element?(view, "#waypoint-gather-wait-0")
       refute has_element?(view, "#waypoint-gather-wait-1")
@@ -1556,7 +1556,7 @@ defmodule PokexWeb.CavebotLiveTest do
       # inside cavebot_gather_wait_min_ms..cavebot_gather_wait_max_ms (500..8000)
       kill_spot_with(3_300)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert view |> element("#waypoint-gather-wait-0") |> render() =~
                "suas mãos esperaram 3300ms aqui"
@@ -1565,7 +1565,7 @@ defmodule PokexWeb.CavebotLiveTest do
     test "uma medição fora da faixa não é oferecida", %{conn: conn} do
       kill_spot_with(12_000)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute view |> element("#waypoint-gather-wait-0") |> render() =~ "suas mãos esperaram"
     end
@@ -1573,7 +1573,7 @@ defmodule PokexWeb.CavebotLiveTest do
     test "uma medição curta demais também não", %{conn: conn} do
       kill_spot_with(120)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute view |> element("#waypoint-gather-wait-0") |> render() =~ "suas mãos esperaram"
     end
@@ -1581,7 +1581,7 @@ defmodule PokexWeb.CavebotLiveTest do
     test "sem medição nenhuma, nada é oferecido", %{conn: conn} do
       kill_spot_with(nil)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute view |> element("#waypoint-gather-wait-0") |> render() =~ "suas mãos esperaram"
     end
@@ -1591,7 +1591,7 @@ defmodule PokexWeb.CavebotLiveTest do
     test "um clique adota a medição como régua do waypoint", %{conn: conn} do
       kill_spot_with(3_300)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#waypoint-gather-wait-adopt-0") |> render_click()
 
@@ -1603,7 +1603,7 @@ defmodule PokexWeb.CavebotLiveTest do
     test "sem medição não existe botão pra adotar", %{conn: conn} do
       kill_spot_with(nil)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute has_element?(view, "#waypoint-gather-wait-adopt-0")
     end
@@ -1611,7 +1611,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
   describe "the stop banner" do
     test "a blocked hunt is announced with its reason", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       send(view.pid, {:cavebot, %{state: :blocked, hold_reason: "a caçada parou (escada)"}})
 
@@ -1623,7 +1623,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # asking to be rescued: the difference between "vai lá consertar" and
     # "deixa que ela volta" is the whole tone of a 3am screen.
     test "a hunt with a comeback scheduled says it will try again", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       send(
         view.pid,
@@ -1640,7 +1640,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "a held hunt shows the hold without the alarm", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       send(
         view.pid,
@@ -1652,7 +1652,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "a walking hunt with no hold shows no banner", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       send(view.pid, {:cavebot, %{state: :walking, hold_reason: nil}})
       render(view)
@@ -1685,7 +1685,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "the corner it walks to is marked on the map and on the list", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
       hunting!(view, 1)
 
       assert has_element?(view, "#map-heading-1")
@@ -1694,7 +1694,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "the header counts the progress while it runs", %{conn: conn} do
-      {:ok, view, html} = live(conn, ~p"/cavebot")
+      {:ok, view, html} = live(conn, ~p"/cavebot?modo=editar")
       refute html =~ "waypoint 2/3"
 
       hunting!(view, 1)
@@ -1704,7 +1704,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # He edits one route while another is armed: a mark on the list he happens
     # to be looking at would be a lie.
     test "another route's hunt marks nothing here", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
       hunting!(view, 1, "outra")
 
       refute has_element?(view, "#map-heading-1")
@@ -1714,7 +1714,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # The mark only helps if it is ON SCREEN: 7 rows of 70 are visible, so the
     # list carries the target for the client hook that follows it.
     test "the list publishes the target for the follow hook", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
       hunting!(view, 2)
 
       list = view |> element("#waypoint-list") |> render()
@@ -1725,7 +1725,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # The morning question is "o que ocorreu", and corners alone do not answer
     # it. Incidents only take space when they happened.
     test "the incidents show up beside the progress, and stay quiet at zero", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       send(
         view.pid,
@@ -1762,7 +1762,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "a stopped hunt marks nothing", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       send(
         view.pid,
@@ -1784,7 +1784,7 @@ defmodule PokexWeb.CavebotLiveTest do
       {:ok, route} = Route.append(route, {2290, 30_014, 5})
       :ok = Store.add(route)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       doctor = view |> element("#route-doctor") |> render()
       assert doctor =~ "1 canto(s) em cima do anterior"
@@ -1797,7 +1797,7 @@ defmodule PokexWeb.CavebotLiveTest do
       {:ok, route} = Route.append(route, {2310, 30_021, 5})
       :ok = Store.add(route)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert view |> element("#route-doctor") |> render() =~ "escada de ida e volta"
     end
@@ -1807,7 +1807,7 @@ defmodule PokexWeb.CavebotLiveTest do
       {:ok, route} = Route.append(route, {2310, 30_014, 5})
       :ok = Store.add(route)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute has_element?(view, "#route-doctor")
     end
@@ -1866,7 +1866,7 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "stays off the screen entirely while the engine has said nothing", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute has_element?(view, "#engine-brain")
     end
@@ -1885,7 +1885,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
       :ok = Store.add(route)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       assert view |> element("#map-waypoint-2") |> render() =~ ~s{fill="var(--color-pk-info)"}
 
@@ -1957,7 +1957,7 @@ defmodule PokexWeb.CavebotLiveTest do
       {:ok, route} = Route.append(Route.new("cavena"), {1, 1, 7})
       :ok = Store.add(route)
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       bench = view |> element("#cavebot-workbench") |> render()
       assert bench =~ "lg:flex-1"
@@ -2029,7 +2029,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # the tile in between. Like every other badge in that row, it lands on the
     # waypoint the leg ARRIVES at — waypoint 2, `#waypoint-1`.
     test "a clean stair leg says where the step is", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       row = view |> element("#waypoint-1") |> render()
 
@@ -2041,7 +2041,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # into the corner. It must be called out, not silently left to the ring
     # search — and named with the rule he can act on.
     test "a dirty stair leg is named as dirty", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       row = view |> element("#waypoint-2") |> render()
 
@@ -2054,7 +2054,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # not in the recording at all: the page says what is wrong and what the rule
     # is, and never guesses a coordinate.
     test "a dirty stair leg is given no coordinates", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute view |> element("#waypoint-2") |> render() =~ "o degrau é"
     end
@@ -2063,7 +2063,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # one that arrives at it splits a staircase across two rows and parks "não
     # está limpa" beside the climb that is actually clean.
     test "the step and its own climb sit on the same row", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       clean = view |> element("#waypoint-1") |> render()
       crooked = view |> element("#waypoint-2") |> render()
@@ -2085,7 +2085,7 @@ defmodule PokexWeb.CavebotLiveTest do
   test "a one-floor route says nothing about stairs", %{conn: conn} do
     route_with([{10, 10, 7}, {20, 10, 7}, {20, 20, 7}])
 
-    {:ok, view, html} = live(conn, ~p"/cavebot")
+    {:ok, view, html} = live(conn, ~p"/cavebot?modo=editar")
 
     refute html =~ "escada: o degrau"
     refute html =~ "não está limpa"
@@ -2207,9 +2207,101 @@ defmodule PokexWeb.CavebotLiveTest do
     test "e cala a boca quando ele está no padrão", %{conn: conn} do
       Pokex.SettingsStash.stash!(combat_skill_gap_ms: 35, combat_skill_burst_size: 3)
 
-      {:ok, _live, html} = live(conn, ~p"/cavebot")
+      {:ok, _live, html} = live(conn, ~p"/cavebot?modo=editar")
 
       refute html =~ "é isso que limita o dano da caçada"
+    end
+  end
+
+  # "eu não consigo enxergar tudo na minha tela (…) eu quero ver sempre o mapa
+  # inteiro aberto na minha tela" (Lucas, 2026-08-28). Watching a hunt and
+  # editing a route stopped sharing one long page: each half gets the screen,
+  # and the map is on both.
+  describe "assistir e editar" do
+    test "assistir is what the bare URL opens, and it carries no route editor", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+      {:ok, view, html} = live(conn, ~p"/cavebot")
+
+      # the cockpit: the drawing, the fight, the world and the feed
+      assert has_element?(view, "#cavebot-cockpit")
+      assert has_element?(view, "#cavebot-map")
+      assert has_element?(view, "#cavebot-loadout")
+      assert has_element?(view, "#cavebot-world")
+      assert has_element?(view, "#cavebot-log")
+      assert has_element?(view, "#cavebot-safety")
+
+      # …and nothing that edits a route
+      refute has_element?(view, "#cavebot-workbench")
+      refute has_element?(view, "#cavebot-waypoints")
+      refute has_element?(view, "#cavebot-routes")
+      refute has_element?(view, "#toggle-recording")
+      refute html =~ "Marcar um só"
+    end
+
+    test "editar carries the map too, beside the route and its corners", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
+
+      assert has_element?(view, "#cavebot-workbench")
+      # the drawing is on BOTH sides: editing a corner without seeing it is the
+      # scrolling exercise this replaced
+      assert has_element?(view, "#cavebot-map")
+      assert has_element?(view, "#cavebot-routes")
+      assert has_element?(view, "#cavebot-waypoints")
+      assert has_element?(view, "#cavebot-recorder")
+      assert has_element?(view, "#toggle-recording")
+
+      refute has_element?(view, "#cavebot-cockpit")
+      refute has_element?(view, "#cavebot-log")
+    end
+
+    # The mode is a `patch`, not a reload: the tab he leaves open all night
+    # keeps the feed, the selected corner and a recording in progress.
+    test "switching modes keeps the page alive, and the selected corner with it", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
+
+      view |> element("#map-waypoint-1") |> render_click()
+      assert has_element?(view, "#waypoint-detail")
+
+      view |> element("#cavebot-mode-watch") |> render_click()
+      assert has_element?(view, "#cavebot-cockpit")
+      refute has_element?(view, "#waypoint-detail")
+
+      view |> element("#cavebot-mode-edit") |> render_click()
+      assert has_element?(view, "#waypoint-detail")
+    end
+
+    test "a mode nobody knows is watching, not a blank page", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=trapezio")
+
+      assert has_element?(view, "#cavebot-cockpit")
+      assert has_element?(view, "#cavebot-mode-watch[aria-current='page']")
+    end
+
+    # An alert is worth nothing on the half of the page he is not looking at.
+    test "the banners are on both sides", %{conn: conn} do
+      route_with([{10, 10, 7}])
+
+      for mode <- ["", "?modo=editar"] do
+        {:ok, _view, html} = live(conn, "/cavebot" <> mode)
+        assert html =~ "O minimapa não está calibrado nesta tela"
+      end
+    end
+
+    # The instruments measure the fight and answer to nobody: they belong under
+    # a click, not on the screen he watches the hunt on.
+    test "the instruments are folded away, and only in assistir", %{conn: conn} do
+      route_with([{10, 10, 7}])
+
+      {:ok, view, html} = live(conn, ~p"/cavebot")
+      assert has_element?(view, "#cavebot-instruments")
+      assert has_element?(view, "#cavebot-crowd")
+      refute html =~ ~s(<details id="cavebot-instruments" open)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
+      refute has_element?(view, "#cavebot-instruments")
     end
   end
 end

@@ -293,7 +293,7 @@ defmodule PokexWeb.CalibrationOverlay do
       <div
         :if={@minimap_player_point}
         class={[
-          "absolute -ml-2 -mt-2 grid size-4 place-items-center rounded-full text-pk-meta font-black leading-none text-info",
+          "absolute -ml-2 -mt-2 grid size-4 place-items-center rounded-full text-pk-meta font-black leading-none text-pk-info",
           box(@quiet, "border-2 border-info bg-info/30 shadow", "border border-info/80")
         ]}
         style={point_style(@minimap_player_point, @screen)}
@@ -312,7 +312,7 @@ defmodule PokexWeb.CalibrationOverlay do
 
   def legend(assigns) do
     ~H"""
-    <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+    <div class="flex flex-wrap gap-x-4 gap-y-1 text-pk-meta">
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-sm border-2 border-error bg-error/25" /> bandas do lock (L0…)
       </span>
@@ -382,7 +382,7 @@ defmodule PokexWeb.CalibrationOverlay do
 
     ~H"""
     <div :if={@crops != []} id="read-crops" class="space-y-2">
-      <p class="text-xs opacity-70">
+      <p class="text-pk-meta opacity-70">
         Isto é <b>exatamente</b>
         o que o bot lê em cada área — ampliado. Se algo aqui estiver
         cortado ou pegando o vizinho, {if @adjustable?,
@@ -411,8 +411,8 @@ defmodule PokexWeb.CalibrationOverlay do
               id="coord-probe"
               class={[
                 "rounded px-1 font-mono text-pk-meta font-bold",
-                match?({:ok, _}, @coord_probe) && "bg-success/20 text-success",
-                @coord_probe == :error && "bg-error/20 text-error"
+                match?({:ok, _}, @coord_probe) && "bg-success/20 text-pk-ok",
+                @coord_probe == :error && "bg-error/20 text-pk-danger"
               ]}
             >
               {case @coord_probe do
@@ -423,14 +423,14 @@ defmodule PokexWeb.CalibrationOverlay do
             <span
               :if={key == :minimap_player_point and @stray_cross != nil}
               id="stray-cross"
-              class="rounded bg-error/20 px-1 font-mono text-pk-meta font-bold text-error"
+              class="rounded bg-error/20 px-1 font-mono text-pk-meta font-bold text-pk-danger"
               title={"a cruz foi marcada em #{inspect(@stray_cross)}, fora do mapa — todo passo partiria do canto. Remarca a cruz."}
             >
               cruz fora do mapa — usando o centro
             </span>
           </div>
           <div
-            class="rounded border border-base-content/30 bg-base-300"
+            class="rounded border border-pk-line-strong bg-pk-sunken"
             style={crop_style(region, @screen)}
           />
           <div

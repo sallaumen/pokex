@@ -11,7 +11,7 @@ defmodule PokexWeb.FishingLabLive do
     ~H"""
     <Layouts.app flash={@flash} current_page={:fishing_lab} {Layouts.header(assigns)}>
       <div class="space-y-5">
-        <section class="overflow-hidden rounded-2xl border border-base-content/10 bg-base-200">
+        <section class="overflow-hidden rounded-lg border border-pk-line bg-pk-surface">
           <div class="grid gap-0 lg:grid-cols-[minmax(0,1fr)_16rem]">
             <div class="p-5">
               <div class="mb-3 flex flex-wrap items-center gap-2">
@@ -21,19 +21,19 @@ defmodule PokexWeb.FishingLabLive do
                 <span class="badge badge-ghost">jogo a 60 FPS · visao configuravel</span>
                 <span class="badge badge-ghost">input minimo 50ms</span>
               </div>
-              <h1 class="text-2xl font-bold tracking-tight">Laboratorio do peixe</h1>
-              <p class="mt-2 max-w-2xl text-sm leading-6 text-base-content/70">
+              <h1 class="text-pk-title font-bold tracking-tight">Laboratorio do peixe</h1>
+              <p class="mt-2 max-w-2xl text-pk-body leading-6 text-pk-text-2">
                 Um minigame isolado para calibrar a fisica da barra, testar deteccao por
                 diferenca de fundo e medir um piloto automatico com limites de atuacao.
                 Nada aqui envia tecla para fora da pagina.
               </p>
             </div>
 
-            <div class="border-t border-base-content/10 bg-base-300/70 p-5 lg:border-l lg:border-t-0">
-              <p class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
+            <div class="border-t border-pk-line bg-pk-sunken p-5 lg:border-l lg:border-t-0">
+              <p class="text-pk-meta font-semibold uppercase tracking-wide text-pk-text-3">
                 Modelo
               </p>
-              <p class="mt-2 text-sm leading-6">
+              <p class="mt-2 text-pk-body leading-6">
                 O peixe combina ondas, impulso aleatorio e amortecimento. O detector olha
                 pixels diferentes do fundo, entao a cor do peixe pode variar sem mudar o
                 algoritmo.
@@ -47,11 +47,11 @@ defmodule PokexWeb.FishingLabLive do
           phx-hook="FishingLab"
           phx-update="ignore"
           data-min-toggle-ms="50"
-          class="rounded-2xl border border-base-content/10 bg-base-200 p-3 shadow-sm sm:p-4"
+          class="rounded-lg border border-pk-line bg-pk-surface p-3 shadow-sm sm:p-4"
         >
           <div class="grid gap-4 lg:grid-cols-[minmax(0,420px)_1fr]">
             <div class="space-y-3">
-              <div class="relative overflow-hidden rounded-xl border border-base-content/10 bg-base-300">
+              <div class="relative overflow-hidden rounded-xl border border-pk-line bg-pk-sunken">
                 <canvas
                   id="fishing-game-canvas"
                   width="420"
@@ -60,23 +60,25 @@ defmodule PokexWeb.FishingLabLive do
                   aria-label="Simulador local do minigame de pesca"
                   class="block aspect-[420/680] w-full cursor-crosshair outline-none"
                 ></canvas>
-                <div class="pointer-events-none absolute left-3 top-3 rounded-lg bg-black/55 px-2.5 py-1.5 text-xs font-semibold text-white backdrop-blur">
+                <div class="pointer-events-none absolute left-3 top-3 rounded-lg bg-black/55 px-2.5 py-1.5 text-pk-meta font-semibold text-white backdrop-blur">
                   Space: segurar/soltar
                 </div>
               </div>
 
-              <div class="grid grid-cols-3 gap-2 text-center text-xs">
-                <div class="rounded-lg border border-base-content/10 bg-base-300 px-2 py-2">
+              <div class="grid grid-cols-3 gap-2 text-center text-pk-meta">
+                <div class="rounded-lg border border-pk-line bg-pk-sunken px-2 py-2">
                   <div class="text-pk-meta uppercase tracking-wide opacity-50">Progresso</div>
-                  <div data-stat="progress" class="mt-1 text-lg font-bold tabular-nums">0%</div>
+                  <div data-stat="progress" class="mt-1 text-pk-title font-bold tabular-nums">0%</div>
                 </div>
-                <div class="rounded-lg border border-base-content/10 bg-base-300 px-2 py-2">
+                <div class="rounded-lg border border-pk-line bg-pk-sunken px-2 py-2">
                   <div class="text-pk-meta uppercase tracking-wide opacity-50">Sobreposicao</div>
-                  <div data-stat="overlap" class="mt-1 text-lg font-bold tabular-nums">0%</div>
+                  <div data-stat="overlap" class="mt-1 text-pk-title font-bold tabular-nums">0%</div>
                 </div>
-                <div class="rounded-lg border border-base-content/10 bg-base-300 px-2 py-2">
+                <div class="rounded-lg border border-pk-line bg-pk-sunken px-2 py-2">
                   <div class="text-pk-meta uppercase tracking-wide opacity-50">FPS visao</div>
-                  <div data-stat="vision-fps" class="mt-1 text-lg font-bold tabular-nums">0</div>
+                  <div data-stat="vision-fps" class="mt-1 text-pk-title font-bold tabular-nums">
+                    0
+                  </div>
                 </div>
               </div>
             </div>
@@ -123,44 +125,50 @@ defmodule PokexWeb.FishingLabLive do
                 </div>
               </div>
 
-              <div class="rounded-xl border border-base-content/10 bg-base-300 p-3">
+              <div class="rounded-xl border border-pk-line bg-pk-sunken p-3">
                 <div class="mb-2 flex items-center justify-between gap-2">
-                  <h2 class="text-sm font-semibold">Estado do piloto</h2>
+                  <h2 class="text-pk-body font-semibold">Estado do piloto</h2>
                   <span data-stat="press-state" class="badge badge-ghost">solto</span>
                 </div>
-                <div class="grid grid-cols-2 gap-2 text-xs">
+                <div class="grid grid-cols-2 gap-2 text-pk-meta">
                   <div>
                     <div class="opacity-50">Acao/min</div>
-                    <div data-stat="actions" class="text-lg font-semibold tabular-nums">0</div>
+                    <div data-stat="actions" class="text-pk-title font-semibold tabular-nums">0</div>
                   </div>
                   <div>
                     <div class="opacity-50">Confianca visual</div>
-                    <div data-stat="confidence" class="text-lg font-semibold tabular-nums">0%</div>
+                    <div data-stat="confidence" class="text-pk-title font-semibold tabular-nums">
+                      0%
+                    </div>
                   </div>
                   <div>
                     <div class="opacity-50">Erro medio</div>
-                    <div data-stat="error" class="text-lg font-semibold tabular-nums">0px</div>
+                    <div data-stat="error" class="text-pk-title font-semibold tabular-nums">0px</div>
                   </div>
                   <div>
                     <div class="opacity-50">Rodada</div>
-                    <div data-stat="round" class="text-lg font-semibold tabular-nums">1</div>
+                    <div data-stat="round" class="text-pk-title font-semibold tabular-nums">1</div>
                   </div>
                   <div>
                     <div class="opacity-50">Ultima leitura</div>
-                    <div data-stat="reading-age" class="text-lg font-semibold tabular-nums">—</div>
+                    <div data-stat="reading-age" class="text-pk-title font-semibold tabular-nums">
+                      —
+                    </div>
                   </div>
                   <div>
                     <div class="opacity-50">Placar</div>
-                    <div data-stat="score" class="text-lg font-semibold tabular-nums">0V · 0D</div>
+                    <div data-stat="score" class="text-pk-title font-semibold tabular-nums">
+                      0V · 0D
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div class="space-y-3 rounded-xl border border-base-content/10 bg-base-300 p-3">
+              <div class="space-y-3 rounded-xl border border-pk-line bg-pk-sunken p-3">
                 <label for="fishing-lab-difficulty" class="block">
-                  <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+                  <div class="mb-1 flex items-center justify-between gap-3 text-pk-body">
                     <span>Dificuldade</span>
-                    <span data-output="difficulty" class="font-mono text-xs opacity-60">65%</span>
+                    <span data-output="difficulty" class="font-mono text-pk-meta opacity-60">65%</span>
                   </div>
                   <input
                     id="fishing-lab-difficulty"
@@ -174,9 +182,9 @@ defmodule PokexWeb.FishingLabLive do
                 </label>
 
                 <label for="fishing-lab-latency" class="block">
-                  <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+                  <div class="mb-1 flex items-center justify-between gap-3 text-pk-body">
                     <span>Latencia do piloto</span>
-                    <span data-output="latency" class="font-mono text-xs opacity-60">110ms</span>
+                    <span data-output="latency" class="font-mono text-pk-meta opacity-60">110ms</span>
                   </div>
                   <input
                     id="fishing-lab-latency"
@@ -191,9 +199,9 @@ defmodule PokexWeb.FishingLabLive do
                 </label>
 
                 <label for="fishing-lab-deadband" class="block">
-                  <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+                  <div class="mb-1 flex items-center justify-between gap-3 text-pk-body">
                     <span>Zona morta</span>
-                    <span data-output="deadband" class="font-mono text-xs opacity-60">13px</span>
+                    <span data-output="deadband" class="font-mono text-pk-meta opacity-60">13px</span>
                   </div>
                   <input
                     id="fishing-lab-deadband"
@@ -207,9 +215,9 @@ defmodule PokexWeb.FishingLabLive do
                 </label>
 
                 <label for="fishing-lab-vision-fps" class="block">
-                  <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+                  <div class="mb-1 flex items-center justify-between gap-3 text-pk-body">
                     <span>FPS da visao</span>
-                    <span data-output="vision-fps" class="font-mono text-xs opacity-60">7 fps · ~143ms</span>
+                    <span data-output="vision-fps" class="font-mono text-pk-meta opacity-60">7 fps · ~143ms</span>
                   </div>
                   <input
                     id="fishing-lab-vision-fps"
@@ -223,9 +231,9 @@ defmodule PokexWeb.FishingLabLive do
                 </label>
 
                 <label for="fishing-lab-loss" class="block">
-                  <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+                  <div class="mb-1 flex items-center justify-between gap-3 text-pk-body">
                     <span>Leituras perdidas</span>
-                    <span data-output="loss" class="font-mono text-xs opacity-60">0%</span>
+                    <span data-output="loss" class="font-mono text-pk-meta opacity-60">0%</span>
                   </div>
                   <input
                     id="fishing-lab-loss"
@@ -239,7 +247,7 @@ defmodule PokexWeb.FishingLabLive do
                   />
                 </label>
 
-                <label class="flex cursor-pointer items-center justify-between gap-3 text-sm">
+                <label class="flex cursor-pointer items-center justify-between gap-3 text-pk-body">
                   <span>Deteccao por pixels</span>
                   <input
                     type="checkbox"
@@ -252,7 +260,7 @@ defmodule PokexWeb.FishingLabLive do
 
               <p
                 data-stat="message"
-                class="min-h-10 rounded-lg bg-base-100 px-3 py-2 text-sm text-base-content/70"
+                class="min-h-10 rounded-lg bg-pk-bg px-3 py-2 text-pk-body text-pk-text-2"
               >
                 O piloto esta usando apenas o detector local do canvas.
               </p>

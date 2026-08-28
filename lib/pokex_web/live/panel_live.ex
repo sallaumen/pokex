@@ -1811,7 +1811,7 @@ defmodule PokexWeb.PanelLive do
   end
 
   # "text-pk-title-content" once lived here: a mass class replacement ate
-  # daisyUI's `text-base-content` and spat out a name that exists nowhere in
+  # daisyUI's `text-pk-text` and spat out a name that exists nowhere in
   # the repo. The macro log lines lost their color and no test noticed — a
   # nonexistent class doesn't break, it just vanishes.
   #
@@ -3033,6 +3033,12 @@ defmodule PokexWeb.PanelLive do
                   <button
                     type="button"
                     phx-click="toggle_mini_game_sound"
+                    aria-pressed={to_string(@mini_game_sound)}
+                    aria-label={
+                      if @mini_game_sound,
+                        do: "Silenciar o alerta do mini-game",
+                        else: "Reativar o alerta do mini-game"
+                    }
                     title={
                       if @mini_game_sound,
                         do: "Alerta sonoro ligado — clique para silenciar",

@@ -124,6 +124,71 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   O QUE O NAVEGADOR DESENHA SOZINHO
+
+   Seleção, cursor, barra de rolagem e caixa de marcar não são desenhados por
+   ninguém aqui — e mesmo assim aparecem em toda tela. Sem tema, cada um deles
+   chega com o padrão do sistema: azul do macOS numa paleta que tem UM verde,
+   e uma barra cinza-claro atravessando um vidro quase preto. É a diferença
+   entre um app montado e um app construído, e custa vinte linhas.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Selecionar texto pra colar num relato é gesto de todo dia neste app (o feed
+   tem botão de copiar por causa disso). O azul do sistema é a única cor fora
+   da paleta que aparecia na tela. */
+::selection {
+  background: var(--color-pk-ok-dim);
+  color: var(--color-pk-text);
+}
+
+/* O cursor de texto é a única coisa que pisca numa tela parada: ele merece ser
+   o verde da máquina viva, não o preto do sistema sobre um campo escuro. */
+:is(input, textarea) {
+  caret-color: var(--color-pk-ok);
+}
+
+/* Checkbox e radio nativos: o azul deles competia com o verde do sistema em
+   toda linha de configuração. */
+:is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--color-pk-ok);
+}
+
+/* A BARRA DE ROLAGEM. Este app é feito de caixas que rolam por dentro — o
+   feed, a lista de batalha, os quarenta cantos da rota, a fileira de ajustes.
+   A barra padrão do macOS é clara e larga demais pro vidro; esta é do tom do
+   fio e engrossa quando o mouse chega, que é quando ela é útil. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-pk-line-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-pk-line-strong);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-pk-text-3);
+  background-clip: padding-box;
+}
+
+/* O canto onde as duas barras se encontram vinha branco. */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* Foco visível em tudo que é operável: este app comanda o mouse dele de
    verdade, então "onde estou" não pode depender de enxergar o cursor.
    A regra era do #panel-dashboard, mas ela não é do painel — é do app: a
@@ -133,6 +198,20 @@
 :is(button, input, select, summary, a, [role="button"]):focus-visible {
   outline: 2px solid var(--color-pk-ok);
   outline-offset: 2px;
+}
+
+/* DESLIGADO PARECE DESLIGADO, em todo lugar.
+
+   Alguns botões traziam `disabled:opacity-50 disabled:cursor-not-allowed` na
+   classe e outros não, então o mesmo estado tinha duas aparências — e a pior
+   delas é a que não tem nenhuma: um botão que parece clicável e não faz nada é
+   indistinguível de um bot travado, que é justamente a dúvida que este painel
+   existe pra tirar. Como regra do sistema, ela também vale pro botão que
+   alguém escrever depois. */
+:is(button, input, select, textarea, [role="button"]):disabled,
+:is(button, input, select, textarea, [role="button"])[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* O REVIVE SE ANUNCIANDO. Um momento só, e ele existe porque a coisa que o

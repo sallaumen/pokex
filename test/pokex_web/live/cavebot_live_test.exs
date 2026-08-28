@@ -793,6 +793,50 @@ defmodule PokexWeb.CavebotLiveTest do
     assert feed |> String.split("waypoint 7/40") |> length() == 3
   end
 
+  # A PERGUNTA DA MADRUGADA. Cada linha deste selo tem uma noite atrás dela: o
+  # resgate desligado deixou o cérebro pedir revive 556 vezes sem que uma tecla
+  # saísse (27/08), e o estoque acabou às 23:43 e ele moeu 4,9 horas com o
+  # pokémon no chão (28/08). Os fatos já estavam todos na tela, espalhados e em
+  # voz baixa; o selo junta e responde UMA coisa.
+  describe "pronto pra noite" do
+    test "com tudo armado, o selo diz que pode dormir", %{conn: conn} do
+      Pokex.SettingsStash.stash!(rescue_enabled: true, cavebot_hp_abort_pct: 60, revive_stock: 0)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#cavebot-ready") |> render() =~ "pronto pra noite"
+      refute has_element?(view, "#cavebot-ready-list")
+    end
+
+    test "o resgate desligado é dito por extenso, não escondido num title", %{conn: conn} do
+      Pokex.SettingsStash.stash!(rescue_enabled: false, cavebot_hp_abort_pct: 60)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#cavebot-ready") |> render() =~ "1 coisa antes de dormir"
+      assert view |> element("#cavebot-ready-list") |> render() =~ "ninguém revive o pokémon"
+    end
+
+    test "o estoque zerado entra na conta junto", %{conn: conn} do
+      Pokex.SettingsStash.stash!(
+        rescue_enabled: false,
+        cavebot_hp_abort_pct: 0,
+        revive_stock: 3
+      )
+
+      Pokex.Bots.ReviveLedger.reset()
+      Enum.each(1..3, fn _ -> Pokex.Bots.ReviveLedger.note() end)
+      on_exit(&Pokex.Bots.ReviveLedger.reset/0)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      lista = view |> element("#cavebot-ready-list") |> render()
+
+      assert view |> element("#cavebot-ready") |> render() =~ "3 coisas antes de dormir"
+      assert lista =~ "revives acabaram"
+      assert lista =~ "guarda de vida está desligada"
+    end
+  end
+
   # "Queria conseguir JOGAR o jogo totalmente pela tela do cave bot (…) preciso
   # da tela me dando um pouco mais de detalhes do que a IA tá vendo sobre o
   # mundo, até para eu tb ajudar a dar feedbacks sobre pontos que ela tá vendo

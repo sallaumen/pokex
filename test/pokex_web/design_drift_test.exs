@@ -60,6 +60,57 @@ defmodule PokexWeb.DesignDriftTest do
            """
   end
 
+  # A ESCALA DO TAILWIND É UM SEGUNDO SISTEMA. `text-sm` são 14px e `text-base`
+  # são 16 — degraus que este sistema não tem, e que chegavam de graça em toda
+  # página nova porque são o que a mão digita sem pensar. Eram 108 quando a
+  # migração fechou (28/08), concentrados nas duas telas de pesca, que tinham
+  # nascido no visual genérico do daisyUI.
+  test "ninguém volta a usar a escala do Tailwind por cima da nossa" do
+    offenders =
+      for path <- templates(),
+          source = File.read!(path),
+          [full] <- Regex.scan(~r/\btext-(?:xs|sm|base|lg|xl|2xl|3xl)\b/, source),
+          not comment_line?(source, full),
+          do: "#{Path.relative_to(path, @web)}: #{full}"
+
+    assert offenders == [],
+           """
+           Escala do Tailwind em vez da nossa. text-xs→pk-meta, text-sm→pk-body,
+           text-base/lg/xl→pk-title:
+
+           #{Enum.join(Enum.uniq(offenders), "\n")}
+           """
+  end
+
+  # As duas telas de pesca vieram do gerador com `bg-base-200` e amigos: um
+  # tema paralelo, que não responde aos tokens e não foi revisado por contraste.
+  test "nenhuma superfície do daisyUI genérico sobrou" do
+    offenders =
+      for path <- templates(),
+          source = File.read!(path),
+          [full] <- Regex.scan(~r/\b(?:bg|text|border)-base-(?:100|200|300|content)\b/, source),
+          do: "#{Path.relative_to(path, @web)}: #{full}"
+
+    assert offenders == [],
+           """
+           Superfície genérica do daisyUI. Use os quatro tons do sistema
+           (pk-bg / pk-sunken / pk-surface / pk-raised) e os três de texto:
+
+           #{Enum.join(Enum.uniq(offenders), "\n")}
+           """
+  end
+
+  # Um nome de classe citado dentro de comentário ou doc não é uso: este arquivo
+  # mesmo cita `text-sm` para explicar a regra.
+  defp comment_line?(source, needle) do
+    source
+    |> String.split("\n")
+    |> Enum.filter(&String.contains?(&1, needle))
+    |> Enum.all?(
+      &(String.trim_leading(&1) =~ ~r/^(#|\*|<%!--|`)/ or &1 =~ ~r/`[^`]*#{Regex.escape(needle)}/)
+    )
+  end
+
   test "nenhuma cor crua fora das exceções declaradas" do
     offenders =
       for path <- templates(),

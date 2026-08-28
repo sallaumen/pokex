@@ -2078,6 +2078,48 @@ defmodule PokexWeb.CavebotLive do
     do:
       "sem juntar pilha: bate assim que #{Settings.get(:engine_engage_from)} inimigo(s) aparecer(em)"
 
+  # AS CONDIÇÕES QUE MUDAM A QUALIDADE DA NOITE, e que hoje só se descobrem
+  # lendo o log de manhã. Nenhuma delas IMPEDE a caçada (isso é o `Preflight`,
+  # que roda no Iniciar) — todas mudam o que ela vale enquanto ele dorme.
+  #
+  # Cada linha aqui tem uma noite atrás dela.
+  defp night_blockers(rack) do
+    [
+      {Settings.get(:rescue_enabled) != true,
+       "o resgate está desligado — ninguém revive o pokémon"},
+      {revive_budget_out?(),
+       "os revives acabaram pela conta — repõe e digita o estoque no /config"},
+      {rack != [] and unwritten(rack) > 0,
+       "tem tecla sem cooldown escrito — o relógio chuta e o revive de reset erra a hora"},
+      {Settings.get(:cavebot_hp_abort_pct) == 0,
+       "a guarda de vida está desligada — a mobada nunca é abandonada"}
+    ]
+    |> Enum.filter(&elem(&1, 0))
+    |> Enum.map(&elem(&1, 1))
+  end
+
+  defp revive_budget_out? do
+    case ReviveLedger.remaining() do
+      left when is_integer(left) -> left <= 0
+      _sem_conta -> false
+    end
+  end
+
+  defp night_label(blockers) do
+    case length(blockers) do
+      0 -> "pronto pra noite"
+      1 -> "1 coisa antes de dormir"
+      n -> "#{n} coisas antes de dormir"
+    end
+  end
+
+  defp night_title(blockers) do
+    case blockers do
+      [] -> "resgate armado, revives na conta, cooldowns escritos e guarda de vida ligada"
+      list -> Enum.join(list, " · ")
+    end
+  end
+
   defp safety_key("rescue"), do: :rescue_enabled
   defp safety_key("heal"), do: :heal_skill_enabled
   defp safety_key("potion"), do: :potion_enabled
@@ -2120,7 +2162,8 @@ defmodule PokexWeb.CavebotLive do
     # A FILEIRA, montada UMA vez. Ela lê o relógio (ETS) e o fato da barra, e o
     # template pergunta por ela em oito lugares — pedir oito vezes é oito
     # leituras que podem discordar entre si dentro do mesmo desenho.
-    assigns = assign(assigns, :rack, skill_rack(assigns.combat))
+    rack = skill_rack(assigns.combat)
+    assigns = assigns |> assign(:rack, rack) |> assign(:blockers, night_blockers(rack))
 
     ~H"""
     <%!-- The widest page in the app, deliberately: this one holds a MAP of a
@@ -2167,6 +2210,36 @@ defmodule PokexWeb.CavebotLive do
               Central da caçada
             </h1>
           </div>
+
+          <%!-- A PERGUNTA DA MADRUGADA, respondida em uma peça.
+
+          Tudo que este selo lê já estava na tela — o resgate na barra de
+          segurança, os cooldowns no rack, o estoque no caderninho, a vida dele
+          no card de visão. Espalhado e em voz baixa, cada um deles é fácil de
+          não ver às duas da manhã; e cada um deles já custou uma noite. O
+          resgate desligado deixou o cérebro pedir revive 556 vezes sem que uma
+          tecla saísse; o estoque acabou às 23:43 e ele moeu 4,9 horas com o
+          pokémon no chão.
+
+          O selo não descobre nada de novo: ele junta as respostas e diz UMA.
+          Verde é "pode dormir". --%>
+          <div
+            id="cavebot-ready"
+            class={[
+              "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-mono text-pk-meta font-bold",
+              if(@blockers == [],
+                do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                else: "border-pk-warn-line bg-pk-warn-dim text-pk-warn"
+              )
+            ]}
+            title={night_title(@blockers)}
+          >
+            <.icon
+              name={if(@blockers == [], do: "hero-shield-check", else: "hero-exclamation-triangle")}
+              class="size-3.5 shrink-0"
+            />
+            {night_label(@blockers)}
+          </div>
           <p class="font-mono text-pk-meta text-pk-text-3">
             <span :if={hunt_progress(@hunt)} class="font-bold text-pk-ok">
               {hunt_progress(@hunt)} ·
@@ -2183,6 +2256,22 @@ defmodule PokexWeb.CavebotLive do
           </p>
           <.mode_tabs mode={@mode} />
         </header>
+
+        <%!-- E O QUE FALTA, POR EXTENSO. O `title` do selo responde ao mouse; o
+             que decide se ele pode dormir não pode depender de alguém passar o
+             mouse por cima. Uma linha, só quando há o que dizer. --%>
+        <section
+          :if={@mode == :watch and @blockers != []}
+          id="cavebot-ready-list"
+          class="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-1.5"
+        >
+          <span
+            :for={blocker <- @blockers}
+            class="flex items-center gap-1.5 text-pk-body text-pk-warn"
+          >
+            <.icon name="hero-exclamation-triangle" class="size-3.5 shrink-0" />{blocker}
+          </span>
+        </section>
 
         <.hunt_alerts
           minimap_gap?={@minimap_gap?}

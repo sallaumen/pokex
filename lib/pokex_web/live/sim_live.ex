@@ -1863,7 +1863,7 @@ defmodule PokexWeb.SimLive do
             <div class="rounded-lg border border-pk-line bg-pk-surface p-3">
               <h2 class="mb-2 text-pk-title font-bold text-pk-text">O cérebro</h2>
               <%= if @orders do %>
-                <p class={"text-lg font-semibold #{band_class(@orders.band)}"}>
+                <p class={"text-pk-title font-semibold #{band_class(@orders.band)}"}>
                   {@orders.phase} · {@orders.band}
                 </p>
                 <p class="mt-1 text-pk-body text-pk-text-2">{@orders.why}</p>
@@ -1902,7 +1902,7 @@ defmodule PokexWeb.SimLive do
                 <span :if={@world && @world.own.out?} class="ml-1 text-pk-meta text-pk-text-3">
                   — intocável enquanto ele está em campo
                 </span>
-                <span :if={@world && not @world.own.out?} class="ml-1 text-xs text-pk-danger">
+                <span :if={@world && not @world.own.out?} class="ml-1 text-pk-meta text-pk-danger">
                   — ele caiu, agora é você que apanha
                 </span>
               </p>
@@ -1919,7 +1919,7 @@ defmodule PokexWeb.SimLive do
             <h2 class="mb-2 text-pk-title font-bold text-pk-text">
               Antes da caçada <span class="font-normal text-pk-text-3">— o que grava dado</span>
             </h2>
-            <ul class="space-y-1 text-sm">
+            <ul class="space-y-1 text-pk-body">
               <li class={if @measuring?, do: "text-pk-ok", else: "text-pk-warn"}>
                 <span class="font-medium">medir caminhada:</span>
                 {if @measuring?,
@@ -2149,7 +2149,7 @@ defmodule PokexWeb.SimLive do
             </div>
             <div>caiu: <span class="font-semibold">{revive_text(@bench.outcome.died_at)}</span></div>
           </dl>
-          <ol class="max-h-56 space-y-1 overflow-y-auto text-xs">
+          <ol class="max-h-56 space-y-1 overflow-y-auto text-pk-meta">
             <li :for={line <- @bench.timeline} class="flex gap-2 text-pk-text-2">
               <span class="w-14 shrink-0 tabular-nums text-pk-text-3">{line.at}ms</span>
               <span class={"w-24 shrink-0 font-medium #{band_class(line.band)}"}>{line.phase}</span>
@@ -2356,7 +2356,7 @@ defmodule PokexWeb.SimLive do
               else: "sem juntar pilha"} · assenta em {@bench_all.config.pile_settle_ms}ms · teto {@bench_all.config.size_ceiling_ms}ms
           </p>
           <div class="overflow-x-auto">
-            <table class="w-full text-left text-xs">
+            <table class="w-full text-left text-pk-meta">
               <thead class="text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
                 <tr>
                   <th class="py-1 pr-3 font-medium">cenário</th>
@@ -2401,7 +2401,7 @@ defmodule PokexWeb.SimLive do
               O que existe <span class="font-normal text-pk-text-3">— verdade do mundo</span>
             </h2>
             <p :if={@truth == []} class="text-pk-body text-pk-text-3">nada no chão</p>
-            <ul class="space-y-1 text-sm">
+            <ul class="space-y-1 text-pk-body">
               <li :for={row <- @truth} class="flex justify-between gap-2 text-pk-text-2">
                 <span>
                   {row.name}
@@ -2422,7 +2422,7 @@ defmodule PokexWeb.SimLive do
               não estou lendo a lista de batalha
             </p>
             <p :if={@perceived == []} class="text-pk-body text-pk-text-3">lista vazia</p>
-            <ul :if={is_list(@perceived)} class="space-y-1 text-sm">
+            <ul :if={is_list(@perceived)} class="space-y-1 text-pk-body">
               <li :for={row <- @perceived} class="flex justify-between gap-2 text-pk-text-2">
                 <span>linha {row.row} · {row.name || "?"}</span>
                 <span class="text-pk-text-3">{round((row.hp_pct || 0) * 100)}%</span>

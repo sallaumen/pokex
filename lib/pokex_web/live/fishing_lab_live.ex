@@ -67,15 +67,15 @@ defmodule PokexWeb.FishingLabLive do
 
               <div class="grid grid-cols-3 gap-2 text-center text-xs">
                 <div class="rounded-lg border border-base-content/10 bg-base-300 px-2 py-2">
-                  <div class="text-[10px] uppercase tracking-wide opacity-50">Progresso</div>
+                  <div class="text-pk-meta uppercase tracking-wide opacity-50">Progresso</div>
                   <div data-stat="progress" class="mt-1 text-lg font-bold tabular-nums">0%</div>
                 </div>
                 <div class="rounded-lg border border-base-content/10 bg-base-300 px-2 py-2">
-                  <div class="text-[10px] uppercase tracking-wide opacity-50">Sobreposicao</div>
+                  <div class="text-pk-meta uppercase tracking-wide opacity-50">Sobreposicao</div>
                   <div data-stat="overlap" class="mt-1 text-lg font-bold tabular-nums">0%</div>
                 </div>
                 <div class="rounded-lg border border-base-content/10 bg-base-300 px-2 py-2">
-                  <div class="text-[10px] uppercase tracking-wide opacity-50">FPS visao</div>
+                  <div class="text-pk-meta uppercase tracking-wide opacity-50">FPS visao</div>
                   <div data-stat="vision-fps" class="mt-1 text-lg font-bold tabular-nums">0</div>
                 </div>
               </div>

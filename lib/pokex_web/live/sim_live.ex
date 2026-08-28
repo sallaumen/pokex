@@ -1608,7 +1608,7 @@ defmodule PokexWeb.SimLive do
               >
                 Voltar aos meus chutes
               </button>
-              <span class="text-[11px] text-pk-text-3">
+              <span class="text-pk-body text-pk-text-3">
                 a vida do monstro e o dano estão na MESMA unidade
               </span>
             </div>
@@ -2386,7 +2386,7 @@ defmodule PokexWeb.SimLive do
                   <td class="py-1 pr-3 text-right tabular-nums text-pk-text-2">
                     {row.outcome.hp_at_end}%
                   </td>
-                  <td class="py-1 font-mono text-[11px] text-pk-text-2">
+                  <td class="py-1 font-mono text-pk-body text-pk-text-2">
                     {Enum.join(row.outcome.phases, " › ")}
                   </td>
                 </tr>

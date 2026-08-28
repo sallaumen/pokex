@@ -130,7 +130,7 @@ defmodule PokexWeb.PokedexDetailLive do
   end
 
   attr :element, :string, required: true
-  attr :class, :string, default: "px-1.5 py-0.5 text-[11px]"
+  attr :class, :string, default: "px-1.5 py-0.5 text-pk-body"
 
   defp element_chip(assigns) do
     assigns = assign(assigns, :icon, PokedexStyle.element_icon(assigns.element))
@@ -153,22 +153,22 @@ defmodule PokexWeb.PokedexDetailLive do
     <ul class="space-y-1">
       <li
         :for={move <- @moves}
-        class="flex flex-wrap items-center gap-1.5 rounded-lg border border-[#232b30] bg-[#101418] px-2.5 py-1.5"
+        class="flex flex-wrap items-center gap-1.5 rounded-lg border border-pk-line bg-pk-raised px-2.5 py-1.5"
       >
         <span class={[
-          "w-7 shrink-0 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold",
+          "w-7 shrink-0 rounded px-1 py-0.5 text-center font-mono text-pk-meta font-bold",
           if(move.slot == "P",
-            do: "bg-[#211b0d] text-[#f3ba4e]",
-            else: "bg-[#161b1f] text-[#8b949d]"
+            do: "bg-pk-warn-dim text-pk-warn",
+            else: "bg-pk-raised text-pk-text-2"
           )
         ]}>
           {move.slot}
         </span>
         <span class="min-w-0 flex-1 truncate text-sm font-semibold">{move.name}</span>
-        <.element_chip :if={move.element} element={move.element} class="px-1.5 py-0.5 text-[10px]" />
+        <.element_chip :if={move.element} element={move.element} class="px-1.5 py-0.5 text-pk-meta" />
         <span
           :if={move.cooldown_s}
-          class="rounded bg-[#211b0d] px-1.5 py-0.5 font-mono text-[10px] text-[#f3ba4e]"
+          class="rounded bg-pk-warn-dim px-1.5 py-0.5 font-mono text-pk-meta text-pk-warn"
         >
           ⏱ {move.cooldown_s}s
         </span>
@@ -192,7 +192,7 @@ defmodule PokexWeb.PokedexDetailLive do
         <section class="flex flex-wrap items-center gap-3">
           <.link
             navigate={~p"/pokedex"}
-            class="font-mono text-[11px] text-pk-text-2 underline hover:text-white"
+            class="font-mono text-pk-body text-pk-text-2 underline hover:text-white"
           >
             ← pokédex
           </.link>
@@ -211,7 +211,7 @@ defmodule PokexWeb.PokedexDetailLive do
             <button class="btn h-8 border border-pk-line-strong bg-transparent px-2.5 text-xs text-pk-text-2 hover:border-pk-ok/60 hover:text-white">
               ir
             </button>
-            <span :if={@jump_msg} id="jump-msg" class="font-mono text-[10px] text-pk-warn">
+            <span :if={@jump_msg} id="jump-msg" class="font-mono text-pk-meta text-pk-warn">
               {@jump_msg}
             </span>
           </form>
@@ -220,13 +220,13 @@ defmodule PokexWeb.PokedexDetailLive do
         <section
           :if={@entry == nil}
           id="entry-missing"
-          class="rounded-lg border border-[#674f20] bg-[#211b0d] p-4 text-sm text-[#e7ca82]"
+          class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-4 text-sm text-pk-warn"
         >
           Não achei "{@missing_name}" na Pokédex — confere o nome ou sincroniza a wiki.
         </section>
 
         <article :if={@entry} id="entry-card" class="space-y-3">
-          <section class="rounded-lg border border-[#232b30] bg-[#111519] p-4">
+          <section class="rounded-lg border border-pk-line bg-pk-surface p-4">
             <div class="flex items-center gap-4">
               <img
                 :if={@entry.sprite}
@@ -239,11 +239,11 @@ defmodule PokexWeb.PokedexDetailLive do
                 <h1 class="text-xl font-bold">
                   {@entry.name}<span :if={@entry.variant == "shiny"}> ✨</span>
                 </h1>
-                <p class="mt-1 flex flex-wrap gap-1.5 font-mono text-[11px]">
-                  <span :if={@entry.number} class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd]">
+                <p class="mt-1 flex flex-wrap gap-1.5 font-mono text-pk-body">
+                  <span :if={@entry.number} class="rounded bg-pk-raised px-1.5 py-0.5 text-pk-text-2">
                     #{@entry.number}
                   </span>
-                  <span class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd]">
+                  <span class="rounded bg-pk-raised px-1.5 py-0.5 text-pk-text-2">
                     lv {@entry.level || "?"}
                   </span>
                   <.element_chip :for={el <- @entry.elements} element={el} />
@@ -252,7 +252,7 @@ defmodule PokexWeb.PokedexDetailLive do
                     id="entry-tier"
                     navigate={~p"/pokedex?#{%{"tiers" => [@entry.tier]}}"}
                     title={"ver todos do tier #{@entry.tier}"}
-                    class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd] transition hover:ring-1 hover:ring-[#37d07d]/60"
+                    class="rounded bg-pk-raised px-1.5 py-0.5 text-pk-text-2 transition hover:ring-1 hover:ring-pk-ok/60"
                   >
                     🏅 tier {@entry.tier}
                   </.link>
@@ -261,28 +261,28 @@ defmodule PokexWeb.PokedexDetailLive do
                     id="entry-generation"
                     navigate={~p"/pokedex?#{%{"generations" => [@entry.generation]}}"}
                     title={"ver todos da geração #{@entry.generation}"}
-                    class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd] transition hover:ring-1 hover:ring-[#37d07d]/60"
+                    class="rounded bg-pk-raised px-1.5 py-0.5 text-pk-text-2 transition hover:ring-1 hover:ring-pk-ok/60"
                   >
                     gen {@entry.generation}
                   </.link>
-                  <span :if={@entry.role} class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd]">
+                  <span :if={@entry.role} class="rounded bg-pk-raised px-1.5 py-0.5 text-pk-text-2">
                     🎯 {@entry.role}
                   </span>
                   <span
                     :if={@entry.hp}
                     id="entry-hp"
-                    class="rounded bg-[#211b0d] px-1.5 py-0.5 text-[#f3ba4e]"
+                    class="rounded bg-pk-warn-dim px-1.5 py-0.5 text-pk-warn"
                   >
                     ❤️ {@entry.hp}
                   </span>
                   <span
                     :if={@entry.experience}
-                    class="rounded bg-[#161b1f] px-1.5 py-0.5 text-[#aeb6bd]"
+                    class="rounded bg-pk-raised px-1.5 py-0.5 text-pk-text-2"
                   >
                     ⭐ {@entry.experience}
                   </span>
                 </p>
-                <p class="mt-1 font-mono text-[9px] text-[#59636b]">
+                <p class="mt-1 font-mono text-pk-meta text-pk-text-3">
                   <.link
                     id="wiki-link"
                     href={Pokedex.wiki_url(@entry)}
@@ -298,28 +298,28 @@ defmodule PokexWeb.PokedexDetailLive do
             <p
               :if={@entry.description}
               id="entry-description"
-              class="mt-3 border-l-2 border-[#293238] pl-3 text-[12px] italic leading-relaxed text-[#9aa3aa]"
+              class="mt-3 border-l-2 border-pk-line pl-3 text-pk-body italic leading-relaxed text-pk-text-2"
             >
               {@entry.description}
             </p>
           </section>
 
-          <section id="entry-team-context" class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
+          <section id="entry-team-context" class="rounded-lg border border-pk-line bg-pk-surface p-3">
             <div class="flex flex-wrap items-center gap-2">
-              <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+              <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 ⚔️ contra o TEU time
               </h2>
               <span
                 :if={@membership == :team}
                 id="membership-badge"
-                class="rounded bg-[#0d3822] px-1.5 py-0.5 font-mono text-[10px] text-[#3de083]"
+                class="rounded bg-pk-ok-dim px-1.5 py-0.5 font-mono text-pk-meta text-pk-ok"
               >
                 🧢 no teu time
               </span>
               <span
                 :if={@membership == :bank}
                 id="membership-badge"
-                class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[10px] text-[#7cc0e8]"
+                class="rounded bg-pk-info-dim px-1.5 py-0.5 font-mono text-pk-meta text-pk-info"
               >
                 🏦 no teu banco
               </span>
@@ -327,46 +327,49 @@ defmodule PokexWeb.PokedexDetailLive do
                 <button
                   phx-click="add_to"
                   phx-value-where="team"
-                  class="btn btn-xs h-7 border-0 bg-[#37d07d] px-2.5 text-[11px] font-bold text-[#06140c] hover:bg-[#45dd88]"
+                  class="btn btn-xs h-7 border-0 bg-pk-ok px-2.5 text-pk-body font-bold text-pk-bg hover:bg-pk-ok/90"
                 >
                   + time
                 </button>
                 <button
                   phx-click="add_to"
                   phx-value-where="bank"
-                  class="btn btn-xs h-7 border border-[#293238] bg-transparent px-2.5 text-[11px] text-[#c7cdd2] hover:border-[#37d07d]/60 hover:text-white"
+                  class="btn btn-xs h-7 border border-pk-line bg-transparent px-2.5 text-pk-body text-pk-text hover:border-pk-ok/60 hover:text-white"
                 >
                   + banco
                 </button>
               </span>
               <.link
                 navigate={~p"/time"}
-                class="ml-auto font-mono text-[10px] text-[#89939a] underline hover:text-white"
+                class="ml-auto font-mono text-pk-meta text-pk-text-2 underline hover:text-white"
               >
                 gerenciar →
               </.link>
             </div>
-            <p :if={@matchup == [] and @team_empty?} class="mt-1.5 text-[11px] text-[#7f8992]">
+            <p :if={@matchup == [] and @team_empty?} class="mt-1.5 text-pk-body text-pk-text-2">
               cadastra teu time em /time e eu te digo aqui quem fere quem
             </p>
-            <p :if={@matchup == [] and not @team_empty?} class="mt-1.5 text-[11px] text-[#7f8992]">
+            <p :if={@matchup == [] and not @team_empty?} class="mt-1.5 text-pk-body text-pk-text-2">
               nenhum matchup relevante com o teu time — luta neutra
             </p>
             <ul :if={@matchup != []} id="entry-matchup" class="mt-1.5 space-y-1">
               <li
                 :for={row <- @matchup}
-                class="flex flex-wrap items-center gap-1.5 font-mono text-[10px]"
+                class="flex flex-wrap items-center gap-1.5 font-mono text-pk-meta"
               >
                 <.link navigate={~p"/pokedex/#{row.name}"} class="font-semibold hover:underline">
                   {row.name}
                 </.link>
-                <span :if={row.fere != []} class="rounded bg-[#0d3822] px-1.5 py-0.5 text-[#3de083]">
+                <span :if={row.fere != []} class="rounded bg-pk-ok-dim px-1.5 py-0.5 text-pk-ok">
                   fere ele com {Enum.join(row.fere, "+")}
                 </span>
-                <span :if={row.sofre != []} class="rounded bg-[#241114] px-1.5 py-0.5 text-[#ff9ca4]">
+                <span
+                  :if={row.sofre != []}
+                  class="rounded bg-pk-danger-dim px-1.5 py-0.5 text-pk-danger"
+                >
                   APANHA de {Enum.join(row.sofre, "+")}
                 </span>
-                <span :if={row.nulo != []} class="rounded bg-[#1c1a12] px-1.5 py-0.5 text-[#e0c46a]">
+                <span :if={row.nulo != []} class="rounded bg-pk-warn-dim px-1.5 py-0.5 text-pk-warn">
                   {Enum.join(row.nulo, "+")} não fere ele
                 </span>
               </li>
@@ -377,18 +380,18 @@ defmodule PokexWeb.PokedexDetailLive do
             <section
               :if={@entry.moves in [nil, []]}
               id="entry-moves-missing"
-              class="rounded-lg border border-[#232b30] bg-[#111519] p-3 lg:col-span-2"
+              class="rounded-lg border border-pk-line bg-pk-surface p-3 lg:col-span-2"
             >
-              <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+              <h2 class="mb-1.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 ⚔️ movimentos
               </h2>
-              <p class="text-[12px] text-[#9aa3aa]">
+              <p class="text-pk-body text-pk-text-2">
                 sem tabela de golpes por aqui.
                 <.link
                   href={Pokedex.wiki_url(@entry)}
                   target="_blank"
                   rel="noopener"
-                  class="text-[#7cc0e8] underline hover:text-white"
+                  class="text-pk-info underline hover:text-white"
                 >
                   conferir na wiki ↗
                 </.link>
@@ -398,11 +401,11 @@ defmodule PokexWeb.PokedexDetailLive do
             <section
               :if={@entry.moves not in [nil, []]}
               id="entry-moves"
-              class="rounded-lg border border-[#232b30] bg-[#111519] p-3 lg:col-span-2"
+              class="rounded-lg border border-pk-line bg-pk-surface p-3 lg:col-span-2"
             >
-              <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
-                ⚔️ movimentos <span class="text-[#3de083]">PVE</span>
-                <span class="font-normal normal-case tracking-normal text-[#59636b]">
+              <h2 class="mb-1.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+                ⚔️ movimentos <span class="text-pk-ok">PVE</span>
+                <span class="font-normal normal-case tracking-normal text-pk-text-3">
                   (caçada)
                 </span>
               </h2>
@@ -410,62 +413,62 @@ defmodule PokexWeb.PokedexDetailLive do
             </section>
 
             <div class="space-y-3">
-              <section class="rounded-lg border border-[#232b30] bg-[#111519] p-3">
-                <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+              <section class="rounded-lg border border-pk-line bg-pk-surface p-3">
+                <h2 class="mb-1.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                   efetividades
                 </h2>
-                <p class="mb-0.5 font-mono text-[9px] text-[#59636b]">bate FORTE nele</p>
-                <p :if={@entry.weak_to == []} class="text-[11px] text-[#7f8992]">nada mapeado</p>
+                <p class="mb-0.5 font-mono text-pk-meta text-pk-text-3">bate FORTE nele</p>
+                <p :if={@entry.weak_to == []} class="text-pk-body text-pk-text-2">nada mapeado</p>
                 <div :for={tier <- tiers(@entry, "weak", @entry.weak_to)}>
-                  <p :if={tier.label} class="font-mono text-[9px] text-[#59636b] opacity-70">
+                  <p :if={tier.label} class="font-mono text-pk-meta text-pk-text-3 opacity-70">
                     {tier.label}
                   </p>
                   <p class="flex flex-wrap gap-1">
                     <.element_chip
                       :for={el <- tier.elements}
                       element={el}
-                      class="px-1.5 py-0.5 text-[10px]"
+                      class="px-1.5 py-0.5 text-pk-meta"
                     />
                   </p>
                 </div>
 
-                <p class="mb-0.5 mt-2 font-mono text-[9px] text-[#59636b]">ele RESISTE</p>
-                <p :if={@entry.resists == []} class="text-[11px] text-[#7f8992]">nada mapeado</p>
+                <p class="mb-0.5 mt-2 font-mono text-pk-meta text-pk-text-3">ele RESISTE</p>
+                <p :if={@entry.resists == []} class="text-pk-body text-pk-text-2">nada mapeado</p>
                 <div :for={tier <- tiers(@entry, "resists", @entry.resists)}>
-                  <p :if={tier.label} class="font-mono text-[9px] text-[#59636b] opacity-70">
+                  <p :if={tier.label} class="font-mono text-pk-meta text-pk-text-3 opacity-70">
                     {tier.label}
                   </p>
                   <p class="flex flex-wrap gap-1 opacity-70">
                     <.element_chip
                       :for={el <- tier.elements}
                       element={el}
-                      class="px-1.5 py-0.5 text-[10px]"
+                      class="px-1.5 py-0.5 text-pk-meta"
                     />
                   </p>
                 </div>
 
                 <div :if={@entry.immune != []} id="entry-immune">
-                  <p class="mb-0.5 mt-2 font-mono text-[9px] text-[#59636b]">
+                  <p class="mb-0.5 mt-2 font-mono text-pk-meta text-pk-text-3">
                     NÃO sente (nulo)
                   </p>
                   <p class="flex flex-wrap gap-1 opacity-50">
                     <.element_chip
                       :for={el <- @entry.immune}
                       element={el}
-                      class="px-1.5 py-0.5 text-[10px] line-through"
+                      class="px-1.5 py-0.5 text-pk-meta line-through"
                     />
                   </p>
                 </div>
 
                 <details :if={@entry.neutral != []} id="entry-neutral" class="mt-2">
-                  <summary class="cursor-pointer list-none font-mono text-[9px] text-[#59636b] hover:text-[#9aa3aa] [&::-webkit-details-marker]:hidden">
+                  <summary class="cursor-pointer list-none font-mono text-pk-meta text-pk-text-3 hover:text-pk-text-2 [&::-webkit-details-marker]:hidden">
                     ▸ dano neutro ({length(@entry.neutral)})
                   </summary>
                   <p class="mt-1 flex flex-wrap gap-1 opacity-60">
                     <.element_chip
                       :for={el <- @entry.neutral}
                       element={el}
-                      class="px-1 py-0.5 text-[9px]"
+                      class="px-1 py-0.5 text-pk-meta"
                     />
                   </p>
                 </details>
@@ -474,17 +477,17 @@ defmodule PokexWeb.PokedexDetailLive do
               <section
                 :if={@entry.habilidades != []}
                 id="entry-info"
-                class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+                class="rounded-lg border border-pk-line bg-pk-surface p-3"
               >
-                <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+                <h2 class="mb-1.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                   habilidades
                 </h2>
                 <div class="space-y-1.5">
                   <p :if={@entry.habilidades != []} class="flex flex-wrap items-center gap-1">
-                    <span class="font-mono text-[9px] text-[#59636b]">🏄 habilidades</span>
+                    <span class="font-mono text-pk-meta text-pk-text-3">🏄 habilidades</span>
                     <span
                       :for={hab <- @entry.habilidades}
-                      class="rounded bg-[#101d24] px-1.5 py-0.5 font-mono text-[11px] text-[#7cc0e8]"
+                      class="rounded bg-pk-info-dim px-1.5 py-0.5 font-mono text-pk-body text-pk-info"
                     >
                       {hab}
                     </span>
@@ -498,9 +501,9 @@ defmodule PokexWeb.PokedexDetailLive do
             <section
               :if={@entry.evolves_from != [] or @entry.evolves_to != []}
               id="entry-evolutions"
-              class="rounded-lg border border-[#232b30] bg-[#111519] p-3"
+              class="rounded-lg border border-pk-line bg-pk-surface p-3"
             >
-              <h2 class="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#69737b]">
+              <h2 class="mb-1.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
                 evoluções
               </h2>
               <div class="space-y-1.5">
@@ -508,19 +511,19 @@ defmodule PokexWeb.PokedexDetailLive do
                   :for={{label, evo} <- evolution_rows(@entry)}
                   class="flex flex-wrap items-center gap-1.5"
                 >
-                  <span class="font-mono text-[9px] text-[#59636b]">{label}</span>
+                  <span class="font-mono text-pk-meta text-pk-text-3">{label}</span>
                   <.link
                     patch={~p"/pokedex/#{evo.name}"}
-                    class="rounded-lg border border-[#293238] bg-[#101418] px-2 py-1 text-xs hover:border-[#37d07d]/60 hover:text-white"
+                    class="rounded-lg border border-pk-line bg-pk-raised px-2 py-1 text-xs hover:border-pk-ok/60 hover:text-white"
                   >
                     {evo.name}
-                    <span :if={evo.level} class="font-mono text-[9px] text-[#737d85]">
+                    <span :if={evo.level} class="font-mono text-pk-meta text-pk-text-3">
                       lv {evo.level}
                     </span>
                   </.link>
                   <span
                     :for={item <- evo.items}
-                    class="rounded bg-[#211b0d] px-1.5 py-0.5 font-mono text-[10px] text-[#f3ba4e]"
+                    class="rounded bg-pk-warn-dim px-1.5 py-0.5 font-mono text-pk-meta text-pk-warn"
                   >
                     💎 {item}
                   </span>
@@ -531,19 +534,19 @@ defmodule PokexWeb.PokedexDetailLive do
             <section
               :if={@shiny || @base}
               id="entry-shiny-links"
-              class="rounded-lg border border-[#674f20] bg-[#211b0d] p-3"
+              class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
             >
               <.link
                 :if={@shiny}
                 patch={~p"/pokedex/#{@shiny.name}"}
-                class="text-sm font-semibold text-[#f3ba4e] underline hover:text-[#ffd27a]"
+                class="text-sm font-semibold text-pk-warn underline hover:text-pk-warn"
               >
                 ✨ ver {@shiny.name} (lv {@shiny.level || "?"})
               </.link>
               <.link
                 :if={@base}
                 patch={~p"/pokedex/#{@base.name}"}
-                class="text-sm font-semibold text-[#f3ba4e] underline hover:text-[#ffd27a]"
+                class="text-sm font-semibold text-pk-warn underline hover:text-pk-warn"
               >
                 ver a forma base: {@base.name} (lv {@base.level || "?"})
               </.link>

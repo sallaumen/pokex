@@ -2572,7 +2572,7 @@ defmodule PokexWeb.PanelLive do
 
         <div :if={@shiny_log != []} id="shiny-log" class="mt-2">
           <div class="flex items-center justify-between">
-            <p class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-[#c9a227]">
+            <p class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-warn">
               ✨ shinies encontrados ({length(@shiny_log)})
             </p>
             <button
@@ -2586,15 +2586,15 @@ defmodule PokexWeb.PanelLive do
           <ul class="mt-1 space-y-0.5">
             <li
               :for={entry <- Enum.take(@shiny_log, 5)}
-              class="flex items-center gap-2 rounded border border-[#3a3320] bg-[#181509] px-2 py-1 font-mono text-pk-meta"
+              class="flex items-center gap-2 rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1 font-mono text-pk-meta"
             >
-              <span class="text-[#c9a227]">✨</span>
-              <span class="text-[#a8b0b7]">{shiny_log_when(entry)}</span>
+              <span class="text-pk-warn">✨</span>
+              <span class="text-pk-text-2">{shiny_log_when(entry)}</span>
               <span class={[
                 "rounded px-1",
                 case entry.outcome do
                   "killed" -> "bg-pk-danger-dim text-pk-danger"
-                  "ball" -> "bg-[#101d24] text-[#7cc0e8]"
+                  "ball" -> "bg-pk-info-dim text-pk-info"
                   "fled" -> "bg-pk-warn-dim text-pk-warn"
                   _seen -> "bg-pk-raised text-pk-text-2"
                 end
@@ -2729,7 +2729,7 @@ defmodule PokexWeb.PanelLive do
                 <span class={
                   if @capture_info.backend.backend == :screen_capture_kit,
                     do: "text-pk-ok",
-                    else: "text-[#e0b43d]"
+                    else: "text-pk-warn"
                 }>
                   {if @capture_info.backend.backend == :screen_capture_kit,
                     do: "ScreenCaptureKit (rápido)",
@@ -2761,7 +2761,7 @@ defmodule PokexWeb.PanelLive do
                   value={@threshold}
                   placeholder="sugerido"
                   class="input input-bordered h-10 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
-                /><button class="btn btn-outline h-10 border-[#303940] px-4 text-pk-body">Salvar</button>
+                /><button class="btn btn-outline h-10 border-pk-line-strong px-4 text-pk-body">Salvar</button>
               </form>
             </div>
             <div>
@@ -2776,7 +2776,7 @@ defmodule PokexWeb.PanelLive do
                   value={@skill_order}
                   placeholder="1 2 3"
                   class="input input-bordered h-10 min-w-0 flex-1 bg-pk-bg font-mono text-pk-title"
-                /><button class="btn btn-outline h-10 border-[#303940] px-4 text-pk-body">Salvar</button>
+                /><button class="btn btn-outline h-10 border-pk-line-strong px-4 text-pk-body">Salvar</button>
               </form>
             </div>
           </section>
@@ -2819,30 +2819,30 @@ defmodule PokexWeb.PanelLive do
                     {"Skills", "skills"}
                   ]
                 }
-                class="h-8 rounded-lg border border-[#2b353b] px-3 text-pk-meta text-[#a3abb1] hover:border-pk-ok/60"
+                class="h-8 rounded-lg border border-pk-line-strong px-3 text-pk-meta text-pk-text-2 hover:border-pk-ok/60"
                 phx-click="shot"
                 phx-value-region={region}
               >{label}</button>
             </div>
             <button
-              class="mt-3 h-10 w-full rounded-lg border border-[#30cf75] text-pk-body font-bold text-[#38dc80] hover:bg-pk-ok-dim"
+              class="mt-3 h-10 w-full rounded-lg border border-pk-ok-line text-pk-body font-bold text-pk-ok hover:bg-pk-ok-dim"
               phx-click="export_diagnostic"
             >Exportar diagnóstico (JSON)</button>
             <figure :if={@capture_src} class="mt-3">
               <figcaption class="mb-1 text-pk-meta text-pk-text-3">{@capture_label}</figcaption><img
                 src={@capture_src}
-                class="max-h-64 rounded-lg border border-[#283138]"
+                class="max-h-64 rounded-lg border border-pk-line"
               />
             </figure>
             <p
               :if={@capture_label && is_nil(@capture_src)}
-              class="mt-2 text-pk-meta text-[#ff929b]"
+              class="mt-2 text-pk-meta text-pk-danger"
             >
               {@capture_label}
             </p>
             <div
               :if={@report}
-              class="mt-3 rounded-lg border border-[#263038] bg-pk-bg p-3 text-pk-meta text-pk-text-2"
+              class="mt-3 rounded-lg border border-pk-line-strong bg-pk-bg p-3 text-pk-meta text-pk-text-2"
             >
               <div class="flex justify-between">
                 <span class="font-semibold text-pk-ok">{@report_msg}</span><a
@@ -2855,7 +2855,7 @@ defmodule PokexWeb.PanelLive do
               <% matrix = gi(@report, [:regions, :battle_body, :matrix]) %>
               <div :if={matrix} class="mt-3">
                 <p class="mb-1">matriz do painel Batalha ({matrix.cols}×{matrix.rows})</p><div
-                  class="inline-grid gap-px rounded border border-[#263038] bg-black p-1"
+                  class="inline-grid gap-px rounded border border-pk-line-strong bg-black p-1"
                   style={"grid-template-columns: repeat(#{matrix.cols}, 8px)"}
                 >
                   <div
@@ -3209,7 +3209,7 @@ defmodule PokexWeb.PanelLive do
             <div :if={not @bot_active?}>
               <button
                 id="start-bot"
-                class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-pk-ok text-pk-title font-bold text-pk-bg shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-[#45da83] active:scale-[0.99]"
+                class="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-pk-ok text-pk-title font-bold text-pk-bg shadow-[0_8px_24px_rgba(57,205,118,0.16)] transition hover:bg-pk-ok active:scale-[0.99]"
                 phx-click="start"
               >
                 <.icon name="hero-play-solid" class="size-4" />
@@ -3230,7 +3230,7 @@ defmodule PokexWeb.PanelLive do
             <button
               :if={@bot_active?}
               id="stop-bot"
-              class="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-[#703136] bg-[#281114] text-pk-title font-bold text-pk-danger transition hover:bg-[#35171b] active:scale-[0.99]"
+              class="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-pk-danger-line bg-pk-danger-dim text-pk-title font-bold text-pk-danger transition hover:bg-pk-danger-dim active:scale-[0.99]"
               phx-click="stop"
             >
               <.icon name="hero-stop-solid" class="size-4" /> Parar bot
@@ -3624,8 +3624,8 @@ defmodule PokexWeb.PanelLive do
             </div>
           </section>
 
-          <div class="flex items-start gap-2 rounded-lg border border-[#6b2b32] bg-pk-danger-dim px-3 py-3 text-pk-meta leading-relaxed text-[#f0a0a7]">
-            <.icon name="hero-hand-raised" class="mt-0.5 size-4 shrink-0 text-[#ffbf51]" /><p>
+          <div class="flex items-start gap-2 rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-3 text-pk-meta leading-relaxed text-pk-danger">
+            <.icon name="hero-hand-raised" class="mt-0.5 size-4 shrink-0 text-pk-warn" /><p>
               <strong>Botão de pânico:</strong>
               jogue o mouse no canto superior-esquerdo e o bot para na hora.
             </p>

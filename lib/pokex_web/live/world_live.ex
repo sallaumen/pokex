@@ -153,28 +153,28 @@ defmodule PokexWeb.WorldLive do
       <div class="space-y-4">
         <section
           id="world-snapshot"
-          class="rounded-lg border border-[#232b30] bg-[#111519] p-4"
+          class="rounded-lg border border-pk-line bg-pk-surface p-4"
         >
           <div class="flex items-baseline justify-between">
-            <h2 class="text-sm font-bold uppercase tracking-[0.12em] text-[#8b949d]">
+            <h2 class="text-sm font-bold uppercase tracking-[0.12em] text-pk-text-2">
               O que a IA vê agora
             </h2>
-            <span :if={not @snapshot.layout?} class="font-mono text-[10px] text-[#ff9ca4]">
+            <span :if={not @snapshot.layout?} class="font-mono text-pk-meta text-pk-danger">
               HUD não localizado
             </span>
           </div>
 
           <dl class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
-              <dt class="font-mono text-[10px] uppercase text-[#69737b]">Pokémon ativo</dt>
-              <dd class="font-mono text-sm text-[#d9dde1]">
+              <dt class="font-mono text-pk-meta uppercase text-pk-text-3">Pokémon ativo</dt>
+              <dd class="font-mono text-sm text-pk-text">
                 {hp_text(@snapshot.me.pokemon_hp)}
-                <span class="text-[#37d07d]">{pct(World.pokemon_hp_pct(@snapshot))}</span>
+                <span class="text-pk-ok">{pct(World.pokemon_hp_pct(@snapshot))}</span>
               </dd>
             </div>
             <div>
-              <dt class="font-mono text-[10px] uppercase text-[#69737b]">Level · pesca</dt>
-              <dd class="font-mono text-sm text-[#d9dde1]">
+              <dt class="font-mono text-pk-meta uppercase text-pk-text-3">Level · pesca</dt>
+              <dd class="font-mono text-sm text-pk-text">
                 {num(@snapshot.me.level)} · {num(@snapshot.me.fishing)}
               </dd>
             </div>
@@ -183,23 +183,23 @@ defmodule PokexWeb.WorldLive do
                   number: it comes with the AGE and the phrase separating "not
                   reading" from "reading, and you are here". --%>
             <div id="world-position">
-              <dt class="font-mono text-[10px] uppercase text-[#69737b]">Posição</dt>
-              <dd class="font-mono text-sm text-[#d9dde1]">
+              <dt class="font-mono text-pk-meta uppercase text-pk-text-3">Posição</dt>
+              <dd class="font-mono text-sm text-pk-text">
                 {PositionReadout.coords(@snapshot.pos)}
               </dd>
               <p class={[
-                "mt-0.5 font-mono text-[10px]",
+                "mt-0.5 font-mono text-pk-meta",
                 PositionReadout.note_class(@snapshot.pos, @snapshot.pos_age_ms)
               ]}>
                 {PositionReadout.note(@snapshot.pos, @snapshot.pos_age_ms)}
               </p>
-              <p id="world-read-health" class="font-mono text-[10px] text-[#69737b]">
+              <p id="world-read-health" class="font-mono text-pk-meta text-pk-text-3">
                 {PositionReadout.read_health(@minimap_reads, @minimap_misses)}
               </p>
             </div>
             <div>
-              <dt class="font-mono text-[10px] uppercase text-[#69737b]">Batalha</dt>
-              <dd class="font-mono text-sm text-[#d9dde1]">
+              <dt class="font-mono text-pk-meta uppercase text-pk-text-3">Batalha</dt>
+              <dd class="font-mono text-sm text-pk-text">
                 {enemies_text(@snapshot)}
               </dd>
             </div>
@@ -207,15 +207,15 @@ defmodule PokexWeb.WorldLive do
 
           <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div :for={{slot, label} <- [f1: "F1", f2: "F2", e: "E", s_q: "S+Q"]}>
-              <dt class="font-mono text-[10px] uppercase text-[#69737b]">{label}</dt>
-              <dd class="font-mono text-sm text-[#d9dde1]">{num(@snapshot.inventory[slot])}</dd>
+              <dt class="font-mono text-pk-meta uppercase text-pk-text-3">{label}</dt>
+              <dd class="font-mono text-sm text-pk-text">{num(@snapshot.inventory[slot])}</dd>
             </div>
           </div>
 
           <ul :if={@snapshot.team != []} class="mt-3 flex flex-wrap gap-2">
             <li
               :for={row <- @snapshot.team}
-              class="rounded border border-[#293238] px-2 py-1 font-mono text-[10px] text-[#a8b0b7]"
+              class="rounded border border-pk-line px-2 py-1 font-mono text-pk-meta text-pk-text-2"
             >
               C+{row.slot} {pct(row.hp_pct)}
             </li>

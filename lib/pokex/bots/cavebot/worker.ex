@@ -86,6 +86,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     fight_timeout_ms: :cavebot_fight_timeout_ms,
     post_kill_dwell_ms: :cavebot_post_kill_dwell_ms,
     capture_wait_ms: :cavebot_capture_wait_ms,
+    pinned_probe_ms: :cavebot_pinned_probe_ms,
     stop_wait_ms: :cavebot_stop_wait_ms,
     gather_wait_ms: :cavebot_gather_wait_ms,
     fight_only_at_stops: :cavebot_fight_only_at_stops,
@@ -876,6 +877,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp block_text(:combat_preflight_failed), do: "BLOQUEADO: o combate recusou o arranque"
   defp block_text(:stuck), do: "parei: travado, sem sair do lugar"
 
+  defp block_text(:pinned),
+    do:
+      "parei: o personagem está PRESO no lugar — pulei uma esquina e continuei sem andar, " <>
+        "mesmo tentando os lados. Parede, cerca ou coisa em cima?"
+
   defp block_text(:stairs),
     do: "parei: não achei a escada — corrija o ponto da rota (o andar não mudou)"
 
@@ -1360,15 +1366,25 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # moved, so a corner was reached" — logged that jump as an arrival and
   # counted it: his 2026-08-15 journal opens with "waypoint 1/70" and
   # "waypoint 58/70" in the same second, neither of them walked.
+  #
+  # It does NOT hand the comeback budget back either: every comeback re-enters
+  # by homing, so a reset here made the budget refill itself on each attempt —
+  # "tentativa 1 de 3" forever, never the final stop (28/08).
   defp note_arrival(%{logic: %Logic{advance: :homed} = logic} = state, _before, now) do
     text = "🏁 entrei na rota pelo canto #{logic.wp_index + 1}/#{wp_total(state)}"
     log(:macro, text)
-    %{state | last_action: %{text: text, at: now}, block_retries: 0}
+    %{state | last_action: %{text: text, at: now}}
   end
 
   # Reaching a corner is the proof the hunt is HEALTHY, so it hands every
   # comeback back: a ten-hour night with three unrelated hiccups must not run
   # out of budget over hiccups that were hours apart.
+  #
+  # REACHING, and nothing else: a skip advances the index without the
+  # character moving a tile, and it used to pass through here and refill the
+  # budget too. A character pinned against a wall skips corner after corner —
+  # each one refilling the comeback — so the one mechanism meant to bound the
+  # carousel was being rewound by the carousel itself (28/08).
   defp note_arrival(state, wp_before, now) do
     # WHY it moved on, and from WHERE. "ele já sai usando todas as esquinas
     # antes da hora" (Lucas, 2026-08-15) is a claim about the SEQUENCE of
@@ -1381,12 +1397,13 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
     log(:macro, text)
 
-    %{
+    state = %{
       state
       | counters: bump(state.counters, :waypoints),
-        last_action: %{text: text, at: now},
-        block_retries: 0
+        last_action: %{text: text, at: now}
     }
+
+    if state.logic.advance == :arrived, do: %{state | block_retries: 0}, else: state
   end
 
   defp advance_mark(%Logic{advance: :skipped}), do: " ⏭ pulei (não cheguei)"

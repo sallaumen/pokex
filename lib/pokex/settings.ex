@@ -974,6 +974,12 @@ defmodule Pokex.Settings do
     # the Catcher's corpse queue is still MOVING; this is how long a frozen
     # queue holds it before the hunt goes on without it.
     cavebot_capture_wait_ms: 8_000,
+    # Still standing ON the tile of the last skip, the walk timeout shrinks to
+    # this: every unstick nudge already failed from that exact tile, so one
+    # second of walking answers "did skipping free him?". It is what turns
+    # "preso numa parede" into a block in ~5s instead of a 3-minute lap of
+    # skipped corners (28/08).
+    cavebot_pinned_probe_ms: 1_000,
     # The plain "esperar" stop: seconds standing still so cooldowns come back
     # on their own. The revive stop short-circuits this entirely (reviving
     # resets the bar), so this is the fallback for a pokémon with no revive to
@@ -1683,6 +1689,7 @@ defmodule Pokex.Settings do
     cavebot_park_gap_ms: 0..5_000,
     cavebot_record_dwell_ms: 500..600_000,
     cavebot_record_fight_dwell_ms: 1_000..600_000,
+    cavebot_pinned_probe_ms: 200..30_000,
     cavebot_stop_wait_ms: 0..600_000,
     cavebot_hp_abort_pct: 0..100,
     cavebot_hp_resume_pct: 1..100,

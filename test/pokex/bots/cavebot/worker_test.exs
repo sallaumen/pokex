@@ -884,7 +884,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
       minimap!({10, 20, 7})
       Enum.each(1..8, fn _ -> tick!(worker) end)
-      assert_receive {:cavebot_alarm, :stuck}, 1_000
+      assert_receive {:cavebot_alarm, :pinned}, 1_000
       assert_receive {:cavebot_log, :macro, "caçada: 🔁 retomando" <> _}, 1_000
 
       # the first tick after a comeback is the combat bootstrap (combat_running?
@@ -897,6 +897,34 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       minimap!({10, 20, 7})
       Enum.each(1..8, fn _ -> tick!(worker) end)
       assert_receive {:cavebot_log, :macro, "caçada: 🔁 retomando" <> _}, 1_000
+    end
+
+    # O carrossel de 28/08: pular uma esquina e reentrar pela volta TAMBÉM
+    # zeravam o orçamento, então um personagem preso agendava "tentativa 1 de
+    # N" para sempre e o bloqueio final nunca vinha. Só CHEGAR devolve as
+    # tentativas — pular e reentrar, não.
+    @tag :capture_log
+    test "preso de novo depois da volta GASTA o orçamento em vez de rebobiná-lo",
+         %{worker: worker} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      SettingsStash.stash!(cavebot_block_retries: 1)
+      two_waypoint_route!()
+      :ok = Worker.run(worker)
+
+      minimap!({10, 20, 7})
+      Enum.each(1..8, fn _ -> tick!(worker) end)
+      assert_receive {:cavebot_alarm, :pinned}, 1_000
+      assert_receive {:cavebot_log, :macro, "caçada: 🔁 retomando" <> _}, 1_000
+
+      # continua preso na mesma tile: bloqueia de novo…
+      Enum.each(1..10, fn _ -> tick!(worker) end)
+      assert_receive {:cavebot_alarm, :pinned}, 1_000
+
+      # …e desta vez fica no chão — o pulo e a reentrada não devolveram nada
+      refute_receive {:cavebot_log, :macro, "caçada: 🔁 retomando" <> _}, 300
+      status = Worker.status(worker)
+      assert status.state == :blocked
+      refute status.hold_reason =~ "tento de novo"
     end
   end
 

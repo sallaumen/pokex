@@ -155,7 +155,12 @@ defmodule Pokex.Bots.Engine.Logic do
             since: %{},
             # R3b desarmada porque um reset foi COBRADO e não veio: ver
             # `judge_reset/2`
-            reset_broken?: false,
+            # QUANDO o reset foi desarmado (nil = armado). Era um bool sem
+            # volta — prisão perpétua por um julgamento de um tique — e a
+            # corrida de 28/08 mostrou o custo: desarme falso no minuto 1,
+            # 39 minutos de recuo com pilhas de 9 na tela. Agora o desarme
+            # tem prazo (`reset_rearm_ms`) e voz (os whys dizem "desarmado").
+            reset_broken_at: nil,
             # quantos tiles já tinham sido andados quando a fuga da R7 começou —
             # é como se sabe se ela está andando de verdade
             kite_from: nil
@@ -624,7 +629,7 @@ defmodule Pokex.Bots.Engine.Logic do
   defp prepare?(t, ceiling) do
     t.config.prepare_revive and Map.get(t.s, :prepared?) == false and t.s.own_out? == true and
       quiet?(t, ceiling) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
-      not t.logic.reset_broken? and affordable?(t)
+      t.logic.reset_broken_at == nil and affordable?(t)
   end
 
   defp quiet?(%{s: %{enemies: enemies}}, ceiling) when is_integer(enemies),
@@ -738,13 +743,13 @@ defmodule Pokex.Bots.Engine.Logic do
            "sem cooldown com #{count(t.s)} na frente — controle primeiro, revive na sequência"
          )}
 
-      reset_revive?(t) and (not t.config.reset_needs_control or controle_longe?(t)) ->
-        # R3b SEM CONTROLE PRONTO, que é o único jeito de chegar aqui agora: um
-        # reset atrasado ainda vale mais que um reset que nunca vem, e esperar o
-        # cooldown do controle seria trocar a barra inteira por um prefixo.
-        #
-        # Com `reset_needs_control` ligado esta porta fecha e a regra dele passa
-        # a ser lida ao pé da letra: sem controle, sem revive.
+      reset_revive?(t) ->
+        # R3b SEM CONTROLE PRONTO — e sem ESPERA nenhuma. A aposta com prazo
+        # (`stun_wait_ms`) segurava o revive por um controle que "volta logo",
+        # e o que ele viu foi o preço dela: "não perde tempo fugindo tanto
+        # assim (…) usar o que tem e usa o revive, e não recuar" (28/08). A
+        # proteção que a espera comprava mudou de endereço em #429: o executor
+        # escala com o que sobrou, com settle, e nunca recolhe nu.
         {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
          Orders.standing_and_firing(
            :engaged,
@@ -764,15 +769,21 @@ defmodule Pokex.Bots.Engine.Logic do
            :engaged,
            t.band,
            opening(t),
-           "sem cooldown com #{count(t.s)} em cima — recuando pelo chão limpo até a barra voltar"
+           "sem cooldown com #{count(t.s)} em cima — recuando#{kite_reason(t)}"
          )}
 
       true ->
         # A fight already opened does not re-measure itself as it kills:
         # finishing what you started is right even as the list shrinks past
-        # three.
+        # three. Com a barra vazia e o reset desarmado, a linha DIZ o desarme —
+        # 39 minutos de silêncio em 28/08 pareciam covardia e eram uma trava.
         {t.logic,
-         Orders.standing_and_firing(:engaged, t.band, opening(t), "matando o que já abriu")}
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           opening(t),
+           "matando o que já abriu#{disarmed_note(t)}"
+         )}
     end
   end
 
@@ -817,26 +828,6 @@ defmodule Pokex.Bots.Engine.Logic do
       elapsed?(t, :stunned, t.config.stun_window_ms)
   end
 
-  # ESPERAR O CONTROLE É UMA APOSTA COM PRAZO. `reset_needs_control` ligado
-  # (27/08, depois de ele quase perder o pokémon num revive sem stun) virou uma
-  # trava sem saída: com o controle em 40s de cooldown e a barra gasta, a caçada
-  # ficava parada até o `fight_timeout_ms` estourar — "ele fica travado nesse bug
-  # de a caçada tropeçou (…) e ele não está usando o Resurrect".
-  #
-  # Então a trava passa a ser uma ESPERA: se o controle volta dentro de
-  # `stun_wait_ms`, vale segurar o revive por ele; se falta mais que isso, a
-  # barra vazia na frente da pilha é o perigo maior, e o revive sai sem prefixo.
-  #
-  # Sem leitura do relógio (tecla sem cooldown escrito e sem carimbo) a resposta
-  # é LONGE: é o comportamento que existia antes desta trava, e recusar pra
-  # sempre por falta de informação é o travamento de volta.
-  defp controle_longe?(t) do
-    case Map.get(t.s, :control_back_in_ms) do
-      ms when is_integer(ms) -> ms > t.config.stun_wait_ms
-      _sem_relogio -> true
-    end
-  end
-
   defp control_ready?(t) do
     crowd(t) != [] and t.s.own_out? == true and Enum.any?(crowd(t), &ready?(t, &1))
   end
@@ -871,6 +862,30 @@ defmodule Pokex.Bots.Engine.Logic do
   defp crowd(_no_hands), do: []
 
   defp forget_stun(logic), do: %{logic | since: Map.delete(logic.since, :stunned)}
+
+  # O recuo diz POR QUE está recuando em vez de resetar: o desarme era mudo, e
+  # 39 minutos de kite pareciam covardia quando eram uma trava latchada.
+  defp disarmed_note(%{s: %{spent?: true}, logic: %{reset_broken_at: at}} = t)
+       when is_integer(at),
+       do: kite_reason(t)
+
+  defp disarmed_note(_armed_or_not_spent), do: ""
+
+  defp kite_reason(%{logic: %{reset_broken_at: at}} = t) when is_integer(at) do
+    left = div(max(t.config.reset_rearm_ms - (t.now - at), 0), 1_000)
+    " — o reset está DESARMADO (paguei um revive e a barra não voltou; tento de novo em #{left}s)"
+  end
+
+  defp kite_reason(t) do
+    if reset_no_piso?(t),
+      do: " — reset já pedido, segurando #{div(t.config.reset_revive_cooldown_ms, 1_000)}s",
+      else: " pelo chão limpo até a barra voltar"
+  end
+
+  defp reset_no_piso?(t),
+    do:
+      t.config.reset_revive and
+        not elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms)
 
   defp kiting?(t) do
     t.config.kite_when_spent and t.s.spent? == true and some?(t.s) and escaping?(t)
@@ -1149,7 +1164,11 @@ defmodule Pokex.Bots.Engine.Logic do
   # ler. Passada essa janela, com o pokémon em campo e a barra AINDA vazia, o
   # reset não aconteceu — seja porque o jogo não zera nada, seja porque a
   # leitura mente. As duas conclusões pedem a mesma coisa: parar de pagar.
-  defp audit_reset(%{logic: %{reset_broken?: true}} = t), do: t.logic
+  defp audit_reset(%{logic: %{reset_broken_at: at}} = t) when is_integer(at) do
+    if t.now - at >= t.config.reset_rearm_ms,
+      do: %{t.logic | reset_broken_at: nil},
+      else: t.logic
+  end
 
   defp audit_reset(t) do
     case Map.get(t.logic.since, :reset_pending) do
@@ -1166,12 +1185,19 @@ defmodule Pokex.Bots.Engine.Logic do
   # `:reset_pending` é uma marca própria de propósito: o piso entre duas prensas
   # (`:reset_revive`) não pode ser zerado por um veredito, senão fechar o caso
   # liberaria a prensa seguinte na hora.
+  # A PROMESSA VISTA fecha o caso NA HORA, dentro ou fora da janela. O juiz
+  # antigo só olhava a barra DEPOIS da janela de ~6s — e numa pilha grande a
+  # barra volta cheia e é despejada de novo em dois ou três segundos, que é o
+  # reset FUNCIONANDO. O julgamento tardio via `spent?` de novo e condenava:
+  # quanto melhor o reset trabalhava, mais certo ele quebrava. Foi o minuto 1
+  # da corrida de 28/08 — cinco resets perfeitos, um veredito errado, e 39
+  # minutos de "recuando pelo chão limpo" com o estoque a 700.
   defp judge_reset(t, at) do
     cond do
+      t.s.own_out? == true and t.s.spent? == false -> close_reset(t.logic)
       t.now - at < t.config.revive_confirm_ms + reset_grace_ms(t) -> t.logic
       t.s.own_out? != true -> t.logic
-      t.s.spent? != true -> close_reset(t.logic)
-      true -> %{close_reset(t.logic) | reset_broken?: true}
+      true -> %{close_reset(t.logic) | reset_broken_at: t.now}
     end
   end
 
@@ -1191,7 +1217,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # por causa de um tique, e desarmar é definitivo.
   defp reset_grace_ms(t), do: max(t.config.rescue_cooldown_ms, 5_000)
 
-  defp reset_revive?(%{logic: %{reset_broken?: true}}), do: false
+  defp reset_revive?(%{logic: %{reset_broken_at: at}}) when is_integer(at), do: false
 
   defp reset_revive?(t) do
     t.config.reset_revive and t.s.spent? == true and t.s.own_out? == true and
@@ -1223,7 +1249,7 @@ defmodule Pokex.Bots.Engine.Logic do
   end
 
   defp reset_possible?(t) do
-    t.config.reset_revive and not t.logic.reset_broken? and affordable?(t)
+    t.config.reset_revive and t.logic.reset_broken_at == nil and affordable?(t)
   end
 
   defp healthy_enough?(t),

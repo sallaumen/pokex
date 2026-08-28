@@ -20,6 +20,11 @@ defmodule Pokex.Application do
       # Native CGEvent key helper (~1-2ms per key event vs ~60-100ms osascript).
       # Degrades to :disabled/:untrusted states; Rig.Mac falls back to osascript.
       Pokex.Rig.Mac.KeyEvents,
+      # A mão DELE vira fato: vigia os apertos que ele mesmo dá (fileira + tecla
+      # do resgate) enquanto a caçada roda, e carimba/zera o relógio das teclas
+      # como se o bot tivesse apertado. Depois do KeyEvents (quem lê o teclado)
+      # e do InputGate (o foco decide se o aperto era jogo).
+      Pokex.Bots.HandWatch,
       # Serializes the osascript KEY fallback — System Events is one queue; concurrent key
       # scripts pile up and desync keys from the mouse moves they belong with.
       Pokex.Rig.Mac.OsaBus,

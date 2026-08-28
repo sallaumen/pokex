@@ -305,6 +305,8 @@ defmodule PokexWeb.CavebotLive do
   defp stop_middle_watch(socket) do
     if socket.assigns.middle_timer, do: Process.cancel_timer(socket.assigns.middle_timer)
     disarm_key_watch()
+    # A gravação largou o teclado; o vigia da caçada pode voltar.
+    Pokex.Bots.HandWatch.resume()
     assign(socket, middle_timer: nil, middle_count: nil)
   end
 
@@ -670,6 +672,11 @@ defmodule PokexWeb.CavebotLive do
 
       true ->
         photo(socket, :start)
+        # O key_watch é UM buffer global e a gravação drena ele aqui mesmo —
+        # o vigia da caçada (HandWatch) sai da frente enquanto isso, senão os
+        # dois roubam apertos um do outro. Se a página morrer gravando, o
+        # monitor dele devolve o vigia sozinho.
+        Pokex.Bots.HandWatch.pause()
 
         {:noreply,
          socket

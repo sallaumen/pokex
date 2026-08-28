@@ -142,6 +142,11 @@ config :pokex, :guardian_auto_poll, false
 # their own unnamed Feed and are unaffected.
 config :pokex, :perception_feeds_active, false
 
+# O HandWatch dispara um laço de drain contra o rig da suíte (Fake/Sim) e
+# sujaria a lista de chamadas de qualquer teste de worker — inerte aqui, como
+# os feeds; os testes dele chamam judge/2 e o servidor com a flag ligada.
+config :pokex, :hand_watch_active, false
+
 # The coord-band search holds a real hover for ~2s in production; tests only
 # need the ORDER of move -> shot -> restore, not the wall-clock.
 config :pokex, coord_hover_settle_ms: 10, coord_hover_hold_ms: 60

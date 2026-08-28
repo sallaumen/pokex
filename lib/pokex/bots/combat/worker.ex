@@ -129,6 +129,10 @@ defmodule Pokex.Bots.Combat.Worker do
         # (stale fact → nil → blind rotation), so unlike :battle it gets no monitor and no
         # reattach loop — combat still fights, just blind, exactly as before the feed.
         Perception.attach(:skill_bar)
+        # …e a MÃO DELE entra na jogada: enquanto a caçada roda, os apertos que
+        # ele mesmo dá (skill ou F4) são vigiados e carimbados como nossos.
+        # Mesma graça do skill_bar: um vigia indisponível não muda a luta.
+        Pokex.Bots.HandWatch.attach()
         # A double :run (two Start presses) must not leak the previous feed monitor.
         demonitor_feed(state.feed_ref)
         ref = Process.monitor(Feed.name(:battle))
@@ -163,6 +167,7 @@ defmodule Pokex.Bots.Combat.Worker do
     {logic, _} = Logic.stop(state.logic)
     safe_detach(:battle)
     safe_detach(:skill_bar)
+    Pokex.Bots.HandWatch.detach()
     demonitor_feed(state.feed_ref)
     state = %{state | logic: logic, feed_ref: nil, reattach_attempts: 0, held?: false}
     broadcast(logic, state)
@@ -225,8 +230,15 @@ defmodule Pokex.Bots.Combat.Worker do
     # oferecer, cinco segundos depois, a mesma tecla que o jogo acabou de
     # ignorar — foi o que ele viu em 27/08, com o jogo escrevendo o cooldown em
     # cima dela.
-    Enum.each(keys, &SkillClock.denied/1)
-    mute_log(keys, cooldowns(state.loadout))
+    #
+    # SÓ COM O PORTÃO ABERTO: com o `InputGate` fechado o aperto foi ENGOLIDO
+    # antes de chegar no jogo — o `missed` não prova nada sobre a barra, e
+    # calar uma tecla boa por 45s porque a janela perdeu o foco era metade dos
+    # "cooldowns errados" que ele viu em 28/08.
+    if Pokex.Bots.InputGate.allowed?() do
+      Enum.each(keys, &SkillClock.denied/1)
+      mute_log(keys, cooldowns(state.loadout))
+    end
 
     {:noreply, state}
   end

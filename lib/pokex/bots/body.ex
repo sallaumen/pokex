@@ -512,12 +512,21 @@ defmodule Pokex.Bots.Body do
 
   # O CARIMBO DO RELÓGIO DAS TECLAS mora aqui porque aqui é o único portão: não
   # existe caminho no bot que aperte uma tecla sem passar por `execute/1`, então
-  # não existe jeito de o cérebro perder um disparo. Só o que o rig ACEITOU
-  # conta — um input suprimido pelo portão não gastou cooldown nenhum.
+  # não existe jeito de o cérebro perder um disparo.
+  #
+  # E o `:ok` do rig NÃO basta: `Rig.Mac.gated/1` ENGOLE o input com o
+  # `InputGate` fechado e responde `:ok` mesmo assim (contrato global — "seguro
+  # por segurança" não é falha de I/O). Carimbar esse `:ok` inventava um
+  # cooldown de 40-50s pra uma tecla que nunca saiu — cada aperto com o jogo
+  # fora de foco virava uma tecla boa recusada depois ("a IA acha que usou uma
+  # skill e marca o cooldown, mas ela não saiu", ele, 28/08). Então o portão é
+  # perguntado de novo aqui, como o `walk_click` já faz: melhor esforço — o
+  # gate pode virar entre o press e esta leitura, e essa corrida custa UM
+  # carimbo errado, não todos.
   defp execute({:press, key}) do
     case Rig.impl().press(key) do
       :ok ->
-        SkillClock.pressed(key)
+        if InputGate.allowed?(), do: SkillClock.pressed(key)
         :ok
 
       other ->

@@ -48,6 +48,15 @@ defmodule Pokex.Bots.InputGate do
   @doc "True only when BOTH guards allow actuation. Missing table or flag → false (fail-closed)."
   def allowed?, do: flag(:corner_ok) and flag(:focus_ok)
 
+  @doc """
+  Só a metade do FOCO: o jogo está frontmost? É a pergunta de quem lê a MÃO
+  DELE (`Pokex.Bots.HandWatch`) — um aperto dele com o jogo focado é jogo; com
+  o jogo fora de foco é ele digitando em outro lugar, e carimbar isso inventaria
+  cooldown. O canto de pânico fica de fora de propósito: ele trava a NOSSA
+  atuação, nunca a leitura da mão do dono.
+  """
+  def focus_ok?, do: flag(:focus_ok)
+
   @doc "The panic-corner guard: set false while the cursor is parked in the kill corner."
   def set_corner_ok(ok?) when is_boolean(ok?), do: put(:corner_ok, ok?)
 

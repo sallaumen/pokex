@@ -177,7 +177,7 @@ defmodule PokexWeb.CharacterSwitchTest do
     :ok = Settings.put(:skill_keys, ["1"])
 
     :ok = Characters.set_active(main)
-    {:ok, view, _html} = live(conn, ~p"/config")
+    {:ok, view, _html} = live(conn, ~p"/config/editores")
     assert view |> element("#skills-form input[name=skills]") |> render() =~ ~s(value="7 8")
 
     view
@@ -192,7 +192,7 @@ defmodule PokexWeb.CharacterSwitchTest do
     main: main
   } do
     :ok = Characters.set_active(main)
-    {:ok, view, _html} = live(conn, ~p"/config")
+    {:ok, view, _html} = live(conn, ~p"/config/editores")
 
     owner = view |> element("#settings-owner") |> render()
     assert owner =~ "Main"
@@ -208,7 +208,7 @@ defmodule PokexWeb.CharacterSwitchTest do
 
   test "with no character the ⚙️ says you are editing the base, and marks nothing", %{conn: conn} do
     :ok = Characters.set_active("")
-    {:ok, view, _html} = live(conn, ~p"/config")
+    {:ok, view, _html} = live(conn, ~p"/config/editores")
 
     assert view |> element("#settings-owner") |> render() =~ "configuração base"
     refute has_element?(view, ~s([data-testid="character-key"]))

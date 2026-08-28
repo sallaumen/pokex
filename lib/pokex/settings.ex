@@ -1615,6 +1615,10 @@ defmodule Pokex.Settings do
     sweep_side: ~w(square right left)
   }
 
+  @doc "Os valores válidos de um ajuste de enum fechado — [] pra quem não é enum."
+  @spec enum_values(atom) :: [String.t()]
+  def enum_values(key), do: Map.get(@enums, key, [])
+
   # THRESHOLD keys whose seed is an integer but which accept fractions (the
   # calibration suggests 45.0 and the 2026-07 test pins that use). A
   # fractional tick_ms would break send_after — hence a named exception, not a
@@ -1716,6 +1720,20 @@ defmodule Pokex.Settings do
     revive_stock: 0..10_000,
     engine_revive_reserve: 0..1_000,
     player_hp_floor_pct: 0..99,
+    # As faixas dos números que o /config repaginado edita direto: os limites
+    # que os formulários antigos guardavam no cliente (min/max do input) viram
+    # regra do dono do dado — o overlay clampava e o resto do código confiava.
+    pokemon_hp_rescue_pct: 1..90,
+    pokemon_hp_potion_pct: 1..99,
+    pokemon_hp_fishing_pct: 1..90,
+    rescue_cooldown_ms: 0..600_000,
+    fight_timeout_ms: 1_000..600_000,
+    combat_skill_burst_size: 1..10,
+    combat_skill_gap_ms: 20..5_000,
+    escape_steps: 1..10,
+    stagnation_minutes: 0..999,
+    stop_after_minutes: 0..999,
+    stop_after_kills: 0..9_999,
     engine_closing_timeout_ms: 100..600_000,
     engine_revive_confirm_ms: 500..600_000,
     sim_respawn_ms: 1_000..600_000,

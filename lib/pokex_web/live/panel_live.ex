@@ -3300,7 +3300,7 @@ defmodule PokexWeb.PanelLive do
                 />
               </div>
               <.link
-                patch={~p"/config"}
+                navigate={~p"/config"}
                 id="open-settings"
                 class="mt-1.5 flex h-8 items-center justify-center gap-1.5 rounded-lg border border-pk-line-strong font-mono text-pk-meta text-pk-text-2 transition hover:text-white"
               >

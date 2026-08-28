@@ -86,7 +86,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     fight_timeout_ms: :cavebot_fight_timeout_ms,
     post_kill_dwell_ms: :cavebot_post_kill_dwell_ms,
     capture_wait_ms: :cavebot_capture_wait_ms,
-    sweep_grace_ms: :cavebot_sweep_grace_ms,
     stop_wait_ms: :cavebot_stop_wait_ms,
     gather_wait_ms: :cavebot_gather_wait_ms,
     fight_only_at_stops: :cavebot_fight_only_at_stops,
@@ -104,7 +103,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     state = %{
       body: Keyword.get(opts, :body, Pokex.Bots.Body),
       combat: Keyword.get(opts, :combat, Combat.Worker),
-      catcher: Keyword.get(opts, :catcher, Catcher.Worker),
       # A ceiling on starting combat, because that call runs the whole
       # `Preflight` inline and the preflight queues behind the capture broker.
       # Without one the tick took the default 5s and EXITED — see
@@ -127,9 +125,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       loadout: Combat.Loadout.current(),
       capture_pending: 0,
       capture_changed_at: nil,
-      # the BLIND sweep's queue, same progress rule as the capture's
-      sweep_pending: 0,
-      sweep_changed_at: nil,
       last_step: nil,
       pos: nil,
       pos_at: nil,
@@ -306,12 +301,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # hunt wait on work nobody was going to do: after every kill it sat until the
   # cap, then again, and again.
   def handle_info({:catcher, snapshot}, state) do
-    sweep_pending = snapshot |> Map.get(:sweep, %{}) |> Map.get(:pending, 0)
-
-    {:noreply,
-     state
-     |> note_capture(Map.get(snapshot, :pending_corpses, 0))
-     |> note_sweep(sweep_pending)}
+    {:noreply, note_capture(state, Map.get(snapshot, :pending_corpses, 0))}
   end
 
   # Changing pokémon changes which key is the aura — the route stores the
@@ -412,12 +402,17 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   # WHERE the hunt is, as a fact, for whoever needs to reason about the leg
   # rather than about the screen. The posture above says what Combat must DO;
-  # this says what the hunt IS — which leg it walks, whether that leg is a
-  # gathering, and whether the clock still considers the pile to be arriving.
+  # this says what the hunt IS — which leg it walks and whether that leg is a
+  # gathering.
   #
   # Published beside the posture and never instead of it: the posture is a
   # command with a heartbeat, this is a description. A consumer that misses it
   # loses context, never safety.
+  #
+  # It carried a `gathering?` too — whether the huddle clock still considered
+  # the pile to be arriving — and nobody ever read it: the engine matches on
+  # `state` and `luring?`, and the one consumer of the huddle window (Timers)
+  # reads the `:posture` fact raw. Dropped 2026-08-28.
   defp publish_hunt(state, now) do
     logic = state.logic
 
@@ -426,7 +421,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       %{
         state: logic.state,
         luring?: Logic.luring?(logic),
-        gathering?: Logic.gathering?(logic, now),
         wp_index: logic.wp_index,
         waypoints: length(logic.route.waypoints),
         recovering?: logic.recovering?
@@ -467,8 +461,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       combat_state: state.combat_state,
       capture_pending: state.capture_pending,
       capture_changed_at: state.capture_changed_at,
-      sweep_pending: state.sweep_pending,
-      sweep_changed_at: state.sweep_changed_at,
       hp_pct: own_hp(now),
       fainted?: own_fainted?(now)
     }
@@ -635,16 +627,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     {stepped, went_out} = state |> release_walk() |> arrow_step(dx, dy)
     log_walk_decision({:nudge, dx, dy}, state.pos, state.pos_age, went_out)
     stepped
-  end
-
-  # "varrer aqui": the pile the hunt gathered died on this tile, and its
-  # corpses are worth a ball each. A cast, never a call — the Catcher parks on
-  # multi-second captures and this worker ticks five times a second.
-  def translate(state, {:sweep, around}) do
-    point = spot_point(around)
-    Catcher.Worker.sweep_now(state.catcher, point)
-    log(:macro, sweep_text(point))
-    release_walk(state)
   end
 
   # The middle click he makes himself when he finishes gathering: it parks the
@@ -1004,9 +986,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   defp spot_point(_nothing), do: nil
 
-  defp sweep_text({x, y}), do: "🧹 varrendo onde o pokémon estava (#{x}, #{y})"
-  defp sweep_text(_character), do: "🧹 varrendo os corpos antes de seguir"
-
   # One key, and no calibration to be missing: the choreography this borrowed
   # used to need the portrait marked, and a hunt could reach the corner only to
   # log that it could not revive.
@@ -1017,15 +996,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     if pending == state.capture_pending,
       do: state,
       else: %{state | capture_pending: pending, capture_changed_at: now()}
-  end
-
-  # The sweep's own queue: the hunt does not count it as work to wait for
-  # UNLESS it asked for the sweep itself (see Logic.sweeping?/3), but when it
-  # did, the same "is it MOVING" rule decides how long it waits.
-  defp note_sweep(state, pending) do
-    if pending == state.sweep_pending,
-      do: state,
-      else: %{state | sweep_pending: pending, sweep_changed_at: now()}
   end
 
   # Close in, precision beats speed: a held arrow keeps walking between

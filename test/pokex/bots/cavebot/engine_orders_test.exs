@@ -32,7 +32,6 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
       fight_timeout_ms: 100_000,
       post_kill_dwell_ms: 0,
       capture_wait_ms: 0,
-      sweep_grace_ms: 0,
       stop_wait_ms: 0,
       gather_wait_ms: 0,
       fight_only_at_stops: true,
@@ -61,7 +60,7 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
   # não enxergava isto) toda tela limpa responde `route: :go`, e a luta ia pro
   # `follow_route` em vez de passar pelo `fight_clear/2` — a ÚNICA porta do
   # `:post_fight`. A caçada latchava em `:fighting` para sempre: some a rodada
-  # da esquina (varredura, revive de cooldown) e, caro, o `post_kill_dwell_ms`
+  # da esquina (revive de cooldown, espera) e, caro, o `post_kill_dwell_ms`
   # nunca segura o pé — o personagem anda debaixo da bola enquanto o Catcher
   # mira num ponto de TELA.
   describe "com o cérebro ligado" do

@@ -680,21 +680,17 @@ defmodule PokexWeb.CavebotLive do
     end)
   end
 
-  # What the hunt DOES at a waypoint once the fighting there stops: sweep the
-  # ground, reset the cooldowns on a revive, or simply stand still. A second
-  # axis, not more jobs — the waypoint worth sweeping and reviving at is
-  # usually the one already marked "até aqui".
+  # What the hunt DOES at a waypoint once the fighting there stops: reset the
+  # cooldowns on a revive, or simply stand still. A second axis, not more jobs
+  # — the waypoint worth reviving at is usually the one already marked "até
+  # aqui".
+  #
+  # A stop nobody knows leaves before anything is named, same reason as the
+  # skill chips below: `stop_label/1` has one clause per stop and no catch-all,
+  # so naming a nil in the notice would kill this LiveView over a forged click
+  # that could not have changed the route anyway.
   def handle_event("toggle_waypoint_stop", %{"index" => index, "stop" => stop}, socket) do
-    index = String.to_integer(index)
-    stop = decode_stop(stop)
-    socket = remember_hand_mark(socket, index)
-
-    with_route(socket, fn route ->
-      on? = stop not in Route.stops_at(route.waypoints, index)
-
-      {Route.set_stop(route, index, stop, on?),
-       "waypoint #{index + 1}: #{stop_label(stop)} #{if on?, do: "ligado", else: "desligado"}"}
-    end)
+    toggle_stop(socket, String.to_integer(index), decode_stop(stop))
   end
 
   # The skill HE wants at this corner, said by category — the aura in the
@@ -1097,9 +1093,7 @@ defmodule PokexWeb.CavebotLive do
 
       %Route{} = route ->
         waypoints = List.delete_at(route.waypoints, String.to_integer(index))
-        # an emptied route loses its floor too, so the next recording can
-        # start on whatever floor Lucas is actually standing on
-        updated = %{route | waypoints: waypoints, z: if(waypoints == [], do: nil, else: route.z)}
+        updated = %{route | waypoints: waypoints}
         :ok = Store.add(updated)
         {:noreply, socket |> assign(notice: nil) |> reload_routes(updated.name)}
     end
@@ -1438,18 +1432,32 @@ defmodule PokexWeb.CavebotLive do
   end
 
   # What the hunt does at a waypoint once the fighting stops. The atoms are the
-  # domain's (`Route.stop/0`); only these words are Portuguese.
-  defp decode_stop("cooldown_revive"), do: :cooldown_revive
-  defp decode_stop("wait"), do: :wait
-  defp decode_stop(_sweep), do: :sweep
+  # domain's (`Route.stop/0`); only these words are Portuguese. Whitelisted and
+  # never `String.to_atom/1` — the value comes from the DOM, and a stop nobody
+  # knows answers nil, which `Route.set_stop/4` leaves the route untouched for.
+  defp decode_stop(value), do: Enum.find(Route.stops(), &(Atom.to_string(&1) == value))
 
   # Whitelist, never String.to_atom/1: the value comes from the DOM. A category
   # nobody knows answers nil, and the handler above drops the event rather than
   # trying to name it.
   defp decode_skill(value), do: Enum.find(Route.skills(), &(Atom.to_string(&1) == value))
 
-  # The nil clause is the whole reason this is a function and not a `case`: a
-  # category nobody knows leaves HERE, before anything tries to name it.
+  # The nil clause is the whole reason these are functions and not a `case`: a
+  # stop or a category nobody knows leaves HERE, before anything tries to name
+  # it.
+  defp toggle_stop(socket, _index, nil), do: {:noreply, socket}
+
+  defp toggle_stop(socket, index, stop) do
+    socket = remember_hand_mark(socket, index)
+
+    with_route(socket, fn route ->
+      on? = stop not in Route.stops_at(route.waypoints, index)
+
+      {Route.set_stop(route, index, stop, on?),
+       "waypoint #{index + 1}: #{stop_label(stop)} #{if on?, do: "ligado", else: "desligado"}"}
+    end)
+  end
+
   defp toggle_skill(socket, _index, nil), do: {:noreply, socket}
 
   defp toggle_skill(socket, index, skill) do
@@ -1519,15 +1527,11 @@ defmodule PokexWeb.CavebotLive do
 
   defp gather_suggestion(_no_measurement), do: []
 
-  defp stop_label(:sweep), do: "varrer"
   defp stop_label(:cooldown_revive), do: "resetar cooldown"
   defp stop_label(:wait), do: "esperar"
 
-  defp stop_icon(:sweep), do: "🧹"
   defp stop_icon(:cooldown_revive), do: "⚡"
   defp stop_icon(:wait), do: "⏱"
-
-  defp stop_hint(:sweep), do: "depois da luta aqui, varre o chão atrás de corpos antes de andar"
 
   defp stop_hint(:cooldown_revive),
     do: "guarda e revive o pokémon (Q → Shift+Q na foto → Q): zera todos os cooldowns"
@@ -1791,7 +1795,7 @@ defmodule PokexWeb.CavebotLive do
   # each other otherwise, and "achei que tivesse funcionando" is what that
   # costs (Lucas, 2026-08-11).
   defp map_floor(_route, {_x, _y, z}), do: z
-  defp map_floor(%Route{z: z}, _no_pos), do: z
+  defp map_floor(%Route{} = route, _no_pos), do: route |> Route.floors() |> List.first()
   defp map_floor(_no_route, _no_pos), do: nil
 
   # A route may climb: say how many floors it touches, because "andar 7" on a
@@ -2819,7 +2823,7 @@ defmodule PokexWeb.CavebotLive do
                   {if @active_route, do: "Mapa de #{@active_route.name}", else: "Mapa"}
                 </h2>
                 <span
-                  :if={@active_route && @active_route.z}
+                  :if={@active_route && @active_route.waypoints != []}
                   class="font-mono text-pk-meta text-pk-text-2"
                 >
                   {floors_label(@active_route)}

@@ -11,7 +11,6 @@ defmodule Pokex.Bots.Cavebot.HpGuardTest do
     post_kill_dwell_ms: 1200,
     blind_kick_ms: 1200,
     capture_wait_ms: 20_000,
-    sweep_grace_ms: 1500,
     stop_wait_ms: 5_000,
     gather_wait_ms: 4_000,
     gather_wait_min_ms: 500,

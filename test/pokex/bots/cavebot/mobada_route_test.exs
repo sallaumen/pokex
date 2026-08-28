@@ -7,7 +7,7 @@ defmodule Pokex.Bots.Cavebot.MobadaRouteTest do
   waypoints, including a run of EIGHT in ten seconds and another of FIVE. They
   are not eight piles, they are eight middle clicks in one fight — he moves the
   pokémon around while it kills, and every click used to open a kill spot of
-  its own, with its own sweep and its own revive.
+  its own, with its own park point and its own revive.
   """
   use ExUnit.Case, async: false
 
@@ -29,7 +29,7 @@ defmodule Pokex.Bots.Cavebot.MobadaRouteTest do
 
   defp kill_spots(%Route{waypoints: waypoints}) do
     for {wp, index} <- Enum.with_index(waypoints),
-        wp.action == :lure_end or :sweep in wp.stops or wp.park_point != nil,
+        wp.action == :lure_end or wp.park_point != nil,
         do: index
   end
 
@@ -100,7 +100,6 @@ defmodule Pokex.Bots.Cavebot.MobadaRouteTest do
       {route, note} = Recording.mark_fight_start(route, 2)
 
       assert Enum.at(route.waypoints, 2).action == :lure_end
-      assert :sweep in Enum.at(route.waypoints, 2).stops
       assert Enum.at(route.waypoints, 0).action == :lure_start
       assert note =~ "shift+1"
     end

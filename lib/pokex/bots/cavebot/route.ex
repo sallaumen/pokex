@@ -8,9 +8,9 @@ defmodule Pokex.Bots.Cavebot.Route do
   (`t:stop/0` — what the hunt does there once the fighting ends) and a list of
   SKILLS (`t:skill/0` — what the pokémon fires there, said by category).
 
-  A route may climb: `z` is the floor it STARTS on, `floors/1` is every floor
-  it visits, and it is the Logic — not this struct — that refuses a floor
-  nobody marked.
+  A route may climb: `floors/1` is every floor it visits, derived from the
+  waypoints themselves, and it is the Logic — not this struct — that refuses a
+  floor nobody marked.
   """
 
   alias Pokex.Pokedex.SkillProfile
@@ -18,7 +18,6 @@ defmodule Pokex.Bots.Cavebot.Route do
   @enforce_keys [:name]
   defstruct name: nil,
             dungeon: nil,
-            z: nil,
             enabled?: true,
             # THIS route's huddle ruler; nil hands the answer to the global
             # number in /config
@@ -41,17 +40,22 @@ defmodule Pokex.Bots.Cavebot.Route do
 
   `:cooldown_revive` is the recall/max-revive/release combo (`Q`, `Shift+Q` on
   the portrait, `Q`) — reviving resets every skill cooldown, which buys the
-  next fight a full bar instead of a wait. `:sweep` throws a ball at every
-  tile around, `:wait` simply stands still long enough for cooldowns to come
-  back on their own.
+  next fight a full bar instead of a wait. `:wait` simply stands still long
+  enough for cooldowns to come back on their own.
 
   They run in THIS order, whichever are marked: the revive is instant and
-  should reset the bar before anything else spends time, the sweep spends that
-  time usefully, and the wait is the last resort that only costs seconds.
-  """
-  @type stop :: :cooldown_revive | :sweep | :wait
+  should reset the bar before anything else spends time, and the wait is the
+  last resort that only costs seconds.
 
-  @stops [:cooldown_revive, :sweep, :wait]
+  There was a third, `:sweep` — throw a ball at every tile around before
+  walking on. It was removed on 2026-08-28: the Catcher only sweeps in the
+  standing mode (`player_mode == "still"`), so during a hunt the request was
+  refused at the door and the corner paid the grace window standing still for
+  nothing. A stop that costs seconds and does nothing is worse than no stop.
+  """
+  @type stop :: :cooldown_revive | :wait
+
+  @stops [:cooldown_revive, :wait]
 
   @typedoc """
   What work the pokémon does HERE, said by category and never by key.
@@ -116,14 +120,13 @@ defmodule Pokex.Bots.Cavebot.Route do
   @type t :: %__MODULE__{
           name: String.t(),
           dungeon: String.t() | nil,
-          z: integer | nil,
           enabled?: boolean,
           gather_wait_ms: non_neg_integer | nil,
           waypoints: [waypoint]
         }
 
   @doc """
-  Creates an empty route. `waypoints: []`, `z: nil`, `enabled?: true`.
+  Creates an empty route. `waypoints: []`, `enabled?: true`.
   """
   @spec new(String.t(), String.t() | nil) :: t
   def new(name, dungeon \\ nil) when is_binary(name) do
@@ -135,8 +138,8 @@ defmodule Pokex.Bots.Cavebot.Route do
 
   A waypoint on ANOTHER floor is appended like any other: a hunt with stairs is
   an ordinary hunt (2026-08-10 — refusing it stopped the first real route Lucas
-  tried to record). The route's `z` keeps meaning "the floor it starts on",
-  which is what the screen labels it with; `floors/1` is the whole set.
+  tried to record). Which floors the route touches is `floors/1`, read off the
+  waypoints; the struct keeps no floor of its own.
 
   The safety this used to provide did not disappear, it moved to where it
   belongs: the Logic blocks on a floor the route does NOT know, which is the
@@ -162,7 +165,7 @@ defmodule Pokex.Bots.Cavebot.Route do
       gather_wait_ms: nil
     }
 
-    {:ok, %{route | z: route.z || z, waypoints: route.waypoints ++ [waypoint]}}
+    {:ok, %{route | waypoints: route.waypoints ++ [waypoint]}}
   end
 
   @doc """
@@ -358,9 +361,9 @@ defmodule Pokex.Bots.Cavebot.Route do
   Turns one stop action on or off at `index`.
 
   Stops are a SECOND axis, not more jobs: the waypoint where a gathered pile
-  dies is exactly the one worth sweeping and reviving at, and it is already
-  carrying "até aqui". Making them compete for one slot would make the most
-  useful combination the impossible one.
+  dies is exactly the one worth reviving at, and it is already carrying "até
+  aqui". Making them compete for one slot would make the most useful
+  combination the impossible one.
 
   An index nobody has, or an action nobody knows, leaves the route untouched.
   """
@@ -583,7 +586,7 @@ defmodule Pokex.Bots.Cavebot.Route do
   floor the character is actually standing on.
   """
   @spec clear(t) :: t
-  def clear(%__MODULE__{} = route), do: %{route | waypoints: [], z: nil}
+  def clear(%__MODULE__{} = route), do: %{route | waypoints: []}
 
   @doc """
   Every floor the route visits, ascending — what the Logic treats as EXPECTED.

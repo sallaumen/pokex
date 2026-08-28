@@ -5,9 +5,9 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
   Every other test in this folder feeds the machine shapes I invented, and
   twice today reality had a shape I had not: the dwell that never arrives
   because the coordinate stops being drawn, the two routes armed at once. So
-  this one drives the REAL file — 45 waypoints across two floors, five park
-  points, five sweeps, five recorded combos — and asks the only question that
-  matters before he runs it: does the hunt get all the way round?
+  this one drives the REAL file — 45 waypoints across two floors, five kill
+  spots, five park points, five recorded combos — and asks the only question
+  that matters before he runs it: does the hunt get all the way round?
 
   The fixture is a copy of `~/.pokex/routes.json`'s "Azumaril easy", taken
   2026-08-11. It is data, not a mock: when the recorder changes shape, this
@@ -31,7 +31,6 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
     post_kill_dwell_ms: 1_200,
     blind_kick_ms: 1_200,
     capture_wait_ms: 20_000,
-    sweep_grace_ms: 1_500,
     stop_wait_ms: 5_000,
     gather_wait_ms: 4_000
   }
@@ -79,8 +78,6 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
       combat_state: :hunting,
       capture_pending: 0,
       capture_changed_at: nil,
-      sweep_pending: 0,
-      sweep_changed_at: nil,
       logic: logic
     }
   end
@@ -163,9 +160,8 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
     assert length(route.waypoints) == 45
     assert Route.floors(route) == [1, 2]
     assert Enum.count(route.waypoints, & &1.park_point) == 5
-    assert Enum.count(route.waypoints, &(:sweep in &1.stops)) == 5
+    assert Enum.count(route.waypoints, &(&1.action == :lure_end)) == 5
     assert Enum.any?(route.waypoints, &(&1.action == :lure_start))
-    assert Enum.any?(route.waypoints, &(&1.action == :lure_end))
   end
 
   # The whole point: a lap, on his data, without blocking.

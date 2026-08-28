@@ -83,25 +83,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCombat do
   end
 end
 
-defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCatcher do
-  @moduledoc """
-  Answers `Catcher.Worker.sweep_now/1` (a plain `:sweep_now` cast) and tells the
-  test the hunt asked for a sweep.
-  """
-  use GenServer
-
-  def start_link(test), do: GenServer.start_link(__MODULE__, test)
-
-  @impl true
-  def init(test), do: {:ok, test}
-
-  @impl true
-  def handle_cast({:sweep_now, around}, test) do
-    send(test, {:sweep_asked, around})
-    {:noreply, test}
-  end
-end
-
 defmodule Pokex.Bots.Cavebot.WorkerTest do
   @moduledoc """
   The Worker isolated with fake Body and Combat, driven by facts injected into the
@@ -116,7 +97,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   alias Pokex.Bots.Cavebot.Store
   alias Pokex.Bots.Cavebot.Worker
   alias Pokex.Bots.Cavebot.WorkerTest.FakeBody
-  alias Pokex.Bots.Cavebot.WorkerTest.FakeCatcher
   alias Pokex.Bots.Cavebot.WorkerTest.FakeCombat
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.InputGate
@@ -141,12 +121,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
     {:ok, _} = FakeBody.start_link(self())
     {:ok, combat} = FakeCombat.start_link(self())
-    {:ok, catcher} = FakeCatcher.start_link(self())
 
     worker =
-      start_supervised!(
-        {Worker, name: nil, body: FakeBody, combat: combat, catcher: catcher, active: false}
-      )
+      start_supervised!({Worker, name: nil, body: FakeBody, combat: combat, active: false})
 
     %{worker: worker}
   end
@@ -1125,8 +1102,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   # captures, and this worker ticks 5x a second. The snapshot it broadcasts is
   # what tells the hunt to hold its ground after a kill.
   test "the Catcher's queue reaches the hunt through the topic", %{worker: worker} do
-    # the SWEEP queue is deliberately not counted: it is deferred outside the
-    # standing mode, so waiting on it is waiting on work nobody will do
+    # the Catcher's own blind-sweep queue rides in the same snapshot and is
+    # deliberately not counted: it is deferred outside the standing mode, so
+    # waiting on it is waiting on work nobody is going to do
     send(worker, {:catcher, %{pending_corpses: 2, sweep: %{pending: 3}}})
     assert %{capture_pending: 2, capture_changed_at: first} = :sys.get_state(worker)
     assert is_integer(first)
@@ -1143,38 +1121,11 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert unchanged == state.capture_changed_at
   end
 
-  # "depois que matar tudo, fazer aquela varredura de captura antes de andar"
-  # (Lucas, 2026-08-10): a waypoint may ask for the ground to be swept, and
-  # the request has to actually REACH the Catcher.
-  describe "sweeping where the pile died" do
-    test "arriving at a marked waypoint after a fight asks the Catcher to sweep", %{
-      worker: worker
-    } do
-      # the debounce and the dwell are CLOCKS, and these ticks take microseconds
-      SettingsStash.stash!(cavebot_clear_debounce_ms: 0, cavebot_post_kill_dwell_ms: 0)
-
-      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
-      {:ok, route} = Route.append(route, {200, 100, 7})
-      :ok = Store.add(Route.set_stop(route, 0, :sweep, true))
-
-      :ok = Worker.run(worker)
-      minimap!({100, 100, 7})
-      tick!(worker)
-      tick!(worker)
-      assert Worker.status(worker).wp_index == 1
-
-      # a fight starts and ends right there
-      battle!([0])
-      tick!(worker)
-      assert Worker.status(worker).state == :fighting
-
-      battle!([])
-      Enum.each(1..6, fn _ -> tick!(worker) end)
-
-      assert_receive {:sweep_asked, _around}, 1_000
-    end
-
+  # The round of stops a corner asks for once the fighting there is over: the
+  # mark is on the waypoint, and the keys have to actually REACH the game.
+  describe "the round of stops where the pile died" do
     test "the revive combo goes out through the Body, at :high", %{worker: worker} do
+      # the debounce and the dwell are CLOCKS, and these ticks take microseconds
       SettingsStash.stash!(cavebot_clear_debounce_ms: 0, cavebot_post_kill_dwell_ms: 0)
 
       {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
@@ -1209,6 +1160,8 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       assert Worker.status(worker)
     end
 
+    # The same lap on a corner nobody marked: the fight ends, the dwell runs
+    # out, and not one key is spent on a stop the route never asked for.
     test "an unmarked waypoint asks for nothing", %{worker: worker} do
       SettingsStash.stash!(cavebot_clear_debounce_ms: 0, cavebot_post_kill_dwell_ms: 0)
       two_waypoint_route!()
@@ -1223,7 +1176,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       battle!([])
       Enum.each(1..6, fn _ -> tick!(worker) end)
 
-      refute_receive {:sweep_asked, _around}, 300
+      refute_receive {:performed, _priority, _actions}, 300
     end
   end
 

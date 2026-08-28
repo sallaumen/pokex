@@ -186,6 +186,41 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
            ]
   end
 
+  # Every route on his disk was written with a route-level `"z"` — the floor it
+  # STARTED on. The struct dropped the field on 2026-08-28 (`Route.floors/1`
+  # derives the whole set from the waypoints, which is what the Logic actually
+  # asks for), and the five routes he already has must keep loading: the key is
+  # read past, and it leaves the file the next time the route is saved.
+  test "a route saved with the old floor field loads, and the field is not written back",
+       %{tmp_dir: tmp} do
+    body =
+      JSON.encode!(%{
+        "routes" => [
+          %{
+            "name" => "com-andar",
+            "z" => 7,
+            "enabled" => true,
+            "waypoints" => [%{"x" => 1, "y" => 2, "z" => 7}, %{"x" => 3, "y" => 4, "z" => 6}]
+          }
+        ]
+      })
+
+    File.write!(Path.join(tmp, "routes.json"), body)
+
+    [got] = Store.all()
+    assert got.name == "com-andar"
+    refute Map.has_key?(got, :z)
+    assert Route.floors(got) == [6, 7]
+
+    # saving it again is what drops the key — and the waypoints keep THEIR
+    # floors, which are the ones anybody reads
+    :ok = Store.add(got)
+    written = Path.join(tmp, "routes.json") |> File.read!() |> JSON.decode!()
+
+    refute Map.has_key?(hd(written["routes"]), "z")
+    assert Enum.map(hd(written["routes"])["waypoints"], & &1["z"]) == [7, 6]
+  end
+
   # Waypoints gained a JOB after his routes were already recorded and walked:
   # every one of them must keep working, which means a missing key is a plain
   # walking corner — never a crash, never a lost route.
@@ -212,23 +247,37 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
       assert [%Route{waypoints: [%{action: :walk}]}] = Store.all()
     end
 
-    # Stops shipped for an hour as a single boolean before becoming a list.
-    # Whatever he marked in that window still reads.
-    test "a waypoint written with the old sweep flag reads as the sweep stop", %{tmp_dir: tmp} do
+    # `:sweep` was a stop until 2026-08-28, written first as a single boolean
+    # and later inside the list. Both shapes are on his disk, and dropping the
+    # stop must not cost him the waypoints that carried it: the name simply
+    # matches nothing, and everything else the corner asks for still reads.
+    test "a waypoint written with the sweep stop loads without it", %{tmp_dir: tmp} do
       body =
         JSON.encode!(%{
           "routes" => [
             %{
               "name" => "antiga",
               "z" => 7,
-              "waypoints" => [%{"x" => 1, "y" => 2, "z" => 7, "sweep" => true}]
+              "waypoints" => [
+                %{"x" => 1, "y" => 2, "z" => 7, "sweep" => true},
+                %{
+                  "x" => 3,
+                  "y" => 4,
+                  "z" => 7,
+                  "action" => "lure_end",
+                  "stops" => ["sweep", "cooldown_revive", "wait"]
+                }
+              ]
             }
           ]
         })
 
       File.write!(Path.join(tmp, "routes.json"), body)
 
-      assert [%Route{waypoints: [%{stops: [:sweep]}]}] = Store.all()
+      assert [%Route{waypoints: [old_flag, in_the_list]}] = Store.all()
+      assert old_flag.stops == []
+      assert in_the_list.stops == [:cooldown_revive, :wait]
+      assert in_the_list.action == :lure_end
     end
 
     test "the stop list round-trips, in running order", %{tmp_dir: tmp} do

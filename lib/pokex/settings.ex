@@ -968,17 +968,12 @@ defmodule Pokex.Settings do
     cavebot_group_max_wait_ms: 4000,
     cavebot_stance_settle_ms: 400,
     cavebot_post_kill_dwell_ms: 1200,
-    # After a kill the CAPTURE needs the floor: a sweep is seconds of Body time,
-    # while the old fixed dwell was 1.2s — the hunt walked away mid-catch and
-    # both workers fought over the hands. The route waits while the Catcher's
-    # corpse queue is still MOVING; this is how long a frozen queue holds it
-    # before the hunt goes on without it.
+    # After a kill the CAPTURE needs the floor: picking a corpse up is seconds
+    # of Body time, while the old fixed dwell was 1.2s — the hunt walked away
+    # mid-catch and both workers fought over the hands. The route waits while
+    # the Catcher's corpse queue is still MOVING; this is how long a frozen
+    # queue holds it before the hunt goes on without it.
     cavebot_capture_wait_ms: 8_000,
-    # A sweep asked for by the hunt needs a beat before its queue exists: the
-    # Catcher builds the tile list on ITS next cycle, and an empty queue read
-    # in between is not a finished sweep. Only this first window is a clock;
-    # after it the wait follows the queue's own progress.
-    cavebot_sweep_grace_ms: 1_500,
     # The plain "esperar" stop: seconds standing still so cooldowns come back
     # on their own. The revive stop short-circuits this entirely (reviving
     # resets the bar), so this is the fallback for a pokémon with no revive to
@@ -1688,7 +1683,6 @@ defmodule Pokex.Settings do
     cavebot_park_gap_ms: 0..5_000,
     cavebot_record_dwell_ms: 500..600_000,
     cavebot_record_fight_dwell_ms: 1_000..600_000,
-    cavebot_sweep_grace_ms: 0..60_000,
     cavebot_stop_wait_ms: 0..600_000,
     cavebot_hp_abort_pct: 0..100,
     cavebot_hp_resume_pct: 1..100,

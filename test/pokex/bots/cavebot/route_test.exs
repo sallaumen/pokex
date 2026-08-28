@@ -4,16 +4,15 @@ defmodule Pokex.Bots.Cavebot.RouteTest do
 
   # The floor used to be PINNED here: the first waypoint fixed it and anything
   # else was {:error, :floor_mismatch}. Stairs made that wrong (2026-08-10) —
-  # see route_floors_test for the rule that replaced it.
-  test "append records the waypoint and remembers the floor it STARTED on" do
+  # see route_floors_test for the rule that replaced it. The route's own `z`
+  # outlived the pin as a label nobody read, and went on 2026-08-28.
+  test "append records the waypoint on whatever floor it was walked on" do
     r = Route.new("cavena", "cavena-dg")
     assert {:ok, r} = Route.append(r, {100, 200, 7})
-    assert r.z == 7
     assert {:ok, r} = Route.append(r, {101, 200, 7})
     assert length(r.waypoints) == 2
 
     assert {:ok, r} = Route.append(r, {101, 201, 6})
-    assert r.z == 7
     assert Route.floors(r) == [6, 7]
   end
 

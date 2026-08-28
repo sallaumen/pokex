@@ -39,8 +39,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
     html = view |> element("#mark-waypoint") |> render_click()
 
-    assert [%Route{name: "cavena", dungeon: "cavena-dg", z: 7, waypoints: waypoints}] =
-             Store.all()
+    assert [%Route{name: "cavena", dungeon: "cavena-dg", waypoints: waypoints}] = Store.all()
 
     assert [%{x: 10, y: 20, z: 7, action: :walk, stops: [], at: %DateTime{}}] = waypoints
     assert has_element?(view, "#waypoint-0")
@@ -253,7 +252,6 @@ defmodule PokexWeb.CavebotLiveTest do
 
       assert [%Route{waypoints: [wp]}] = Store.all()
       assert wp.action == :lure_end
-      assert wp.stops == [:sweep]
       assert wp.park_point == {1240, 655}
       assert html =~ "clique do meio em 1240, 655"
     end
@@ -314,7 +312,7 @@ defmodule PokexWeb.CavebotLiveTest do
       {:ok, route} = Route.append(Route.new("mob"), {10, 20, 7}, at: now)
       {:ok, route} = Route.append(route, {11, 20, 7}, at: now)
 
-      route = route |> Route.set_action(0, :lure_end) |> Route.set_stop(0, :sweep, true)
+      route = Route.set_action(route, 0, :lure_end)
       :ok = Store.add(route)
 
       put_pos({11, 20, 7})
@@ -545,7 +543,7 @@ defmodule PokexWeb.CavebotLiveTest do
       assert dwell >= 1_000
 
       # …and the stop was long enough to be read as a kill spot
-      assert %{action: :lure_end, stops: [:sweep]} = List.last(waypoints)
+      assert %{action: :lure_end} = List.last(waypoints)
     end
 
     test "walking on keeps every dwell short and marks nothing", %{conn: conn} do
@@ -713,7 +711,7 @@ defmodule PokexWeb.CavebotLiveTest do
     assert [%Route{waypoints: [%{x: 10}, %{x: 15}, %{x: 20}, %{x: 30}]}] = Store.all()
 
     view |> element("#clear-route") |> render_click()
-    assert [%Route{waypoints: [], z: nil}] = Store.all()
+    assert [%Route{waypoints: []}] = Store.all()
   end
 
   test "the ends of a route move nothing — the button is a no-op, never an error", %{conn: conn} do
@@ -1141,30 +1139,60 @@ defmodule PokexWeb.CavebotLiveTest do
       refute html =~ ~s(id="lure-warning")
     end
 
-    # "depois que matar tudo, fazer aquela varredura de captura antes de andar"
-    # (Lucas, 2026-08-10) — on the same waypoint that ends the gathering, so
-    # the two marks must not compete for the one slot.
-    test "a waypoint can gather AND sweep AND reset cooldowns", %{conn: conn} do
+    # The job and the stops are separate axes: the waypoint that ends the
+    # gathering is exactly the one worth reviving at, so the two marks must not
+    # compete for the one slot.
+    test "a waypoint can gather AND reset cooldowns AND wait", %{conn: conn} do
       route_with([{10, 10, 7}, {20, 10, 7}])
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 
       view |> element("#map-waypoint-1") |> render_click()
       view |> element("#waypoint-1-lure_end") |> render_click()
-      view |> element("#waypoint-1-sweep") |> render_click()
+      view |> element("#waypoint-1-wait") |> render_click()
       html = view |> element("#waypoint-1-cooldown_revive") |> render_click()
 
       assert [
                %Route{
-                 waypoints: [_first, %{action: :lure_end, stops: [:cooldown_revive, :sweep]}]
+                 waypoints: [_first, %{action: :lure_end, stops: [:cooldown_revive, :wait]}]
                }
              ] = Store.all()
 
-      assert html =~ "🧹 varrer"
-      assert html =~ "⚡ resetar cooldown"
+      assert html =~ "resetar cooldown"
+      assert html =~ "esperar"
 
       # and each toggles back off on its own
-      view |> element("#waypoint-1-sweep") |> render_click()
+      view |> element("#waypoint-1-wait") |> render_click()
       assert [%Route{waypoints: [_first, %{stops: [:cooldown_revive]}]}] = Store.all()
+    end
+
+    # A route recorded before 2026-08-28 carries `"sweep"` in its stops, and the
+    # Catcher refused it in every hunt anyway. It loads without the mark rather
+    # than crashing, and nothing on the page offers it back.
+    test "a route saved with the old varrer stop loads without it", %{conn: conn} do
+      route_with([{10, 10, 7}, {20, 10, 7}])
+      [%Route{name: name}] = Store.all()
+      path = Path.join(Pokex.Home.dir(), "routes.json")
+
+      patched =
+        path
+        |> File.read!()
+        |> JSON.decode!()
+        |> update_in(["routes"], fn routes ->
+          Enum.map(routes, fn route ->
+            update_in(route, ["waypoints"], fn [first | rest] ->
+              [Map.put(first, "stops", ["sweep", "cooldown_revive"]) | rest]
+            end)
+          end)
+        end)
+
+      File.write!(path, JSON.encode!(patched))
+
+      assert [%Route{name: ^name, waypoints: [%{stops: [:cooldown_revive]} | _rest]}] =
+               Store.all()
+
+      {:ok, view, html} = live(conn, ~p"/cavebot")
+      refute html =~ "varrer"
+      refute has_element?(view, "#waypoint-0-sweep")
     end
 
     # "eu mesmo errei alguns combos ali" — the marks are his, the pairing is

@@ -10,9 +10,8 @@ defmodule Pokex.Bots.Cavebot.Recording do
 
   So the recorder reads the dwell:
 
-    * a long stop is a KILL SPOT — `:lure_end` (the gathering ended here, this
-      is where everything dies) plus the `:sweep` stop (the corpses are on
-      this tile);
+    * a long stop is a KILL SPOT — `:lure_end`, the gathering ended here and
+      this is where everything dies;
     * the stretch BETWEEN two kill spots is the GATHERING — `:lure_start` on
       the first waypoint after the previous kill spot. His loop is exactly
       that: kill, walk gathering the next pile, kill again. Nothing is
@@ -207,7 +206,7 @@ defmodule Pokex.Bots.Cavebot.Recording do
 
   defp kill_spots(%Route{waypoints: waypoints}) do
     for {wp, index} <- Enum.with_index(waypoints),
-        wp.action == :lure_end or :sweep in wp.stops or wp.park_point != nil,
+        wp.action == :lure_end or wp.park_point != nil,
         do: index
   end
 
@@ -371,7 +370,7 @@ defmodule Pokex.Bots.Cavebot.Recording do
       # while a pile dies — moving the pokémon around — and each click used to
       # open a kill spot of its OWN: his 2026-08-11 recording came back with
       # eight "até aqui" in ten seconds, one per tile, each with its own park
-      # point and its own sweep. A click next door to a kill spot belongs to
+      # point. A click next door to a kill spot belongs to
       # that kill spot: it moves where the pokémon waits and marks nothing new.
       spot = same_fight_spot(route, index, opts) ->
         {Route.set_park_point(route, spot, point), moved_note(point, spot)}
@@ -407,7 +406,7 @@ defmodule Pokex.Bots.Cavebot.Recording do
         {marked, _note} =
           mark_kill_spot(route, index, nil, Keyword.get(opts, :hand_marked, []))
 
-        {marked, "⚔️ shift+1: aqui é matança — marquei \"até aqui\" + varrer"}
+        {marked, "⚔️ shift+1: aqui é matança — marquei \"até aqui\""}
     end
   end
 
@@ -492,16 +491,13 @@ defmodule Pokex.Bots.Cavebot.Recording do
   end
 
   defp park_note({x, y}),
-    do: "🖱️ clique do meio em #{x}, #{y} — marquei \"até aqui\" + varrer e guardei o ponto"
+    do: "🖱️ clique do meio em #{x}, #{y} — marquei \"até aqui\" e guardei o ponto"
 
   defp moved_note({x, y}, spot),
     do: "🖱️ #{x}, #{y} — mesma matança do waypoint #{spot + 1}; só mudei onde o pokémon fica"
 
   defp mark_kill_spot(route, index, dwell, hand_marked) do
-    route =
-      route
-      |> Route.set_action(index, :lure_end)
-      |> Route.set_stop(index, :sweep, true)
+    route = Route.set_action(route, index, :lure_end)
 
     case gathering_start(route, index, hand_marked) do
       nil ->
@@ -546,7 +542,7 @@ defmodule Pokex.Bots.Cavebot.Recording do
 
   defp note(dwell, start) do
     seconds = round(dwell / 1000)
-    base = "#{seconds}s parado — marquei \"até aqui\" + varrer"
+    base = "#{seconds}s parado — marquei \"até aqui\""
 
     if start, do: base <> " (e \"mobar daqui\" no waypoint #{start + 1})", else: base
   end

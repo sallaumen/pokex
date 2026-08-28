@@ -144,6 +144,15 @@ defmodule PokexWeb.ConfigLive do
           keywords: "stun controle dormir antes revive"
         },
         %{
+          key: :pokemon_hp_fainted_below_pct,
+          kind: :pct,
+          label: "Caído abaixo de",
+          hint:
+            "Abaixo disto a barra lida conta como pokémon no chão, e o revive entra no lugar da " <>
+              "cura. Acima, uma leitura ruim é só uma leitura ruim.",
+          keywords: "caído fainted desmaiou chão vida limiar"
+        },
+        %{
           key: :fainted_revive_cooldown_ms,
           kind: :sec,
           label: "Caído: pedir a cada",
@@ -193,6 +202,16 @@ defmodule PokexWeb.ConfigLive do
       tint: :info,
       title: "Cérebro da caçada",
       rows: [
+        %{
+          key: :engine_engage_from,
+          kind: :int,
+          label: "Encara a partir de (bichos)",
+          hint:
+            "Menos que isto na tela e o cérebro segue andando em vez de parar pra lutar. Num " <>
+              "mapa que lota, subir este número é o que impede a caçada de parar a cada bicho " <>
+              "solto; 1 é lutar com tudo.",
+          keywords: "encarar engajar engage lutar a partir bichos mínimo"
+        },
         %{
           key: :engine_gather_target,
           kind: :int,

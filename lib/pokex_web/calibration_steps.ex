@@ -38,6 +38,12 @@ defmodule PokexWeb.CalibrationSteps do
     hp_b:
       "Canto INFERIOR-DIREITO da MESMA barra (só ela — a faixa do Ctrl+N logo abaixo fica de fora).",
     photo: "Centro da FOTO do Pokémon principal (onde o mouse fica pro Shift+Q do revive).",
+    player_hp_a:
+      "Canto SUPERIOR-ESQUERDO da barra VERMELHA do painel 'Pokémon' — a que mostra " <>
+        "683/720. Apesar do nome do painel, essa barra é a vida do SEU PERSONAGEM, e é " <>
+        "ela que o guardião passa a vigiar.",
+    player_hp_b:
+      "Canto INFERIOR-DIREITO da MESMA barra vermelha (só ela — a barra azul de baixo fica de fora).",
     mini_game_a:
       "Canto SUPERIOR-ESQUERDO da FAIXA onde a barra do minigame aparece quando você pesca " <>
         "deste lugar (deixe uma folga de 1-2 tiles pra cada lado da barra).",
@@ -112,7 +118,9 @@ defmodule PokexWeb.CalibrationSteps do
         :minimap_coord_a,
         :minimap_coord_b,
         :pokemon_spot,
-        :escape_point
+        :escape_point,
+        :player_hp_a,
+        :player_hp_b
       ]
 
   # The numbered run is what a HUNT needs, and nothing else. Água (and the

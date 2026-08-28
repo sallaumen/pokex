@@ -327,6 +327,11 @@ defmodule PokexWeb.CalibrationLive do
   def handle_event("calibrate_hp", _params, socket),
     do: start_quick_fix(socket, :hp_a, :hp_only)
 
+  # A vida do PERSONAGEM: a barra vermelha do painel "Pokémon", que apesar do
+  # nome não é do pokémon. Sem ela marcada, o guardião do personagem não lê nada.
+  def handle_event("calibrate_player_hp", _params, socket),
+    do: start_quick_fix(socket, :player_hp_a, :player_hp_only)
+
   # Standalone correction: mark only the escape STAIRCASE tile the
   # emergency-escape protocol click-walks to.
   def handle_event("calibrate_escape_point", _params, socket),
@@ -1019,6 +1024,7 @@ defmodule PokexWeb.CalibrationLive do
     "battle_region" => {:battle_region, :region},
     "skill_bar_region" => {:skill_bar_region, :region},
     "pokemon_hp_region" => {:pokemon_hp_region, :region},
+    "player_hp_region" => {:player_hp_region, :region},
     "mini_game_region" => {:mini_game_region, :region},
     "minimap_region" => {:minimap_region, :region},
     "minimap_coord_region" => {:minimap_coord_region, :region}
@@ -1646,6 +1652,22 @@ defmodule PokexWeb.CalibrationLive do
       _wizard ->
         finish(socket, Map.put(draft, :pokemon_photo_point, point))
     end
+  end
+
+  defp record_step(:player_hp_a, socket, point, draft) do
+    draft = draft |> Map.delete(:player_hp_region) |> Map.put(:player_hp_a, point)
+    assign(socket, draft: draft, step: :player_hp_b)
+  end
+
+  defp record_step(:player_hp_b, socket, point, draft) do
+    save_mark(
+      socket,
+      %{player_hp_region: region_from(draft.player_hp_a, point)},
+      %{
+        ok: "Vida do PERSONAGEM marcada — o suporte passa a ler e vigiar a barra vermelha.",
+        error: "não deu pra salvar a vida do personagem"
+      }
+    )
   end
 
   defp record_step(:mini_game_a, socket, point, draft) do
@@ -2328,6 +2350,12 @@ defmodule PokexWeb.CalibrationLive do
                   icon="hero-heart"
                   title="Só a vida"
                   hint="a barra de vida do Pokémon (2 cliques) + a foto dele (1 clique)"
+                />
+                <.quick_fix
+                  event="calibrate_player_hp"
+                  icon="hero-user"
+                  title="Vida do PERSONAGEM"
+                  hint="a barra VERMELHA do painel 'Pokémon' (2 cliques) — é a SUA vida, e o guardião passa a vigiar"
                 />
               </div>
 

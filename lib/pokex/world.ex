@@ -60,6 +60,8 @@ defmodule Pokex.World do
         # the trusted one; the digits above are a bonus that needs every glyph
         # learned, and must never be the reason the card goes blank.
         hp_pct: pokemon_fact_pct(now),
+        # A vida do PERSONAGEM (fato :player) — nil sem a região marcada.
+        player_hp: player_fact_pct(now),
         level: hud[:level],
         food: hud[:food],
         fishing: hud[:fishing]
@@ -100,6 +102,13 @@ defmodule Pokex.World do
 
   # hp_pct arrives as an integer percentage (0..100) or nil when the party
   # window is minimized / no pokémon is out.
+  defp player_fact_pct(now) do
+    case WorldState.get(:player, 5_000, now) do
+      {:ok, %{hp_pct: pct}} -> pct
+      _unknown -> nil
+    end
+  end
+
   defp pokemon_fact_pct(now) do
     case Perception.pokemon(now) do
       {:ok, %{hp_pct: pct}} -> pct

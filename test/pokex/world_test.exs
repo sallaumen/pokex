@@ -37,6 +37,7 @@ defmodule Pokex.WorldTest do
     assert snap.me == %{
              pokemon_hp: {5559, 6410},
              hp_pct: nil,
+             player_hp: nil,
              level: 90,
              food: 1525,
              fishing: 96

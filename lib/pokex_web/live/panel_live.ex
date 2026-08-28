@@ -445,6 +445,19 @@ defmodule PokexWeb.PanelLive do
   defp hp_pct(%{hp_pct: pct}) when is_integer(pct), do: pct
   defp hp_pct(_game), do: nil
 
+  defp player_hp(%{player_hp: pct}) when is_integer(pct), do: pct
+  defp player_hp(_game), do: nil
+
+  defp player_hp_class(game) do
+    floor = Pokex.Settings.get(:player_hp_floor_pct)
+
+    cond do
+      is_integer(floor) and floor > 0 and player_hp(game) < floor -> "font-bold text-pk-danger"
+      player_hp(game) < 80 -> "text-pk-warn"
+      true -> "text-pk-ok"
+    end
+  end
+
   defp hp_label(game) do
     case hp_pct(game) do
       nil -> "—"
@@ -3314,6 +3327,18 @@ defmodule PokexWeb.PanelLive do
               <div class="mt-2 flex items-center justify-between font-mono text-pk-meta text-pk-text-3">
                 <span>revive &lt; {@rescue_pct}% · poção &lt; {@potion_pct}%</span>
                 <span>{rescue_count(@game)} revives · {potion_count(@game)} poções</span>
+              </div>
+
+              <%!-- A vida do PERSONAGEM — a barra vermelha do painel "Pokémon"
+                   do jogo, que apesar do nome é a SUA. Só aparece com a região
+                   marcada na calibração ("Vida do PERSONAGEM"). --%>
+              <div
+                :if={player_hp(@game)}
+                id="player-hp-line"
+                class="mt-2 flex items-center justify-between border-t border-pk-line pt-2 font-mono text-pk-meta"
+              >
+                <span class="text-pk-text-3">VOCÊ (o personagem)</span>
+                <span class={player_hp_class(@game)}>{player_hp(@game)}%</span>
               </div>
               <button
                 id="use-potion"

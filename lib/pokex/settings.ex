@@ -1299,6 +1299,11 @@ defmodule Pokex.Settings do
     # (preparar, resetar) param de gastar quando a conta chega aqui; vermelho e
     # caído gastam até o fim.
     engine_revive_reserve: 5,
+    # A vida do PERSONAGEM (a barra vermelha do painel "Pokémon"): abaixo disto
+    # por duas leituras, o suporte alarma — e sai do jogo se player_hp_logout
+    # estiver ligado. 0 desliga o guardião; a leitura continua.
+    player_hp_floor_pct: 50,
+    player_hp_logout: false,
     # Nor may closing a round wait forever for a pile that stopped coming — the
     # ceiling this same number doubles as, for when to give up and revive.
     engine_closing_timeout_ms: 8_000,
@@ -1710,6 +1715,7 @@ defmodule Pokex.Settings do
     engine_prepare_max_enemies: 0..10,
     revive_stock: 0..10_000,
     engine_revive_reserve: 0..1_000,
+    player_hp_floor_pct: 0..99,
     engine_closing_timeout_ms: 100..600_000,
     engine_revive_confirm_ms: 500..600_000,
     sim_respawn_ms: 1_000..600_000,

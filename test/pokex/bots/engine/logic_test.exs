@@ -844,6 +844,41 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "recuando pelo chão limpo"
     end
 
+    # O TETO. A retirada não termina sozinha: o fogo fica LIVRE durante ela,
+    # então cada tecla que volta é gasta na hora e `spent?` nunca chega a ser
+    # falso. Com o reset desarmado — sem revive pra comprar a barra — recuar
+    # vira o estado permanente da caçada.
+    #
+    # MEDIDO na noite dele de 29/08 (9,8h): 2.836 tiques de "recuando", 13
+    # desarmes de 10 em 10 minutos, e 771 waypoints andados PARA TRÁS — um
+    # deles a volta inteira, 40 cantos em 92 segundos. "Ficou em loop indo pra
+    # frente e pra trás."
+    test "passado o teto ela para de recuar e briga parada" do
+      {logic, _} = lutando_gasto(200)
+
+      # ainda dentro do teto: recua
+      {logic, dentro} = fuga_step(logic, sem_cooldown(4), 5_000)
+      assert dentro.route == :back
+
+      # passado o teto: para, e o fogo continua livre
+      {_logic, fora} = fuga_step(logic, sem_cooldown(40), @config.kite_max_ms + 1_000)
+
+      assert fora.route == :hold, "recuar a rota inteira não é uma retirada"
+      assert fora.fire == :free, "parar de recuar não é parar de bater"
+      assert fora.why =~ "matando o que já abriu"
+    end
+
+    test "com o teto desligado (0) o recuo antigo, sem fim, volta" do
+      sem_teto = Map.put(@fuga, :kite_max_ms, 0)
+      logic = Logic.new()
+
+      {logic, _} = Logic.step(logic, sem_cooldown(0), sem_teto, 0)
+      {logic, _} = Logic.step(logic, sem_cooldown(0), sem_teto, 200)
+      {_logic, orders} = Logic.step(logic, sem_cooldown(400), sem_teto, 600_000)
+
+      assert orders.route == :back
+    end
+
     # A fuga pertence a UMA luta: a próxima não pode herdar o veredito da
     # anterior.
     test "e a próxima luta começa com a dúvida a favor dela de novo" do

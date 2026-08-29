@@ -149,7 +149,8 @@ defmodule Pokex.Sim.ScoreTest do
                 crowd_from: 99,
                 skill_gap_ms: 0,
                 single_target: true,
-                bunch_ms: 0
+                bunch_ms: 0,
+                kite_max_ms: 0
               }
             ]
         )
@@ -165,7 +166,8 @@ defmodule Pokex.Sim.ScoreTest do
                 crowd_from: 99,
                 skill_gap_ms: 0,
                 single_target: true,
-                bunch_ms: 0
+                bunch_ms: 0,
+                kite_max_ms: 0
               }
             ]
         )
@@ -209,6 +211,16 @@ defmodule Pokex.Sim.ScoreTest do
       # de resgate — o corpo ocupado é o que o pokémon paga. Isso é um achado, e
       # está dito no PR; este teste é sobre o que a R7 compra, e mistura as duas
       # coisas se pagar as duas.
+      #
+      # …E O TETO DA RETIRADA DESLIGADO (`kite_max_ms: 0`), pela mesma regra.
+      # Desde 29/08 a retirada tem prazo — sem ele ela não termina, porque o
+      # fogo continua livre durante o recuo e a barra nunca volta a ficar cheia
+      # (a noite dele: 771 waypoints andados de costas, um deles a volta
+      # inteira). Com o teto ligado esta pilha volta a precisar de resgate, e
+      # isso está MEDIDO: 12 corridas de 30 min por célula dizem +8,7% de
+      # resgates, ZERO quedas, e metade dos monstros que escapavam pela corda
+      # passando a morrer. É outro experimento; este é sobre o que a R7 compra
+      # sozinha.
       assert sem.revives.rescue == 0, "com a R7 no lugar, esta pilha não precisa de resgate"
       assert com.revives.accepted > sem.revives.accepted, "então cada proativo é um revive novo"
     end

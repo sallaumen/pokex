@@ -40,6 +40,7 @@ defmodule Pokex.Bots.Engine.Config do
     size_ceiling_ms: :engine_size_ceiling_ms,
     skip_fire: :engine_skip_fire,
     kite_when_spent: :engine_kite_when_spent,
+    kite_max_ms: :engine_kite_max_ms,
     spent_keys_left: :engine_spent_keys_left,
     prepare_revive: :engine_prepare_revive,
     crowd_from: :engine_crowd_from,

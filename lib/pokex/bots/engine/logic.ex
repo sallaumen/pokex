@@ -161,6 +161,17 @@ defmodule Pokex.Bots.Engine.Logic do
             # 39 minutos de recuo com pilhas de 9 na tela. Agora o desarme
             # tem prazo (`reset_rearm_ms`) e voz (os whys dizem "desarmado").
             reset_broken_at: nil,
+            # QUANTAS promessas seguidas quebraram. A noite de 29/08 mediu o
+            # que o desarme de prazo único custava: o jogo engole um F4 de vez
+            # em quando (28 de 319 revives, ~9%, sem padrão de cooldown), e
+            # cada engolida virava 600s de "deixando essa pilha" — 11 desarmes,
+            # ~110 min da corrida de 184 com a R3b presa, 77 pilhas puladas na
+            # frente dele ("estar cheio de monstros e continuar andando"). Uma
+            # falha transitória agora custa uma retentativa
+            # (`reset_retry_ms`); só a SEGUNDA seguida compra o desarme longo,
+            # que é a proteção da noite em que o jogo de verdade para de
+            # resetar. Uma promessa CUMPRIDA zera a conta.
+            reset_strikes: 0,
             # quantos tiles já tinham sido andados quando a fuga da R7 começou —
             # é como se sabe se ela está andando de verdade
             kite_from: nil
@@ -895,7 +906,7 @@ defmodule Pokex.Bots.Engine.Logic do
   defp disarmed_note(_armed_or_not_spent), do: ""
 
   defp kite_reason(%{logic: %{reset_broken_at: at}} = t) when is_integer(at) do
-    left = div(max(t.config.reset_rearm_ms - (t.now - at), 0), 1_000)
+    left = div(max(rearm_ms(t) - (t.now - at), 0), 1_000)
     " — o reset está DESARMADO (paguei um revive e a barra não voltou; tento de novo em #{left}s)"
   end
 
@@ -1215,7 +1226,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # reset não aconteceu — seja porque o jogo não zera nada, seja porque a
   # leitura mente. As duas conclusões pedem a mesma coisa: parar de pagar.
   defp audit_reset(%{logic: %{reset_broken_at: at}} = t) when is_integer(at) do
-    if t.now - at >= t.config.reset_rearm_ms,
+    if t.now - at >= rearm_ms(t),
       do: %{t.logic | reset_broken_at: nil},
       else: t.logic
   end
@@ -1244,14 +1255,33 @@ defmodule Pokex.Bots.Engine.Logic do
   # minutos de "recuando pelo chão limpo" com o estoque a 700.
   defp judge_reset(t, at) do
     cond do
-      t.s.own_out? == true and t.s.spent? == false -> close_reset(t.logic)
-      t.now - at < t.config.revive_confirm_ms + reset_grace_ms(t) -> t.logic
-      t.s.own_out? != true -> t.logic
-      true -> %{close_reset(t.logic) | reset_broken_at: t.now}
+      t.s.own_out? == true and t.s.spent? == false ->
+        %{close_reset(t.logic) | reset_strikes: 0}
+
+      t.now - at < t.config.revive_confirm_ms + reset_grace_ms(t) ->
+        t.logic
+
+      t.s.own_out? != true ->
+        t.logic
+
+      true ->
+        %{
+          close_reset(t.logic)
+          | reset_broken_at: t.now,
+            reset_strikes: t.logic.reset_strikes + 1
+        }
     end
   end
 
   defp close_reset(logic), do: %{logic | since: Map.delete(logic.since, :reset_pending)}
+  # O prazo do desarme, por reincidência: a primeira quebra é tratada como o
+  # que ela costuma ser — um F4 engolido pelo jogo — e rearma rápido; da
+  # segunda seguida em diante vale o prazo longo, porque duas cobranças
+  # perdidas seguidas é a cara da noite em que o jogo não devolve a barra.
+  defp rearm_ms(%{logic: %{reset_strikes: strikes}} = t) when strikes >= 2,
+    do: t.config.reset_rearm_ms
+
+  defp rearm_ms(t), do: min(t.config.reset_retry_ms, t.config.reset_rearm_ms)
 
   defp arm_kite(%{logic: %{kite_from: from} = logic}) when is_integer(from), do: logic
 

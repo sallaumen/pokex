@@ -410,6 +410,26 @@ defmodule Pokex.Sim.World do
   defp coherent_nest(knobs),
     do: %{knobs | nest_radius: min(knobs.nest_radius, knobs.aggro_tiles)}
 
+  @doc """
+  Os dois knobs que podem ser APERTADOS, como o mundo vai mesmo usá-los.
+
+  Existe pra tela poder dizer que corrigiu um número dele, em vez de corrigir
+  calada. Um valor apertado em silêncio é a armadilha que este arquivo passou o
+  dia caçando: ele digita 10, o mundo usa 8, e a medição responde sobre um mapa
+  que não é o que a tela mostra.
+
+  Recebe o mapa PARCIAL da mesa dele e devolve só o efetivo — o resto dos knobs
+  não é assunto daqui.
+  """
+  @spec coherent_knobs(map) :: %{aggro_tiles: pos_integer, nest_radius: non_neg_integer}
+  def coherent_knobs(knobs) when is_map(knobs) do
+    @default_knobs
+    |> Map.merge(knobs)
+    |> coherent_aggro()
+    |> coherent_nest()
+    |> Map.take([:aggro_tiles, :nest_radius])
+  end
+
   # What each key DOES comes from his real team.json, through the same Loadout
   # the Combat worker reads. Only the damage numbers are mine.
   defp keys_of(nil), do: %{}

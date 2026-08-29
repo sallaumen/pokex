@@ -1203,6 +1203,25 @@ defmodule PokexWeb.SimLive do
   defp band_class(:red), do: "text-pk-danger"
   defp band_class(_unknown), do: "text-pk-text-2"
 
+  # OS KNOBS QUE O MUNDO APERTOU: `{nome, o que ele pediu, o que vale, por quê}`.
+  # Lista vazia quando a mesa dele já é coerente, que é o caso normal.
+  @porques %{
+    aggro_tiles: "um bicho não nota de mais longe do que a corda deixa ele vir",
+    nest_radius:
+      "um bicho que nasce fora do alcance de acordar nunca participa da caçada — " <>
+        "e ainda ocupa a vaga dele no canto, que para de repor"
+  }
+
+  defp apertados(setup) do
+    valendo = World.coherent_knobs(setup)
+
+    for {knob, efetivo} <- valendo,
+        pedido = Map.get(setup, knob),
+        is_integer(pedido),
+        pedido != efetivo,
+        do: {knob, pedido, efetivo, Map.fetch!(@porques, knob)}
+  end
+
   # --- O LABORATÓRIO ----------------------------------------------------------
   #
   # O selo de um cenário depois de uma corrida. Três respostas, e a terceira
@@ -1678,6 +1697,23 @@ defmodule PokexWeb.SimLive do
                   no meio: ela tira uma % da vida, então CRESCE junto com o monstro. Com {@world &&
                     @world.knobs.mob_hp} de vida elas tiram {pct_hit(@world, @setup)},
                   e a medida deixa de ser a que você configurou.
+                </span>
+              </p>
+
+              <%!-- O NÚMERO APERTADO EM SILÊNCIO. Duas coerências do mundo
+                    corrigem o que ele digita — um bicho não nota de mais longe
+                    do que a corda deixa vir, e um ninho não é mais largo que a
+                    percepção — e corrigir calado é a mesma armadilha que elas
+                    existem pra fechar: ele mediria um mapa que não é o da tela.
+                    Medido em 28/08: raio 10 contra aggro 8 derrubava a caçada de
+                    24,6 para 4,1 mortos/min numa hora. --%>
+              <p
+                :for={{knob, pedido, valendo, porque} <- apertados(@setup)}
+                class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn"
+              >
+                <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
+                <span>
+                  <b>{knob}</b> está em {pedido}, mas o mundo usa <b>{valendo}</b>: {porque}
                 </span>
               </p>
             </div>

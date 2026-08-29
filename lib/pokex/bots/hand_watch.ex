@@ -169,7 +169,15 @@ defmodule Pokex.Bots.HandWatch do
   defp drain(state) do
     case Pokex.Rig.impl().key_watch(codes()) do
       {:ok, events} ->
-        act(events)
+        # A PRIMEIRA DRENAGEM É LIXO, e de propósito. `key_watch/1` ARMA e
+        # ESVAZIA na mesma chamada: o que volta na primeira é tudo que o helper
+        # acumulou desde que alguém o armou pela última vez — pode ser o que ele
+        # jogou nos últimos minutos, até 500 teclas, com idade que ninguém sabe.
+        # Carimbar isso é inventar uma barra inteira em cooldown no instante em
+        # que a caçada começa. A sonda do /diagnostics já fazia isso ("cada
+        # rodada é medida limpa"); este vigia não fazia.
+        if state.armed?, do: act(events)
+
         schedule(%{state | armed?: true}, @drain_ms)
 
       # Helper indisponível (sem Accessibility, compilando, morto): o rig cai

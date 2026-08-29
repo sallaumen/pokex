@@ -638,6 +638,8 @@ defmodule Pokex.Bots.Combat.Worker do
   # velha responde "não", que é o lado barato de errar.
   defp aura_ready?(loadout), do: Loadout.aura_ready?(loadout, ready_skills(loadout))
 
+  # `:ok` porque ela vive dentro do `with` da rajada: o carimbo é um passo da
+  # sequência, não um efeito colateral pendurado nela.
   defp stamp_clock(keys, started_at, gap_ms) do
     keys
     |> Enum.with_index()
@@ -658,15 +660,32 @@ defmodule Pokex.Bots.Combat.Worker do
     ]
 
     with :ok <- Perception.mini_game_gate(),
+         # O RELÓGIO DAS TECLAS, CARIMBADO ANTES DA RAJADA SAIR.
+         #
+         # A rajada não passa pelo `Body` (ela vai direto no rig pra sair
+         # inteira, sem ceder o corpo no meio), então o carimbo do portão não a
+         # vê — e ela é a maior parte do que o bot aperta. Cada tecla leva o
+         # instante em que ela VAI sair, não o do pedido: uma rajada de seis
+         # com 500ms de intervalo leva dois segundos e meio pra terminar.
+         #
+         # E o carimbo vem ANTES da prensa por causa de quem lê o relógio no
+         # meio dela. `press_many` só volta quando a ÚLTIMA tecla saiu, e o
+         # `HandWatch` drena o teclado a cada 150ms: com o carimbo escrito
+         # depois, ele via as teclas do próprio bot saindo, não achava carimbo
+         # nenhum (o da volta anterior tinha 45s) e concluía "foi a mão dele" —
+         # carimbando cooldown em cima de cooldown. Medido na noite dele de
+         # 29/08: 7.703 linhas de "🖐️ tecla N da tua mão", na ordem exata da
+         # rajada (3, 4, 5, 6, 7), e a barra inteira aparecendo em espera assim
+         # que a caçada começava.
+         #
+         # O preço de carimbar cedo é conhecido e se conserta sozinho: se a
+         # rajada falhar depois disto, sobram carimbos de teclas que não
+         # saíram — e o `SkillTruth` os solta em ~1s, assim que a tela mostrar
+         # a tecla pronta. O preço de carimbar tarde não se conserta: quem lê
+         # no meio da rajada lê um relógio que ainda não existe.
+         :ok <- stamp_clock(keys, started_at, opts[:gap_ms] || 0),
          :ok <- Pokex.Rig.impl().press_many(keys, opts),
          :ok <- Perception.mini_game_gate() do
-      # O RELÓGIO DAS TECLAS. A rajada não passa pelo `Body` (ela vai direto no
-      # rig pra sair inteira, sem ceder o corpo no meio), então o carimbo do
-      # portão não a vê — e ela é justamente a maior parte do que o bot aperta.
-      # Cada tecla é carimbada na hora em que SAIU, não na hora do pedido: uma
-      # rajada de seis com 300ms de intervalo leva 1,5s pra terminar.
-      stamp_clock(keys, started_at, opts[:gap_ms] || 0)
-
       # The clock of the receipt is the LAST key, never the first. A burst of n
       # keys takes (n-1) x gap_ms to leave the hand (3,3s with his 500) while
       # the bar is published every `feed_skill_bar_ms`, so judging against the

@@ -125,6 +125,59 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     assert eventually(fn -> length(presses()) > 1 end)
   end
 
+  # O RELÓGIO TEM QUE ESTAR CARIMBADO ENQUANTO A RAJADA SAI, não depois dela.
+  #
+  # `press_many` só volta quando a ÚLTIMA tecla saiu — com o intervalo dele
+  # (500ms) uma rajada de cinco leva dois segundos e meio — e QUEM LÊ O RELÓGIO
+  # NO MEIO precisa achar o carimbo lá. O `HandWatch` drena o teclado a cada
+  # 150ms: com o carimbo escrito só no fim, ele via as teclas do próprio bot
+  # saindo, não achava carimbo (o da volta anterior tinha 45s) e concluía "foi
+  # a mão dele", carimbando cooldown em cima de cooldown. Medido na noite dele
+  # de 29/08: 7.703 linhas de "🖐️ tecla N da tua mão", na ordem exata da
+  # rajada, e a barra inteira em espera assim que a caçada começava.
+  #
+  # O rig OLHA O RELÓGIO de dentro da prensa: é a única forma de afirmar ORDEM.
+  # Um teste que só espera o carimbo aparecer passa com o carimbo no fim — foi
+  # o primeiro que escrevi, e ele passou com o bug em pé.
+  defmodule ClockPeekRig do
+    use Pokex.RigDouble
+
+    def press_many([], _opts), do: :ok
+
+    def press_many(combos, _opts) do
+      carimbadas =
+        Enum.count(combos, fn combo -> Pokex.Bots.SkillClock.last_press(combo) != nil end)
+
+      :ets.insert(:combat_clock_peek, {:peek, carimbadas, length(combos)})
+      :ok
+    end
+  end
+
+  @tag :tmp_dir
+  test "o relógio das teclas já está carimbado no meio da rajada", %{worker: worker} do
+    if :ets.whereis(:combat_clock_peek) == :undefined,
+      do: :ets.new(:combat_clock_peek, [:set, :public, :named_table])
+
+    :ets.delete(:combat_clock_peek, :peek)
+    Pokex.Bots.SkillClock.reset()
+
+    anterior = Application.get_env(:pokex, :rig)
+    Application.put_env(:pokex, :rig, ClockPeekRig)
+    on_exit(fn -> Application.put_env(:pokex, :rig, anterior) end)
+
+    world!(worker, battle_obs(enemies: [0]))
+    assert eventually(fn -> Worker.status(worker).state == :tabbing end)
+    world!(worker, battle_obs(locked?: true, locked_row: 0))
+
+    assert eventually(fn -> :ets.lookup(:combat_clock_peek, :peek) != [] end, 2_000)
+
+    [{:peek, carimbadas, total}] = :ets.lookup(:combat_clock_peek, :peek)
+
+    assert carimbadas == total,
+           "a prensa começou com #{total - carimbadas} de #{total} teclas sem carimbo — " <>
+             "quem ler o relógio no meio da rajada vê tecla livre"
+  end
+
   # The stance is the one decision this machine LATCHES after deciding it, and the
   # one-burst-in-flight rule is allowed to throw the list it rode in on away. Believing
   # a stance the game never heard is exactly the failure the feature exists to prevent

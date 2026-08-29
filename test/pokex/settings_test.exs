@@ -3,6 +3,15 @@ defmodule Pokex.SettingsTest do
   use ExUnit.Case, async: false
   alias Pokex.Settings
 
+  # OS AJUSTES GRAVADOS, sem o crachá do arquivo. Toda escrita carimba
+  # `__keys__` com o alfabeto que a build conhecia — é o que permite à próxima
+  # saber se ela é mais velha e não deve reescrever nada (ver
+  # `Settings.older_build?/1`). Ele não é um ajuste, então nenhum teste que
+  # fala de ajustes fala dele.
+  defp gravado(path) do
+    path |> File.read!() |> JSON.decode!() |> Map.delete("__keys__")
+  end
+
   @tag :tmp_dir
   test "a fresh install persists NO overrides; every value comes from the code seed", %{
     tmp_dir: tmp
@@ -10,7 +19,7 @@ defmodule Pokex.SettingsTest do
     path = Path.join(tmp, "settings.json")
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
-    assert path |> File.read!() |> JSON.decode!() == %{}
+    assert gravado(path) == %{}
 
     assert Settings.get(:tick_ms_watching, server) == 150
     assert Settings.get(:skill_keys, server) == ["1", "2", "3"]
@@ -26,7 +35,7 @@ defmodule Pokex.SettingsTest do
     :ok = Settings.put(:glow_threshold, 22.5, server)
     :ok = Settings.put(:skill_keys, ["1", "2", "3", "4"], server)
 
-    assert path |> File.read!() |> JSON.decode!() ==
+    assert gravado(path) ==
              %{"glow_threshold" => 22.5, "skill_keys" => ["1", "2", "3", "4"]}
 
     {:ok, server2} = Settings.start_link(name: nil, path: path)
@@ -48,7 +57,7 @@ defmodule Pokex.SettingsTest do
     refute Settings.get(:capture_enabled, server)
     refute Settings.get(:ensure_game_focus, server)
 
-    assert path |> File.read!() |> JSON.decode!() ==
+    assert gravado(path) ==
              %{"capture_enabled" => false, "ensure_game_focus" => false}
   end
 
@@ -77,7 +86,7 @@ defmodule Pokex.SettingsTest do
     assert Settings.get(:stop_after_action, server) == "logout"
     assert Settings.get(:alarm_muted_categories, server) == ["hp", "stock", "capture"]
 
-    assert path |> File.read!() |> JSON.decode!() == %{
+    assert gravado(path) == %{
              "player_mode" => "moving",
              "shiny_action" => "escape",
              "stop_after_action" => "logout",
@@ -101,7 +110,7 @@ defmodule Pokex.SettingsTest do
     assert Settings.get(:tile_px, server) == 48
     refute Settings.all(server) |> Map.has_key?(:hacker)
 
-    assert path |> File.read!() |> JSON.decode!() == %{"hacker" => 1, "tile_px" => 48}
+    assert gravado(path) == %{"hacker" => 1, "tile_px" => 48}
   end
 
   @tag :tmp_dir
@@ -120,7 +129,7 @@ defmodule Pokex.SettingsTest do
     File.write!(path, JSON.encode!(full))
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
-    assert path |> File.read!() |> JSON.decode!() == %{"require_cooldowns" => true}
+    assert gravado(path) == %{"require_cooldowns" => true}
     assert Settings.get(:require_cooldowns, server) == true
     assert Settings.get(:glow_threshold, server) == Settings.defaults().glow_threshold
   end
@@ -135,7 +144,7 @@ defmodule Pokex.SettingsTest do
     :ok = Settings.put(:tile_px, Settings.defaults().tile_px, server)
 
     assert Settings.get(:tile_px, server) == Settings.defaults()[:tile_px]
-    assert path |> File.read!() |> JSON.decode!() == %{}
+    assert gravado(path) == %{}
   end
 
   @tag :tmp_dir
@@ -223,7 +232,7 @@ defmodule Pokex.SettingsTest do
 
       :ok = Settings.put(:skill_keys, ["8", "9"], server)
 
-      assert Path.join(tmp, "settings.json") |> File.read!() |> JSON.decode!() ==
+      assert gravado(Path.join(tmp, "settings.json")) ==
                %{"skill_keys" => ["8", "9"]}
 
       assert Settings.get(:skill_keys, server) == ["8", "9"]
@@ -236,11 +245,11 @@ defmodule Pokex.SettingsTest do
       :ok = Settings.put(:active_character, "lowbie", server)
       :ok = Settings.put(:skill_keys, ["8", "9"], server)
 
-      assert char_file(tmp, "lowbie") |> File.read!() |> JSON.decode!() ==
+      assert gravado(char_file(tmp, "lowbie")) ==
                %{"skill_keys" => ["8", "9"]}
 
       # the base was not touched — only whoever is active changed
-      assert Path.join(tmp, "settings.json") |> File.read!() |> JSON.decode!() ==
+      assert gravado(Path.join(tmp, "settings.json")) ==
                %{"active_character" => "lowbie"}
     end
 
@@ -295,7 +304,7 @@ defmodule Pokex.SettingsTest do
       # ["5","6"], and wanting the code default IS a divergence worth storing
       assert Settings.get(:skill_keys, server) == seed
 
-      assert char_file(tmp, "purista") |> File.read!() |> JSON.decode!() == %{
+      assert gravado(char_file(tmp, "purista")) == %{
                "skill_keys" => seed
              }
 
@@ -313,7 +322,7 @@ defmodule Pokex.SettingsTest do
       :ok = Settings.put(:skill_keys, ["1"], server)
       :ok = Settings.put(:skill_keys, ["5", "6"], server)
 
-      assert char_file(tmp, "seguidor") |> File.read!() |> JSON.decode!() == %{}
+      assert gravado(char_file(tmp, "seguidor")) == %{}
 
       # back to FOLLOWING the base: changing the base now reaches them
       :ok = Settings.put(:active_character, "", server)
@@ -329,7 +338,7 @@ defmodule Pokex.SettingsTest do
       :ok = Settings.put(:active_character, "main", server)
       :ok = Settings.put(:glow_threshold, 1234, server)
 
-      assert Path.join(tmp, "settings.json") |> File.read!() |> JSON.decode!() ==
+      assert gravado(Path.join(tmp, "settings.json")) ==
                %{"active_character" => "main", "glow_threshold" => 1234}
 
       refute File.exists?(char_file(tmp, "main"))
@@ -589,7 +598,7 @@ defmodule Pokex.SettingsTest do
 
       {:ok, server} = Settings.start_link(name: nil, path: path)
 
-      escrito = path |> File.read!() |> JSON.decode!()
+      escrito = gravado(path)
 
       assert escrito["ajuste_de_uma_build_futura"] == 700
       assert escrito["outro_futuro"] == %{"a" => 1}
@@ -607,7 +616,7 @@ defmodule Pokex.SettingsTest do
       {:ok, server} = Settings.start_link(name: nil, path: path)
       :ok = Settings.put(:glow_threshold, 30.0, server)
 
-      escrito = path |> File.read!() |> JSON.decode!()
+      escrito = gravado(path)
 
       assert escrito["ajuste_de_uma_build_futura"] == 700,
              "a proteção durou até o primeiro clique dele"
@@ -623,7 +632,7 @@ defmodule Pokex.SettingsTest do
 
       {:ok, _server} = Settings.start_link(name: nil, path: path)
 
-      assert path |> File.read!() |> JSON.decode!() == %{}
+      assert gravado(path) == %{}
     end
 
     @tag :tmp_dir
@@ -633,7 +642,7 @@ defmodule Pokex.SettingsTest do
 
       {:ok, _server} = Settings.start_link(name: nil, path: path)
 
-      escrito = path |> File.read!() |> JSON.decode!()
+      escrito = gravado(path)
 
       refute Map.has_key?(escrito, "futuro_nulo")
       assert escrito["futuro_bom"] == 1
@@ -647,7 +656,119 @@ defmodule Pokex.SettingsTest do
       {:ok, server} = Settings.start_link(name: nil, path: path)
       :ok = Settings.put(:glow_threshold, 12.0, server)
 
-      assert path |> File.read!() |> JSON.decode!() == %{"glow_threshold" => 12.0}
+      assert gravado(path) == %{"glow_threshold" => 12.0}
+    end
+  end
+
+  # UMA BUILD MAIS VELHA QUE O ARQUIVO NÃO ESCREVE NELE. NUNCA.
+  #
+  # Ele roda o projeto de verdade em `~/projects/pokex` e eu trabalho em
+  # worktrees — e o `~/.pokex` é UM SÓ pra todas as cópias. Em 28/08 um
+  # servidor de outro worktree subiu por engano, e o heal daquela build
+  # reescreveu o arquivo com o alfabeto DELA: quatro ajustes sumiram, entre
+  # eles `engine_engage_from` (a régua da caçada) e `revive_stock` (o orçamento
+  # de revives inteiro). Ele testou por horas uma configuração que não era a
+  # que ele escolheu — "to cansado de tu otimizar algo e eu testar outra
+  # coisa" (29/08).
+  #
+  # A preservação de chave desconhecida protege o VALOR; esta trava protege o
+  # ARQUIVO, e é a que faz o acidente ser impossível em vez de reversível.
+  describe "o crachá do arquivo" do
+    @tag :tmp_dir
+    test "toda escrita carimba o alfabeto que a build conhecia", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      {:ok, server} = Settings.start_link(name: nil, path: path)
+      :ok = Settings.put(:tile_px, 48, server)
+
+      alfabeto = path |> File.read!() |> JSON.decode!() |> Map.fetch!("__keys__")
+
+      assert "tile_px" in alfabeto
+      assert "engine_engage_from" in alfabeto
+      refute Settings.older_build?(path), "a build que acabou de escrever não é velha"
+    end
+
+    @tag :tmp_dir
+    test "um arquivo que declara chave desconhecida denuncia a build velha", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+
+      File.write!(
+        path,
+        JSON.encode!(%{"tile_px" => 48, "__keys__" => ["tile_px", "ajuste_do_futuro"]})
+      )
+
+      assert Settings.older_build?(path)
+    end
+
+    @tag :tmp_dir
+    test "sem crachá ninguém é velho — a falta de prova não acusa", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      File.write!(path, ~s({"tile_px": 48}))
+
+      refute Settings.older_build?(path)
+    end
+
+    @tag :capture_log
+    @tag :tmp_dir
+    test "a build velha LÊ e não escreve — nem no boot, nem ao salvar", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+
+      # o arquivo de uma build mais nova: um ajuste dele e um alfabeto maior
+      original =
+        JSON.encode!(%{
+          "tile_px" => 48,
+          "ajuste_do_futuro" => 700,
+          "__keys__" => ["tile_px", "ajuste_do_futuro"]
+        })
+
+      File.write!(path, original)
+
+      {:ok, server} = Settings.start_link(name: nil, path: path)
+
+      # lê normalmente…
+      assert Settings.get(:tile_px, server) == 48
+      # …e o boot não tocou no arquivo
+      assert File.read!(path) == original
+
+      # …e nem um ajuste salvo o toca: vale nesta sessão e diz que não persiste
+      :ok = Settings.put(:tile_px, 64, server)
+      assert Settings.get(:tile_px, server) == 64
+      assert File.read!(path) == original, "a build velha reescreveu o arquivo"
+    end
+  end
+
+  # As duas travas acima tornam a perda improvável; o backup a torna
+  # REVERSÍVEL, que é outra coisa. Em 28/08 a recuperação dependeu de um backup
+  # manual que eu tinha feito por sorte.
+  describe "o backup de cada escrita" do
+    @tag :tmp_dir
+    test "guarda o conteúdo anterior antes de sobrescrever", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      File.write!(path, ~s({"tile_px": 48}))
+
+      {:ok, server} = Settings.start_link(name: nil, path: path)
+      :ok = Settings.put(:tile_px, 64, server)
+
+      copias = Path.join(tmp, "settings-bak") |> File.ls!()
+
+      assert copias != [], "nenhuma cópia foi guardada"
+
+      guardado =
+        copias
+        |> Enum.map(&File.read!(Path.join([tmp, "settings-bak", &1])))
+        |> Enum.map(&JSON.decode!/1)
+
+      assert Enum.any?(guardado, &(Map.get(&1, "tile_px") == 48)),
+             "o valor anterior não está em cópia nenhuma"
+    end
+
+    @tag :tmp_dir
+    test "e mantém no máximo dez", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      {:ok, server} = Settings.start_link(name: nil, path: path)
+
+      Enum.each(1..15, &Settings.put(:tile_px, 40 + &1, server))
+
+      assert Path.join(tmp, "settings-bak") |> File.ls!() |> length() <= 10
     end
   end
 end

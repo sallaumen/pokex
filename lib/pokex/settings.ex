@@ -639,6 +639,21 @@ defmodule Pokex.Settings do
     # 1500 garante 600ms de espera real depois da confirmação mais lenta
     # possível, que é o que ele pediu ver.
     rescue_stun_settle_ms: 1_500,
+    # …E A OUTRA METADE DA JANELA: quanto o pokémon demora pra voltar a
+    # conjurar DEPOIS do revive. O `settle` acima é a espera antes de tirá-lo
+    # de campo; esta é a espera até ele poder soltar skill de novo.
+    #
+    # Medido no diário de 29/08 (242 revives em 82 min): das teclas que a barra
+    # dava como prontas e o jogo ignorou, 91% saíram no primeiro segundo depois
+    # de um revive, 54% no segundo, 17% no terceiro — contra ~20% de base no
+    # resto da caçada. O pokémon sai de campo no revive e volta; enquanto está
+    # fora, a barra mostra tudo pronto (o revive zerou os cooldowns de verdade)
+    # e nada sai.
+    #
+    # 2s cobre os dois primeiros segundos, que é onde está o buraco. Cada
+    # aperto ali custava três vezes: a tecla, o `combat_skill_gap_ms` inteiro, e
+    # um `missed` que ainda comprava uma retentativa em cima. 0 desliga.
+    rescue_blackout_ms: 2_000,
     # MORREU. A janela do pokémon muda de forma quando ele cai, então a barra
     # some do lugar calibrado e a leitura vira "não reconheço" — igualzinho a
     # uma janela coberta. O que separa os dois é a TRAJETÓRIA: uma barra que
@@ -1721,6 +1736,7 @@ defmodule Pokex.Settings do
     cavebot_gather_wait_max_ms: 0..120_000,
     rescue_confirm_ms: 0..10_000,
     rescue_stun_settle_ms: 0..10_000,
+    rescue_blackout_ms: 0..10_000,
     pokemon_hp_fainted_below_pct: 0..100,
     fainted_revive_cooldown_ms: 0..600_000,
     combat_confirm_ms: 0..10_000,

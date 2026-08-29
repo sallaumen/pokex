@@ -17,6 +17,7 @@ defmodule Pokex.Bots.Combat.Worker do
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.{Loadout, Logic, Strategy}
   alias Pokex.Bots.Perf
+  alias Pokex.Bots.ReviveLedger
   alias Pokex.Bots.SkillClock
   alias Pokex.Bots.SkillMeter
   alias Pokex.Bots.SkillReceipt
@@ -606,6 +607,10 @@ defmodule Pokex.Bots.Combat.Worker do
         Perf.count("combat.burst_skipped")
         {state, :skipped}
 
+      blackout?(keys) ->
+        Perf.count("combat.revive_blackout")
+        {state, :skipped}
+
       true ->
         parent = self()
         confirm? = Settings.get(:combat_confirm_skills) and state.retry_ok?
@@ -621,6 +626,28 @@ defmodule Pokex.Bots.Combat.Worker do
              retry_ok?: true
          }, :sent}
     end
+  end
+
+  # O POKÉMON NÃO ESTÁ EM CAMPO. O revive TIRA o pokémon e devolve — "esperando
+  # Nms o bolo dormir, aí sim tiro o pokémon" — e enquanto ele está fora
+  # nenhuma skill dele sai, com a barra mostrando tudo pronto do mesmo jeito
+  # (o revive zerou os cooldowns de verdade).
+  #
+  # A noite de 29/08 mediu o buraco, e ele é grande: das teclas que a barra dava
+  # como prontas e o jogo ignorou, 91% saíram no primeiro segundo depois de um
+  # revive e 54% no segundo — contra ~20% de base no resto da caçada. Com 242
+  # revives em 82 minutos, o bot passou a run inteira apertando dentro da
+  # janela cega, e cada aperto ali custava três vezes: a tecla, os 500ms do
+  # intervalo, e um `missed` que ainda comprava uma retentativa em cima.
+  #
+  # O Tab passa: mirar não é conjurar, e ele não tem cooldown pra gastar. O
+  # resgate também não passa por aqui (ele fala direto com o `Body`), então
+  # nada nesta trava atrasa um stun ou o próprio revive.
+  defp blackout?(keys) do
+    janela = Settings.get(:rescue_blackout_ms)
+
+    janela > 0 and keys != [Settings.get(:tab_key)] and
+      ReviveLedger.noted_within?(janela)
   end
 
   # Só com UMA tecla — uma rajada de três tira uma queda só e ninguém sabe de

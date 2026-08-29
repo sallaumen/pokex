@@ -755,7 +755,20 @@ defmodule Pokex.Bots.Combat.Logic do
         aura_ready?: Loadout.aura_ready?(loadout, prontas),
         shield_ready?:
           quantos >= Map.get(config, :combat_shield_from_enemies, 2) and
-            Loadout.shield_ready?(loadout, prontas)
+            Loadout.shield_ready?(loadout, prontas),
+        # …E O DANO PELA MESMA BARRA QUE AS AURAS. Era a única metade da rajada
+        # que saía sem olhar: 81% dos apertos de dano de 29/08 foram em tecla
+        # JÁ esfriando, e 74% das rajadas eram inteiramente assim — onze
+        # minutos de teclado numa caçada de 82, cada tecla fria custando o
+        # `combat_skill_gap_ms` inteiro e ainda comprando uma retentativa.
+        #
+        # SÓ NA ROTAÇÃO, e é de propósito: a mão que o CÉREBRO monta
+        # (`Engine.Inputs`) continua completa, porque a engine lê `opening ==
+        # []` como "nenhum pokémon configurado pra lutar" e sai da luta. As
+        # duas listas parecem a mesma coisa e não são — a bancada mediu a
+        # confusão: filtrar lá derrubou os mortos em 44% e jogou 55% da corrida
+        # no `:handless`.
+        ready_keys: prontas
       )
     else
       # Nobody chosen, or one whose ATTACKS he has not classified — a pokémon

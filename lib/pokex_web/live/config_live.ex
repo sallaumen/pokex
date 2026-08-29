@@ -157,6 +157,16 @@ defmodule PokexWeb.ConfigLive do
           keywords: "stun settle espera dormir sono revive controle"
         },
         %{
+          key: :rescue_blackout_ms,
+          kind: :ms,
+          label: "…e volta a atacar em",
+          hint:
+            "O pokémon SAI de campo no revive e volta. Enquanto está fora, a barra mostra tudo " <>
+              "pronto e nenhuma skill sai. Medido em 29/08: 91% das teclas ignoradas pelo jogo " <>
+              "estavam no primeiro segundo depois de um revive.",
+          keywords: "revive janela cega blackout volta atacar campo"
+        },
+        %{
           key: :pokemon_hp_fainted_below_pct,
           kind: :pct,
           label: "Caído abaixo de",

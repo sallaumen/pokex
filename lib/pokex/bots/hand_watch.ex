@@ -31,6 +31,14 @@ defmodule Pokex.Bots.HandWatch do
   está contado. Shift+tecla é troca de modo, não skill — fica de fora, como o
   `HandsRead` já lê.
 
+  O carimbo é lido por `SkillClock.pressed_at/1`, e não por `last_press/1`,
+  porque um revive apaga TODOS os carimbos (R3) e não só o do F4: sem o eco
+  que o reset deixa pra trás, cada revive fazia a rajada que o bot tinha
+  acabado de disparar chegar aqui órfã e virar "mão do Lucas" 340ms depois —
+  e o recarimbo desfazia o reset que o revive tinha acabado de pagar. Foram
+  235 atribuições falsas em 242 revives na noite de 29/08, com o R3b se
+  desarmando 37 vezes por causa delas.
+
   E só com o JOGO EM FOCO (`InputGate.focus_ok?/0`): fora de foco, um "4" é
   ele digitando em outro lugar, e carimbar isso inventaria cooldown. (Se
   escapar um — número digitado no chat do jogo —, o `SkillTruth` solta o
@@ -192,7 +200,13 @@ defmodule Pokex.Bots.HandWatch do
     ctx = %{
       focus_ok?: InputGate.focus_ok?(),
       rescue_code: rescue_code(),
-      last_press: &SkillClock.last_press/1,
+      # `pressed_at/1` e não `last_press/1`: o `SkillClock.reset/0` do revive
+      # apaga os carimbos de TODAS as teclas, não só o do F4 — e sem o eco cada
+      # revive fazia a rajada que o bot acabou de disparar virar "mão do Lucas"
+      # 340ms depois, com o recarimbo desfazendo o reset que o revive tinha
+      # acabado de pagar. Foram 235 atribuições falsas em 242 revives na noite
+      # de 29/08, e o R3b se desarmando 37 vezes por causa delas.
+      last_press: &SkillClock.pressed_at/1,
       revive_noted?: ReviveLedger.noted_within?(@bot_revive_window_ms),
       now: System.monotonic_time(:millisecond)
     }

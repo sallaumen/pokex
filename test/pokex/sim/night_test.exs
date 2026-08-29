@@ -80,4 +80,39 @@ defmodule Pokex.Sim.NightTest do
       assert Map.get(report.metrics.by_phase, :stranded, 0) == 0
     end
   end
+
+  # POR ONDE ELE ANDOU — a métrica que faltava, e a única que enxerga a queixa
+  # dele de 29/08: "ele vai para locais onde não tem muito monstro, porque ele
+  # já matou, e vários locais do mapa ficam sem monstro sendo morto".
+  #
+  # Mortos por minuto não vê isso. Uma caçada presa oscilando dentro de um
+  # bolso já limpo e uma caçada lenta que cobre o mapa inteiro dão o mesmo
+  # número — e são coisas opostas.
+  describe "o chão coberto" do
+    test "uma caçada de uma hora dá voltas e visita todos os cantos" do
+      report = Bench.run(%{Scenario.get("a-noite-medida") | seed: 1}, duration_ms: @uma_hora)
+
+      cantos = length(Scenario.route(Scenario.get("a-noite-medida"), []).waypoints)
+
+      assert report.metrics.legs == cantos,
+             "visitou #{report.metrics.legs} de #{cantos} cantos — o resto do mapa não é caçado"
+
+      assert report.metrics.laps > 1, "não fechou uma volta sequer em uma hora"
+    end
+
+    # A retirada era um circuito desfeito: ao chegar no canto anterior ela
+    # REBOBINAVA o índice e encadeava pro anterior dele. No journal dele de
+    # 29/08 são 771 waypoints andados de costas, um deles a volta inteira — 40
+    # cantos em 92 segundos. Um recuo tático não pode desfazer a caçada.
+    test "mesmo com a barra vivendo vazia, a caçada continua girando" do
+      report =
+        Bench.run(%{Scenario.get("enxame") | seed: 2},
+          duration_ms: @uma_hora,
+          config: %{reset_revive: false}
+        )
+
+      assert report.metrics.laps > 1,
+             "com o reset desarmado a caçada parou de girar: #{report.metrics.laps} voltas"
+    end
+  end
 end

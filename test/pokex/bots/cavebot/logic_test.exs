@@ -53,8 +53,9 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
   end
 
   # A RETIRADA (R7 cercada): a ordem `route: :back` do cérebro faz a luta andar
-  # a rota AO CONTRÁRIO — chão recém-limpo, sem spawn novo — waypoint a
-  # waypoint, e o índice recuado faz a volta recomeçar dali.
+  # ATÉ O WAYPOINT ANTERIOR — chão recém-limpo, sem spawn novo — e para ali. O
+  # índice NÃO recua: a rota tem um sentido só, e quando a ordem cai a caçada
+  # retoma o caminho natural pra frente do ponto onde estava.
   describe "a retirada pelo chão limpo" do
     defp retreating(pos, enemies \\ 5) do
       world(pos, enemies)
@@ -75,10 +76,23 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert {dx, dy} == {-8, 0}
     end
 
-    test "chegar no anterior recua o índice — a volta recomeça dali" do
+    # ATÉ 29/08 ELA REBOBINAVA, e encadeava: o alvo virava o anterior do
+    # anterior, e a caçada desandava. No journal dele (9,8h) são 771 waypoints
+    # andados de costas, um deles a volta inteira — 40 cantos em 92 segundos.
+    # O preço é duplo: anda pra trás sobre o chão limpo e depois anda de novo
+    # pra frente sobre o MESMO chão. "Vários locais do mapa ficam sem monstro
+    # sendo morto" (ele, 29/08).
+    test "chegar no anterior ENCERRA o recuo, e o índice fica onde estava" do
       {l, :none} = Logic.step(fighting(1), retreating({10, 10, 7}), 0)
 
-      assert l.wp_index == 0
+      assert l.wp_index == 1, "a retirada rebobinou a rota"
+    end
+
+    test "e daí ela não encadeia pro anterior do anterior" do
+      # em cima do wp 0, com a ordem de recuar de pé: não há mais pra onde
+      {_l, acao} = Logic.step(fighting(1), retreating({10, 10, 7}), 0)
+
+      assert acao == :none, "continuou recuando depois de chegar"
     end
 
     test "não recua escada: waypoint anterior de outro andar segura no lugar" do

@@ -1281,4 +1281,112 @@ defmodule Pokex.Sim.WorldTest do
       refute andando.pos == {100, 100, 7}, "ele desviou em vez de travar"
     end
   end
+
+  # --- o bolso de revives e o ninho que repõe -------------------------------
+
+  describe "o revive é um ITEM" do
+    defp mundo_com(knobs) do
+      World.new(Pokex.Sim.Scenario.ring(),
+        seed: 1,
+        knobs: Map.merge(%{revive_cooldown_ms: 0, fainted_revive_cooldown_ms: 0}, knobs),
+        loadout: Pokex.Sim.Loadout.fallback()
+      )
+    end
+
+    test "sem estoque digitado, o bolso é infinito e ninguém conta nada" do
+      world = mundo_com(%{})
+
+      assert World.revive_left(world) == nil
+
+      world = Enum.reduce(1..5, world, fn _n, w -> w |> World.revive() |> World.step(600) end)
+
+      assert World.revive_left(world) == nil
+      assert world.own.out?
+    end
+
+    test "com estoque, cada revive desce a conta" do
+      world = mundo_com(%{revive_stock: 3})
+
+      assert World.revive_left(world) == 3
+
+      world = world |> World.revive() |> World.step(600)
+      assert World.revive_left(world) == 2
+    end
+
+    # O F4 DE BOLSO VAZIO É UMA TECLA QUE NÃO FAZ NADA, e essa é a diferença
+    # entre uma noite e o chão: a de 27→28/08 acabou o estoque às 23:43 e o bot
+    # passou 4,9 horas apertando essa tecla.
+    test "com o bolso vazio o revive não sai, e o mundo diz isso" do
+      world = mundo_com(%{revive_stock: 1})
+
+      world = world |> World.revive() |> World.step(600)
+      assert World.revive_left(world) == 0
+      refute World.revive_ready?(world)
+
+      caido = %{world | own: %{world.own | out?: false, alive?: false}}
+      depois = caido |> World.revive() |> World.step(600)
+
+      refute depois.own.alive?, "o revive saiu de um bolso vazio"
+      assert World.revive_left(depois) == 0, "e ainda descontou do que não tinha"
+    end
+
+    test "estoque zero é o orçamento DESLIGADO, não um bolso vazio" do
+      world = mundo_com(%{revive_stock: 0})
+
+      assert World.revive_left(world) == nil
+      assert World.revive_ready?(world)
+    end
+  end
+
+  # UM CANTO NÃO PODE SE TRANCAR. A regra antiga só repunha um ninho sem NENHUM
+  # mob vivo, e um sobrevivente inalcançável o congelava pra sempre.
+  describe "o canto volta a ficar cheio" do
+    test "um ninho com sobrevivente repõe o resto quando o relógio vira" do
+      world =
+        World.new(Pokex.Sim.Scenario.ring(),
+          seed: 1,
+          knobs: %{nest_size: 4, nest_radius: 1, respawn_ms: 1_000, aggro_tiles: 20},
+          loadout: Pokex.Sim.Loadout.fallback()
+        )
+
+      assert length(world.mobs) == 4
+
+      # Tira três e deixa um vivo. São dois passos porque o relógio do
+      # renascimento só COMEÇA no tique em que o canto é visto incompleto: um
+      # pra marcar a hora, outro pra o prazo vencer.
+      world = %{world | mobs: Enum.take(world.mobs, 1)}
+      world = world |> World.step(100) |> World.step(1_500)
+
+      assert length(world.mobs) == 4,
+             "o canto ficou trancado por causa de um sobrevivente"
+    end
+  end
+
+  # Um bicho que nasce fora do alcance em que qualquer coisa o acordaria não é
+  # um monstro difícil: é um monstro que nunca participa e ainda ocupa a vaga
+  # dele. Mesma família da coerência entre aggro e corda.
+  describe "o ninho não é mais largo que a percepção" do
+    test "nest_radius é apertado pelo aggro" do
+      world =
+        World.new(Pokex.Sim.Scenario.ring(),
+          seed: 1,
+          knobs: %{nest_radius: 10, aggro_tiles: 6, leash_tiles: 12},
+          loadout: Pokex.Sim.Loadout.fallback()
+        )
+
+      assert world.knobs.nest_radius == 6
+    end
+
+    test "e o aggro segue apertado pela corda antes disso" do
+      world =
+        World.new(Pokex.Sim.Scenario.ring(),
+          seed: 1,
+          knobs: %{nest_radius: 20, aggro_tiles: 20, leash_tiles: 9},
+          loadout: Pokex.Sim.Loadout.fallback()
+        )
+
+      assert world.knobs.aggro_tiles == 9
+      assert world.knobs.nest_radius == 9
+    end
+  end
 end

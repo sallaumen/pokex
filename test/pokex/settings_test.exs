@@ -85,8 +85,15 @@ defmodule Pokex.SettingsTest do
            }
   end
 
+  # A METADE QUE VALE deste contrato é que uma chave desconhecida não vira
+  # COMPORTAMENTO. A outra metade — apagá-la do arquivo — era o defeito: em
+  # 28/08 uma build antiga subiu por engano e o heal dela comeu quatro ajustes
+  # que ela não conhecia, entre eles `revive_stock`, o orçamento de revives
+  # inteiro. Guardar uma chave morta custa uma linha de JSON; apagar uma viva
+  # custou a noite de 27→28/08. Ver o bloco "as chaves que esta build não
+  # conhece" no fim deste arquivo.
   @tag :tmp_dir
-  test "unknown keys are ignored and the file is healed to real overrides only", %{tmp_dir: tmp} do
+  test "unknown keys are ignored as behaviour, but kept in the file", %{tmp_dir: tmp} do
     path = Path.join(tmp, "settings.json")
     File.write!(path, ~s({"hacker": 1, "tile_px": 48}))
     {:ok, server} = Settings.start_link(name: nil, path: path)
@@ -94,7 +101,7 @@ defmodule Pokex.SettingsTest do
     assert Settings.get(:tile_px, server) == 48
     refute Settings.all(server) |> Map.has_key?(:hacker)
 
-    assert path |> File.read!() |> JSON.decode!() == %{"tile_px" => 48}
+    assert path |> File.read!() |> JSON.decode!() == %{"hacker" => 1, "tile_px" => 48}
   end
 
   @tag :tmp_dir
@@ -555,6 +562,92 @@ defmodule Pokex.SettingsTest do
       assert :ok = Settings.put(:corpse_match_min_similarity, 0.9, server)
       assert {:error, msg} = Settings.put(:corpse_match_min_similarity, 1.5, server)
       assert msg =~ "0..1"
+    end
+  end
+
+  # UMA BUILD ANTIGA NÃO PODE COMER O AJUSTE DE UMA NOVA.
+  #
+  # O heal do boot reescrevia o arquivo só com o que a build corrente entende,
+  # então subir um checkout velho apagava em silêncio todo ajuste que só existe
+  # no novo. Aconteceu em 28/08 às 20:19 — um servidor de outro worktree subiu
+  # por engano e levou quatro ajustes dele, entre eles `revive_stock`, que é o
+  # orçamento de revives inteiro. A noite de 27→28/08 já tinha mostrado o preço
+  # de ficar sem ele: quatro horas e meia moendo com o pokémon no chão.
+  describe "as chaves que esta build não conhece" do
+    @tag :tmp_dir
+    test "sobrevivem ao heal do boot, intactas", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+
+      File.write!(
+        path,
+        JSON.encode!(%{
+          "glow_threshold" => 22.5,
+          "ajuste_de_uma_build_futura" => 700,
+          "outro_futuro" => %{"a" => 1}
+        })
+      )
+
+      {:ok, server} = Settings.start_link(name: nil, path: path)
+
+      escrito = path |> File.read!() |> JSON.decode!()
+
+      assert escrito["ajuste_de_uma_build_futura"] == 700
+      assert escrito["outro_futuro"] == %{"a" => 1}
+      assert escrito["glow_threshold"] == 22.5
+
+      # …e elas não viram comportamento: o desconhecido é carga, não regra
+      assert Settings.get(:glow_threshold, server) == 22.5
+    end
+
+    @tag :tmp_dir
+    test "sobrevivem também ao PRIMEIRO ajuste salvo, não só ao boot", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      File.write!(path, JSON.encode!(%{"ajuste_de_uma_build_futura" => 700}))
+
+      {:ok, server} = Settings.start_link(name: nil, path: path)
+      :ok = Settings.put(:glow_threshold, 30.0, server)
+
+      escrito = path |> File.read!() |> JSON.decode!()
+
+      assert escrito["ajuste_de_uma_build_futura"] == 700,
+             "a proteção durou até o primeiro clique dele"
+
+      assert escrito["glow_threshold"] == 30.0
+    end
+
+    @tag :tmp_dir
+    test "uma chave CONHECIDA continua sendo curada, não preservada", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      # `tick_ms_watching` no valor do seed não é override e tem que sumir
+      File.write!(path, JSON.encode!(%{"tick_ms_watching" => 150}))
+
+      {:ok, _server} = Settings.start_link(name: nil, path: path)
+
+      assert path |> File.read!() |> JSON.decode!() == %{}
+    end
+
+    @tag :tmp_dir
+    test "null no arquivo é corrupção e não é preservado", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      File.write!(path, JSON.encode!(%{"futuro_nulo" => nil, "futuro_bom" => 1}))
+
+      {:ok, _server} = Settings.start_link(name: nil, path: path)
+
+      escrito = path |> File.read!() |> JSON.decode!()
+
+      refute Map.has_key?(escrito, "futuro_nulo")
+      assert escrito["futuro_bom"] == 1
+    end
+
+    @tag :tmp_dir
+    test "uma chave que voltou a existir é da build que a conhece", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      File.write!(path, JSON.encode!(%{"glow_threshold" => 99.0}))
+
+      {:ok, server} = Settings.start_link(name: nil, path: path)
+      :ok = Settings.put(:glow_threshold, 12.0, server)
+
+      assert path |> File.read!() |> JSON.decode!() == %{"glow_threshold" => 12.0}
     end
   end
 end

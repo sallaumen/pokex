@@ -587,4 +587,49 @@ defmodule PokexWeb.SimLiveTest do
       assert html =~ "👁"
     end
   end
+
+  # UM NÚMERO APERTADO EM SILÊNCIO é a armadilha que as próprias coerências
+  # existem pra fechar: ele digita 10, o mundo usa 8, e a medição responde sobre
+  # um mapa que não é o que a tela mostra. Medido em 28/08: raio 10 contra aggro
+  # 8 derrubava a caçada de 24,6 para 4,1 mortos/min numa hora.
+  describe "a mesa avisa quando o mundo aperta um número" do
+    setup do
+      previous = Pokex.Sim.Setup.read()
+      on_exit(fn -> Pokex.Sim.Setup.write(previous) end)
+      :ok
+    end
+
+    test "um ninho mais largo que o aggro é dito na mesa", %{conn: conn} do
+      Pokex.Sim.Setup.write(%{nest_radius: 10, aggro_tiles: 8, leash_tiles: 12})
+
+      {:ok, live, _html} = live(conn, ~p"/sim")
+      live |> element("button", "Armar") |> render_click()
+      html = live |> element("button", "Mesa de calibragem") |> render_click()
+
+      assert html =~ "nest_radius"
+      assert html =~ "mas o mundo usa"
+      assert html =~ "nunca participa da caçada"
+    end
+
+    test "uma mesa coerente não inventa aviso nenhum", %{conn: conn} do
+      Pokex.Sim.Setup.write(%{nest_radius: 8, aggro_tiles: 8, leash_tiles: 12})
+
+      {:ok, live, _html} = live(conn, ~p"/sim")
+      live |> element("button", "Armar") |> render_click()
+      html = live |> element("button", "Mesa de calibragem") |> render_click()
+
+      refute html =~ "mas o mundo usa"
+    end
+
+    test "e o aggro apertado pela corda também aparece", %{conn: conn} do
+      Pokex.Sim.Setup.write(%{aggro_tiles: 20, leash_tiles: 9})
+
+      {:ok, live, _html} = live(conn, ~p"/sim")
+      live |> element("button", "Armar") |> render_click()
+      html = live |> element("button", "Mesa de calibragem") |> render_click()
+
+      assert html =~ "aggro_tiles"
+      assert html =~ "a corda deixa ele vir"
+    end
+  end
 end

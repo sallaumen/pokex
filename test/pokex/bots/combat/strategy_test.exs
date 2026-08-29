@@ -332,4 +332,57 @@ defmodule Pokex.Bots.Combat.StrategyTest do
       assert Strategy.skill_order(vileplume(), enemies: 4, aura_ready?: true) == ~w(1 3 4 5 6)
     end
   end
+
+  # A TECLA FRIA NÃO ENTRA NA RAJADA — a mesma regra que as auras já tinham.
+  #
+  # Medido no diário de 29/08: 81% dos apertos de dano foram em tecla que JÁ
+  # estava esfriando, e 74% das rajadas eram inteiramente assim. Com o intervalo
+  # dele em 500ms, isso é onze minutos de teclado numa caçada de 82 — e cada
+  # tecla fria ainda voltava como `missed`, comprando uma retentativa em cima.
+  describe "só o que pode sair" do
+    setup do
+      {:ok,
+       loadout: %Loadout{
+         name: "Steelix",
+         aoe: ["3", "4", "5"],
+         single: [],
+         crowd: ["6"],
+         shield: [],
+         buffs: []
+       }}
+    end
+
+    test "sem a barra, manda tudo às cegas", %{loadout: loadout} do
+      assert Strategy.skill_order(loadout, enemies: 5) == ["3", "4", "5"]
+      assert Strategy.skill_order(loadout, enemies: 5, ready_keys: nil) == ["3", "4", "5"]
+    end
+
+    test "com a barra, só as prontas e na mesma ordem", %{loadout: loadout} do
+      assert Strategy.skill_order(loadout, enemies: 5, ready_keys: ["5", "3"]) == ["3", "5"]
+    end
+
+    test "nenhuma pronta é rajada vazia, não rajada inteira", %{loadout: loadout} do
+      assert Strategy.skill_order(loadout, enemies: 5, ready_keys: ["6"]) == []
+    end
+
+    # A aura decide por conta própria (`aura_ready?`) e é o chamador que já
+    # conferiu a barra dela — filtrar de novo aqui a tiraria de rajadas em que
+    # ela está pronta e a leitura ainda não a nomeou.
+    test "a aura mandada pra rajada não é filtrada de novo" do
+      loadout = %Loadout{
+        name: "Steelix",
+        aoe: ["3"],
+        single: [],
+        crowd: [],
+        shield: [],
+        buffs: ["2"]
+      }
+
+      assert Strategy.skill_order(loadout,
+               enemies: 5,
+               aura_ready?: true,
+               ready_keys: ["3"]
+             ) == ["2", "3"]
+    end
+  end
 end

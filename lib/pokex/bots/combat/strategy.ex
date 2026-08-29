@@ -44,7 +44,8 @@ defmodule Pokex.Bots.Combat.Strategy do
           aoe_from: pos_integer,
           aura_ready?: boolean,
           shield_ready?: boolean,
-          single_target?: boolean
+          single_target?: boolean,
+          ready_keys: [String.t()] | nil
         ]
 
   @doc """
@@ -58,7 +59,7 @@ defmodule Pokex.Bots.Combat.Strategy do
   def skill_order(nil, _opts), do: []
 
   def skill_order(%Loadout{} = loadout, opts) do
-    damage = damage_keys(loadout, opts)
+    damage = loadout |> damage_keys(opts) |> only_ready(opts)
 
     # A REGRA DELE, com a condição que ele pôs: "usar a aura 2 QUANDO DISPONÍVEL
     # e se for usar outras skills usar elas depois" (26/08). Uma aura de dano que
@@ -86,6 +87,29 @@ defmodule Pokex.Bots.Combat.Strategy do
     aura = if Keyword.get(opts, :aura_ready?, false), do: loadout.buffs, else: []
 
     escudo ++ aura ++ damage
+  end
+
+  # A MESMA REGRA DAS AURAS, ESTENDIDA AO DANO — e ela já estava escrita aqui em
+  # cima, só que valendo só pras auras: "com o intervalo dele em 500ms, cada
+  # tecla que não sai custa meio segundo de dano".
+  #
+  # A noite de 29/08 mediu o que isso custava: 81% dos apertos de dano foram em
+  # tecla que JÁ ESTAVA esfriando, e 74% das rajadas eram inteiramente assim —
+  # três teclas frias, um segundo e meio de teclado, zero dano. Onze minutos de
+  # uma caçada de 82.
+  #
+  # `ready_keys` ausente ou nil é a leitura INDISPONÍVEL, e aí vai tudo às
+  # cegas: é a mesma regra que o resgate já usa ("nil quando a leitura está
+  # indisponível, e aí TODAS entram cegas"), porque segurar dano por causa de
+  # uma barra que ninguém conseguiu ler é o pior lado de errar. Uma leitura que
+  # existe e não traz NENHUMA das teclas é resposta legítima: não há o que
+  # apertar, e a rajada vazia devolve o tique pro cérebro decidir de novo em
+  # 200ms.
+  defp only_ready(damage, opts) do
+    case Keyword.get(opts, :ready_keys) do
+      nil -> damage
+      ready -> Enum.filter(damage, &(&1 in ready))
+    end
   end
 
   # O QUE DÁ DANO NESTA CAÇADA, na régua dele (27/08): "o que dá dano é a skill

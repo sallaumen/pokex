@@ -150,4 +150,62 @@ defmodule Pokex.Bots.SkillClockTest do
       assert SkillClock.ready(["5"], [], %{}, 1_000) == ["5"]
     end
   end
+
+  # O ECO: O REVIVE APAGA O COOLDOWN, NÃO O FATO DE A TECLA TER SIDO APERTADA.
+  #
+  # A noite de 29/08 rodou assim: o bot disparava 3, 4 e 5, pagava um revive
+  # pra zerar a barra, o `reset/0` apagava os carimbos, e o `HandWatch` drenava
+  # os apertos que o PRÓPRIO BOT tinha acabado de fazer, não achava carimbo e
+  # concluía "foi a mão do Lucas" — recarimbando o cooldown 340ms depois do
+  # revive. A barra voltava fria e o R3b dizia "paguei um revive e a barra não
+  # voltou". 235 atribuições falsas em 242 revives, 97% delas em cima de uma
+  # rajada do bot na mesma tecla.
+  describe "o eco que sobrevive ao reset" do
+    test "depois do reset a tecla está PRONTA — o eco não é cooldown" do
+      SkillClock.reset()
+      SkillClock.pressed("4")
+      SkillClock.reset()
+
+      assert SkillClock.last_press("4") == nil
+      assert SkillClock.cooling_ms("4", %{"4" => 50_000}) == 0
+    end
+
+    test "…e mesmo assim o aperto continua sendo NOSSO" do
+      SkillClock.reset()
+      agora = System.monotonic_time(:millisecond)
+      SkillClock.pressed("4", agora)
+      SkillClock.reset()
+
+      assert SkillClock.pressed_at("4") == agora,
+             "o reset apagou a prova de que fomos nós que apertamos a 4"
+    end
+
+    test "tecla que ninguém apertou não ganha eco" do
+      SkillClock.reset()
+      SkillClock.pressed("4")
+      SkillClock.reset()
+
+      assert SkillClock.pressed_at("5") == nil
+    end
+
+    test "um aperto novo vale mais que o eco" do
+      SkillClock.reset()
+      SkillClock.pressed("4", 1_000)
+      SkillClock.reset()
+      SkillClock.pressed("4", 9_000)
+
+      assert SkillClock.pressed_at("4") == 9_000
+    end
+
+    test "o reset seguinte troca o eco em vez de acumular" do
+      SkillClock.reset()
+      SkillClock.pressed("4", 1_000)
+      SkillClock.reset()
+      SkillClock.pressed("5", 2_000)
+      SkillClock.reset()
+
+      assert SkillClock.pressed_at("5") == 2_000
+      assert SkillClock.pressed_at("4") == nil
+    end
+  end
 end

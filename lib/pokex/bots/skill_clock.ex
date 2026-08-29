@@ -133,13 +133,61 @@ defmodule Pokex.Bots.SkillClock do
 
   @doc """
   Esquece tudo — o que o revive faz no jogo, e o que um personagem novo pede.
+
+  Mas o que o revive apaga é o COOLDOWN, não o fato de a tecla ter sido
+  apertada. Cada carimbo vira um ECO com a mesma hora: ninguém lê eco como
+  cooldown, e ele existe pra responder uma pergunta só — "esse aperto que o
+  vigia acabou de VER pela janela foi nosso?".
+
+  Sem o eco, a noite de 29/08 rodou assim: o bot disparava 3, 4 e 5, pagava um
+  revive pra zerar a barra, este `reset` apagava os carimbos, e aí o
+  `HandWatch` drenava os apertos que o PRÓPRIO BOT tinha acabado de fazer,
+  não achava carimbo nenhum e concluía "foi a mão do Lucas" — recarimbando o
+  cooldown 340ms depois do revive. A barra voltava fria, o R3b dizia "paguei
+  um revive e a barra não voltou" e se desarmava por 600s. Foram 235 apertos
+  atribuídos à mão dele em 242 revives, e 97% deles caíam em cima de uma
+  rajada do bot na mesma tecla.
+
+  O eco não é lido por ninguém depois de `@own_window_ms`, então ele não
+  precisa expirar: o `reset` seguinte o substitui.
   """
   @spec reset() :: :ok
   def reset do
     ensure_table()
+
+    ecos = for {key, at} <- :ets.tab2list(@table), is_binary(key), do: {{:echo, key}, at}
+
     :ets.delete_all_objects(@table)
+    :ets.insert(@table, ecos)
     :ok
   end
+
+  @doc """
+  A hora do último aperto de `key` que um `reset/0` apagou, ou nil.
+
+  NÃO é cooldown: uma tecla com eco está pronta. Ver `pressed_at/1`, que é
+  quem responde a pergunta inteira.
+  """
+  @spec echo(String.t()) :: integer | nil
+  def echo(key) when is_binary(key) do
+    ensure_table()
+
+    case :ets.lookup(@table, {:echo, key}) do
+      [{_echo, at}] -> at
+      [] -> nil
+    end
+  end
+
+  @doc """
+  Quando NÓS apertamos `key` pela última vez — sobreviva ou não o cooldown.
+
+  `last_press/1` responde "quando começou o cooldown que ainda está correndo", e
+  some quando o revive zera a barra. Esta responde "esse aperto foi nosso?", que
+  é outra pergunta e não deve ser apagada por um reset: é o que separa o CGEvent
+  do próprio bot voltando pela janela do `HandWatch` de um aperto da mão dele.
+  """
+  @spec pressed_at(String.t()) :: integer | nil
+  def pressed_at(key) when is_binary(key), do: last_press(key) || echo(key)
 
   @doc """
   Solta UMA tecla: apaga o carimbo dela, como se ninguém tivesse apertado.

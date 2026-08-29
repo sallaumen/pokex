@@ -2,6 +2,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Combat.Worker
+  alias Pokex.Bots.ReviveLedger
   alias Pokex.Calibration
   alias Pokex.Perception.WorldState
   alias Pokex.Rig.Fake
@@ -881,6 +882,73 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       true ->
         Process.sleep(20)
         poll(fun, deadline)
+    end
+  end
+
+  # A JANELA CEGA DEPOIS DO REVIVE.
+  #
+  # O revive TIRA o pokémon de campo e o devolve — "esperando Nms o bolo
+  # dormir, aí sim tiro o pokémon". Enquanto ele está fora nenhuma skill dele
+  # sai, e a barra mostra tudo pronto do mesmo jeito, porque o revive zerou os
+  # cooldowns de verdade.
+  #
+  # O diário de 29/08 mediu o buraco em 242 revives: das teclas que a barra
+  # dava como prontas e o jogo ignorou, 91% saíram no primeiro segundo depois
+  # de um revive e 54% no segundo, contra ~20% de base no resto da caçada. Cada
+  # aperto ali custava três vezes — a tecla, o `combat_skill_gap_ms` inteiro, e
+  # um `missed` que ainda comprava uma retentativa em cima.
+  describe "a janela cega depois do revive" do
+    # A abertura sai na BORDA `:hold_fire -> :free_fight`: o worker precisa ter
+    # LATCHADO o segurar num passo seu antes de ver a liberação, senão não há
+    # borda — e o teste mediria um silêncio que não é o da janela. É o mesmo
+    # preâmbulo de "a full battle list presses nothing while the fact says hold
+    # fire", e pela mesma razão.
+    defp abre_o_fogo(worker) do
+      posture!(:hold_fire)
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+      refute eventually(fn -> Settings.get(:tab_key) in presses() end, 300)
+
+      posture!(:free_fight)
+      world!(worker, battle_obs(enemies: [0, 1, 2]))
+    end
+
+    defp skill_saiu? do
+      Enum.any?(~w(1 2 3 4 5 6), &(&1 in presses()))
+    end
+
+    @tag :tmp_dir
+    test "nenhuma skill sai enquanto o pokémon está voltando", %{worker: worker} do
+      SettingsStash.stash!(rescue_blackout_ms: 5_000)
+      ReviveLedger.note()
+
+      abre_o_fogo(worker)
+
+      refute eventually(&skill_saiu?/0, 500),
+             "a rajada saiu dentro da janela em que o pokémon não está em campo"
+    end
+
+    @tag :tmp_dir
+    test "e volta a atacar assim que a janela fecha", %{worker: worker} do
+      SettingsStash.stash!(rescue_blackout_ms: 0)
+      ReviveLedger.note()
+
+      abre_o_fogo(worker)
+
+      assert eventually(&skill_saiu?/0)
+    end
+
+    # A trava é sobre o REVIVE, não um mudo global: sem revive anotado ela não
+    # existe, por maior que seja a janela. (O resgate também não passa por
+    # `try_dispatch` — ele fala direto com o `Body` —, então nada aqui atrasa um
+    # stun ou o próprio revive.)
+    @tag :tmp_dir
+    test "sem revive anotado a janela não existe", %{worker: worker} do
+      SettingsStash.stash!(rescue_blackout_ms: 5_000)
+      ReviveLedger.reset()
+
+      abre_o_fogo(worker)
+
+      assert eventually(&skill_saiu?/0)
     end
   end
 end

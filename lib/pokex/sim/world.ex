@@ -240,6 +240,20 @@ defmodule Pokex.Sim.World do
     revive_settle_ms: 500,
     revive_cooldown_ms: 60_000,
     fainted_revive_cooldown_ms: 15_000,
+    # QUANTOS REVIVES EXISTEM NO BOLSO. `nil` é "não contei" — o orçamento
+    # desligado, que era o único mundo que este simulador sabia simular.
+    #
+    # O revive é um ITEM, e a noite mais cara dele foi exatamente isto: o
+    # estoque acabou às 23:43 de 27/08 e o bot passou 4,9 HORAS apertando uma
+    # tecla vazia, com a rota andando e o pokémon no chão. Sem este número, a
+    # bancada respondia `revive_left: nil` em toda corrida, as três regras do
+    # cérebro que consultam o bolso (`affordable?`) sempre diziam "pode", e a
+    # pergunta "esta configuração aguenta a noite inteira com 700 revives?" não
+    # tinha como ser feita.
+    #
+    # Espelha `Settings.revive_stock` de propósito, incluindo o zero: quem não
+    # contou o bolso não é obrigado a contar.
+    revive_stock: nil,
     # How long a cleared nest takes to be worth walking past again. `nil` means
     # never, which is what a SCENARIO wants: a controlled experiment must not
     # have monsters arriving from off-stage. A HUNT wants a number — no rate
@@ -305,6 +319,10 @@ defmodule Pokex.Sim.World do
             revive_at: nil,
             rescue_ready_at: 0,
             fainted_ready_at: 0,
+            # QUANTOS JÁ SAÍRAM do bolso — a conta do `ReviveLedger`, aqui
+            # dentro. Conta despachos, não consumo, exatamente como o caderninho
+            # do bot: um aperto que o jogo recusou já saiu da mão.
+            revives_spent: 0,
             nests: [],
             next_id: 1,
             rand: nil,
@@ -321,7 +339,15 @@ defmodule Pokex.Sim.World do
   @spec new(Route.t(), keyword) :: t
   def new(%Route{} = route, opts \\ []) do
     seed = Keyword.get(opts, :seed, 42)
-    knobs = @default_knobs |> Map.merge(Keyword.get(opts, :knobs, %{})) |> coherent_aggro()
+    # A ORDEM IMPORTA: o aggro é apertado pela corda primeiro, e só então o
+    # ninho é apertado pelo aggro já coerente — senão um aggro de 20 com corda
+    # de 12 ainda autorizaria um ninho de 20 de raio.
+    knobs =
+      @default_knobs
+      |> Map.merge(Keyword.get(opts, :knobs, %{}))
+      |> coherent_aggro()
+      |> coherent_nest()
+
     start = List.first(route.waypoints)
 
     {stairs, refused} = stairs_of(route)
@@ -364,6 +390,26 @@ defmodule Pokex.Sim.World do
   defp coherent_aggro(knobs),
     do: %{knobs | aggro_tiles: min(knobs.aggro_tiles, knobs.leash_tiles)}
 
+  # …E UM NINHO NÃO PODE SER MAIS LARGO QUE A PERCEPÇÃO DELE. Mesma família da
+  # linha acima, e a mais cara das duas: uma criatura que nasce fora do alcance
+  # em que qualquer coisa a acordaria não é um monstro difícil, é um monstro que
+  # NUNCA participa — e ainda ocupa a vaga dela no canto, então o canto se
+  # considera cheio e para de repor. O ninho vira um cemitério de bichos
+  # dormindo e a estrada esvazia.
+  #
+  # MEDIDO em 28/08, com a mesa dele (`nest_radius: 10` contra `aggro_tiles:
+  # 8`), no cenário da noite medida, mesma semente:
+  #
+  #     raio ≤ aggro  →  5min 36-52/min, 60min 32-48/min  (queda de 4 a 15%)
+  #     raio 10, aggro 8  →  5min 24,6/min, 60min **4,1/min**  (queda de 83%)
+  #     raio 10, aggro 12 →  5min 35,0/min, 60min 35,8/min  (queda de -2%)
+  #
+  # A queda leva ~20 minutos pra aparecer, e TODA medição que esta bancada já
+  # fez foi de 1 a 5 minutos — por isso ninguém tinha visto. Uma caçada dele
+  # dura horas.
+  defp coherent_nest(knobs),
+    do: %{knobs | nest_radius: min(knobs.nest_radius, knobs.aggro_tiles)}
+
   # What each key DOES comes from his real team.json, through the same Loadout
   # the Combat worker reads. Only the damage numbers are mine.
   defp keys_of(nil), do: %{}
@@ -389,13 +435,19 @@ defmodule Pokex.Sim.World do
   # IS the map of where the monsters are, and inventing spawn points would throw
   # away the only trustworthy spatial data in the whole simulator.
   defp spawn_nests(world) do
-    nests = Enum.map(world.route.waypoints, &%{waypoint: &1, cleared_at: nil})
+    # `size` é quantos este canto deve ter QUANDO CHEIO — o número que o
+    # renascimento persegue. Sem ele, "está cheio?" só sabia responder "tem
+    # algum?", e um sobrevivente inalcançável trancava o canto pra sempre.
+    nests = Enum.map(world.route.waypoints, &%{waypoint: &1, cleared_at: nil, size: 0})
 
     world.route.waypoints
     |> Enum.with_index()
     |> Enum.reduce(%{world | nests: nests}, fn {waypoint, index}, acc ->
       {count, rand} = population_of(acc, waypoint)
-      spawn_mobs(%{acc | rand: rand}, waypoint, index, count)
+
+      %{acc | rand: rand}
+      |> spawn_mobs(waypoint, index, count)
+      |> set_nest_size(index, count)
     end)
   end
 
@@ -409,27 +461,49 @@ defmodule Pokex.Sim.World do
   defp repopulate(%{knobs: %{respawn_ms: nil}} = world), do: world
 
   defp repopulate(world) do
-    live = MapSet.new(world.mobs, & &1.nest)
+    vivos = Enum.frequencies_by(world.mobs, & &1.nest)
 
     world.nests
     |> Enum.with_index()
     |> Enum.reduce(world, fn {nest, index}, acc ->
       cond do
-        MapSet.member?(live, index) -> mark_nest(acc, index, nil)
+        # Ninho INTEIRO: nada a repor, e o relógio do renascimento não corre.
+        Map.get(vivos, index, 0) >= nest.size -> mark_nest(acc, index, nil)
         is_nil(nest.cleared_at) -> mark_nest(acc, index, acc.clock)
         acc.clock - nest.cleared_at < acc.knobs.respawn_ms -> acc
-        true -> refill(acc, nest.waypoint, index)
+        true -> refill(acc, nest.waypoint, index, Map.get(vivos, index, 0))
       end
     end)
   end
 
-  defp refill(world, waypoint, index) do
+  # O CANTO VOLTA A FICAR CHEIO — não "renasce do zero quando esvazia".
+  #
+  # A regra antiga só repunha um ninho SEM NENHUM mob vivo, e isso o trancava
+  # pra sempre quando sobrava um bicho que a caçada não consegue alcançar: com
+  # `nest_radius` maior que `aggro_tiles`, parte do ninho nasce longe demais pra
+  # acordar, nunca morre, nunca some — e o canto inteiro para de repor.
+  #
+  # MEDIDO na mesa dele (`nest_radius: 10` contra `aggro_tiles: 8`), numa
+  # corrida de 60 minutos: **1,5 mortos/min contra 29,6** com o mesmo mundo e a
+  # mesma decisão. Em cinco minutos a diferença ainda é pequena (11,8 contra
+  # 28,4), que é por que nenhuma medição desta bancada — todas de 1 a 5 minutos
+  # — jamais viu isso. Uma caçada dele dura horas.
+  #
+  # Repor até o TAMANHO SORTEADO do canto também é mais fiel ao jogo, onde cada
+  # ponto de spawn tem o próprio relógio em vez de o bairro inteiro esperar o
+  # último morrer.
+  defp refill(world, waypoint, index, vivos) do
     {count, rand} = population_of(world, waypoint)
+    faltam = max(count - vivos, 0)
 
     %{world | rand: rand}
-    |> spawn_mobs(waypoint, index, count)
+    |> spawn_mobs(waypoint, index, faltam)
+    |> set_nest_size(index, count)
     |> mark_nest(index, if(count == 0, do: world.clock))
   end
+
+  defp set_nest_size(world, index, size),
+    do: %{world | nests: List.update_at(world.nests, index, &%{&1 | size: size})}
 
   defp mark_nest(world, index, at),
     do: %{world | nests: List.update_at(world.nests, index, &%{&1 | cleared_at: at})}
@@ -625,6 +699,9 @@ defmodule Pokex.Sim.World do
       broken?(world, :dead_revive) -> world
       world.clock < floor_of(world) -> world
       world.revive_at != nil -> world
+      # …E O BOLSO PODE ESTAR VAZIO. Ver `revive_stock`: um F4 sem revive é uma
+      # tecla que não faz nada, e essa é a diferença entre uma noite e o chão.
+      empty_pocket?(world) -> world
       true -> start_revive(world)
     end
   end
@@ -632,7 +709,26 @@ defmodule Pokex.Sim.World do
   @doc "Would a revive ordered right now actually be accepted?"
   @spec revive_ready?(t) :: boolean
   def revive_ready?(%__MODULE__{} = world),
-    do: world.clock >= floor_of(world) and world.revive_at == nil
+    do: world.clock >= floor_of(world) and world.revive_at == nil and not empty_pocket?(world)
+
+  @doc """
+  Quantos revives ainda restam no bolso, ou `nil` com o orçamento desligado.
+
+  É o que o `ReviveLedger` responde no bot de verdade, e é o número que três
+  regras do cérebro consultam (`affordable?`). Até 28/08 a bancada nunca o
+  entregava, então `revive_left` chegava `nil` em toda corrida e o cérebro
+  simulado decidia com o bolso infinito — a noite mais cara que ele já teve
+  (27→28/08: o estoque acabou às 23:43 e o bot moeu 4,9 horas com o pokémon no
+  chão) era LITERALMENTE insimulável.
+  """
+  @spec revive_left(t) :: non_neg_integer | nil
+  def revive_left(%__MODULE__{knobs: %{revive_stock: stock}} = world)
+      when is_integer(stock) and stock > 0,
+      do: max(stock - world.revives_spent, 0)
+
+  def revive_left(_orcamento_desligado), do: nil
+
+  defp empty_pocket?(world), do: revive_left(world) == 0
 
   # The floor is stamped on the state the press was made IN, and only then does
   # the body leave the field — reading it afterwards would call every press a
@@ -642,6 +738,10 @@ defmodule Pokex.Sim.World do
     |> stamp_floor()
     |> Map.put(:own, %{world.own | out?: false})
     |> Map.put(:revive_at, world.clock + world.knobs.revive_settle_ms)
+    # Contado no DESPACHO, como o caderninho do bot conta (`ReviveLedger.note/0`
+    # é chamado por quem aperta, não por quem vê o efeito): um item sai do bolso
+    # quando a tecla vai, e a conta erra pro lado seguro.
+    |> Map.update!(:revives_spent, &(&1 + 1))
   end
 
   # WHICH floor, decided by the state the press was made in — and stamped on

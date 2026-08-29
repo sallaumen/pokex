@@ -504,6 +504,17 @@ defmodule Pokex.Sim.Bench do
       # …e o mesmo relógio do controle que o worker entrega, lido do mundo: aqui
       # o cooldown é fato, não carimbo.
       control_back_in_ms: control_back_in_ms(world),
+      # …E O BOLSO. `Engine.Worker` entrega `ReviveLedger.remaining()` desde
+      # #416 e a bancada nunca entregou nada: `revive_left` chegava `nil` em
+      # TODA corrida, então `affordable?` — a guarda que segura o revive quando
+      # o estoque está acabando — dizia "pode" sempre. Três regras do cérebro
+      # dependem dela, e nenhuma era exercida aqui.
+      #
+      # Consequência prática: a noite mais cara que ele já teve (o estoque
+      # acabou às 23:43 e o bot moeu 4,9 horas com o pokémon no chão) não tinha
+      # como acontecer numa simulação. `nil` continua sendo o orçamento
+      # desligado, que é o mundo de todo cenário que não pediu um.
+      revive_left: World.revive_left(world),
       prev: previous
     }
   end

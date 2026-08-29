@@ -298,6 +298,29 @@ defmodule Pokex.Bots.Engine.Logic do
     }
 
     cond do
+      # O BOLSO VAZIO NÃO PRECISA DE PROVA. O caderninho conta cada revive
+      # despachado, e quando ele diz zero não há o que descobrir esperando: a
+      # tecla não tem item atrás dela e nenhum minuto de insistência vai criar
+      # um.
+      #
+      # MEDIDO na noite simulada de 5h com o estoque dele (28/08): o bolso
+      # esvaziou em 2h19 e o PERSONAGEM MORREU 2,1 SEGUNDOS DEPOIS — enquanto o
+      # freio abaixo, que espera cinco minutos de fracasso, só ia disparar cinco
+      # minutos MAIS TARDE. Ele chegava pra parar uma caçada que já tinha
+      # acabado num cemitério.
+      #
+      # O freio empírico continua embaixo, e continua sendo necessário: o
+      # orçamento pode estar desligado (`nil`), a conta pode divergir do bolso
+      # real, e o revive pode falhar por outro motivo que nenhum caderninho
+      # sabe. Este atalho só cobre o caso em que a resposta já está escrita.
+      Map.get(t.s, :revive_left) == 0 ->
+        {%{t.logic | state: :stranded},
+         Orders.standing(
+           :stranded,
+           t.band,
+           "acabaram os revives pela conta — parando a caçada antes de perder o personagem"
+         )}
+
       # O FIM DA INSISTÊNCIA. Medido na noite de 27→28/08: o estoque de revives
       # acabou às 23:43 e o bot passou 4,9 HORAS apertando uma tecla vazia — 605
       # despachos, a rota andando com o pokémon no chão, a estagnação alarmando

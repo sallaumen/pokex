@@ -985,6 +985,39 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "parando a caçada"
     end
 
+    # O BOLSO VAZIO NÃO PRECISA DE PROVA — e o prazo de cinco minutos era
+    # cinco minutos que ele não tem.
+    #
+    # MEDIDO na noite simulada de cinco horas com o estoque dele (28/08): o
+    # bolso esvaziou em 2h19 e o PERSONAGEM MORREU 2,1 SEGUNDOS DEPOIS, com o
+    # freio empírico só marcado pra disparar cinco minutos MAIS TARDE. O
+    # caderninho já sabia a resposta no instante do último despacho.
+    test "com o caderninho em zero ele para NA HORA, sem esperar o prazo" do
+      {logic, orders} = step(caido(%{revive_left: 0}), 1_000)
+
+      assert logic.state == :stranded
+      assert orders.phase == :stranded
+      assert orders.route == :hold
+      assert orders.revive == :hold
+      assert orders.why =~ "acabaram os revives"
+    end
+
+    test "…mas um bolso com revives segue tentando, como sempre" do
+      {logic, orders} = step(caido(%{revive_left: 3}), 1_000)
+
+      assert logic.state != :stranded
+      assert orders.phase == :downed
+    end
+
+    # Orçamento desligado é DESCONHECIDO, não vazio: quem não contou o bolso não
+    # pode ser parado por uma conta que ninguém fez.
+    test "sem orçamento (nil) o atalho não dispara" do
+      {logic, orders} = step(caido(%{revive_left: nil}), 1_000)
+
+      assert logic.state != :stranded
+      assert orders.phase == :downed
+    end
+
     test "o freio desligado (0) deixa a insistência lenta de sempre" do
       sem_freio = Config.merge(%{bunch_ms: 0, gather_target: 1, downed_give_up_ms: 0})
       logic = Logic.new()

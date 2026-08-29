@@ -1844,7 +1844,25 @@ defmodule Pokex.Settings do
     # The heal write is BEST-EFFORT: a read-only home must not crash-loop the app on boot — the
     # in-memory overrides are already correct for this run whether or not the rewrite lands.
     overrides = load(path)
-    heal(path, overrides)
+
+    # …E AS CHAVES QUE ESTA BUILD NÃO CONHECE VIAJAM JUNTO, intocadas.
+    #
+    # O heal reescreve o arquivo com o que ESTA versão entende, então uma build
+    # ANTIGA apagava em silêncio todo ajuste que só existe numa build nova. Não
+    # é hipótese: aconteceu de novo em 28/08 às 20:19, quando um servidor de
+    # outro worktree subiu por engano e comeu quatro ajustes dele —
+    # `engine_engage_from: 6` (a régua da caçada), `revive_stock: 700` (o
+    # orçamento de revives), `engine_revive_reserve: 10` e
+    # `pokemon_hp_fainted_below_pct: 50`.
+    #
+    # O preço dos dois lados é assimétrico: guardar uma chave morta custa uma
+    # linha de JSON que ninguém lê; apagar `revive_stock` desliga o orçamento
+    # inteiro, e foi assim que a noite de 27→28/08 moeu quatro horas e meia com
+    # o pokémon no chão. Então o desconhecido é PRESERVADO, e dito em voz alta
+    # no boot pra não virar lixo invisível.
+    foreign = foreign_keys(path)
+    heal(path, overrides, foreign)
+    announce_foreign(foreign, path)
 
     # Only the GLOBAL (named) instance owns the mirror — tmp-scoped test
     # instances must not clobber it.
@@ -1853,6 +1871,7 @@ defmodule Pokex.Settings do
     state = %{
       path: path,
       data: overrides,
+      foreign: foreign,
       char: Map.get(overrides, :active_character, ""),
       char_data: %{},
       mirror?: mirror?
@@ -1913,7 +1932,10 @@ defmodule Pokex.Settings do
         do: Map.delete(state.data, key),
         else: Map.put(state.data, key, value)
 
-    persist!(state.path, data)
+    # As chaves estrangeiras vão junto em TODA escrita, não só no heal do boot:
+    # senão o primeiro ajuste que ele salva apaga o que o boot preservou, e a
+    # proteção duraria até o primeiro clique.
+    persist!(state.path, data, Map.get(state, :foreign, %{}))
     %{state | data: data}
   end
 
@@ -2008,15 +2030,54 @@ defmodule Pokex.Settings do
     Enum.find(@setting_keys, &(Atom.to_string(&1) == key_string))
   end
 
-  defp persist!(path, data) do
+  @doc false
+  # As chaves do arquivo que ESTA build não conhece — cruas, com a chave em
+  # string e o valor como veio. Não viram comportamento nenhum: só são
+  # devolvidas ao disco na próxima escrita, pra que rodar uma build antiga não
+  # apague o que uma nova gravou.
+  #
+  # `nil` é corrupção (ver `load/3`) e não é preservado: devolver `null` ao
+  # arquivo seria carregar corrupção pra sempre.
+  def foreign_keys(path) do
+    with {:ok, bin} <- File.read(path),
+         {:ok, json} <- JSON.decode(bin) do
+      for {key_string, value} <- json,
+          known_key(key_string) == nil,
+          not is_nil(value),
+          into: %{},
+          do: {key_string, value}
+    else
+      _unreadable_or_absent -> %{}
+    end
+  end
+
+  defp announce_foreign(foreign, _path) when map_size(foreign) == 0, do: :ok
+
+  defp announce_foreign(foreign, path) do
+    Logger.info(
+      "Settings: #{map_size(foreign)} chave(s) em #{path} que esta versão não conhece, " <>
+        "preservadas intactas: #{foreign |> Map.keys() |> Enum.sort() |> Enum.join(", ")}"
+    )
+  end
+
+  # O ARQUIVO É A UNIÃO das duas coisas: os overrides que esta build entende e
+  # as chaves que ela não entende. As conhecidas vencem — se uma chave morreu e
+  # voltou com outro sentido, quem manda é a build que sabe o que ela significa.
+  defp persist!(path, data, foreign \\ %{}) do
     File.mkdir_p!(Path.dirname(path))
-    Pokex.Home.write!(path, JSON.encode!(data))
+
+    body =
+      foreign
+      |> Map.merge(Map.new(data, fn {key, value} -> {Atom.to_string(key), value} end))
+      |> JSON.encode!()
+
+    Pokex.Home.write!(path, body)
   end
 
   # The boot-time rewrite that trims a fat/materialized file down to overrides. Never fatal: if
   # the settings dir isn't writable we keep running off the (already-loaded) in-memory overrides.
-  defp heal(path, data) do
-    persist!(path, data)
+  defp heal(path, data, foreign) do
+    persist!(path, data, foreign)
   rescue
     error -> Logger.warning("Settings: could not rewrite #{path}: #{inspect(error)}")
   end

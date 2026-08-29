@@ -107,8 +107,9 @@ defmodule Pokex.Bots.HandWatchTest do
     defmodule ScriptedRig do
       use Pokex.RigDouble
 
-      # devolve o roteiro UMA vez; drains seguintes veem buffer vazio —
-      # como o helper de verdade, que esvazia ao drenar
+      # Como o helper de verdade: cada chamada esvazia o buffer. A PRIMEIRA
+      # devolve o backlog (aqui, vazio — o vigia a descarta de propósito) e a
+      # seguinte devolve o roteiro do teste.
       def key_watch(_codes) do
         case :ets.take(:hand_watch_test_script, :events) do
           [{:events, events}] -> {:ok, events}
@@ -140,13 +141,16 @@ defmodule Pokex.Bots.HandWatchTest do
     end
 
     test "um aperto dele numa skill carimba o relógio de verdade", %{watch: watch} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
+      assert HandWatch.attach(watch) == :ok
+
+      # o roteiro entra DEPOIS da primeira drenagem (que é descartada)
+      Process.sleep(250)
+
       :ets.insert(
         :hand_watch_test_script,
         {:events, [%{code: code!("7"), shift?: false, at: 1}]}
       )
-
-      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
-      assert HandWatch.attach(watch) == :ok
 
       assert_receive {:combat_log, :macro, text}, 2_000
       assert text =~ "tecla 7 da tua mão"
@@ -156,19 +160,30 @@ defmodule Pokex.Bots.HandWatchTest do
     end
 
     test "pausado, o vigia não drena — e o resume devolve", %{watch: watch} do
+      assert HandWatch.attach(watch) == :ok
+      # PAUSA PRIMEIRO, e só então o roteiro entra: pôr o roteiro com o laço
+      # correndo é uma corrida com a drenagem, e o teste mediria o agendador.
+      assert HandWatch.pause(watch) == :ok
+
       :ets.insert(
         :hand_watch_test_script,
         {:events, [%{code: code!("8"), shift?: false, at: 1}]}
       )
 
-      assert HandWatch.attach(watch) == :ok
-      assert HandWatch.pause(watch) == :ok
-      # o roteiro segue lá: ninguém drenou
       Process.sleep(400)
       assert [{:events, _events}] = :ets.lookup(:hand_watch_test_script, :events)
       refute SkillClock.last_press("8")
 
+      # O resume rearma, e a primeira drenagem depois de armar é descartada de
+      # propósito (é backlog); a seguinte é que traz o roteiro.
       assert HandWatch.resume(watch) == :ok
+      Process.sleep(250)
+
+      :ets.insert(
+        :hand_watch_test_script,
+        {:events, [%{code: code!("8"), shift?: false, at: 1}]}
+      )
+
       await(fn -> SkillClock.last_press("8") end, "o resume não voltou a drenar")
     end
 
@@ -187,6 +202,7 @@ defmodule Pokex.Bots.HandWatchTest do
 
       assert_receive :attached, 1_000
       assert HandWatch.attach(watch) == :ok
+      Process.sleep(250)
       assert HandWatch.detach(watch) == :ok
 
       # o outro consumidor segue vivo: o laço tem que continuar drenando

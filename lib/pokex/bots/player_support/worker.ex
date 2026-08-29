@@ -1234,7 +1234,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # press there is nothing to wait for either — recall AT ONCE, because from
   # there on the clock only costs the pokémon's HP.
   defp last_resort(body, tried) do
-    keys = Logic.last_resort_keys(Loadout.current(), tried, Pokex.Perception.ready_skills())
+    keys =
+      Logic.last_resort_keys(
+        Loadout.current(),
+        tried,
+        Pokex.Perception.ready_skills(),
+        Settings.get(:combat_single_target)
+      )
 
     if keys == [] do
       {[log: "🚑 não sobrou skill pra tentar — recolhendo agora"], 0}

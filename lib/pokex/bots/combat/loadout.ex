@@ -163,6 +163,31 @@ defmodule Pokex.Bots.Combat.Loadout do
 
   def keys(nil), do: []
 
+  @doc """
+  As teclas de ALVO ÚNICO que esta caçada pode apertar — `[]` quando ele disse
+  que elas não machucam.
+
+  "Skills de alvo único não funcionam mais, de propósito; a meta é só usarmos
+  skills em área. Se o código tá tentando usar skill de alvo único, tá errado"
+  (29/08). O ajuste `combat_single_target` já dizia isso pra ROTAÇÃO, e três
+  outros caminhos apertavam alvo único assim mesmo:
+
+    * o recuo de quem não tem área (`aoe == []` caía no alvo único, com o
+      argumento de que "ficar mudo é pior que bater fraco" — e a premissa
+      morreu: bater com uma tecla que o jogo ignora não é bater fraco, é não
+      bater e ainda gastar o cooldown dela);
+    * a escalação do resgate (`last_resort_keys`), que aperta tudo que sobrou;
+    * uma esquina gravada com a categoria `:single` na rota.
+
+  A pergunta tem um dono só agora, e é este. Quem quiser as de alvo único
+  passa `true` — o que a tela do `/config` continua permitindo, porque a regra
+  é do JOGO dele, não uma verdade sobre todo pokémon.
+  """
+  @spec single_keys(t | nil, boolean) :: [String.t()]
+  def single_keys(loadout, single_target?)
+  def single_keys(%__MODULE__{single: single}, true), do: single
+  def single_keys(_loadout, _nao_usa), do: []
+
   @doc "One line for a log or a panel: `\"Shiny Vileplume · área 3+4 · alvo 7\"`."
   @spec describe(t | nil) :: String.t()
   def describe(nil), do: "sem pokémon escolhido"

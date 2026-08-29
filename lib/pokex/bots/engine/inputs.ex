@@ -72,9 +72,12 @@ defmodule Pokex.Bots.Engine.Inputs do
         |> Strategy.opening(single_target?: single?(config))
         |> Enum.take(1),
       # A MESMA REGRA aqui: `single` é o que a fase `:skipping` gasta nas teclas
-      # BARATAS, e uma tecla que não machuca não é barata, é perdida. Com a área
-      # vazia ela volta, pelo mesmo motivo de sempre.
-      single: if(single?(config) or loadout.aoe == [], do: loadout.single, else: []),
+      # BARATAS, e uma tecla que não machuca não é barata, é perdida.
+      #
+      # E o recuo da área vazia saiu (29/08): "skills de alvo único não
+      # funcionam mais, de propósito". Sem área classificada não sobra tecla
+      # barata pra gastar, e é isso mesmo — ver `Loadout.single_keys/2`.
+      single: Loadout.single_keys(loadout, single?(config)),
       crowd: loadout.crowd
     }
   end

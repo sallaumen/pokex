@@ -310,12 +310,22 @@ defmodule Pokex.Bots.Combat.StrategyTest do
                ~w(7 3 4 5 6)
     end
 
-    # Ficar mudo é pior que bater fraco: quem não tem área classificada segue
-    # apertando o que tem.
-    test "um pokémon SEM área continua usando as de alvo único" do
+    # A REGRA VIROU EM 29/08. Antes: "ficar mudo é pior que bater fraco, então
+    # quem não tem área segue apertando o que tem". A premissa caiu — "skills
+    # de alvo único não funcionam mais, de propósito" (ele). Uma tecla que o
+    # jogo ignora não bate fraco: não bate, e ainda queima o cooldown dela e a
+    # vez da rajada. Sem área classificada não há o que apertar, e dizer isso
+    # é mais honesto que apertar por apertar.
+    test "um pokémon SEM área não aperta nada — alvo único não é um recuo" do
       so_alvo = Loadout.resolve("Sem Área", %{"7" => :single, "8" => :single})
 
-      assert Strategy.skill_order(so_alvo, enemies: 4) == ~w(7 8)
+      assert Strategy.skill_order(so_alvo, enemies: 4) == []
+    end
+
+    test "…e com a regra ligada ele volta a ter o que apertar" do
+      so_alvo = Loadout.resolve("Sem Área", %{"7" => :single, "8" => :single})
+
+      assert Strategy.skill_order(so_alvo, enemies: 4, single_target?: true) == ~w(7 8)
     end
 
     test "e as auras seguem na frente do que sobrou" do

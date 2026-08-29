@@ -57,10 +57,19 @@ defmodule Pokex.Bots.Engine.InputsTest do
     assert Inputs.hands(loadout(), picture()).single == []
   end
 
-  test "…mas volta pra quem não tem área: ficar mudo é pior que bater fraco" do
+  # A REGRA VIROU EM 29/08: "skills de alvo único não funcionam mais, de
+  # propósito". O recuo de quem não tem área existia porque bater fraco era
+  # melhor que ficar mudo — e bater fraco deixou de ser uma das opções.
+  test "…e NÃO volta pra quem não tem área: alvo único não é um recuo" do
     so_alvo = loadout(%{aoe: []})
 
-    assert Inputs.hands(so_alvo, picture()).single == ["7", "8"]
+    assert Inputs.hands(so_alvo, picture()).single == []
+  end
+
+  test "…mas volta inteiro com a regra ligada, que é do jogo dele e não do código" do
+    so_alvo = loadout(%{aoe: []})
+
+    assert Inputs.hands(so_alvo, picture(), %{single_target: true}).single == ["7", "8"]
   end
 
   # A exclusão continua sendo `reserved/1` — o que muda é quem a usa. A abertura
@@ -110,9 +119,10 @@ defmodule Pokex.Bots.Engine.InputsTest do
     assert hands.small == ["3"]
   end
 
-  test "small respeita o modo alvo-único e a área vazia" do
+  test "small não inventa tecla: sem área, a mão pequena é vazia" do
     so_single = loadout(%{aoe: []})
 
-    assert Inputs.hands(so_single, picture()).small == ["7"]
+    assert Inputs.hands(so_single, picture()).small == []
+    assert Inputs.hands(so_single, picture(), %{single_target: true}).small == ["7"]
   end
 end

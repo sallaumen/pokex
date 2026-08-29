@@ -29,8 +29,13 @@ defmodule Pokex.TeamFixtures do
     # As teclas de uma barra de N slots são `SkillBar.keys/1`, e a décima é o
     # ZERO — uma fixture que inventasse `1..10` concordaria com o bug em vez de
     # com o jogo.
+    # ÁREA por padrão, e não alvo único. Desde 29/08 as de alvo único não são
+    # apertadas ("skills de alvo único não funcionam mais, de propósito"), então
+    # uma fixture toda `:single` monta um pokémon que NÃO ATACA — e treze testes
+    # que nada tinham a ver com categoria passaram a medir isso. A categoria que
+    # esta caçada usa é a área; quem quer testar alvo único pede por `:skills`.
     skills =
-      Keyword.get(opts, :skills, Map.new(Pokex.Bots.SkillBar.keys(count), &{&1, :single}))
+      Keyword.get(opts, :skills, Map.new(Pokex.Bots.SkillBar.keys(count), &{&1, :aoe}))
 
     restore_team_on_exit()
 

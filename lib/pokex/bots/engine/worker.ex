@@ -319,12 +319,14 @@ defmodule Pokex.Bots.Engine.Worker do
   # sempre pronta dentro desta lista faz `spent?` nunca ser verdadeiro — a barra
   # jamais conta como gasta, e toda regra de revive que depende disso morre em
   # silêncio.
+  # …e o recuo da área vazia saiu em 29/08: uma tecla de alvo único que o jogo
+  # ignora entrando nesta lista é pior que ausente — ela nunca esfria, então
+  # `spent?` nunca fica verdadeiro e o revive de reset nunca sai. Ver
+  # `Loadout.single_keys/2`.
   defp damage_keys(nil, _config), do: []
 
   defp damage_keys(loadout, config) do
-    if Map.get(config, :single_target, false) or loadout.aoe == [],
-      do: loadout.aoe ++ loadout.single,
-      else: loadout.aoe
+    loadout.aoe ++ Loadout.single_keys(loadout, Map.get(config, :single_target, false))
   end
 
   # Only the EDGES talk: 200ms of cadence is five lines a second, and a feed

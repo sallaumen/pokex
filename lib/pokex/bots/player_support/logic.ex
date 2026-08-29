@@ -93,11 +93,20 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   everything: the same fail-open rule as `stun_prefix/2`, because in this
   moment a blind press beats no press at all.
   """
-  @spec last_resort_keys(map | nil, [String.t()], [String.t()] | nil) :: [String.t()]
-  def last_resort_keys(nil, _tried, _ready), do: []
+  @spec last_resort_keys(map | nil, [String.t()], [String.t()] | nil, boolean) :: [String.t()]
+  def last_resort_keys(loadout, tried, ready, single_target? \\ false)
 
-  def last_resort_keys(loadout, tried, ready) do
-    (Map.get(loadout, :crowd, []) ++ Map.get(loadout, :aoe, []) ++ Map.get(loadout, :single, []))
+  def last_resort_keys(nil, _tried, _ready, _single?), do: []
+
+  def last_resort_keys(loadout, tried, ready, single_target?) do
+    # …E O ALVO ÚNICO SÓ SE ELE MACHUCAR. Esta escalação existe pra tapar o
+    # buraco de um resgate sem controle, e ela apertava TUDO que sobrou — mas
+    # "skills de alvo único não funcionam mais, de propósito" (29/08). Uma
+    # tecla que o jogo ignora não protege recolhida nenhuma: gasta o tempo do
+    # corpo e o cooldown dela, e deixa a pilha acordada do mesmo jeito.
+    single = if single_target?, do: Map.get(loadout, :single, []), else: []
+
+    (Map.get(loadout, :crowd, []) ++ Map.get(loadout, :aoe, []) ++ single)
     |> Enum.uniq()
     |> Enum.reject(&(&1 in tried))
     |> then(fn keys -> if is_list(ready), do: Enum.filter(keys, &(&1 in ready)), else: keys end)

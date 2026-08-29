@@ -116,22 +116,30 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
   describe "the last card, when the stun refused to go out" do
     @kit %{crowd: ["1", "2"], aoe: ["3"], single: ["4"], heal: ["8"], buffs: ["5"]}
 
-    test "control first, then area, then single target" do
-      assert Logic.last_resort_keys(@kit, [], nil) == ["1", "2", "3", "4"]
+    # O ALVO ÚNICO SAIU DA ESCALAÇÃO em 29/08: "skills de alvo único não
+    # funcionam mais, de propósito". Uma tecla que o jogo ignora não protege
+    # recolhida nenhuma — gasta o corpo e o cooldown e deixa a pilha acordada.
+    # Quem tem alvo único que machuca liga a regra e ela volta (último teste).
+    test "control first, then area — e o alvo único fica de fora" do
+      assert Logic.last_resort_keys(@kit, [], nil) == ["1", "2", "3"]
     end
 
     test "what was already pressed is not pressed again" do
-      assert Logic.last_resort_keys(@kit, ["1", "2"], nil) == ["3", "4"]
+      assert Logic.last_resort_keys(@kit, ["1", "2"], nil) == ["3"]
     end
 
     test "cooling keys are dropped against the bar" do
-      assert Logic.last_resort_keys(@kit, ["1"], ["2", "4"]) == ["2", "4"]
+      assert Logic.last_resort_keys(@kit, ["1"], ["2", "4"]) == ["2"]
     end
 
     # Same fail-open rule as the stun prefix: in this exact moment a blind
     # press beats no press at all.
     test "no bar reading presses everything that is left" do
-      assert Logic.last_resort_keys(@kit, ["1"], nil) == ["2", "3", "4"]
+      assert Logic.last_resort_keys(@kit, ["1"], nil) == ["2", "3"]
+    end
+
+    test "com a regra ligada, o alvo único volta pro fim da fila" do
+      assert Logic.last_resort_keys(@kit, [], nil, true) == ["1", "2", "3", "4"]
     end
 
     test "heal and buffs are never the last card — other rungs own those" do

@@ -98,15 +98,24 @@ defmodule Pokex.Bots.Combat.Strategy do
   # pergunta legítima quando as duas machucavam; nesta hunt uma delas não
   # machuca, e a resposta certa é não gastar o tempo dela.
   #
-  # O alvo único VOLTA sozinho pra quem não tem área: um pokémon sem tecla de
-  # área classificada com esta regra ligada não teria o que apertar, e ficar
-  # mudo é pior que bater fraco.
+  # E O RECUO DE QUEM NÃO TEM ÁREA MORREU (29/08). Ele dizia: "o alvo único
+  # volta sozinho pra quem não tem área, porque ficar mudo é pior que bater
+  # fraco". A premissa era essa — bater fraco. Ela caiu: "skills de alvo único
+  # não funcionam mais, de propósito". Uma tecla que o jogo ignora não bate
+  # fraco, não bate nada, e ainda queima o cooldown dela e a vez da rajada.
+  #
+  # Com a regra desligada, um pokémon sem área classificada agora não tem o que
+  # apertar — e isso é a verdade, não uma falha: `Loadout.attacks?/1` e a fase
+  # "sem teclas de ataque" existem exatamente pra dizer isso em voz alta.
   defp damage_keys(loadout, opts) do
+    single? = Keyword.get(opts, :single_target?, false)
+    single = Loadout.single_keys(loadout, single?)
+
     cond do
-      loadout.aoe == [] -> loadout.single
-      not Keyword.get(opts, :single_target?, false) -> loadout.aoe
-      area_first?(loadout, opts) -> loadout.aoe ++ loadout.single
-      true -> loadout.single ++ loadout.aoe
+      not single? -> loadout.aoe
+      loadout.aoe == [] -> single
+      area_first?(loadout, opts) -> loadout.aoe ++ single
+      true -> single ++ loadout.aoe
     end
   end
 

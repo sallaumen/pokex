@@ -950,8 +950,14 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # The categories in their canonical order, deduplicated by KEY: two
   # categories can land on the same key, and pressing it twice is not what he
   # asked for.
+  #
+  # …E A CATEGORIA `:single` CAI FORA quando ele diz que ela não machuca
+  # (29/08). Uma esquina gravada é uma ordem antiga: ela guarda o que ele
+  # apertava naquele dia, e o jogo mudou desde então. Nenhuma rota dele carrega
+  # `:single` hoje — esta linha fecha a porta, não conserta um estrago.
   defp skill_keys(loadout, categories) do
     categories
+    |> Enum.reject(&(&1 == :single and not Settings.get(:combat_single_target)))
     |> Enum.flat_map(&Combat.Loadout.keys(loadout, &1))
     |> Enum.uniq()
   end

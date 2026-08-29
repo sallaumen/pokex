@@ -1262,12 +1262,16 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # `bunch_ms: 0` pelo mesmo motivo que `crowd_from: 99` está aqui: desde 27/08
     # a régua PARA antes de estourar a área (R12), e a espera apareceria na
     # frente da pergunta deste bloco.
+    # A RÉGUA DECLARADA: este bloco mede a janela do controle, não quando uma
+    # pilha vale a luta. Com a régua semeada em 6 (29/08) as pilhas de 3 a 5
+    # daqui deixariam de valer, e o teste passaria a medir a régua.
     @r10 Config.merge(%{
            reset_revive: true,
            crowd_from: 4,
            stun_window_ms: 5_000,
            bunch_ms: 0,
-           gather_target: 1
+           gather_target: 1,
+           engage_from: 2
          })
 
     defp pilha(n, overrides \\ %{}) do
@@ -1619,11 +1623,15 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # mora no executor desde #429 — com o controle frio ele escala o que sobrou,
   # com settle, e nunca recolhe nu.
   describe "o revive sem controle na frente" do
+    # Régua declarada pelo mesmo motivo do bloco da R10: a pergunta aqui é o
+    # revive sem controle, e uma pilha de quatro tem que VALER a luta pra ela
+    # ser feita.
     @sem_stun Config.merge(%{
                 reset_revive: true,
                 crowd_from: 99,
                 gather_target: 1,
-                bunch_ms: 0
+                bunch_ms: 0,
+                engage_from: 2
               })
 
     defp barra_vazia_sem_controle(volta_em \\ 2_000) do

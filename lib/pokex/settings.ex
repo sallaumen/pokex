@@ -1065,11 +1065,27 @@ defmodule Pokex.Settings do
     cavebot_combo_timeout_ms: 6000,
     cavebot_cleanup_timeout_ms: 8000,
     # --- Engine ---------------------------------------------------------------------------------
-    # HIS RULER. Era três (2026-08-17: "eu realmente mato quando tem uns três") e
-    # ele o corrigiu vendo a simulação rodar (2026-08-25): "a gente quer matar
-    # quando tem mais do que dois inimigos, dois ou mais". O número sozinho
-    # nunca foi a regra inteira — a outra metade é `engine_gather_tiles`.
-    engine_engage_from: 2,
+    # HIS RULER, e ele a moveu três vezes — a última vence.
+    #
+    #   17/08: três ("eu realmente mato quando tem uns três")
+    #   25/08: dois, vendo a simulação rodar ("matar quando tem mais do que
+    #          dois inimigos, dois ou mais")
+    #   28/08: SEIS ("coloca 6, no mapa que caço lota de monstro")
+    #   29/08: seis de novo, vendo a caçada ("ele tá parando pra matar quando
+    #          tem 2 inimigos só (…) pra evitar de usar um monte de coisas em
+    #          2 bixos só")
+    #
+    # O número sozinho nunca foi a regra inteira — a outra metade é
+    # `engine_gather_tiles`.
+    #
+    # A BANCADA NÃO SEPARA AS DUAS, e isso está dito porque importa: 20 min × 4
+    # sementes na rota dele, régua de 1 a 8, tudo entre 16,9 e 18,3 mortos/min
+    # com os monstros perdidos praticamente parados (138-150). O motivo é que
+    # `engine_gather_target` (6) já decide quando a janela fecha — no mundo
+    # simulado a pilha cresce rápido e a régua quase nunca morde. No jogo dele
+    # ela morde: uma dupla que não vira bolo é uma barra gasta em dois bichos.
+    # Quem decidiu aqui foi ele olhando a caçada, e o simulador não contradiz.
+    engine_engage_from: 6,
     # Whether the hunt GATHERS a pile before hitting it. Gathering is what makes
     # the sizing wait worth paying: drag the mob together, then open with area.
     # Hunting weak creatures that wander in one at a time — and never mob back —
@@ -1122,8 +1138,14 @@ defmodule Pokex.Settings do
     #   5000ms   82,7             19,9
     #
     # Ou seja: no anel esparso esperar CUSTA (o valor lá é cobrir chão), e no
-    # formigueiro paga +18%. 3s é o meio que ele escolheu, e o knob existe pra
-    # quando ele medir o passo de verdade no jogo.
+    # formigueiro paga +18%.
+    #
+    # O VALOR É SEIS, e o comentário dizia três: a tabela acima mediu até 5s e
+    # ele escolheu 6 depois, olhando a caçada — "podemos deixar ele fechar o mob
+    # com 6 inimigos e daí esperar aqueles 6 segundos antes das skills"
+    # (29/08), confirmando o que já rodava. Um comentário que descreve um número
+    # que não é o do código mente sobre uma medição, que é a pior forma de
+    # mentir aqui.
     engine_bunch_ms: 6_000,
     # …e os PASSOS que ela anda antes de parar. "Ele não precisa parar na hora
     # que identificou isso. Ele pode andar um pouquinho até na rota, mais uns 5

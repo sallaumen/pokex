@@ -100,7 +100,7 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   defp now, do: System.monotonic_time(:millisecond)
 
   test "the orders reach the blackboard", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
     hunting(%{luring?: true})
     tick(worker)
 
@@ -111,7 +111,7 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   end
 
   test "with no hunt running there is nothing to decide", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
     tick(worker)
 
     assert orders().phase == :idle
@@ -119,12 +119,12 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   end
 
   test "it says out loud what it would have done", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
     hunting(%{state: :fighting})
     tick(worker)
 
     assert_receive {:engine_log, :macro, "quadro: 🧠" <> shadow}
-    assert shadow =~ "3 inimigos"
+    assert shadow =~ "6 inimigos"
     assert shadow =~ "estourando a área"
     assert shadow =~ "[liberaria o fogo]"
   end
@@ -145,7 +145,7 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   end
 
   test "nobody obeys yet: the posture the fight reads is untouched", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
     hunting(%{state: :fighting})
     tick(worker)
     tick(worker)
@@ -156,7 +156,7 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   end
 
   test "halting takes the orders down with the picture", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
     hunting()
     tick(worker)
     assert orders().phase == :travelling

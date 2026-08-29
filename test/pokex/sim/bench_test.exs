@@ -640,7 +640,10 @@ defmodule Pokex.Sim.BenchTest do
         run("formigueiro",
           duration_ms: 120_000,
           seed: 2,
-          config: %{rescue_stun_first: true, rescue_stun_settle_ms: 800}
+          # régua declarada: a pergunta aqui é a janela do controle, e as
+          # pilhas do formigueiro (2 a 5) deixaram de valer a luta quando a
+          # régua semeada virou 6 (29/08)
+          config: %{rescue_stun_first: true, rescue_stun_settle_ms: 800, engage_from: 2}
         )
 
       na_pilha =
@@ -655,7 +658,8 @@ defmodule Pokex.Sim.BenchTest do
     end
 
     test "o evento diz se HAVIA controle pra gastar" do
-      %{metrics: %{revives: revives}} = run("formigueiro", duration_ms: 60_000, seed: 2)
+      %{metrics: %{revives: revives}} =
+        run("formigueiro", duration_ms: 60_000, seed: 2, config: %{engage_from: 2})
 
       for revive <- revives do
         assert Map.has_key?(revive, :control_ready?)

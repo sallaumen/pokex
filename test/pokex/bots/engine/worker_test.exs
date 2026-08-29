@@ -56,13 +56,15 @@ defmodule Pokex.Bots.Engine.WorkerTest do
   defp now, do: System.monotonic_time(:millisecond)
 
   describe "the shared picture" do
+    # SEIS, que é a régua semeada desde 29/08: uma pilha de três deixou de
+    # valer a luta, e o teste passaria a medir a régua em vez do quadro.
     test "lands on the blackboard for everyone to read", %{worker: worker} do
-      see(~w(Venonat Paras Venomoth))
+      see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
       send(worker, :tick)
       settle(worker)
 
       assert {:ok, picture} = WorldState.get(:situation, 5_000, now())
-      assert picture.enemies == 3
+      assert picture.enemies == 6
       assert picture.worth_fighting? == true
     end
 

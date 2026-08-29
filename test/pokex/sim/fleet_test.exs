@@ -126,10 +126,18 @@ defmodule Pokex.Sim.FleetTest do
 
   @tag :tmp_dir
   @tag :capture_log
-  test "a pile above the ruler reads as worth fighting" do
+  test "a pile above the ruler reads as worth fighting", %{runner: runner} do
+    # A PILHA DECLARADA: a régua semeada virou 6 em 29/08, e um cenário que
+    # nasce com menos que isso mediria a régua em vez do quadro.
+    Runner.load(runner, route(),
+      knobs: %{nest_size: 8, nest_radius: 1, screen_w: 199, screen_h: 199}
+    )
+
+    Runner.tick_now(runner)
+
     picture = wait_for_worth(true)
 
-    assert picture.enemies >= 3
+    assert picture.enemies >= 6
     assert picture.worth_fighting?
   end
 

@@ -887,11 +887,21 @@ defmodule Pokex.Vision.Glyphs do
   def read_coord_detail(%Frame{} = frame, region, opts \\ []) do
     with %{text: text, confidence: 1.0} = line <- read_line(frame, region, opts),
          {_x, _y, _z} = pos <- parse_coord(text) do
-      %{pos: pos, guessed: line.guessed, px: line.px}
+      # …E QUANTOS GLIFOS A LINHA TINHA. Sem o total, `guessed: 7` é um número
+      # sem escala: sete de sete é uma leitura inventada e sete de trinta é uma
+      # leitura boa com sotaque. Quem decide se esta coordenada tem autoridade
+      # pra dizer que ele se TELEPORTOU precisa da fração, não da contagem.
+      %{pos: pos, guessed: line.guessed, glyphs: glyph_count(text), px: line.px}
     else
       _uncertain -> nil
     end
   end
+
+  # Os glifos que o atlas teve que reconhecer: dígitos e vírgulas do próprio
+  # texto lido. Contado do texto e não da segmentação porque é o texto que
+  # sobreviveu ao `parse_coord` — espaços não são glifos.
+  defp glyph_count(text),
+    do: text |> String.replace(" ", "") |> String.length()
 
   # Wrapped and bare are separate shapes so a stray half-parenthesis — a
   # misread, not a style — never parses.

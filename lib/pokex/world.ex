@@ -33,6 +33,10 @@ defmodule Pokex.World do
               # this is the difference between a coordinate that is late and a
               # coordinate that is WRONG.
               coord_gap: nil,
+              # …e o OUTRO buraco: o alfabeto completo lendo por semelhança.
+              # Ver `Interpret.Minimap.chute/1` — `coord_gap` só sabe acusar
+              # dígito AUSENTE, e o render dele não tinha nenhum ausente.
+              coord_guessed: nil,
               layout?: false,
               at: nil
   end
@@ -74,6 +78,7 @@ defmodule Pokex.World do
       pos: minimap[:pos],
       pos_age_ms: WorldState.age(:minimap, now),
       coord_gap: minimap[:coord_gap],
+      coord_guessed: minimap[:coord_guessed],
       # NOT time-limited: the layout is configuration, not an observation. It
       # stops being true when the panels MOVE (the sentinel's job to notice),
       # never merely because it was located a while ago.

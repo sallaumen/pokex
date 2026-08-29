@@ -911,8 +911,35 @@ defmodule Pokex.Bots.Engine.Logic do
         not elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms)
 
   defp kiting?(t) do
-    t.config.kite_when_spent and t.s.spent? == true and some?(t.s) and escaping?(t)
+    t.config.kite_when_spent and t.s.spent? == true and some?(t.s) and escaping?(t) and
+      kite_budget_left?(t)
   end
+
+  # O TETO DA RETIRADA — e ele existe porque a retirada não termina sozinha.
+  #
+  # A R7 recua com a barra vazia pra ganhar tempo enquanto os cooldowns voltam,
+  # e o fogo continua LIVRE durante o recuo. Aí está o laço: cada tecla que
+  # volta é gasta na mesma hora na pilha que vem atrás, `spent?` nunca chega a
+  # ser falso, e a condição que faria o recuo parar nunca acontece. Com o reset
+  # desarmado — sem revive pra comprar a barra de volta — recuar vira o estado
+  # permanente da caçada.
+  #
+  # MEDIDO na noite dele de 29/08, 9,8 horas: 2.836 tiques de "recuando", 13
+  # episódios de desarme espaçados de 10 em 10 minutos (o prazo de rearme), e
+  # 771 waypoints andados PARA TRÁS — um deles uma volta inteira de 40 cantos
+  # em 92 segundos, o circuito refeito de costas. Foi isso que ele viu: "ficou
+  # em loop indo pra frente e pra trás".
+  #
+  # O teto é a pergunta honesta: recuar compra tempo para a barra, então um
+  # recuo que dura mais que um ciclo de cooldown já provou que não está
+  # comprando nada — e o preço é o chão limpo sendo refeito de costas enquanto
+  # o trem cresce. Passado o teto a caçada PARA e bate ("continuar em frente
+  # batalhando", ele em 28/08): a pilha fica colada do mesmo jeito, e a
+  # primeira tecla que voltar abre nela inteira.
+  #
+  # Zero desliga o teto e devolve o recuo sem fim de antes.
+  defp kite_budget_left?(%{config: %{kite_max_ms: 0}}), do: true
+  defp kite_budget_left?(t), do: within?(t, :kiting, t.config.kite_max_ms)
 
   # Ainda dentro da janela, a fuga tem o benefício da dúvida; passada ela, só
   # segue quem realmente andou.

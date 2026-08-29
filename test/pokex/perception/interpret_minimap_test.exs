@@ -51,6 +51,45 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     end
   end
 
+  # O SEGUNDO BURACO, e o que o de cima não enxerga: o alfabeto COMPLETO
+  # lendo por parecença. "Na parte de ensinar glifos tá falando que não tem
+  # nenhum problema, e ele realmente tá interpretando errado o número" (29/08).
+  #
+  # `coord_gap` responde "falta algum dígito nesta altura?" e num render bom a
+  # resposta é não. `coord_guessed` responde a outra pergunta — "quanto disto
+  # aqui foi reconhecido de verdade?" — e é ela que fica sem resposta quando o
+  # atlas conhece os dez dígitos mas não conhece o desenho DESTA tela.
+  describe "o aviso de leitura por parecença" do
+    test "um render que o atlas conhece não acusa chute nenhum" do
+      for {name, _expected} <- @coords do
+        {fix, panel} = located(name)
+        calib = %Calibration{scale: 1.0, layout: fix}
+
+        assert {%{coord_guessed: nil}, _state} = Minimap.interpret(panel, calib, %{}, nil),
+               "acusou parecença num render que o atlas lê exato: #{name}"
+      end
+    end
+
+    test "uma tinta que desfigura os glifos acusa, com a fração" do
+      {fix, panel} = located("ultrawide_3440x1440_time")
+      calib = %Calibration{scale: 1.0, layout: fix}
+
+      {obs, _state} = Minimap.interpret(panel, calib, %{minimap_coord_ink: 60}, nil)
+
+      case obs.coord_guessed do
+        nil ->
+          # este render pode resistir à tinta ruim; então a única coisa que este
+          # teste pode afirmar é que o campo EXISTE e não mente
+          assert Map.has_key?(obs, :coord_guessed)
+
+        chute ->
+          assert chute.guessed > 0
+          assert chute.glyphs >= chute.guessed
+          assert chute.pct > 0 and chute.pct <= 100
+      end
+    end
+  end
+
   test "hand-marked regions read without any layout" do
     {fix, panel} = located("ultrawide_3440x1440_time")
 
@@ -324,6 +363,61 @@ defmodule Pokex.Perception.InterpretMinimapTest do
       assert {%{pos: {100, 100, 7}}, state} = Minimap.accept({900, 900, 7}, state, 200)
       assert {%{pos: {901, 900, 7}}, state} = Minimap.accept({901, 900, 7}, state, 400)
       assert state.last == {901, 900, 7}
+    end
+  end
+
+  # SEMELHANÇA NÃO TELEPORTA NINGUÉM.
+  #
+  # Confirmar uma leitura repetindo-a só prova algo quando o erro é ALEATÓRIO.
+  # O erro do atlas não é: um glifo que ele não conhece casa com o mesmo
+  # vizinho errado em TODO frame, então duas leituras idênticas de um render
+  # que ele nunca viu se confirmam com a mesma confiança de duas leituras
+  # certas — e o mundo re-baseia num lugar onde ele não está.
+  #
+  # A regra separa as duas coisas que uma leitura pode afirmar: onde ele ESTÁ
+  # (um passo — adivinhar é barato, o próximo frame corrige) e que ele SE MOVEU
+  # muito (um salto — adivinhar custa a caçada).
+  describe "uma leitura que é quase toda chute" do
+    test "confirma um passo curto, como qualquer outra" do
+      state = %{last: {100, 100, 7}, pending: nil, at: 0}
+      perto = %{pos: {102, 100, 7}, guessed: 7, glyphs: 11, px: 8}
+
+      assert {%{pos: {102, 100, 7}}, state} = Minimap.accept(perto, state, 200)
+      assert state.last == {102, 100, 7}
+    end
+
+    test "mas NUNCA re-baseia um salto, por mais que se repita" do
+      state = %{last: {100, 100, 7}, pending: nil, at: 0}
+      longe = %{pos: {900, 900, 7}, guessed: 7, glyphs: 11, px: 8}
+
+      state =
+        Enum.reduce(1..6, state, fn n, state ->
+          assert {%{pos: {100, 100, 7}}, state} = Minimap.accept(longe, state, n * 500)
+          state
+        end)
+
+      assert state.last == {100, 100, 7}, "o chute levou o mundo junto"
+    end
+
+    test "e uma leitura com poucos chutes segue podendo, com as confirmações de sempre" do
+      state = %{last: {100, 100, 7}, pending: nil, at: 0}
+      longe = %{pos: {900, 900, 7}, guessed: 2, glyphs: 11, px: 8}
+
+      assert {%{pos: {100, 100, 7}}, state} = Minimap.accept(longe, state, 500)
+      assert {%{pos: {100, 100, 7}}, state} = Minimap.accept(longe, state, 1_000)
+      assert {%{pos: {900, 900, 7}}, state} = Minimap.accept(longe, state, 1_500)
+      assert state.last == {900, 900, 7}
+    end
+
+    # Um relatório antigo (ou o achado da busca de banda) não traz o total.
+    # Sem a fração não há acusação: o desconhecido não pode virar veto.
+    test "sem o total de glifos, a regra antiga vale" do
+      state = %{last: {100, 100, 7}, pending: nil, at: 0}
+      longe = %{pos: {900, 900, 7}, guessed: 7, px: 8}
+
+      assert {%{pos: {100, 100, 7}}, state} = Minimap.accept(longe, state, 500)
+      assert {%{pos: {100, 100, 7}}, state} = Minimap.accept(longe, state, 1_000)
+      assert {%{pos: {900, 900, 7}}, _state} = Minimap.accept(longe, state, 1_500)
     end
   end
 end

@@ -4055,6 +4055,37 @@ defmodule PokexWeb.CavebotLive do
       </p>
     </section>
 
+    <%!-- …E O OUTRO BURACO, o que a tela acima NÃO enxerga: o alfabeto está
+          COMPLETO e mesmo assim o número vem por parecença.
+
+          "Na parte de ensinar glifos tá falando que não tem nenhum problema, e
+          ele realmente tá interpretando errado o número" (29/08). A tarja de
+          cima responde "falta algum dígito nesta altura?" e no render dele a
+          resposta é não. O que faltava era o dígito DELE: o atlas casava por
+          semelhança, e semelhança repete o mesmo erro em todo frame — duas
+          leituras erradas se confirmam com a confiança de duas certas. --%>
+    <section
+      :if={@world.coord_guessed}
+      id="cavebot-glifos-chute"
+      class="rounded-pk border border-pk-warn-line bg-pk-warn-dim p-3"
+    >
+      <p class="flex items-start gap-2 text-pk-body font-semibold text-pk-warn">
+        <.icon name="hero-question-mark-circle" class="mt-px size-4 shrink-0" />
+        <span>
+          a coordenada está sendo lida por PARECENÇA: {@world.coord_guessed.guessed} de {@world.coord_guessed.glyphs} glifos ({@world.coord_guessed.pct}%) não têm acerto exato no atlas
+        </span>
+      </p>
+      <p class="mt-1 text-pk-meta text-pk-text-2">
+        Os dígitos existem no alfabeto — o que não existe é o desenho DESTA tela. Um glifo casado
+        por semelhança erra igual em todo frame, então duas leituras erradas se confirmam entre si.
+        O bot já recusa um SALTO vindo de uma leitura assim (fica na última posição boa em vez de
+        se teleportar), mas isso segura a caçada em vez de resolvê-la. Ensine estes glifos na <.link
+          navigate={~p"/calibration"}
+          class="underline"
+        >calibração</.link>, digitando a coordenada que está na tela.
+      </p>
+    </section>
+
     <%!-- The route being EDITED and the route the hunt WALKS are two
           different things, and believing they were the same cost a
           live run: two routes armed, the hunt took the other one and

@@ -1322,6 +1322,34 @@ defmodule Pokex.Settings do
     # aparece: três vezes mais monstros perdidos pra corda. É uma regra de
     # sobrevivência, não de dano.
     engine_kite_when_spent: true,
+    # …E POR QUANTO TEMPO, no máximo, uma retirada dura. Zero desliga o teto.
+    #
+    # A retirada não termina sozinha: ela recua com a barra vazia pra ganhar
+    # tempo enquanto os cooldowns voltam, mas o fogo continua LIVRE durante o
+    # recuo — então cada tecla que volta é gasta na hora e `spent?` nunca chega
+    # a ser falso. Com o reset desarmado (sem revive pra comprar a barra), o
+    # recuo vira o estado permanente da caçada.
+    #
+    # MEDIDO na noite dele de 29/08, 9,8 horas: 2.836 tiques de "recuando", 13
+    # desarmes espaçados de 10 em 10 minutos (o prazo de rearme), e 771
+    # waypoints andados PARA TRÁS — um deles a volta inteira, 40 cantos em 92
+    # segundos, o circuito refeito de costas. "Ficou em loop indo pra frente e
+    # pra trás" (ele, 29/08).
+    #
+    # MEDIDO na bancada, com a config e a mesa dele, na condição da noite —
+    # reset desarmado, que é quando o recuo não tem fim. 30 min × 6 sementes ×
+    # 3 circuitos, 18 corridas por célula:
+    #
+    #     sem teto  →  47,1 mortos/min · **610** perdidos pra corda
+    #     teto 20s  →  47,5 mortos/min · **312** perdidos
+    #
+    # Metade dos monstros que escapavam passa a morrer, e os mortos por minuto
+    # não se mexem. A varredura fina (10, 20, 45, 90s) põe o joelho da curva
+    # entre 10 e 20 e piora dali pra frente (90s devolve 355 perdidos): o valor
+    # do recuo está nos primeiros segundos — quebrar contato — e o resto é só o
+    # chão limpo sendo refeito de costas. 20s fica com o melhor e ainda deixa
+    # espaço pro que a R7 compra de verdade, que é sobrevivência.
+    engine_kite_max_ms: 20_000,
     # QUANTAS TECLAS DE DANO AINDA PRONTAS ainda contam como "acabou a barra" —
     # a condição que autoriza gastar um revive só pra zerar cooldowns.
     #
@@ -1660,6 +1688,7 @@ defmodule Pokex.Settings do
     engine_spent_keys_left: 0..9,
     engine_stun_window_ms: 500..60_000,
     engine_reset_rearm_ms: 10_000..3_600_000,
+    engine_kite_max_ms: 0..600_000,
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_bunch_ms: 0..30_000,

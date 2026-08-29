@@ -54,16 +54,35 @@ defmodule Pokex.Perception.Interpret.Minimap do
     ink: nil,
     misses: 0,
     at: nil,
-    gap: nil
+    gap: nil,
+    chute: nil
   }
 
   def interpret(frame, calib, settings, state \\ nil) do
     state = Map.merge(@fresh_state, state || %{})
     {read, state} = read_position(frame, calib, settings, state)
-    state = %{state | gap: gap(read) || state.gap}
+    state = %{state | gap: gap(read) || state.gap, chute: chute(read) || state[:chute]}
     {obs, state} = accept(read, state)
-    {Map.put(obs, :coord_gap, state.gap), state}
+
+    {obs |> Map.put(:coord_gap, state.gap) |> Map.put(:coord_guessed, state[:chute]), state}
   end
+
+  # QUANTO DESTA COORDENADA É CHUTE — o aviso que faltava, e a razão de ele ter
+  # olhado a tela de glifos e lido "nenhum problema" enquanto o bot andava pra
+  # um lugar inventado.
+  #
+  # `coord_gap` responde "falta algum dígito no alfabeto desta altura?", e no
+  # render dele a resposta é não: os dez estão lá, a 8px. O que não estava lá
+  # era o dígito DELE — o atlas casava por semelhança, sete glifos de onze, e
+  # semelhança repete o mesmo erro em todo frame.
+  #
+  # Sticky pelo mesmo motivo que `gap`: um aviso que pisca com o feed é um
+  # aviso que ele aprende a ignorar.
+  defp chute(%{guessed: guessed, glyphs: total})
+       when is_integer(guessed) and is_integer(total) and total > 0 and guessed > 0,
+       do: %{guessed: guessed, glyphs: total, pct: round(guessed * 100 / total)}
+
+  defp chute(_leitura_exata_ou_ausente), do: nil
 
   # Sticky: the answer changes when he TEACHES, not when a tick fails to read.
   # A banner that blinks with the feed is a banner he learns to ignore.
@@ -161,7 +180,7 @@ defmodule Pokex.Perception.Interpret.Minimap do
 
   def accept(nil, state, _now), do: {%{pos: nil}, forget(state)}
 
-  def accept(read, state, now), do: judge(position(read), guessed(read), state, stamp(now))
+  def accept(read, state, now), do: judge(position(read), read, state, stamp(now))
 
   defp position({_x, _y, _z} = pos), do: pos
   defp position(%{pos: pos}), do: pos
@@ -169,24 +188,63 @@ defmodule Pokex.Perception.Interpret.Minimap do
   defp guessed(%{guessed: n}) when is_integer(n), do: n
   defp guessed(_bare), do: 0
 
-  defp judge({_x, _y, z} = pos, _guessed, state, _now) when z < 0 or z > @max_floor,
+  defp judge({_x, _y, z} = pos, _read, state, _now) when z < 0 or z > @max_floor,
     do: {%{pos: nil}, Map.merge(state, %{pending: pos, pending_at: nil, pending_seen: 0})}
 
-  defp judge(pos, _guessed, %{last: nil} = state, now),
+  defp judge(pos, _read, %{last: nil} = state, now),
     do: {%{pos: pos}, accepted(state, pos, now)}
 
-  defp judge(pos, guessed, %{last: last} = state, now) do
+  defp judge(pos, read, %{last: last} = state, now) do
     cond do
       near?(pos, last, reach(state[:at], now)) ->
         {%{pos: pos}, accepted(state, pos, now)}
 
-      confirmed?(pos, guessed, state, now) ->
+      # Um salto vindo de uma leitura que é quase toda chute não é um salto, é
+      # o atlas errando o mesmo glifo duas vezes. Ver `resemblance?/1`.
+      resemblance?(read) ->
+        {%{pos: last}, hold(state, pos, now)}
+
+      confirmed?(pos, guessed(read), state, now) ->
         {%{pos: pos}, accepted(state, pos, now)}
 
       true ->
         {%{pos: last}, hold(state, pos, now)}
     end
   end
+
+  # SEMELHANÇA NÃO TELEPORTA NINGUÉM.
+  #
+  # Confirmar uma leitura repetindo-a só prova alguma coisa quando o erro é
+  # ALEATÓRIO. O erro do atlas não é: um glifo que ele não conhece casa com o
+  # mesmo vizinho errado em todo frame, então duas leituras idênticas de um
+  # render que ele nunca viu se confirmam com a mesma confiança de duas
+  # leituras certas — e o mundo re-baseia num lugar onde ele não está.
+  #
+  # MEDIDO nas duas capturas dele de 29/08, mesma faixa e mesmo tamanho: a das
+  # 07:08 leu `1099, 1373, 5` com SETE dos onze glifos adivinhados, e a das
+  # 07:14 leu `1056, 1373, 5` com seis. Quarenta e três tiles de diferença em
+  # x, com y e andar idênticos — o "teleporte" que fez a rota ir e voltar. O
+  # atlas tem os dez dígitos na altura dele (8px), então `missing_digits/0`
+  # não tinha o que acusar: o buraco não é um dígito AUSENTE, é um dígito
+  # PARECIDO.
+  #
+  # A regra, então, separa as duas coisas que uma leitura pode afirmar: onde
+  # ele ESTÁ (um passo, e aí adivinhar é barato — o próximo frame corrige) e
+  # que ele SE MOVEU muito (um salto, e aí adivinhar custa a caçada inteira).
+  # Uma leitura em que a maior parte dos glifos é chute pode fazer a primeira e
+  # nunca a segunda.
+  #
+  # O preço de errar pra este lado é conhecido e pequeno: quem tem um render
+  # que o atlas nunca viu fica com a posição velha depois de uma escada até
+  # ensinar os glifos — e a tela DIZ isso agora (`coord_guessed`), em vez de
+  # andar pra um lugar inventado em silêncio.
+  @mostly_guessed 0.5
+
+  defp resemblance?(%{guessed: guessed, glyphs: total})
+       when is_integer(guessed) and is_integer(total) and total > 0,
+       do: guessed / total > @mostly_guessed
+
+  defp resemblance?(_leitura_sem_detalhe), do: false
 
   # A jump re-baselines only when the SAME reading comes back — and "the same"
   # is measured against the PENDING read's clock, not the last accepted one.

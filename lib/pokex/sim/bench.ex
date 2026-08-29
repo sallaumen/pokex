@@ -229,7 +229,20 @@ defmodule Pokex.Sim.Bench do
       by_band: %{},
       violations: [],
       min_hp: nil,
-      player_hp: 100
+      player_hp: 100,
+      # POR ONDE ELE ANDOU — a pergunta que nenhuma métrica daqui respondia, e
+      # a única que enxerga a queixa dele de 29/08: "ele vai para locais onde
+      # não tem muito monstro, porque ele já matou, e vários locais do mapa
+      # ficam sem monstro sendo morto".
+      #
+      # Mortos por minuto não vê isso: uma caçada presa oscilando entre dois
+      # cantos de um bolso já limpo mata pouco POR MINUTO, mas o mesmo número
+      # sai de uma caçada lenta que cobre o mapa inteiro. `legs` conta os
+      # cantos DISTINTOS que a corrida visitou e `laps` as voltas fechadas —
+      # juntos, eles separam andar de rodar em círculo.
+      legs: MapSet.new(),
+      laps: 0,
+      leg_was: nil
     }
   end
 
@@ -251,6 +264,7 @@ defmodule Pokex.Sim.Bench do
       |> tally_death(previous, world)
       |> tally_revive(decided_on, world, orders, picture, hands, state.asked_revive)
       |> tally_pile(world, picture)
+      |> tally_ground(world, hands)
 
     %{state | metrics: metrics}
   end
@@ -463,6 +477,22 @@ defmodule Pokex.Sim.Bench do
 
   defp control_ready?(%{control_back_in_ms: ms}) when is_integer(ms), do: ms == 0
   defp control_ready?(_sem_controle_classificado), do: nil
+
+  # O CHÃO COBERTO. Uma volta fecha quando a perna volta pro zero vinda de
+  # outra — o mesmo teste que o `Hands` usa pra dar a volta na lista, e não uma
+  # contagem de distância que confundiria andar de ir e voltar.
+  defp tally_ground(metrics, _world, %{leg: leg}) do
+    volta? = leg == 0 and metrics.leg_was not in [nil, 0]
+
+    %{
+      metrics
+      | legs: MapSet.put(metrics.legs, leg),
+        laps: metrics.laps + if(volta?, do: 1, else: 0),
+        leg_was: leg
+    }
+  end
+
+  defp tally_ground(metrics, _world, _sem_maos), do: metrics
 
   # A pile EPISODE: from the first monster on the list to the list being empty
   # again. How long one takes is the agility number — "matar tudo e ser ágil".
@@ -709,6 +739,7 @@ defmodule Pokex.Sim.Bench do
         state.metrics
         | violations: Enum.frequencies(state.metrics.violations),
           deaths: Enum.reverse(state.metrics.deaths),
+          legs: MapSet.size(state.metrics.legs),
           revives: Enum.reverse(state.metrics.revives),
           piles: Enum.reverse(state.metrics.piles)
       },

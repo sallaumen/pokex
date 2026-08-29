@@ -1062,11 +1062,29 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp retreat_ordered?(world),
     do: Map.get(world, :engine?, false) and Map.get(world, :route_back?, false)
 
-  # A RETIRADA: a rota andada AO CONTRÁRIO, waypoint a waypoint, enquanto a
-  # ordem `route: :back` estiver de pé. O chão de onde a caçada veio acabou de
-  # ser limpo — recuar por ele mantém o trem colado sem acordar spawn novo, e a
-  # ordem envelhece sozinha: a primeira tecla que volta troca o cérebro pra
-  # `standing_and_firing` e a caçada segue em frente do ponto onde parou.
+  # A RETIRADA: UM waypoint pra trás, e o índice da rota NÃO se mexe.
+  #
+  # O chão de onde a caçada veio acabou de ser limpo — recuar por ele mantém o
+  # trem colado sem acordar spawn novo. Mas recuar é um passo tático, não uma
+  # volta desfeita: a rota segue tendo um só sentido.
+  #
+  # ATÉ 29/08 ELA REBOBINAVA. Ao chegar no waypoint anterior, o alvo virava o
+  # anterior DELE e `wp_index` recuava junto — "o índice recuado é o que faz a
+  # volta recomeçar daqui", dizia o comentário. Encadeado, isso desfazia a
+  # caçada: no journal dele de 29/08 (9,8h) são 771 waypoints andados de
+  # costas, um deles a volta inteira — 40 cantos em 92 segundos.
+  #
+  # E o preço é DUPLO, que é o que ele descreveu: anda pra trás sobre o chão
+  # limpo e depois anda de novo pra frente sobre o MESMO chão, porque o índice
+  # rebobinado faz a rota recomeçar dali. "Ele vai para locais onde não tem
+  # muito monstro, porque ele já matou, e vários locais do mapa ficam sem
+  # monstro sendo morto" (29/08). O bot oscilava dentro de um bolso já limpo
+  # enquanto o resto do circuito nunca era visitado.
+  #
+  # Agora: enquanto a ordem `route: :back` está de pé, ele anda até o waypoint
+  # anterior e PARA ali. Quando a ordem cai, o alvo ainda é o que era — a
+  # caçada retoma o caminho natural pra frente, atravessando de volta o trecho
+  # do recuo uma vez só, matando o trem que veio atrás.
   #
   # SEM escada: recuar só mira o waypoint anterior do MESMO andar. Uma escada
   # atravessada de costas no meio de uma luta é um andar errado com um trem
@@ -1083,10 +1101,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
       wp == nil or wp.z != z ->
         {logic, :none}
 
+      # Chegou no anterior: acabou o recuo. Nada de encadear pro anterior dele,
+      # e o índice fica onde estava — a rota tem um sentido só.
       abs(wp.x - x) <= tol and abs(wp.y - y) <= tol ->
-        # Chegou no anterior: o alvo passa a ser o anterior DELE, e o índice
-        # recuado é o que faz a volta (rota pra frente) recomeçar daqui.
-        {note_progress(%{logic | wp_index: prev_index}, {x, y, z}, now), :none}
+        {note_progress(logic, {x, y, z}, now), :none}
 
       true ->
         {note_progress(logic, {x, y, z}, now), {:walk, wp.x - x, wp.y - y}}

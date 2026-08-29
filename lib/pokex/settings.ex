@@ -1129,7 +1129,28 @@ defmodule Pokex.Settings do
     # que identificou isso. Ele pode andar um pouquinho até na rota, mais uns 5
     # passos, e parar, porque aí os monstros que ele encontrou lá na frente já
     # vão ter se enfiado um pouco mais no meio deles" (27/08).
-    engine_bunch_walk_tiles: 5,
+    #
+    # ZERO DESDE 29/08, e não por opinião: ele desconfiou ("ele tá acabando
+    # andando demais") e pediu pra medir. Medido na ROTA DELE — a `magneton`,
+    # 40 cantos, que é onde isso aparece; nos circuitos curtos da biblioteca a
+    # cobertura satura e a diferença some — 20 min × 6 sementes por célula:
+    #
+    #     passos   mortos/min   perdidos pra corda
+    #        0        17,7            136
+    #        1        17,1            161
+    #        2        15,6            192
+    #        3        15,5            192
+    #        5        13,0            225   <- era aqui
+    #        8        10,1            267
+    #
+    # Monotônico nos dois eixos: cada passo custa morto E perde bicho. Contra o
+    # 5 de antes, o zero rende +36% de mortos e −40% de monstros perdidos.
+    #
+    # E o que a regra existia pra comprar não se perde: o tempo dos bichos se
+    # enfiarem no meio continua sendo pago por `engine_bunch_ms` (6s), parado.
+    # A diferença é que a espera acontece ONDE a pilha está, em vez de arrastar
+    # a caçada mais pra frente enquanto ela se forma.
+    engine_bunch_walk_tiles: 0,
     # QUANTOS BICHOS FAZEM UM BOLO — o alvo que a régua persegue antes de fechar
     # a janela. "Quando encontra dois monstros, pode andar bastante até ter seis
     # monstros; se tiver cinco monstros na tela, pode andar um pouquinho e

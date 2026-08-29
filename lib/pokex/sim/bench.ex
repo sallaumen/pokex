@@ -481,7 +481,12 @@ defmodule Pokex.Sim.Bench do
   # O CHÃO COBERTO. Uma volta fecha quando a perna volta pro zero vinda de
   # outra — o mesmo teste que o `Hands` usa pra dar a volta na lista, e não uma
   # contagem de distância que confundiria andar de ir e voltar.
-  defp tally_ground(metrics, _world, %{leg: leg}) do
+  #
+  # UMA CLÁUSULA SÓ: `hands` aqui é sempre a struct do `Sim.Hands`, que tem
+  # `leg` por construção. Um segundo `defp` "pra qualquer outra coisa" nunca
+  # casaria — o dialyzer pegou (`pattern_match_cov`, 29/08) — e uma guarda que
+  # não pode falhar é uma guarda que mente sobre o que pode chegar aqui.
+  defp tally_ground(metrics, _world, %Hands{leg: leg}) do
     volta? = leg == 0 and metrics.leg_was not in [nil, 0]
 
     %{
@@ -491,8 +496,6 @@ defmodule Pokex.Sim.Bench do
         leg_was: leg
     }
   end
-
-  defp tally_ground(metrics, _world, _sem_maos), do: metrics
 
   # A pile EPISODE: from the first monster on the list to the list being empty
   # again. How long one takes is the agility number — "matar tudo e ser ágil".

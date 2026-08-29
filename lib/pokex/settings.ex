@@ -1911,7 +1911,25 @@ defmodule Pokex.Settings do
     # o pokémon no chão. Então o desconhecido é PRESERVADO, e dito em voz alta
     # no boot pra não virar lixo invisível.
     foreign = foreign_keys(path)
-    heal(path, overrides, foreign)
+
+    # …E UMA BUILD MAIS VELHA QUE O ARQUIVO NÃO ESCREVE NELE. NUNCA.
+    #
+    # Preservar chave desconhecida (acima) protege o VALOR; isto protege o
+    # ARQUIVO. Toda escrita carimba `__keys__` com o alfabeto que a build
+    # conhecia; se o arquivo lista chave que ESTA build não conhece, ela é a
+    # mais velha das duas e não tem o que dizer sobre o que é lixo ali dentro.
+    #
+    # É a trava que faltava no acidente de 28/08: o servidor de outro worktree
+    # (build antiga) subiu por engano, o heal dele reescreveu o arquivo com o
+    # alfabeto DELE, e quatro ajustes sumiram. Com esta linha, aquela build
+    # teria LIDO e ido embora sem tocar em nada.
+    #
+    # Ele rodando duas cópias do projeto é a vida normal aqui — o checkout de
+    # verdade em `~/projects/pokex` e os worktrees onde eu trabalho — e o
+    # `~/.pokex` é um só pra todas. A regra tem que valer sem ninguém lembrar
+    # dela.
+    somos_velhos? = older_build?(path)
+    if somos_velhos?, do: announce_read_only(path), else: heal(path, overrides, foreign)
     announce_foreign(foreign, path)
 
     # Only the GLOBAL (named) instance owns the mirror — tmp-scoped test
@@ -1922,6 +1940,7 @@ defmodule Pokex.Settings do
       path: path,
       data: overrides,
       foreign: foreign,
+      read_only?: somos_velhos?,
       char: Map.get(overrides, :active_character, ""),
       char_data: %{},
       mirror?: mirror?
@@ -1985,7 +2004,20 @@ defmodule Pokex.Settings do
     # As chaves estrangeiras vão junto em TODA escrita, não só no heal do boot:
     # senão o primeiro ajuste que ele salva apaga o que o boot preservou, e a
     # proteção duraria até o primeiro clique.
-    persist!(state.path, data, Map.get(state, :foreign, %{}))
+    #
+    # E a build VELHA não grava nem aqui: recusar o boot inteiro seria pior (ele
+    # ficaria sem bot), então ela roda com o ajuste valendo NESTA sessão e diz
+    # em voz alta que ele não vai sobreviver ao restart. Gravar seria reescrever
+    # o arquivo com um alfabeto menor, que é exatamente o acidente.
+    if Map.get(state, :read_only?, false) do
+      Logger.warning(
+        "Settings: #{key} mudou só nesta sessão — o arquivo foi escrito por uma versão mais " <>
+          "nova e esta build não grava nele. Rode o checkout novo pra salvar de verdade."
+      )
+    else
+      persist!(state.path, data, Map.get(state, :foreign, %{}))
+    end
+
     %{state | data: data}
   end
 
@@ -2080,6 +2112,10 @@ defmodule Pokex.Settings do
     Enum.find(@setting_keys, &(Atom.to_string(&1) == key_string))
   end
 
+  # O ALFABETO QUE A BUILD ESCRITORA CONHECIA, carimbado em toda escrita. Não é
+  # um ajuste: é o crachá do arquivo, e por isso sai do `foreign_keys/1`.
+  @alphabet_key "__keys__"
+
   @doc false
   # As chaves do arquivo que ESTA build não conhece — cruas, com a chave em
   # string e o valor como veio. Não viram comportamento nenhum: só são
@@ -2089,16 +2125,48 @@ defmodule Pokex.Settings do
   # `nil` é corrupção (ver `load/3`) e não é preservado: devolver `null` ao
   # arquivo seria carregar corrupção pra sempre.
   def foreign_keys(path) do
+    for {key_string, value} <- read_json(path),
+        key_string != @alphabet_key,
+        known_key(key_string) == nil,
+        not is_nil(value),
+        into: %{},
+        do: {key_string, value}
+  end
+
+  @doc """
+  Esta build é mais VELHA que o arquivo que ela acabou de ler?
+
+  Verdadeiro quando o arquivo declara uma chave que esta build não conhece — o
+  que só acontece se quem escreveu por último sabia mais. Nesse caso ela lê e
+  não escreve: quem não conhece o alfabeto não pode decidir o que é lixo.
+
+  Um arquivo sem crachá (o primeiro boot depois desta mudança, ou um escrito à
+  mão) responde FALSO: ninguém é velho por falta de prova, e a preservação de
+  chaves desconhecidas continua sendo a rede debaixo dessa.
+  """
+  @spec older_build?(String.t()) :: boolean
+  def older_build?(path) do
+    case Map.get(read_json(path), @alphabet_key) do
+      alfabeto when is_list(alfabeto) -> Enum.any?(alfabeto, &(known_key(&1) == nil))
+      _sem_cracha -> false
+    end
+  end
+
+  defp read_json(path) do
     with {:ok, bin} <- File.read(path),
-         {:ok, json} <- JSON.decode(bin) do
-      for {key_string, value} <- json,
-          known_key(key_string) == nil,
-          not is_nil(value),
-          into: %{},
-          do: {key_string, value}
+         {:ok, %{} = json} <- JSON.decode(bin) do
+      json
     else
       _unreadable_or_absent -> %{}
     end
+  end
+
+  defp announce_read_only(path) do
+    Logger.warning(
+      "Settings: #{path} foi escrito por uma versão MAIS NOVA que esta — lendo, mas NÃO " <>
+        "escrevendo. Nenhum ajuste será perdido; nenhuma mudança feita aqui será gravada. " <>
+        "Rode o checkout novo (o de verdade é ~/projects/pokex) pra voltar a escrever."
+    )
   end
 
   defp announce_foreign(foreign, _path) when map_size(foreign) == 0, do: :ok
@@ -2115,13 +2183,49 @@ defmodule Pokex.Settings do
   # voltou com outro sentido, quem manda é a build que sabe o que ela significa.
   defp persist!(path, data, foreign \\ %{}) do
     File.mkdir_p!(Path.dirname(path))
+    backup(path)
 
     body =
       foreign
       |> Map.merge(Map.new(data, fn {key, value} -> {Atom.to_string(key), value} end))
+      # O CRACHÁ, em toda escrita: o alfabeto que ESTA build conhece. É o que
+      # permite à próxima saber se ela é mais velha que o arquivo — ver
+      # `older_build?/1`.
+      |> Map.put(@alphabet_key, Enum.map(@setting_keys, &Atom.to_string/1))
       |> JSON.encode!()
 
     Pokex.Home.write!(path, body)
+  end
+
+  # UMA CÓPIA ANTES DE CADA ESCRITA, e as dez últimas ficam.
+  #
+  # As duas travas acima tornam a perda improvável; esta a torna reversível, que
+  # é outra coisa. Em 28/08 a recuperação dependeu de um backup manual que eu
+  # tinha feito por sorte — "to cansado de tu otimizar algo e eu testar outra
+  # coisa" (29/08). Dez cópias de um JSON de um kilobyte é preço nenhum contra
+  # uma noite de caçada configurada errado.
+  #
+  # Best-effort de propósito: um home somente-leitura não pode impedir o bot de
+  # subir, e a escrita seguinte é que importa.
+  @backups 10
+
+  defp backup(path) do
+    with {:ok, bin} <- File.read(path) do
+      dir = Path.join(Path.dirname(path), "settings-bak")
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, "settings-#{System.system_time(:second)}.json"), bin)
+      rotate(dir)
+    end
+  rescue
+    _sem_backup -> :ok
+  end
+
+  defp rotate(dir) do
+    dir
+    |> File.ls!()
+    |> Enum.sort(:desc)
+    |> Enum.drop(@backups)
+    |> Enum.each(&File.rm(Path.join(dir, &1)))
   end
 
   # The boot-time rewrite that trims a fat/materialized file down to overrides. Never fatal: if

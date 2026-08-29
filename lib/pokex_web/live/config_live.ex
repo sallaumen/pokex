@@ -39,6 +39,8 @@ defmodule PokexWeb.ConfigLive do
   #   :int  — número cru        :pct — número com "%"
   #   :sec  — guardado em ms, editado em segundos
   #   :min  — guardado em ms, editado em minutos
+  #   :ms   — guardado e editado em ms, para tempos curtos que não cabem
+  #           redondos em segundos (o :sec é inteiro: 1500 viraria 1000)
   #   :key  — texto mono curto (tecla)
   #   :select — enum fechado do Settings
   # `hint` vira o tooltip do ?; `keywords` só alimenta a busca.
@@ -142,6 +144,17 @@ defmodule PokexWeb.ConfigLive do
             "Usa o controle do /time antes de reviver — reviver exposto no meio do bolo é como " <>
               "o personagem apanha.",
           keywords: "stun controle dormir antes revive"
+        },
+        %{
+          key: :rescue_stun_settle_ms,
+          kind: :ms,
+          label: "…e espera dormirem",
+          hint:
+            "Quanto o pokémon FICA EM CAMPO depois do controle, tanqueando, antes de sair. " <>
+              "A tecla sair não é a pilha dormir: o recibo prova que o cooldown começou, e o " <>
+              "sono do jogo leva mais um tanto. Curto demais e o campo esvazia com o bolo " <>
+              "ainda acordado.",
+          keywords: "stun settle espera dormir sono revive controle"
         },
         %{
           key: :pokemon_hp_fainted_below_pct,
@@ -621,7 +634,7 @@ defmodule PokexWeb.ConfigLive do
 
   defp parse(:sec, value), do: value |> to_int() |> scale(1_000)
   defp parse(:min, value), do: value |> to_int() |> scale(60_000)
-  defp parse(kind, value) when kind in [:int, :pct], do: to_int(value)
+  defp parse(kind, value) when kind in [:int, :pct, :ms], do: to_int(value)
 
   defp parse(kind, value) when kind in [:key, :select, :text],
     do: {:ok, value |> to_string() |> String.trim() |> String.downcase()}
@@ -656,6 +669,7 @@ defmodule PokexWeb.ConfigLive do
   defp unit(%{unit: unit}, _kind), do: unit
   defp unit(_row, :sec), do: "s"
   defp unit(_row, :min), do: "min"
+  defp unit(_row, :ms), do: "ms"
   defp unit(_row, :pct), do: "%"
   defp unit(_row, _kind), do: nil
 
@@ -790,7 +804,7 @@ defmodule PokexWeb.ConfigLive do
                   </select>
 
                   <input
-                    :if={row.kind in [:int, :pct, :sec, :min]}
+                    :if={row.kind in [:int, :pct, :sec, :min, :ms]}
                     id={"cfg-input-#{row.key}"}
                     name={row.key}
                     type="number"

@@ -619,7 +619,26 @@ defmodule Pokex.Settings do
     # fez morrer"). The pokémon stays out, tanking, for this long AFTER the
     # stun key so the pile is really down before it leaves. Counted from the
     # press, so the confirmation's own wait is part of it. 0 disables.
-    rescue_stun_settle_ms: 800,
+    #
+    # 29/08, ele viu de novo e mediu com os olhos: "eu tô vendo as animações
+    # das skills saindo antes dele usar o revive, mas ele usa o revive muito
+    # cedo ainda (…) tem que aguardar um pouquinho, porque é mais que 800ms."
+    #
+    # E a conta explica o que ele viu. Como isto é contado do APERTO, o
+    # `rescue_confirm_ms` (900) já é maior que 800 sozinho: toda vez que a
+    # confirmação esperava a barra até o fim, `settle_remaining/1` calculava
+    # `800 - 900` e dava ZERO — o revive saía colado no stun, com a pilha
+    # ainda acordada, que é o acidente de 14/08 que esta espera nasceu pra
+    # evitar. O valor não estava curto: estava sendo gasto inteiro pela
+    # confirmação.
+    #
+    # (O `combat_skill_gap_ms` NÃO entra nesta conta. O combo do resgate anda
+    # dentro de UM `Body.perform`, colado com `rescue_step_ms` — 40ms. Quem
+    # come a espera aqui é só a confirmação.)
+    #
+    # 1500 garante 600ms de espera real depois da confirmação mais lenta
+    # possível, que é o que ele pediu ver.
+    rescue_stun_settle_ms: 1_500,
     # MORREU. A janela do pokémon muda de forma quando ele cai, então a barra
     # some do lugar calibrado e a leitura vira "não reconheço" — igualzinho a
     # uma janela coberta. O que separa os dois é a TRAJETÓRIA: uma barra que

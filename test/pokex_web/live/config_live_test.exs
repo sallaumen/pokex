@@ -230,4 +230,36 @@ defmodule PokexWeb.ConfigLiveTest do
       assert html =~ ~s(value="2")
     end
   end
+
+  # "eu acredito que você pode encontrar e deixar isso configurável ali pra mim,
+  # porque hoje eu não consigo mudar até onde eu sei na parte de settings"
+  # (Lucas, 29/08). Ele estava certo: a espera existia no Settings desde o #429
+  # e nunca teve linha na tela.
+  describe "a espera entre o controle e o revive" do
+    test "tem linha, e o número salvo é o número em ms", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/config")
+
+      assert html =~ "cfg-row-rescue_stun_settle_ms"
+      assert html =~ "espera dormirem"
+
+      html =
+        view
+        |> element("#cfg-row-rescue_stun_settle_ms form")
+        |> render_change(%{"rescue_stun_settle_ms" => "1500"})
+
+      assert Settings.get(:rescue_stun_settle_ms) == 1_500
+      assert html =~ "hero-check-circle"
+    end
+
+    # O `:sec` é inteiro: 1500ms apareceria como "1" e o primeiro toque na linha
+    # salvaria 1000 por cima do ajuste dele, sem avisar. É por isso que esta
+    # linha é `:ms` e não segundos.
+    test "e a tela mostra 1500, não 1", %{conn: conn} do
+      Settings.put(:rescue_stun_settle_ms, 1_500)
+
+      {:ok, _view, html} = live(conn, ~p"/config")
+
+      assert html =~ ~s(value="1500")
+    end
+  end
 end

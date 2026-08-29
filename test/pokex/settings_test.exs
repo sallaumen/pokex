@@ -771,4 +771,27 @@ defmodule Pokex.SettingsTest do
       assert Path.join(tmp, "settings-bak") |> File.ls!() |> length() <= 10
     end
   end
+
+  # A ESPERA DO STUN TEM QUE SOBREVIVER À CONFIRMAÇÃO.
+  #
+  # `settle_remaining/1` no player_support conta a espera A PARTIR DO APERTO da
+  # tecla de controle, de propósito: a confirmação já gastou parte dela, e
+  # cobrar a espera inteira de novo deixaria um pokémon machucado em campo à
+  # toa. O efeito colateral é que as duas sementes se anulam sem avisar — com
+  # `rescue_stun_settle_ms: 800` e `rescue_confirm_ms: 900`, toda confirmação
+  # que ia até o fim calculava `800 - 900` e devolvia ZERO, e o revive saía
+  # colado no stun com a pilha ainda acordada. Foi o que Lucas viu na noite de
+  # 29/08 ("ele usa o revive muito cedo ainda").
+  #
+  # Nada no código impede alguém de subir a confirmação por cima da espera de
+  # novo, e a falha é silenciosa: nenhum log diz "a espera deu zero". Este
+  # teste é o aviso.
+  test "a espera do controle é maior que a confirmação, senão ela dá zero" do
+    settle = Settings.get(:rescue_stun_settle_ms)
+    confirm = Settings.get(:rescue_confirm_ms)
+
+    assert settle > confirm,
+           "a espera (#{settle}ms) cabe dentro da confirmação (#{confirm}ms): " <>
+             "settle_remaining/1 vai dar zero e o revive sai colado no stun"
+  end
 end

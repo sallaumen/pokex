@@ -52,6 +52,7 @@ defmodule Pokex.Bots.Engine.Config do
     spend_the_minimum: :engine_spend_the_minimum,
     stun_window_ms: :engine_stun_window_ms,
     reset_rearm_ms: :engine_reset_rearm_ms,
+    reset_retry_ms: :engine_reset_retry_ms,
     band_yellow_pct: :engine_band_yellow_pct,
     band_red_pct: :engine_band_red_pct,
     resume_pct: :engine_resume_pct,

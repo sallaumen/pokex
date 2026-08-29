@@ -1514,6 +1514,15 @@ defmodule Pokex.Settings do
     # Dez minutos é longo o bastante pra não insistir num jogo que mudou, e
     # curto o bastante pra uma noite não morrer por uma leitura.
     engine_reset_rearm_ms: 600_000,
+    # …mas SÓ da segunda quebra seguida em diante. A primeira é quase sempre
+    # um F4 que o jogo engoliu (29/08: 28 de 319 revives, ~9%, sem padrão de
+    # cooldown — pura variância do cliente), e pagar dez minutos de "deixando
+    # essa pilha" por cada engolida foi o que ele descreveu como "estar cheio
+    # de monstros e continuar andando": 11 desarmes, ~110 min da corrida de
+    # 184 com a R3b presa. A primeira quebra rearma neste prazo curto — uma
+    # retentativa custa um revive de um estoque de 1000; a pilha pulada custa
+    # a caçada. Promessa cumprida zera a reincidência.
+    engine_reset_retry_ms: 20_000,
     # How often a plain VITALS reading is filed while nothing is changing. The
     # transitions that carry the four measurements are written the instant they
     # happen (see `Engine.Worker.sample_vitals/4`); this is only the heartbeat
@@ -1766,6 +1775,7 @@ defmodule Pokex.Settings do
     engine_spent_keys_left: 0..9,
     engine_stun_window_ms: 500..60_000,
     engine_reset_rearm_ms: 10_000..3_600_000,
+    engine_reset_retry_ms: 5_000..600_000,
     engine_kite_max_ms: 0..600_000,
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,

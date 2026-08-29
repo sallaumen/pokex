@@ -645,6 +645,78 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert de_novo.revive == :now
     end
 
+    # A REINCIDÊNCIA (29/08). O jogo engole um F4 de vez em quando — 28 de 319
+    # revives naquela corrida, sem padrão de cooldown — e cada engolida virava
+    # 600s de "deixando essa pilha": 11 desarmes, ~110 min de 184 com a R3b
+    # presa, e ele vendo o bot "cheio de monstros e continuar andando". A
+    # primeira quebra agora rearma no prazo CURTO (`reset_retry_ms`); só a
+    # segunda seguida compra o desarme longo.
+    test "a PRIMEIRA quebra rearma rápido — um F4 engolido não custa dez minutos" do
+      logic = engaged(&reset_step/3)
+      {logic, _} = com_controle(logic, spent_fight(), 2_000)
+
+      quebrou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
+      {logic, _} = reset_step(logic, spent_fight(), quebrou)
+      assert is_integer(logic.reset_broken_at)
+      assert logic.reset_strikes == 1
+
+      # bem antes do prazo LONGO, já voltou pro jogo
+      cedo = quebrou + @reset.reset_retry_ms + 1_000
+      assert cedo < quebrou + @reset.reset_rearm_ms
+      {logic, _} = reset_step(logic, spent_fight(), cedo)
+      assert logic.reset_broken_at == nil
+
+      {logic, tick1} = reset_step(logic, spent_fight(), cedo + 1_000)
+      {_logic, tick2} = reset_step(logic, spent_fight(), cedo + 1_500)
+      assert :now in [tick1.revive, tick2.revive], "rearmada, a R3b volta a gastar"
+    end
+
+    test "a SEGUNDA quebra seguida desarma pelo prazo longo" do
+      logic = engaged(&reset_step/3)
+
+      # primeira promessa quebrada + retentativa
+      {logic, _} = com_controle(logic, spent_fight(), 2_000)
+      quebrou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
+      {logic, _} = reset_step(logic, spent_fight(), quebrou)
+      retenta = quebrou + @reset.reset_retry_ms + 1_000
+      {logic, _} = reset_step(logic, spent_fight(), retenta)
+      {logic, tick1} = reset_step(logic, spent_fight(), retenta + 1_000)
+      {logic, tick2} = reset_step(logic, spent_fight(), retenta + 1_500)
+      assert :now in [tick1.revive, tick2.revive], "a retentativa gastou"
+
+      # segunda promessa também quebra
+      quebrou2 = retenta + 1_500 + @reset.reset_revive_cooldown_ms + 10_000
+      {logic, _} = reset_step(logic, spent_fight(), quebrou2)
+      assert logic.reset_strikes == 2
+
+      # o prazo curto já não solta…
+      {logic, preso} = reset_step(logic, spent_fight(), quebrou2 + @reset.reset_retry_ms + 1_000)
+      assert is_integer(logic.reset_broken_at)
+      assert preso.revive == :hold
+
+      # …só o longo
+      {logic, _} = reset_step(logic, spent_fight(), quebrou2 + @reset.reset_rearm_ms + 1_000)
+      assert logic.reset_broken_at == nil
+    end
+
+    test "uma promessa CUMPRIDA zera a reincidência" do
+      logic = engaged(&reset_step/3)
+
+      # quebra uma…
+      {logic, _} = com_controle(logic, spent_fight(), 2_000)
+      quebrou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
+      {logic, _} = reset_step(logic, spent_fight(), quebrou)
+      assert logic.reset_strikes == 1
+
+      # …retenta e desta vez a barra VOLTA
+      retenta = quebrou + @reset.reset_retry_ms + 1_000
+      {logic, _} = reset_step(logic, spent_fight(), retenta)
+      {logic, _} = reset_step(logic, spent_fight(), retenta + 1_000)
+      {logic, _} = reset_step(logic, spent_fight(), retenta + 1_500)
+      {logic, _} = reset_step(logic, spent_fight(%{spent?: false}), retenta + 3_000)
+      assert logic.reset_strikes == 0
+    end
+
     test "mas uma barra que VOLTA mantém a regra armada" do
       logic = engaged(&reset_step/3)
       {logic, _} = com_controle(logic, spent_fight(), 2_000)

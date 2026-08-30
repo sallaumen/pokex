@@ -202,4 +202,46 @@ defmodule Pokex.Sim.VerdictTest do
       assert Verdict.note(promessa) != ""
     end
   end
+
+  # AS DUAS PROMESSAS DO CHEFE (29/08): `sem_dano` é o resultado (nem uma
+  # mordida), `stun_sempre` é o mecanismo (nenhum chefe 1s acordado adjacente).
+  # Cobradas juntas porque dá pra não tomar dano fugindo, e dá pra manter o
+  # stun e morrer de outra coisa.
+  describe "as promessas do chefe" do
+    test "sem_dano: vida intacta cumpre, uma mordida quebra" do
+      [ok] = Verdict.judge(report(%{metrics: %{min_hp: 100}}), [:sem_dano])
+      assert ok.cumpriu?
+
+      [mordido] = Verdict.judge(report(%{metrics: %{min_hp: 80}}), [:sem_dano])
+      refute mordido.cumpriu?
+      assert mordido.porque =~ "80%"
+    end
+
+    test "sem_dano: vida nunca lida não é prova de nada" do
+      [cego] = Verdict.judge(report(%{metrics: %{min_hp: nil}}), [:sem_dano])
+      refute cego.cumpriu?
+    end
+
+    test "stun_sempre: pior trecho até 1s cumpre, acima quebra" do
+      base = %{bosses_born: 3, boss_awake_max_ms: 800}
+      [ok] = Verdict.judge(report(%{metrics: base}), [:stun_sempre])
+      assert ok.cumpriu?
+
+      [quebrou] =
+        Verdict.judge(report(%{metrics: %{base | boss_awake_max_ms: 1_400}}), [:stun_sempre])
+
+      refute quebrou.cumpriu?
+      assert quebrou.porque =~ "morte na certa"
+    end
+
+    test "stun_sempre sem chefe nenhum é promessa não exercida — quebra" do
+      [vazio] =
+        Verdict.judge(
+          report(%{metrics: %{bosses_born: 0, boss_awake_max_ms: 0}}),
+          [:stun_sempre]
+        )
+
+      refute vazio.cumpriu?
+    end
+  end
 end

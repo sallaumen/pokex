@@ -582,6 +582,11 @@ defmodule Pokex.Bots.Engine.Logic do
   # mais NECESSÁRIO pra caçada mobar — é uma dianteira opcional.
   defp normal(%{hunt: %{state: :walking, luring?: true}} = t) do
     cond do
+      # Chefe na tela derruba a mobada na hora: puxar pilha com um ataque 10x
+      # atrás é colecionar mordida que ninguém paga.
+      Map.get(t.s, :heavy?, false) ->
+        engaged(%{t | logic: enter(t.logic, :engaged, t.now)})
+
       t.config.gather_piles and pile_payable?(t) ->
         {reset_fight(t.logic, :gathering),
          Orders.walking(:gathering, t.band, "mobando: puxando a pilha, sem atacar")}
@@ -610,6 +615,9 @@ defmodule Pokex.Bots.Engine.Logic do
          )}
     end
   end
+
+  defp normal(%{s: %{heavy?: true}} = t),
+    do: engaged(%{t | logic: enter(t.logic, :engaged, t.now)})
 
   defp normal(t) do
     if prepare?(t, t.config.prepare_max_enemies) do
@@ -684,6 +692,13 @@ defmodule Pokex.Bots.Engine.Logic do
   # share one function name, so `sizing(%{state: :engaged})` was a thing you had
   # to read twice.
 
+  # O CHEFE FURA TODA FILA. Juntar, medir, esperar bolo — tudo isso é economia
+  # de área, e um chefe com ataque 10x não dá o tempo que a economia custa:
+  # "1 segundo sem stun no campo quer dizer que eu morri" (29/08). Na tela,
+  # briga-se JÁ, com a postura de chefe do `engaged/1`.
+  defp ruler(%{s: %{heavy?: true}} = t),
+    do: engaged(%{t | logic: enter(t.logic, :engaged, t.now)})
+
   defp ruler(%{logic: %{state: :bunching}} = t), do: bunching(t)
   defp ruler(%{logic: %{state: :engaged}} = t), do: engaged(t)
   defp ruler(%{logic: %{state: :skipping}} = t), do: skipping(t)
@@ -731,7 +746,60 @@ defmodule Pokex.Bots.Engine.Logic do
   # frente da mesma pilha, e a R3b é a cara — ela compra a barra de volta com um
   # revive. Andar é de graça, então é a resposta quando a cara está desligada ou
   # não cabe.
-  defp engaged(t) do
+  # A POSTURA DE CHEFE vem antes de tudo, nas duas metades do combo dele
+  # (29/08): "usar todas as skills, finalizar com stun e depois usar o revive
+  # pra repetir esse combo, deixando o boss sempre stunado". O relógio é o
+  # SONO, não a barra — e sem chefe na tela ela devolve nil e a luta comum
+  # decide como sempre decidiu.
+  defp engaged(t), do: boss_orders(t) || engaged_regular(t)
+
+  defp boss_orders(t) do
+    cond do
+      not heavy?(t) ->
+        nil
+
+      # A perna de emergência: chefe ACORDADO e controle no chão — dois chefes
+      # sobrepostos fazem isso. Esperar 40s de cooldown é a morte que ele
+      # descreveu; o F4 compra o controle de volta AGORA.
+      boss_rearm_due?(t) ->
+        {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           opening(t),
+           "chefe acordado e controle no chão — F4 compra o controle de volta",
+           revive: :now
+         )}
+
+      # O controle sai de novo com 1s de folga antes do sono acabar — a folga
+      # é a frase dele: "1 segundo sem stun no campo quer dizer que eu morri".
+      boss_stun_due?(t) ->
+        {mark(t.logic, :stunned, t.now),
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           crowd(t) ++ opening(t),
+           "chefe na tela — controle antes do sono acabar"
+         )}
+
+      # …e o revive vem logo atrás de cada stun SEM esperar a barra esvaziar:
+      # é o revive que devolve o controle pro próximo ciclo.
+      boss_revive_due?(t) ->
+        {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           opening(t),
+           "chefe dormindo — revive agora, o controle do próximo ciclo sai dele",
+           revive: :now
+         )}
+
+      true ->
+        nil
+    end
+  end
+
+  defp engaged_regular(t) do
     cond do
       # R10, primeira metade: a pilha é grande e o controle está pronto. Ele sai
       # AGORA, junto com o dano — guardá-lo pro resgate é guardá-lo pra um
@@ -795,7 +863,7 @@ defmodule Pokex.Bots.Engine.Logic do
            revive: :now
          )}
 
-      kiting?(t) ->
+      kiting?(t) and not Map.get(t.s, :heavy?, false) ->
         # PELO CHÃO LIMPO, não pela rota: andar pra frente aqui atravessa spawn
         # novo e o trem cresce mais rápido que a barra volta (medido na noite de
         # 27→28/08, 9+ na tela por minutos a fio). Recuar mantém a pilha colada
@@ -846,6 +914,116 @@ defmodule Pokex.Bots.Engine.Logic do
     control_ready?(t) and controle_livre?(t) and is_integer(t.s.enemies) and
       t.s.enemies >= t.config.crowd_from and elapsed?(t, :stunned, t.config.stun_window_ms)
   end
+
+  # AS DUAS METADES DA POSTURA DE CHEFE. A folga de 1s é fixa e é a frase
+  # dele; `stun_hold_ms` é quanto o controle DELE segura um bicho no chão —
+  # medível com cronômetro, e a versão do simulador (`stun_ms`) tem que bater
+  # com esta crença, senão a bancada prova um combo que o jogo não dá.
+  @boss_stun_lead_ms 1_000
+
+  # O SONO VEM PRIMEIRO, SEMPRE. Um rascunho segurava o stun até o F4 caber no
+  # piso do resgate — e a bancada mostrou o preço: o chefe mordendo a 40%/s
+  # enquanto o controle PRONTO esperava um relógio. Um stun sem revive atrás
+  # ainda compra 8s de sono agora; a folga que falta o revive espera dentro da
+  # própria janela (piso 5s < janela + sono). Quem respeita o piso é o revive.
+  defp boss_rearm_due?(t) do
+    heavy?(t) and t.s.own_out? == true and not control_ready?(t) and boss_awake?(t) and
+      revive_acceptable?(t) and
+      elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
+      affordable?(t)
+  end
+
+  # O chefe está acordado? Com a testemunha, é o sono zerado; sem ela, é um
+  # carimbo de stun mais velho que a duração do sono.
+  defp boss_awake?(t) do
+    case Map.get(t.s, :boss_asleep_left_ms) do
+      nil -> not within?(t, :stunned, t.config.stun_hold_ms)
+      left -> left == 0
+    end
+  end
+
+  defp boss_stun_due?(t) do
+    heavy?(t) and control_ready?(t) and close_enough_to_stun?(t) and stun_cycle_due?(t)
+  end
+
+  # O RELÓGIO DO CICLO É O SONO DO CHEFE, não a ordem. A bancada pegou a
+  # diferença custando 2,3s de chefe acordado: o cérebro ordenava o stun, o
+  # aperto pegava o vento (pokémon na bola do settle, alvo fora do raio), e o
+  # carimbo da ordem fazia a regra dormir no ponto até o prazo de um sono que
+  # nunca existiu. Com a testemunha (`boss_asleep_left_ms`), a pergunta vira a
+  # certa: "quanto falta do sono?" — resta menos que a folga de 1s, stun; um
+  # stun que não pegou deixa o sono em zero e é reapertado no tique seguinte,
+  # de graça. O piso de 1,2s entre ordens é só o tempo de o aperto anterior
+  # chegar ao jogo antes de acusá-lo de vento.
+  defp stun_cycle_due?(t) do
+    case Map.get(t.s, :boss_asleep_left_ms) do
+      nil -> elapsed?(t, :stunned, max(t.config.stun_hold_ms - @boss_stun_lead_ms, 0))
+      left -> left <= @boss_stun_lead_ms and elapsed?(t, :stunned, 1_200)
+    end
+  end
+
+  # O STUN TEM RAIO. O primeiro rascunho apertava o controle no primeiro
+  # avistamento — com o chefe a 6 tiles, raio 4: sono no vento, e o chefe
+  # chegava acordado com o controle já gasto ("se disperdiçar stun à toa (…) é
+  # morte na certa"). Sem medida de distância (nil), sai na hora — pior
+  # segurar um stun que talvez pegasse do que garantir um que não pega.
+  defp close_enough_to_stun?(t) do
+    case Map.get(t.s, :boss_tiles) do
+      nil -> true
+      tiles -> tiles <= t.config.stun_reach_tiles
+    end
+  end
+
+  # O revive do ciclo exige um stun VISTO (o carimbo `:stunned` existe e está
+  # dentro da janela do R10) — sem essa exigência, um `within?` de carimbo
+  # ausente devolve true e o F4 sairia sem sono nenhum na frente do chefe. O
+  # desarme da R3b NÃO entra aqui de propósito: com o estoque de verdade
+  # zerado o F4 é um aperto vazio de graça, e correr do chefe é a morte que
+  # ele descreveu — não há plano B a proteger.
+  defp boss_revive_due?(t) do
+    heavy?(t) and t.s.own_out? == true and is_integer(Map.get(t.logic.since, :stunned)) and
+      within?(t, :stunned, t.config.stun_window_ms) and
+      stun_seen_for_revive?(t) and
+      one_revive_per_stun?(t) and revive_acceptable?(t) and
+      elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
+      affordable?(t)
+  end
+
+  # "Se disperdiçar stun à toa e não usar o ressurect no tempo do stun dele, é
+  # morte na certa" — o F4 do ciclo só sai com o chefe DORMINDO DE VERDADE:
+  # com o canal presente, sono restante > 0. Sem canal, vale o carimbo, como
+  # sempre valeu.
+  defp stun_seen_for_revive?(t) do
+    case Map.get(t.s, :boss_asleep_left_ms) do
+      nil -> true
+      left -> left > 0
+    end
+  end
+
+  # O JOGO ACEITARIA UM F4 AGORA? A resposta vem da foto (`revive_ready?`):
+  # na bancada é `World.revive_ready?/1`, no jogo é o piso do resgate lido do
+  # caderninho. Um F4 que o executor engole em silêncio quebrava a corrente
+  # inteira — o carimbo `:reset_revive` era feito, `one_revive_per_stun?`
+  # trancava, e o próximo controle nunca vinha. `nil` (ninguém respondeu) cai
+  # pro piso do resgate contado do último pedido.
+  defp revive_acceptable?(t) do
+    case Map.get(t.s, :revive_ready?) do
+      nil -> elapsed?(t, :reset_revive, t.config.rescue_floor_ms)
+      ready? -> ready?
+    end
+  end
+
+  # UM revive por stun. Sem isto o piso de 3s comprava um SEGUNDO F4 dentro da
+  # mesma janela de sono — e "disperdiçar revive à toa" é o outro lado da
+  # moeda do stun desperdiçado.
+  defp one_revive_per_stun?(t) do
+    case Map.get(t.logic.since, :reset_revive) do
+      nil -> true
+      revived_at -> revived_at < Map.get(t.logic.since, :stunned)
+    end
+  end
+
+  defp heavy?(t), do: Map.get(t.s, :heavy?, false)
 
   # O controle está livre pro uso ofensivo? Com a R3b desligada, sempre — não há
   # revive nenhum esperando por ele, e a regra dele de 26/08 vale inteira ("tento

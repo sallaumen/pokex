@@ -1389,4 +1389,124 @@ defmodule Pokex.Sim.WorldTest do
       assert world.knobs.nest_radius == 9
     end
   end
+
+  # O CHEFE (29/08): nasce de tempos em tempos, vida e mordida multiplicadas, e
+  # o placar mede a frase dele — "1 segundo sem stun no campo quer dizer que eu
+  # morri" — como o maior trecho de chefe ACORDADO ADJACENTE.
+  describe "o chefe" do
+    defp mundo_com_chefe(knobs \\ %{}) do
+      World.new(
+        straight(),
+        knobs:
+          Map.merge(
+            %{boss_every_ms: 10_000, boss_hp_mult: 5, boss_atk_mult: 5, mob_hp: 100},
+            knobs
+          )
+      )
+    end
+
+    test "nasce perto do prazo, com a vida multiplicada e marcado" do
+      world = Enum.reduce(1..200, mundo_com_chefe(), fn _n, w -> World.step(w, 100) end)
+
+      chefes = Enum.filter(world.mobs, &Map.get(&1, :boss?, false))
+
+      assert chefes != [], "20s de mundo e nenhum chefe nasceu (prazo 10s ±25%)"
+      assert hd(chefes).max_hp == 500
+      assert hd(chefes).bite_mult == 5
+      assert world.stats.bosses_born >= 1
+    end
+
+    test "sem o knob, nenhum cenário antigo ganha chefe" do
+      world = Enum.reduce(1..200, World.new(straight()), fn _n, w -> World.step(w, 100) end)
+
+      assert world.stats.bosses_born == 0
+    end
+
+    test "a mordida do chefe pesa o multiplicador" do
+      world = mundo_com_chefe()
+
+      chefe = %{
+        id: 999,
+        name: "Chefe",
+        nest: :boss,
+        pos: neighbour(world.own.pos),
+        hp: 500,
+        max_hp: 500,
+        spawn: neighbour(world.own.pos),
+        woke?: true,
+        walk_debt_ms: 0,
+        bite_debt_ms: 0,
+        asleep_until: 0,
+        boss?: true,
+        bite_mult: 5
+      }
+
+      antes = world.own.hp_pct
+      world = %{world | mobs: [chefe]}
+      world = Enum.reduce(1..10, world, fn _n, w -> World.step(w, 100) end)
+
+      # 1s adjacente = 1 mordida × bite_dmg 4 × mult 5 = 20
+      assert antes - world.own.hp_pct >= 20
+    end
+
+    test "o placar mede o pior trecho acordado ADJACENTE — dormindo não conta" do
+      world = mundo_com_chefe()
+
+      chefe = %{
+        id: 999,
+        name: "Chefe",
+        nest: :boss,
+        pos: neighbour(world.own.pos),
+        hp: 500,
+        max_hp: 500,
+        spawn: neighbour(world.own.pos),
+        woke?: true,
+        walk_debt_ms: 0,
+        bite_debt_ms: 0,
+        asleep_until: 0,
+        boss?: true,
+        bite_mult: 5
+      }
+
+      world = %{world | mobs: [chefe]}
+      world = Enum.reduce(1..15, world, fn _n, w -> World.step(w, 100) end)
+      assert world.stats.boss_awake_max_ms >= 1_400
+
+      # dorme — o streak zera e o máximo fica
+      max_antes = world.stats.boss_awake_max_ms
+      world = put_in(world.mobs, [%{chefe | asleep_until: world.clock + 60_000}])
+      world = Enum.reduce(1..10, world, fn _n, w -> World.step(w, 100) end)
+
+      assert world.boss_awake_streak_ms == 0
+      assert world.stats.boss_awake_max_ms == max_antes
+    end
+
+    test "boss_asleep_left_ms e boss_tiles respondem pelo chefe mais perto" do
+      world = mundo_com_chefe()
+      assert World.boss_asleep_left_ms(world) == nil
+      assert World.boss_tiles(world) == nil
+
+      chefe = %{
+        id: 999,
+        name: "Chefe",
+        nest: :boss,
+        pos: neighbour(world.own.pos),
+        hp: 500,
+        max_hp: 500,
+        spawn: neighbour(world.own.pos),
+        woke?: true,
+        walk_debt_ms: 0,
+        bite_debt_ms: 0,
+        asleep_until: world.clock + 3_000,
+        boss?: true,
+        bite_mult: 5
+      }
+
+      world = %{world | mobs: [chefe]}
+      assert World.boss_tiles(world) == 1
+      assert World.boss_asleep_left_ms(world) == 3_000
+    end
+  end
+
+  defp neighbour({x, y, z}), do: {x + 1, y, z}
 end

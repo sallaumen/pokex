@@ -226,6 +226,36 @@ defmodule PokexWeb.ConfigLive do
       title: "Cérebro da caçada",
       rows: [
         %{
+          key: :engine_boss_names,
+          kind: :key,
+          label: "Nomes dos chefes",
+          hint:
+            "Separados por vírgula (ex.: chefe, boss x). Com um destes nomes na janela de " <>
+              "batalha o cérebro entra na postura de chefe: encara ignorando a régua, nunca " <>
+              "foge, e roda o combo skills → stun → revive mantendo o chefe dormindo. Vazio " <>
+              "desliga.",
+          keywords: "chefe boss nome postura combo stun revive"
+        },
+        %{
+          key: :engine_stun_hold_ms,
+          kind: :sec,
+          label: "…quanto o teu stun segura",
+          hint:
+            "Quantos segundos a tua skill de controle deixa um bicho dormindo — cronometra " <>
+              "no jogo. O combo de chefe re-stuna com 1s de folga antes deste prazo vencer.",
+          keywords: "stun sono duração segura chefe cronometro"
+        },
+        %{
+          key: :engine_stun_reach_tiles,
+          kind: :int,
+          label: "…e até quantos tiles alcança",
+          hint:
+            "O raio útil do teu controle, em tiles (um a menos que o real, de folga). O stun " <>
+              "de chefe só sai com o alvo dentro disto — apertar com ele longe é dormir o " <>
+              "vento e chegar acordado.",
+          keywords: "stun raio alcance tiles chefe vento"
+        },
+        %{
           key: :engine_engage_from,
           kind: :int,
           label: "Encara a partir de (bichos)",

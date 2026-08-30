@@ -72,6 +72,7 @@ defmodule Pokex.Sim.Scenario do
   @groups %{
     hunt: "A caçada inteira",
     mundo: "O bicho e o bolo",
+    chefe: "O chefe",
     ruler: "A régua e a pilha",
     health: "Vida, revive e morte",
     hands: "Mãos que falham",
@@ -81,7 +82,7 @@ defmodule Pokex.Sim.Scenario do
   # A ORDEM DA TELA, e ela não é a do mapa (que não tem ordem). Começa pela
   # caçada inteira, passa pelo mundo — as condições que ele nomeou: muito bicho,
   # bicho duro, bicho de papel — e termina nas peças quebradas.
-  @group_order [:hunt, :mundo, :ruler, :health, :hands, :blind]
+  @group_order [:hunt, :mundo, :chefe, :ruler, :health, :hands, :blind]
 
   @doc """
   The groups that are controlled EXPERIMENTS — one pile, one question.
@@ -198,6 +199,126 @@ defmodule Pokex.Sim.Scenario do
           # que faz este mapa uma questão de dano, não de sobrevivência.
           bite_dmg: 1,
           player_bite_dmg: 1
+        }
+      },
+      %__MODULE__{
+        id: "chefe-brando",
+        group: :chefe,
+        icon: "👹",
+        aperto: :rotina,
+        espera: [:nao_cai, :sem_dano, :stun_sempre, :mata],
+        name: "Chefe brando (5×)",
+        why:
+          "O padrão MENOR do level mais alto: um chefe com 5× a vida e 5× o ataque de um " <>
+            "bicho comum, nascendo de tempos em tempos numa estrada vazia. O combo dele é a " <>
+            "única resposta — todas as skills, stun no fim, revive, e de novo — e a régua é " <>
+            "a frase dele: \"ou otimizamos para realmente não termos abertura a falha, ou 1 " <>
+            "segundo sem stun no campo quer dizer que eu morri\". As promessas cobram as " <>
+            "duas metades: nem uma mordida, e nenhum chefe 1s acordado por perto.",
+        route: :hunt_field,
+        knobs: %{
+          nest_size: 0,
+          stray_chance_pct: 0,
+          boss_every_ms: 45_000,
+          boss_hp_mult: 5,
+          boss_atk_mult: 5,
+          # o relógio do combo: o sono segura 8s, o F4 volta em 5s — é o que
+          # faz \"stun → revive → stun\" caber; os dois são dele pra cronometrar
+          stun_ms: 8_000,
+          revive_cooldown_ms: 5_000,
+          presses_to_kill: 3
+        },
+        config: %{
+          reset_revive: true,
+          boss_names: "chefe",
+          stun_hold_ms: 8_000,
+          # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
+          # o stun até o F4 que vem atrás caber nele
+          rescue_floor_ms: 5_000,
+          # sem R11 aqui: o prepare re-baseava o piso do resgate na cara do
+          # chefe seguinte, e o stun ficava 2s esperando o F4 caber. Contra
+          # chefe o primeiro ciclo já chega resetando — preparar é pagar dobrado.
+          prepare_revive: false
+        }
+      },
+      %__MODULE__{
+        id: "chefe-cruel",
+        group: :chefe,
+        icon: "🐲",
+        aperto: :aperto,
+        espera: [:nao_cai, :sem_dano, :stun_sempre, :mata],
+        name: "Chefe cruel (10×)",
+        why:
+          "O padrão MAIOR: 10× a vida, 10× o ataque. A física é a mesma do brando — o que " <>
+            "muda é o preço do erro: uma mordida deste tira um quinto da vida, então " <>
+            "\"quase não tomou dano\" não existe aqui. Se o combo segura este, segura a " <>
+            "hunt avançada que ele quer rodar de verdade.",
+        route: :hunt_field,
+        knobs: %{
+          nest_size: 0,
+          stray_chance_pct: 0,
+          # mais cedo que o brando de propósito: um 10× leva ~70s de combo pra
+          # cair, e a promessa `mata` precisa ver pelo menos um corpo dentro da
+          # janela de 3 minutos dos invariantes
+          boss_every_ms: 30_000,
+          boss_hp_mult: 10,
+          boss_atk_mult: 10,
+          stun_ms: 8_000,
+          revive_cooldown_ms: 5_000,
+          presses_to_kill: 3
+        },
+        config: %{
+          reset_revive: true,
+          boss_names: "chefe",
+          stun_hold_ms: 8_000,
+          # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
+          # o stun até o F4 que vem atrás caber nele
+          rescue_floor_ms: 5_000,
+          # sem R11 aqui: o prepare re-baseava o piso do resgate na cara do
+          # chefe seguinte, e o stun ficava 2s esperando o F4 caber. Contra
+          # chefe o primeiro ciclo já chega resetando — preparar é pagar dobrado.
+          prepare_revive: false
+        }
+      },
+      %__MODULE__{
+        id: "estrada-com-chefes",
+        group: :chefe,
+        icon: "🛤️",
+        aperto: :aperto,
+        espera: [:nao_cai, :mata],
+        name: "Estrada com chefes",
+        why:
+          "A hunt avançada inteira: os ninhos de sempre E um chefe 10× brotando no meio " <>
+            "dela de tempos em tempos. É o teste de POSTURA — largar a pilha na hora, " <>
+            "rodar o combo, e voltar pra caçada — e de bolso: cada chefe custa uma fila de " <>
+            "revives. Sem promessa de dano zero nem de andar aqui, de propósito: com bicho " <>
+            "comum na tela mordida faz parte, e o ciclo de chefe é parado por natureza. O " <>
+            "que não pode é cair nem parar de matar.",
+        route: :hunt_field,
+        knobs: %{
+          nest_sizes: %{2 => 3, 3 => 3, 4 => 2},
+          nest_radius: 3,
+          aggro_tiles: 8,
+          leash_tiles: 12,
+          respawn_ms: 30_000,
+          boss_every_ms: 90_000,
+          boss_hp_mult: 10,
+          boss_atk_mult: 10,
+          stun_ms: 8_000,
+          revive_cooldown_ms: 5_000,
+          presses_to_kill: 3
+        },
+        config: %{
+          reset_revive: true,
+          boss_names: "chefe",
+          stun_hold_ms: 8_000,
+          # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
+          # o stun até o F4 que vem atrás caber nele
+          rescue_floor_ms: 5_000,
+          # sem R11 aqui: o prepare re-baseava o piso do resgate na cara do
+          # chefe seguinte, e o stun ficava 2s esperando o F4 caber. Contra
+          # chefe o primeiro ciclo já chega resetando — preparar é pagar dobrado.
+          prepare_revive: false
         }
       },
       %__MODULE__{

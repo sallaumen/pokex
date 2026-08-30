@@ -304,4 +304,62 @@ defmodule Pokex.Bots.Engine.SituationTest do
       refute picture_of([nil, "Meganium", "Meganium"]).worth_fighting?
     end
   end
+
+  # O CHEFE, POR NOME. `heavy?` é o gatilho da postura de chefe do cérebro —
+  # e ele fura a régua (`worth_fighting?`) porque um chefe sozinho vale a luta
+  # que cinco bichos comuns valem.
+  describe "o chefe na foto" do
+    @chefe_config %{engage_from: 3, boss_names: "Chefe, Boss X"}
+
+    test "uma linha com nome de chefe liga heavy? e fura a régua" do
+      picture =
+        Situation.build(
+          inputs(%{battle: battle(~w(chefe)), own_out?: true}),
+          @chefe_config,
+          1_000
+        )
+
+      assert picture.heavy? == true
+      assert picture.worth_fighting? == true, "um chefe sozinho vale a luta"
+    end
+
+    test "a comparação ignora caso e espaços da lista" do
+      picture =
+        Situation.build(
+          inputs(%{battle: battle(["BOSS X"]), own_out?: true}),
+          @chefe_config,
+          1_000
+        )
+
+      assert picture.heavy? == true
+    end
+
+    test "sem nome na lista, bicho comum é bicho comum" do
+      picture =
+        Situation.build(
+          inputs(%{battle: battle(~w(Venonat)), own_out?: true}),
+          @chefe_config,
+          1_000
+        )
+
+      assert picture.heavy? == false
+    end
+
+    test "lista vazia desliga a postura — nenhum cenário antigo ganha chefe" do
+      picture =
+        Situation.build(
+          inputs(%{battle: battle(~w(chefe)), own_out?: true}),
+          %{engage_from: 3},
+          1_000
+        )
+
+      assert picture.heavy? == false
+    end
+
+    test "cego não tem chefe: nil de linhas é nil de postura" do
+      picture = Situation.build(inputs(%{battle: nil}), @chefe_config, 1_000)
+
+      assert picture.heavy? == false
+    end
+  end
 end

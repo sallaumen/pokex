@@ -206,7 +206,7 @@ defmodule Pokex.Sim.Scenario do
         group: :chefe,
         icon: "👹",
         aperto: :rotina,
-        espera: [:nao_cai, :sem_dano, :stun_sempre, :mata],
+        espera: [:nao_cai, :aguenta, :stun_sempre, :mata],
         name: "Chefe brando (5×)",
         why:
           "O padrão MENOR do level mais alto: um chefe com 5× a vida e 5× o ataque de um " <>
@@ -222,16 +222,22 @@ defmodule Pokex.Sim.Scenario do
           boss_every_ms: 45_000,
           boss_hp_mult: 5,
           boss_atk_mult: 5,
+          # a mordida-base HERDADA da noite medida (0,41%/s por bicho): o
+          # multiplicador do chefe multiplica ISTO — com o default de mesa
+          # (4 por 900ms) o chefe mordia 10× mais forte que a régua real
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
           # o relógio do combo: o sono segura 8s, o F4 volta em 5s — é o que
           # faz \"stun → revive → stun\" caber; os dois são dele pra cronometrar
-          stun_ms: 8_000,
+          # MEDIDO POR ELE (30/08): "o stun dura 3 segundos"
+          stun_ms: 3_000,
           revive_cooldown_ms: 5_000,
           presses_to_kill: 3
         },
         config: %{
           reset_revive: true,
           boss_names: "chefe",
-          stun_hold_ms: 8_000,
+          stun_hold_ms: 3_000,
           # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
           # o stun até o F4 que vem atrás caber nele
           rescue_floor_ms: 5_000,
@@ -246,7 +252,7 @@ defmodule Pokex.Sim.Scenario do
         group: :chefe,
         icon: "🐲",
         aperto: :aperto,
-        espera: [:nao_cai, :sem_dano, :stun_sempre, :mata],
+        espera: [:nao_cai, :aguenta, :stun_sempre, :mata],
         name: "Chefe cruel (10×)",
         why:
           "O padrão MAIOR: 10× a vida, 10× o ataque. A física é a mesma do brando — o que " <>
@@ -263,14 +269,17 @@ defmodule Pokex.Sim.Scenario do
           boss_every_ms: 30_000,
           boss_hp_mult: 10,
           boss_atk_mult: 10,
-          stun_ms: 8_000,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          # MEDIDO POR ELE (30/08): "o stun dura 3 segundos"
+          stun_ms: 3_000,
           revive_cooldown_ms: 5_000,
           presses_to_kill: 3
         },
         config: %{
           reset_revive: true,
           boss_names: "chefe",
-          stun_hold_ms: 8_000,
+          stun_hold_ms: 3_000,
           # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
           # o stun até o F4 que vem atrás caber nele
           rescue_floor_ms: 5_000,
@@ -304,14 +313,17 @@ defmodule Pokex.Sim.Scenario do
           boss_every_ms: 90_000,
           boss_hp_mult: 10,
           boss_atk_mult: 10,
-          stun_ms: 8_000,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          # MEDIDO POR ELE (30/08): "o stun dura 3 segundos"
+          stun_ms: 3_000,
           revive_cooldown_ms: 5_000,
           presses_to_kill: 3
         },
         config: %{
           reset_revive: true,
           boss_names: "chefe",
-          stun_hold_ms: 8_000,
+          stun_hold_ms: 3_000,
           # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
           # o stun até o F4 que vem atrás caber nele
           rescue_floor_ms: 5_000,

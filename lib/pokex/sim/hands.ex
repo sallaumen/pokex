@@ -319,8 +319,17 @@ defmodule Pokex.Sim.Hands do
       # key spent, which is what keeps it ready for the dangerous revive.
       orders.revive == :prepare -> {World.revive(world), hands}
       stun_first?(world, config) -> stun(world, hands, config)
+      # O STUN DO CÉREBRO ganha o MESMO settle que o do resgate — "temos que
+      # garantir que deixamos as skills ocorrerem como devem" (30/08): o
+      # recolhimento espera a espera contada DAQUELE aperto, nunca sai colado.
+      stunned_recently?(world, config) -> {world, settle_from(world, hands, config)}
       true -> {World.revive(world), hands}
     end
+  end
+
+  defp settle_from(world, hands, config) do
+    settle = Map.get(config, :rescue_stun_settle_ms, 0)
+    %{hands | revive_at: max(world.stunned_at + settle, world.clock)}
   end
 
   defp pending?(%{revive_at: at}, world) when is_integer(at), do: world.clock < at

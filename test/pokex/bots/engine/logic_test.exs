@@ -1763,17 +1763,16 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
   end
 
-  # A POSTURA DE CHEFE (29/08). "São monstros que normalmente tenho que usar
-  # todas as skills, finalizar com stun e depois usar o revive pra repetir esse
-  # combo, deixando o boss sempre stunado (…) 1 segundo sem stun no campo quer
-  # dizer que eu morri." O relógio do ciclo é o SONO DO CHEFE
-  # (`boss_asleep_left_ms`, a testemunha), o stun tem raio (`stun_reach_tiles`),
-  # e o revive segue cada stun sem esperar a barra esvaziar.
+  # A POSTURA DE CHEFE, na forma final que ELE ditou (30/08): o stun dura 3s e
+  # é o PREFIXO do revive — "tu só precisa do stun quando vai usar o revive,
+  # não precisa usar antes" —, o F4 não tem cooldown no jogo (o piso de 5s é
+  # segurança nossa), e quem dirige o ciclo é a BARRA GASTA: todas as skills,
+  # stun, F4, de novo.
   describe "a postura de chefe" do
     @chefe Config.merge(%{
              reset_revive: true,
              boss_names: "chefe",
-             stun_hold_ms: 8_000,
+             stun_hold_ms: 3_000,
              stun_reach_tiles: 3,
              rescue_floor_ms: 5_000,
              bunch_ms: 0,
@@ -1793,8 +1792,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
                 worth_fighting?: true,
                 boss_tiles: 2,
                 boss_asleep_left_ms: 0,
-                revive_ready?: true,
-                spent?: false
+                spent?: true,
+                ready_keys: ["1"]
               },
               overrides
             )
@@ -1810,64 +1809,71 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.route == :hold
     end
 
-    test "acordado e no alcance: o controle sai na hora, com o dano junto" do
+    test "barra gasta e chefe no alcance: o stun sai como prefixo" do
       {_logic, orders} = chefe_step(Logic.new(), com_chefe(), 1_000)
 
       assert "1" in orders.opening
       assert orders.why =~ "controle antes do sono acabar"
     end
 
-    test "acordado mas LONGE: o stun espera o chefe chegar — dormir o vento é morte" do
+    test "com a barra AINDA rendendo, nada de stun — todas as skills primeiro" do
+      {_logic, orders} = chefe_step(Logic.new(), com_chefe(%{spent?: false}), 1_000)
+
+      refute "1" in orders.opening
+      refute orders.revive == :now
+    end
+
+    test "chefe LONGE não ganha stun — dormir o vento é chegar acordado" do
       {_logic, orders} = chefe_step(Logic.new(), com_chefe(%{boss_tiles: 6}), 1_000)
 
       refute "1" in orders.opening
     end
 
-    test "o revive vem atrás do stun SEM esperar a barra esvaziar" do
+    test "o F4 vem atrás do stun, com o sono testemunhado" do
       {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
 
-      dormindo = com_chefe(%{boss_asleep_left_ms: 7_500, spent?: false})
+      dormindo = com_chefe(%{boss_asleep_left_ms: 2_500, ready_keys: []})
       {_logic, orders} = chefe_step(logic, dormindo, 1_400)
 
       assert orders.revive == :now
       assert orders.why =~ "revive agora"
     end
 
-    test "mas nunca sem sono testemunhado: chefe acordado não ganha F4 de ciclo" do
+    test "sem sono testemunhado o F4 do ciclo espera — stun no vento não se paga" do
       {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
 
-      acordado = com_chefe(%{boss_asleep_left_ms: 0})
+      # controle pronto, senão a perna de emergência (que é outro teste)
+      # responderia por este
+      acordado = com_chefe(%{boss_asleep_left_ms: 0, ready_keys: ["1"]})
       {_logic, orders} = chefe_step(logic, acordado, 1_400)
 
       refute orders.revive == :now
     end
 
-    test "UM revive por stun: o segundo pedido da mesma janela é negado" do
+    test "UM F4 por stun: o segundo pedido da mesma janela é negado" do
       {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
-      dormindo = com_chefe(%{boss_asleep_left_ms: 7_000})
+      dormindo = com_chefe(%{boss_asleep_left_ms: 2_500, ready_keys: []})
       {logic, primeiro} = chefe_step(logic, dormindo, 1_400)
       assert primeiro.revive == :now
 
-      {_logic, segundo} = chefe_step(logic, com_chefe(%{boss_asleep_left_ms: 6_000}), 4_600)
+      {_logic, segundo} =
+        chefe_step(logic, com_chefe(%{boss_asleep_left_ms: 2_000, ready_keys: []}), 1_900)
+
       refute segundo.revive == :now
     end
 
-    test "com sono de sobra ninguém re-stuna — stun à toa é o outro desperdício" do
+    test "o par respeita o piso de segurança de 5s entre F4s" do
       {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
+      dormindo = com_chefe(%{boss_asleep_left_ms: 2_500, ready_keys: []})
+      {logic, _} = chefe_step(logic, dormindo, 1_400)
 
-      folgado = com_chefe(%{boss_asleep_left_ms: 5_000})
-      {_logic, orders} = chefe_step(logic, folgado, 9_000)
+      # novo stun bem depois, mas a MENOS de 5s do último F4: o par segura
+      {logic, cedo} = chefe_step(logic, com_chefe(), 4_000)
+      refute "1" in cedo.opening, "stun sem F4 que caiba no piso é stun no vento"
 
-      refute "1" in orders.opening
-    end
-
-    test "sono no fim (menos que a folga de 1s): re-stun já" do
-      {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
-
-      vencendo = com_chefe(%{boss_asleep_left_ms: 800})
-      {_logic, orders} = chefe_step(logic, vencendo, 9_000)
-
-      assert "1" in orders.opening
+      # …e passado o piso, o par sai
+      {_logic, ok} = chefe_step(logic, com_chefe(), 6_500)
+      assert "1" in ok.opening
     end
 
     test "chefe acordado com o controle no chão: o F4 compra o controle de volta" do
@@ -1883,8 +1889,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "de chefe não se foge: a barra vazia que kitaria fica e luta" do
       {logic, _} = chefe_step(Logic.new(), com_chefe(), 1_000)
 
-      gasto = com_chefe(%{boss_asleep_left_ms: 3_000, spent?: true, ready_keys: []})
-      {_logic, orders} = chefe_step(logic, gasto, 5_000)
+      gasto = com_chefe(%{boss_asleep_left_ms: 1_000, spent?: true, ready_keys: []})
+      {_logic, orders} = chefe_step(logic, gasto, 3_000)
 
       refute orders.why =~ "recuando"
     end

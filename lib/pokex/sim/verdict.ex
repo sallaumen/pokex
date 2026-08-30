@@ -41,8 +41,10 @@ defmodule Pokex.Sim.Verdict do
      "nenhum revive saiu com o controle pronto na mão e sem usar (R10)"},
     {:sem_revive, "sem gastar revive", "a corrida inteira sem precisar de um revive"},
     {:sem_dano, "sem tomar dano", "o pokémon terminou sem levar UMA mordida"},
-    {:stun_sempre, "chefe sempre dormindo",
-     "nenhum chefe passou 1 segundo acordado em campo — a régua da morte certa"},
+    {:aguenta, "o tanque segura",
+     "a vida nunca caiu abaixo da metade — nenhuma janela cascateou"},
+    {:stun_sempre, "chefe sempre no ciclo",
+     "nenhum chefe passou de uma janela estrutural acordado (3s) — acima disso um ciclo se perdeu"},
     {:limpa, "limpa a tela", "terminou sem monstro de pé"}
   ]
 
@@ -54,6 +56,7 @@ defmodule Pokex.Sim.Verdict do
           | :revive_no_prazo
           | :sem_revive
           | :sem_dano
+          | :aguenta
           | :stun_sempre
           | :limpa
   @type t :: %{
@@ -144,14 +147,31 @@ defmodule Pokex.Sim.Verdict do
 
   defp check(:sem_dano, _sem_leitura), do: {false, "a vida nunca foi lida — não dá pra afirmar"}
 
+  # A RÉGUA É A FÍSICA DO COMBO DELE (30/08): o stun dura 3s e só sai como
+  # prefixo do F4; o ciclo de segurança cabe em 5s ("se tudo não cabe em 5
+  # segundos, tem algo errado"). Isso deixa ~2s de chefe acordado POR CICLO,
+  # por construção — inevitável. O que a promessa acusa é o ciclo PERDIDO:
+  # um chefe acordado além de 3s (uma janela estrutural + a folga da rajada)
+  # significa que um stun ou um F4 não saiu na vez dele.
   defp check(:stun_sempre, %{metrics: %{bosses_born: 0}}),
     do: {false, "nenhum chefe nasceu — a promessa não foi exercida"}
 
-  defp check(:stun_sempre, %{metrics: %{boss_awake_max_ms: pior}}) when pior <= 1_000,
+  defp check(:stun_sempre, %{metrics: %{boss_awake_max_ms: pior}}) when pior <= 3_000,
     do: {true, "pior trecho acordado: #{pior}ms"}
 
   defp check(:stun_sempre, %{metrics: %{boss_awake_max_ms: pior}}),
-    do: {false, "um chefe ficou #{pior}ms acordado em campo — morte na certa"}
+    do: {false, "um chefe ficou #{pior}ms acordado — um ciclo do combo se perdeu"}
+
+  # …e `aguenta` é a outra metade: as janelas estruturais custam mordida, mas
+  # nunca podem CASCATEAR — vida abaixo da metade é ciclo perdido virando
+  # espiral.
+  defp check(:aguenta, %{metrics: %{min_hp: hp}}) when is_integer(hp) and hp >= 50,
+    do: {true, "vida mínima: #{hp}%"}
+
+  defp check(:aguenta, %{metrics: %{min_hp: hp}}) when is_integer(hp),
+    do: {false, "a vida caiu a #{hp}% — as janelas cascatearam"}
+
+  defp check(:aguenta, _sem_leitura), do: {false, "a vida nunca foi lida — não dá pra afirmar"}
 
   # `spent?` é tri-estado: `false` é a acusação (havia tecla de dano pronta e o
   # revive saiu assim mesmo), `nil` é a barra ilegível — e num cenário cego

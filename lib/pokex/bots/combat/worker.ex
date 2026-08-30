@@ -643,11 +643,17 @@ defmodule Pokex.Bots.Combat.Worker do
   # O Tab passa: mirar não é conjurar, e ele não tem cooldown pra gastar. O
   # resgate também não passa por aqui (ele fala direto com o `Body`), então
   # nada nesta trava atrasa um stun ou o próprio revive.
+  # …contada do F4 QUE SAIU (`ReviveLedger.landed/0`), nunca do despacho do
+  # combo: o despacho antecede o F4 pelo settle inteiro (1,5-2s), e uma janela
+  # contada dele cobria o settle — quando o pokémon está em campo DE PROPÓSITO,
+  # tanqueando e podendo bater — e descobria o 1º-2º segundo pós-F4, que é a
+  # janela real. Medido em 30/08: 320 das 441 teclas engolidas da noite caíram
+  # no primeiro segundo depois do F4, com a janela "ligada".
   defp blackout?(keys) do
     janela = Settings.get(:rescue_blackout_ms)
 
     janela > 0 and keys != [Settings.get(:tab_key)] and
-      ReviveLedger.noted_within?(janela)
+      ReviveLedger.landed_within?(janela)
   end
 
   # Só com UMA tecla — uma rajada de três tira uma queda só e ninguém sabe de

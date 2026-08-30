@@ -1142,23 +1142,20 @@ defmodule Pokex.Sim.World do
 
     mobs =
       Enum.map(world.mobs, fn mob ->
-        if in_reach?(mob, world.own.pos, radius) do
-          # a emenda: um sono novo agendado NUNCA encurta o que já vale — o
-          # `asleep_from` só anda pra frente se o bicho está acordado agora
-          novo_from = if asleep?(mob, world), do: Map.get(mob, :asleep_from, 0), else: from
-
-          %{
-            mob
-            | asleep_from: novo_from,
-              asleep_until: max(mob.asleep_until, until),
-              bite_debt_ms: 0
-          }
-        else
-          mob
-        end
+        if in_reach?(mob, world.own.pos, radius),
+          do: lull(mob, world, from, until),
+          else: mob
       end)
 
     %{world | mobs: mobs}
+  end
+
+  # A emenda: um sono novo agendado NUNCA encurta o que já vale — o
+  # `asleep_from` só anda pra frente se o bicho está acordado agora.
+  defp lull(mob, world, from, until) do
+    novo_from = if asleep?(mob, world), do: Map.get(mob, :asleep_from, 0), else: from
+
+    %{mob | asleep_from: novo_from, asleep_until: max(mob.asleep_until, until), bite_debt_ms: 0}
   end
 
   @doc """

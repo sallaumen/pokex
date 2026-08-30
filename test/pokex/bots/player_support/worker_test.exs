@@ -191,6 +191,40 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       %{red: red}
     end
 
+    # A SENTINELA (30/08): o canto de comando parou a caçada no meio de uma
+    # mobada e o personagem morreu AFK em 8 minutos SEM UM ALARME — o halt
+    # cancelava o timer e ninguém mais lia a vida DELE. Parar fecha as mãos,
+    # nunca os olhos: halted, o monitor nascido automático segue lendo a barra
+    # do personagem e gritando no piso.
+    @tag :tmp_dir
+    test "PARADO, a sentinela segue lendo e grita no piso", %{body: body, red: red} do
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(6)}]})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_supervised!({Worker, name: nil, body: body, auto_monitor: true})
+      assert :ok = Worker.halt(worker)
+
+      assert_receive {:rule_alarm, :hp, aviso}, 6_000
+      assert aviso =~ "VOCÊ está com"
+    end
+
+    # …mas só o monitor de verdade: a suíte inteira roda com auto_monitor
+    # desligado, e um halt nela tem que continuar sendo silêncio total.
+    @tag :tmp_dir
+    test "sem o arranque automático, o halt é silêncio como sempre foi", %{
+      body: body,
+      red: red
+    } do
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(6)}]})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+      assert :ok = Worker.halt(worker)
+
+      refute_receive {:rule_alarm, :hp, _}, 2_500
+    end
+
     @tag :tmp_dir
     test "a leitura vira o fato :player", %{body: body, red: red} do
       {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(18)}]})

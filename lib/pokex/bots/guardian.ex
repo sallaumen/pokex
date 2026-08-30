@@ -314,6 +314,25 @@ defmodule Pokex.Bots.Guardian do
   end
 
   @doc false
+  def warn_if_exposed do
+    now = System.monotonic_time(:millisecond)
+
+    case Pokex.Perception.WorldState.get(:battle, 5_000, now) do
+      {:ok, %{enemies: enemies}} when is_list(enemies) and enemies != [] ->
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @combat_topic,
+          {:rule_alarm, :hp,
+           "⚠️ parando com #{length(enemies)} bicho(s) na janela de batalha — o personagem " <>
+             "fica EXPOSTO parado na pilha. Sai de perto, ou liga o player_hp_logout no /config."}
+        )
+
+      _tela_limpa_ou_velha ->
+        :ok
+    end
+  end
+
+  @doc false
   # Starts if everything is stopped; stops if anything runs. The start goes in
   # a Task because preflight captures take seconds and the panic-corner poll
   # must NEVER go deaf waiting — the Logout lesson.
@@ -331,6 +350,13 @@ defmodule Pokex.Bots.Guardian do
         @combat_topic,
         {:rule_alarm, :command, "🕹️ canto de comando: parando o bot"}
       )
+
+      # PARAR NO MEIO DA MOBADA É FICAR DE ALVO. Em 30/08 o canto parou a
+      # caçada com 5+ bichos aggroados; o personagem ficou parado na pilha e
+      # morreu AFK em 8 minutos. O comando obedece — parar tem que parar —
+      # mas grita a exposição, porque quem para e sai da frente do teclado
+      # precisa saber que deixou a pilha acordada em cima.
+      warn_if_exposed()
 
       BotSupervisor.stop_all("canto de comando")
     else

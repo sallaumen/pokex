@@ -915,21 +915,16 @@ defmodule Pokex.Bots.Engine.Logic do
       t.s.enemies >= t.config.crowd_from and elapsed?(t, :stunned, t.config.stun_window_ms)
   end
 
-  # AS DUAS METADES DA POSTURA DE CHEFE. A folga de 1s é fixa e é a frase
-  # dele; `stun_hold_ms` é quanto o controle DELE segura um bicho no chão —
-  # medível com cronômetro, e a versão do simulador (`stun_ms`) tem que bater
-  # com esta crença, senão a bancada prova um combo que o jogo não dá.
-  @boss_stun_lead_ms 1_000
-
-  # O SONO VEM PRIMEIRO, SEMPRE. Um rascunho segurava o stun até o F4 caber no
-  # piso do resgate — e a bancada mostrou o preço: o chefe mordendo a 40%/s
-  # enquanto o controle PRONTO esperava um relógio. Um stun sem revive atrás
-  # ainda compra 8s de sono agora; a folga que falta o revive espera dentro da
-  # própria janela (piso 5s < janela + sono). Quem respeita o piso é o revive.
+  # `stun_hold_ms` é quanto o controle DELE segura um bicho no chão — medido
+  # por ele: 3s. A versão do simulador (`stun_ms`) tem que bater com esta
+  # crença, senão a bancada prova um combo que o jogo não dá.
+  #
+  # O F4 NÃO TEM COOLDOWN NO JOGO — "aquele era um cooldown de segurança" —
+  # então nenhuma foto valida revive: o único piso é o de segurança
+  # (`rescue_floor_ms`), contado do nosso último pedido.
   defp boss_rearm_due?(t) do
     heavy?(t) and t.s.own_out? == true and not control_ready?(t) and boss_awake?(t) and
-      revive_acceptable?(t) and
-      elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
+      elapsed?(t, :reset_revive, t.config.rescue_floor_ms) and
       affordable?(t)
   end
 
@@ -942,24 +937,17 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
+  # O STUN É O PREFIXO DO REVIVE, NUNCA UM AGENDAMENTO. A correção dele
+  # (30/08): "tu só precisa do stun quando vai usar o revive, não precisa usar
+  # antes". Quem dirige o ciclo é a BARRA GASTA — "usar todas as skills,
+  # finalizar com stun e depois usar o revive" — e o sono de 3s existe pra
+  # cobrir exatamente o settle + o F4 + a volta do pokémon. O piso de 1,5s
+  # entre ordens é só o tempo de o aperto anterior chegar ao jogo antes de
+  # acusá-lo de vento (um stun que não pegou é reapertado, de graça).
   defp boss_stun_due?(t) do
-    heavy?(t) and control_ready?(t) and close_enough_to_stun?(t) and stun_cycle_due?(t)
-  end
-
-  # O RELÓGIO DO CICLO É O SONO DO CHEFE, não a ordem. A bancada pegou a
-  # diferença custando 2,3s de chefe acordado: o cérebro ordenava o stun, o
-  # aperto pegava o vento (pokémon na bola do settle, alvo fora do raio), e o
-  # carimbo da ordem fazia a regra dormir no ponto até o prazo de um sono que
-  # nunca existiu. Com a testemunha (`boss_asleep_left_ms`), a pergunta vira a
-  # certa: "quanto falta do sono?" — resta menos que a folga de 1s, stun; um
-  # stun que não pegou deixa o sono em zero e é reapertado no tique seguinte,
-  # de graça. O piso de 1,2s entre ordens é só o tempo de o aperto anterior
-  # chegar ao jogo antes de acusá-lo de vento.
-  defp stun_cycle_due?(t) do
-    case Map.get(t.s, :boss_asleep_left_ms) do
-      nil -> elapsed?(t, :stunned, max(t.config.stun_hold_ms - @boss_stun_lead_ms, 0))
-      left -> left <= @boss_stun_lead_ms and elapsed?(t, :stunned, 1_200)
-    end
+    heavy?(t) and control_ready?(t) and close_enough_to_stun?(t) and
+      t.s.spent? == true and elapsed?(t, :stunned, 1_500) and
+      elapsed?(t, :reset_revive, t.config.rescue_floor_ms)
   end
 
   # O STUN TEM RAIO. O primeiro rascunho apertava o controle no primeiro
@@ -984,8 +972,8 @@ defmodule Pokex.Bots.Engine.Logic do
     heavy?(t) and t.s.own_out? == true and is_integer(Map.get(t.logic.since, :stunned)) and
       within?(t, :stunned, t.config.stun_window_ms) and
       stun_seen_for_revive?(t) and
-      one_revive_per_stun?(t) and revive_acceptable?(t) and
-      elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
+      one_revive_per_stun?(t) and
+      elapsed?(t, :reset_revive, t.config.rescue_floor_ms) and
       affordable?(t)
   end
 
@@ -997,19 +985,6 @@ defmodule Pokex.Bots.Engine.Logic do
     case Map.get(t.s, :boss_asleep_left_ms) do
       nil -> true
       left -> left > 0
-    end
-  end
-
-  # O JOGO ACEITARIA UM F4 AGORA? A resposta vem da foto (`revive_ready?`):
-  # na bancada é `World.revive_ready?/1`, no jogo é o piso do resgate lido do
-  # caderninho. Um F4 que o executor engole em silêncio quebrava a corrente
-  # inteira — o carimbo `:reset_revive` era feito, `one_revive_per_stun?`
-  # trancava, e o próximo controle nunca vinha. `nil` (ninguém respondeu) cai
-  # pro piso do resgate contado do último pedido.
-  defp revive_acceptable?(t) do
-    case Map.get(t.s, :revive_ready?) do
-      nil -> elapsed?(t, :reset_revive, t.config.rescue_floor_ms)
-      ready? -> ready?
     end
   end
 

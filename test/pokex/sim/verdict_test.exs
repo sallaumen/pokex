@@ -222,16 +222,28 @@ defmodule Pokex.Sim.VerdictTest do
       refute cego.cumpriu?
     end
 
-    test "stun_sempre: pior trecho até 1s cumpre, acima quebra" do
-      base = %{bosses_born: 3, boss_awake_max_ms: 800}
+    # A régua é a física do combo (30/08): stun de 3s como prefixo + ciclo de
+    # segurança de 5s deixam ~2s de chefe acordado POR CICLO, por construção.
+    # O que a promessa acusa é o ciclo PERDIDO: acordado além de 3s.
+    test "stun_sempre: até uma janela estrutural (3s) cumpre, acima quebra" do
+      base = %{bosses_born: 3, boss_awake_max_ms: 2_400}
       [ok] = Verdict.judge(report(%{metrics: base}), [:stun_sempre])
       assert ok.cumpriu?
 
       [quebrou] =
-        Verdict.judge(report(%{metrics: %{base | boss_awake_max_ms: 1_400}}), [:stun_sempre])
+        Verdict.judge(report(%{metrics: %{base | boss_awake_max_ms: 3_400}}), [:stun_sempre])
 
       refute quebrou.cumpriu?
-      assert quebrou.porque =~ "morte na certa"
+      assert quebrou.porque =~ "um ciclo do combo se perdeu"
+    end
+
+    test "aguenta: metade da vida é o corte entre janela e espiral" do
+      [ok] = Verdict.judge(report(%{metrics: %{min_hp: 70}}), [:aguenta])
+      assert ok.cumpriu?
+
+      [espiral] = Verdict.judge(report(%{metrics: %{min_hp: 40}}), [:aguenta])
+      refute espiral.cumpriu?
+      assert espiral.porque =~ "cascatearam"
     end
 
     test "stun_sempre sem chefe nenhum é promessa não exercida — quebra" do

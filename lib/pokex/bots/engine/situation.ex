@@ -86,7 +86,6 @@ defmodule Pokex.Bots.Engine.Situation do
           worth_fighting?: boolean,
           heavy?: boolean,
           boss_tiles: non_neg_integer | nil,
-          revive_ready?: boolean | nil,
           boss_asleep_left_ms: non_neg_integer | nil,
           growing?: boolean,
           stable_since: integer,
@@ -143,10 +142,6 @@ defmodule Pokex.Bots.Engine.Situation do
       # sabe — e enquanto não estiver ligado aqui, nil deixa o stun sair na
       # hora, que é o comportamento de antes.
       boss_tiles: Map.get(inputs, :boss_tiles),
-      # O JOGO ACEITARIA UM F4 AGORA? nil = ninguém respondeu (o jogo real,
-      # por enquanto); a bancada responde com o piso do mundo. É o que impede
-      # a postura de chefe de pedir um revive que o executor vai engolir.
-      revive_ready?: Map.get(inputs, :revive_ready?),
       # QUANTO FALTA DO SONO DO CHEFE (ms) — 0 acordado, nil sem testemunha.
       # O carimbo do cérebro diz o que ele MANDOU; isto diz o que o CHEFE
       # sentiu — e a diferença é um stun que pegou o vento (pokémon na bola,

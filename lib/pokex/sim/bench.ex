@@ -559,7 +559,6 @@ defmodule Pokex.Sim.Bench do
       # A DISTÂNCIA DO CHEFE, respondida pelo mundo — o papel que o CrowdScan
       # faz no jogo. Do POKÉMON, não do personagem: o stun sai dele.
       boss_tiles: World.boss_tiles(world),
-      revive_ready?: World.revive_ready?(world),
       boss_asleep_left_ms: World.boss_asleep_left_ms(world),
       prev: previous
     }

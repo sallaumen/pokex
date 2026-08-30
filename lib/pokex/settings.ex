@@ -636,9 +636,11 @@ defmodule Pokex.Settings do
     # dentro de UM `Body.perform`, colado com `rescue_step_ms` — 40ms. Quem
     # come a espera aqui é só a confirmação.)
     #
-    # 1500 garante 600ms de espera real depois da confirmação mais lenta
-    # possível, que é o que ele pediu ver.
-    rescue_stun_settle_ms: 1_500,
+    # 1500 garantia 600ms depois da confirmação mais lenta — e em 30/08 ele
+    # ainda viu animação de skill sendo engolida pelo recolhimento: "temos que
+    # garantir que deixamos as skills ocorrerem como devem". 2000 é o número
+    # dele.
+    rescue_stun_settle_ms: 2_000,
     # …E A OUTRA METADE DA JANELA: quanto o pokémon demora pra voltar a
     # conjurar DEPOIS do revive. O `settle` acima é a espera antes de tirá-lo
     # de campo; esta é a espera até ele poder soltar skill de novo.
@@ -1507,11 +1509,11 @@ defmodule Pokex.Settings do
     # skill de controle". A pilha está dormindo, então o campo vazio não custa
     # nada — e o revive devolve o controle junto com o resto da barra.
     engine_stun_window_ms: 5_000,
-    # QUANTO O CONTROLE DELE SEGURA um bicho dormindo — a outra metade do
-    # relógio do chefe, medível com cronômetro no jogo. A postura de chefe
-    # re-stuna com 1s de folga antes deste prazo vencer ("1 segundo sem stun
-    # no campo quer dizer que eu morri", 29/08).
-    engine_stun_hold_ms: 8_000,
+    # QUANTO O CONTROLE DELE SEGURA um bicho dormindo — MEDIDO POR ELE
+    # (30/08): "o stun dura 3 segundos". É a régua do sono no fallback sem
+    # testemunha da postura de chefe; o ciclo em si é dirigido pela barra
+    # gasta, porque o stun é o PREFIXO do revive, nunca um agendamento.
+    engine_stun_hold_ms: 3_000,
     # OS NOMES DOS CHEFES, separados por vírgula ("Chefe, Boss X"). Vazio =
     # nenhum chefe: a postura de chefe só liga quando uma linha da janela de
     # batalha bate com um destes nomes (caso-insensível). É o que faz o

@@ -8,7 +8,11 @@ defmodule Pokex.Rig do
   @type region :: {integer, integer, integer, integer}
 
   @callback press(String.t()) :: :ok | {:error, term}
-  @callback press_many([String.t()], keyword) :: :ok | {:error, term}
+  # `opts[:halt?]` (0-arity fun) é a CERCA da rajada: checada antes de CADA
+  # tecla, verdadeira = as restantes não saem e a resposta é `{:halted, saíram}`.
+  # Uma tecla nunca é cancelada no meio — a cerca só decide a PRÓXIMA.
+  @callback press_many([String.t()], keyword) ::
+              :ok | {:halted, [String.t()]} | {:error, term}
   @callback key_down(String.t()) :: :ok | {:error, term}
   @callback key_up(String.t()) :: :ok | {:error, term}
   # Expected time for a hold/release command to LAND in the game — consumers

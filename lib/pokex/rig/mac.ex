@@ -77,19 +77,51 @@ defmodule Pokex.Rig.Mac do
   # First error wins: a key that reached NEITHER route is a real failure, and
   # combat's `{:key_burst_failed, _}` is the caller that should hear about it.
   defp do_press_many(combos, opts) do
-    combos
-    |> Commands.burst(opts)
-    |> Enum.reduce_while(:ok, fn
-      {:pause, ms}, :ok ->
-        Process.sleep(ms)
-        {:cont, :ok}
+    steps = Commands.burst(combos, opts)
 
-      {:press, combo}, :ok ->
-        case do_press(combo) do
-          :ok -> {:cont, :ok}
-          error -> {:halt, error}
-        end
+    case walk_burst(steps, Keyword.get(opts, :halt?), &do_press/1) do
+      {:ok, _pressed} -> :ok
+      other -> other
+    end
+  end
+
+  # A CERCA DA CAUDA. Uma rajada leva (n-1) × gap pra sair da mão — ~1,5s com
+  # as quatro teclas dele — e cada dormida dessas é tempo em que o mundo muda
+  # embaixo da decisão que a despachou. Medido na noite de 30/08 (4h17): 325
+  # rajadas foram atravessadas por um F4 no MEIO, 237 teclas aterrissaram
+  # DEPOIS dele — quase todas com a tela já vazia, engolidas pela janela cega
+  # que o próprio revive abre. O portão da LARGADA (blackout do combate) nunca
+  # viu nada disso: ele só vota antes da primeira tecla.
+  #
+  # `halt?` é votada antes de CADA prensa, nunca no meio de uma — parar é
+  # sempre seguro (são taps, nada fica segurado). As teclas que não saíram
+  # voltam em `{:halted, saíram}` pra quem despachou acertar recibo e relato.
+  @doc false
+  def walk_burst(steps, halt?, press) do
+    steps
+    |> Enum.reduce_while({:ok, []}, fn
+      {:pause, ms}, acc ->
+        Process.sleep(ms)
+        {:cont, acc}
+
+      {:press, combo}, {:ok, pressed} ->
+        fenced_press(combo, pressed, halt?, press)
     end)
+    |> case do
+      {:ok, pressed} -> {:ok, Enum.reverse(pressed)}
+      other -> other
+    end
+  end
+
+  defp fenced_press(combo, pressed, halt?, press) do
+    if is_function(halt?, 0) and halt?.() do
+      {:halt, {:halted, Enum.reverse(pressed)}}
+    else
+      case press.(combo) do
+        :ok -> {:cont, {:ok, [combo | pressed]}}
+        error -> {:halt, error}
+      end
+    end
   end
 
   defp run_key(cmd) do

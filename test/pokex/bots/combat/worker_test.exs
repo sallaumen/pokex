@@ -967,4 +967,42 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       assert eventually(&skill_saiu?/0)
     end
   end
+
+  # A CAUDA DA RAJADA CEDE AO F4. O `blackout?/1` vota uma vez, na LARGADA — e
+  # uma rajada leva (n-1) × gap pra sair da mão. Na noite de 30/08 (4h17), 325
+  # rajadas foram atravessadas por um F4 no meio: 237 teclas aterrissaram
+  # DEPOIS dele, dentro da mesma janela cega que o portão da largada respeita,
+  # quase sempre com a tela já vazia. A cerca (`halt?` do `press_many`) é o
+  # mesmo veredito, votado antes de cada tecla.
+  describe "a cauda da rajada cede ao F4" do
+    @tag :tmp_dir
+    test "o F4 aterrissa no meio da rajada e a cauda para no ar", %{worker: worker} do
+      SettingsStash.stash!(rescue_blackout_ms: 5_000, skill_keys: ["1"])
+      ReviveLedger.reset()
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
+
+      # a rajada demora a sair da mão, como a dele demora — o Fake dorme o
+      # tempo todo ANTES de prensar, então o F4 abaixo aterrissa com folga
+      # antes da primeira tecla
+      Agent.update(Fake, &put_in(&1.script[:press_many_sleep_ms], 800))
+
+      abre_o_fogo(worker)
+
+      # a rajada LARGOU (o blackout da largada já votou que não havia revive)…
+      assert eventually(fn ->
+               match?(%{text: "teclas" <> _}, Worker.status(worker).last_action) or
+                 (world!(worker, battle_obs(enemies: [0, 1, 2])) && false)
+             end),
+             "nenhuma rajada largou"
+
+      # …e o F4 aterrissa enquanto ela ainda dorme o gap
+      ReviveLedger.landed()
+
+      assert eventually(fn -> logged?("segurei") end, 2_000),
+             "a cauda não cedeu ao F4: #{inspect(presses())}"
+
+      refute skill_saiu?(),
+             "uma skill aterrissou DEPOIS do F4, dentro da janela cega: #{inspect(presses())}"
+    end
+  end
 end

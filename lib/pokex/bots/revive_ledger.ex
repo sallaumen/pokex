@@ -73,6 +73,37 @@ defmodule Pokex.Bots.ReviveLedger do
     end
   end
 
+  @doc """
+  Carimba que o F4 de um combo SAIU DO TECLADO agora — o fim do resgate, não o
+  despacho dele.
+
+  A diferença é o settle: o combo é stun → espera de 1,5-2s → F4, e o `note/0`
+  (que serve o ESTOQUE) é feito no despacho. A janela cega pós-revive
+  (`rescue_blackout_ms`) contada do despacho fica DESLOCADA settle inteiro pra
+  trás: cobre o settle — quando o pokémon está em campo de propósito, podendo
+  bater — e descobre o 1º-2º segundo pós-F4, que é a janela real. A noite de
+  30/08 mediu o custo do deslocamento: 441 teclas "prontas" que o jogo ignorou,
+  320 delas no primeiro segundo depois do F4 — 46% de falha nas rajadas da
+  luta, cada uma comprando retentativa.
+  """
+  @spec landed() :: :ok
+  def landed do
+    ensure_table()
+    :ets.insert(@table, {:last_landed_at, System.monotonic_time(:millisecond)})
+    :ok
+  end
+
+  @doc "O F4 de um combo saiu nos últimos `window_ms`? A pergunta da janela cega."
+  @spec landed_within?(pos_integer, integer) :: boolean
+  def landed_within?(window_ms, now \\ System.monotonic_time(:millisecond)) do
+    ensure_table()
+
+    case :ets.lookup(@table, :last_landed_at) do
+      [{:last_landed_at, at}] -> now - at <= window_ms
+      [] -> false
+    end
+  end
+
   @doc "Quantos já saíram desde a última vez que ele digitou o estoque."
   @spec spent() :: non_neg_integer
   def spent do

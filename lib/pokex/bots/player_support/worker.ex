@@ -257,6 +257,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
           # acabou de devolver inteira — e a decisão que MAIS depende do relógio
           # é justamente a de gastar um revive pra zerar a barra.
           SkillClock.reset()
+          # …e AQUI, no fim do combo, é a hora que a janela cega conta: o F4
+          # saiu agora — o `note/0` do despacho antecede este instante pelo
+          # settle inteiro, e uma janela contada de lá mirava o lugar errado.
+          ReviveLedger.landed()
           broadcast_log(:macro, "🚑 revive despachado — as teclas saíram")
           %{state | last_action: %{text: "revive despachado", at: now()}}
 
@@ -280,6 +284,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # one: with nobody on the field, "as teclas não saíram" means the character
   # is standing there alone.
   def handle_info({:fallen_done, :ok}, state) do
+    # O caído também abre a janela cega: o pokémon volta agora e leva os
+    # mesmos ~2s até conjurar.
+    ReviveLedger.landed()
     broadcast_log(:macro, "💚 revive do caído despachado — ele volta pro campo")
     {:noreply, state}
   end

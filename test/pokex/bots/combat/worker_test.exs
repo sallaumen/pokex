@@ -919,7 +919,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     @tag :tmp_dir
     test "nenhuma skill sai enquanto o pokémon está voltando", %{worker: worker} do
       SettingsStash.stash!(rescue_blackout_ms: 5_000)
-      ReviveLedger.note()
+      ReviveLedger.landed()
 
       abre_o_fogo(worker)
 
@@ -927,10 +927,26 @@ defmodule Pokex.Bots.Combat.WorkerTest do
              "a rajada saiu dentro da janela em que o pokémon não está em campo"
     end
 
+    # A janela conta do F4 QUE SAIU, nunca do despacho do combo: o despacho
+    # antecede o F4 pelo settle inteiro (1,5-2s), e a janela contada de lá
+    # mirava o lugar errado — cobria o settle (pokémon em campo, tanqueando de
+    # propósito) e descobria o 1º segundo pós-F4, onde a noite de 30/08 mediu
+    # 320 das 441 teclas engolidas.
+    @tag :tmp_dir
+    test "o DESPACHO do combo não cala o combate — o settle é hora de bater", %{worker: worker} do
+      SettingsStash.stash!(rescue_blackout_ms: 5_000)
+      ReviveLedger.note()
+
+      abre_o_fogo(worker)
+
+      assert eventually(&skill_saiu?/0),
+             "o combate calou no settle — a janela está contando do despacho de novo"
+    end
+
     @tag :tmp_dir
     test "e volta a atacar assim que a janela fecha", %{worker: worker} do
       SettingsStash.stash!(rescue_blackout_ms: 0)
-      ReviveLedger.note()
+      ReviveLedger.landed()
 
       abre_o_fogo(worker)
 

@@ -571,11 +571,11 @@ defmodule Pokex.Sim.World do
 
   # A MEDIDA DA FRASE DELE: "1 segundo sem stun no campo quer dizer que eu
   # morri". O streak cresce enquanto existe chefe ACORDADO ADJACENTE à vítima
-  # — na distância em que a mordida sai (`chew/3` usa reach 1) —, zera quando
-  # todos dormem (ou morrem, ou se afastam), e o máximo fica no placar: é o
+  # — na distância em que a mordida sai (`chew/3` usa reach 1) — e o máximo fica no placar: é o
   # número que a promessa `stun_sempre` cobra. A CHEGADA e o chefe acordado a
   # dois tiles não contam de propósito: a morte da frase é a mordida, e a
-  # mordida é adjacente.
+  # mordida é adjacente. O streak zera quando cada chefe dorme, morre ou se
+  # afasta.
   defp watch_boss(world, dt_ms) do
     victim = if world.own.out?, do: world.own.pos, else: world.pos
 

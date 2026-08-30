@@ -229,6 +229,9 @@ defmodule Pokex.Sim.Bench do
       by_band: %{},
       violations: [],
       min_hp: nil,
+      bosses_born: 0,
+      bosses_dead: 0,
+      boss_awake_max_ms: 0,
       player_hp: 100,
       # POR ONDE ELE ANDOU — a pergunta que nenhuma métrica daqui respondia, e
       # a única que enxerga a queixa dele de 29/08: "ele vai para locais onde
@@ -353,7 +356,12 @@ defmodule Pokex.Sim.Bench do
       | kills: metrics.kills + (world.stats.killed - before.stats.killed),
         casts: metrics.casts + (world.stats.casts - before.stats.casts),
         reached: metrics.reached + (world.stats.reached - before.stats.reached),
-        vanished: metrics.vanished + (world.stats.vanished - before.stats.vanished)
+        vanished: metrics.vanished + (world.stats.vanished - before.stats.vanished),
+        # o placar do chefe vem inteiro do mundo — nascidos, mortos e o maior
+        # trecho com um chefe acordado em campo (a régua do `stun_sempre`)
+        bosses_born: world.stats.bosses_born,
+        bosses_dead: world.stats.bosses_dead,
+        boss_awake_max_ms: world.stats.boss_awake_max_ms
     }
   end
 
@@ -548,6 +556,11 @@ defmodule Pokex.Sim.Bench do
       # como acontecer numa simulação. `nil` continua sendo o orçamento
       # desligado, que é o mundo de todo cenário que não pediu um.
       revive_left: World.revive_left(world),
+      # A DISTÂNCIA DO CHEFE, respondida pelo mundo — o papel que o CrowdScan
+      # faz no jogo. Do POKÉMON, não do personagem: o stun sai dele.
+      boss_tiles: World.boss_tiles(world),
+      revive_ready?: World.revive_ready?(world),
+      boss_asleep_left_ms: World.boss_asleep_left_ms(world),
       prev: previous
     }
   end

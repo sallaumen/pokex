@@ -20,7 +20,7 @@ defmodule Pokex.Sim.ScenarioTest do
     groups = Scenario.all() |> Enum.map(& &1.group) |> Enum.uniq() |> Enum.sort()
 
     assert Enum.sort(Scenario.experiment_groups()) == [:blind, :hands, :health, :ruler]
-    assert groups == [:blind, :hands, :health, :hunt, :mundo, :ruler]
+    assert groups == [:blind, :chefe, :hands, :health, :hunt, :mundo, :ruler]
   end
 
   # A ORDEM DA TELA tem que conhecer todo grupo que existe: um grupo fora dela

@@ -40,11 +40,22 @@ defmodule Pokex.Sim.Verdict do
     {:revive_no_prazo, "controle antes do revive",
      "nenhum revive saiu com o controle pronto na mão e sem usar (R10)"},
     {:sem_revive, "sem gastar revive", "a corrida inteira sem precisar de um revive"},
+    {:sem_dano, "sem tomar dano", "o pokémon terminou sem levar UMA mordida"},
+    {:stun_sempre, "chefe sempre dormindo",
+     "nenhum chefe passou 1 segundo acordado em campo — a régua da morte certa"},
     {:limpa, "limpa a tela", "terminou sem monstro de pé"}
   ]
 
   @type promessa ::
-          :nao_cai | :mata | :anda | :revive_util | :revive_no_prazo | :sem_revive | :limpa
+          :nao_cai
+          | :mata
+          | :anda
+          | :revive_util
+          | :revive_no_prazo
+          | :sem_revive
+          | :sem_dano
+          | :stun_sempre
+          | :limpa
   @type t :: %{
           promessa: promessa,
           label: String.t(),
@@ -119,6 +130,28 @@ defmodule Pokex.Sim.Verdict do
   end
 
   defp check(:anda, _sem_corrida), do: {true, "a corrida não durou o bastante pra dizer"}
+
+  # A régua do combo dele contra chefe (29/08): "ou otimizamos para realmente
+  # não termos abertura a falha, ou 1 segundo sem stun no campo quer dizer que
+  # eu morri". `sem_dano` é o RESULTADO — nem uma mordida; `stun_sempre` é o
+  # MECANISMO — nenhum chefe acordado por 1s. Cobrar os dois separa "sorte"
+  # de "combo certo": dá pra não tomar dano fugindo, e dá pra manter o stun e
+  # morrer de outra coisa.
+  defp check(:sem_dano, %{metrics: %{min_hp: 100}}), do: {true, "nem uma mordida"}
+
+  defp check(:sem_dano, %{metrics: %{min_hp: hp}}) when is_integer(hp),
+    do: {false, "a vida chegou a #{hp}%"}
+
+  defp check(:sem_dano, _sem_leitura), do: {false, "a vida nunca foi lida — não dá pra afirmar"}
+
+  defp check(:stun_sempre, %{metrics: %{bosses_born: 0}}),
+    do: {false, "nenhum chefe nasceu — a promessa não foi exercida"}
+
+  defp check(:stun_sempre, %{metrics: %{boss_awake_max_ms: pior}}) when pior <= 1_000,
+    do: {true, "pior trecho acordado: #{pior}ms"}
+
+  defp check(:stun_sempre, %{metrics: %{boss_awake_max_ms: pior}}),
+    do: {false, "um chefe ficou #{pior}ms acordado em campo — morte na certa"}
 
   # `spent?` é tri-estado: `false` é a acusação (havia tecla de dano pronta e o
   # revive saiu assim mesmo), `nil` é a barra ilegível — e num cenário cego

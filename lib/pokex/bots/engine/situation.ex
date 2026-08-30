@@ -84,6 +84,10 @@ defmodule Pokex.Bots.Engine.Situation do
           named: [map],
           own_row_seen?: boolean | :unnamed | :by_hp | nil,
           worth_fighting?: boolean,
+          heavy?: boolean,
+          boss_tiles: non_neg_integer | nil,
+          revive_ready?: boolean | nil,
+          boss_asleep_left_ms: non_neg_integer | nil,
           growing?: boolean,
           stable_since: integer,
           stable_for_ms: non_neg_integer,
@@ -127,7 +131,29 @@ defmodule Pokex.Bots.Engine.Situation do
       enemies: battle.enemies,
       named: battle.named,
       own_row_seen?: battle.own_row_seen?,
-      worth_fighting?: worth_fighting?(battle.enemies, config),
+      # O CHEFE, por NOME: alguma linha inimiga da janela bate com a lista
+      # `boss_names` do /config. É o gatilho da postura de chefe do cérebro —
+      # e passa por cima da régua, porque um chefe sozinho vale a luta que
+      # cinco bichos comuns valem.
+      heavy?: heavy?(battle.named, config),
+      # A QUE DISTÂNCIA O CHEFE ESTÁ, em tiles — nil quando ninguém mede. O
+      # stun tem raio: apertá-lo com o chefe a 6 tiles é dormir o vento
+      # (medido na bancada: o primeiro stun saía a 6 e o chefe chegava
+      # acordado). No simulador o mundo responde; no jogo, o CrowdScan é quem
+      # sabe — e enquanto não estiver ligado aqui, nil deixa o stun sair na
+      # hora, que é o comportamento de antes.
+      boss_tiles: Map.get(inputs, :boss_tiles),
+      # O JOGO ACEITARIA UM F4 AGORA? nil = ninguém respondeu (o jogo real,
+      # por enquanto); a bancada responde com o piso do mundo. É o que impede
+      # a postura de chefe de pedir um revive que o executor vai engolir.
+      revive_ready?: Map.get(inputs, :revive_ready?),
+      # QUANTO FALTA DO SONO DO CHEFE (ms) — 0 acordado, nil sem testemunha.
+      # O carimbo do cérebro diz o que ele MANDOU; isto diz o que o CHEFE
+      # sentiu — e a diferença é um stun que pegou o vento (pokémon na bola,
+      # alvo fora do raio, lag). Com o canal, a postura de chefe mede o ciclo
+      # pelo sono real e reaperta de graça um stun que não pegou.
+      boss_asleep_left_ms: Map.get(inputs, :boss_asleep_left_ms),
+      worth_fighting?: worth_fighting?(battle.enemies, config) or heavy?(battle.named, config),
       growing?: growing?,
       stable_since: stable_since,
       stable_for_ms: now - stable_since,
@@ -313,6 +339,25 @@ defmodule Pokex.Bots.Engine.Situation do
     do: enemies >= Map.fetch!(config, :engage_from)
 
   defp worth_fighting?(_unknown, _config), do: false
+
+  # Sem nome legível não há chefe: a comparação é caso-insensível, e a lista
+  # aceita a forma do /config ("Chefe, Boss X") e a de um cenário (["chefe"]).
+  defp heavy?(named, config) do
+    case boss_names(Map.get(config, :boss_names)) do
+      [] -> false
+      names -> Enum.any?(named, &(String.downcase(Map.get(&1, :name) || "") in names))
+    end
+  end
+
+  defp boss_names(nil), do: []
+  defp boss_names(names) when is_list(names), do: Enum.map(names, &String.downcase/1)
+
+  defp boss_names(names) when is_binary(names) do
+    names
+    |> String.split(",", trim: true)
+    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
+    |> Enum.reject(&(&1 == ""))
+  end
 
   # O REVIVE VALE MAIS QUANDO OS COOLDOWNS JÁ FORAM (R3), então a foto precisa
   # saber dizer que foram. Sem leitura da barra, ou sem tecla classificada, a

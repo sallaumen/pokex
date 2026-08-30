@@ -1507,6 +1507,21 @@ defmodule Pokex.Settings do
     # skill de controle". A pilha está dormindo, então o campo vazio não custa
     # nada — e o revive devolve o controle junto com o resto da barra.
     engine_stun_window_ms: 5_000,
+    # QUANTO O CONTROLE DELE SEGURA um bicho dormindo — a outra metade do
+    # relógio do chefe, medível com cronômetro no jogo. A postura de chefe
+    # re-stuna com 1s de folga antes deste prazo vencer ("1 segundo sem stun
+    # no campo quer dizer que eu morri", 29/08).
+    engine_stun_hold_ms: 8_000,
+    # OS NOMES DOS CHEFES, separados por vírgula ("Chefe, Boss X"). Vazio =
+    # nenhum chefe: a postura de chefe só liga quando uma linha da janela de
+    # batalha bate com um destes nomes (caso-insensível). É o que faz o
+    # cérebro largar a régua, nunca kitar, e rodar o combo
+    # skills → stun → revive dele.
+    engine_boss_names: "",
+    # ATÉ QUANTOS TILES o controle dele alcança — o gate do stun de chefe:
+    # apertar com o alvo além disso é dormir o vento. Um a menos que o raio
+    # real da skill, de folga.
+    engine_stun_reach_tiles: 3,
     # QUANTO TEMPO um reset desarmado fica fora do jogo antes de tentar de
     # novo. O desarme ("paguei um revive e a barra não voltou") era um bool
     # sem volta: um julgamento de um tique virava prisão perpétua, e a corrida
@@ -1765,6 +1780,8 @@ defmodule Pokex.Settings do
     engine_crowd_from: 1..20,
     engine_spent_keys_left: 0..9,
     engine_stun_window_ms: 500..60_000,
+    engine_stun_hold_ms: 1_000..120_000,
+    engine_stun_reach_tiles: 1..10,
     engine_reset_rearm_ms: 10_000..3_600_000,
     engine_kite_max_ms: 0..600_000,
     engine_vitals_ms: 100..60_000,

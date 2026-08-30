@@ -254,6 +254,20 @@ defmodule Pokex.Sim.World do
     # Espelha `Settings.revive_stock` de propósito, incluindo o zero: quem não
     # contou o bolso não é obrigado a contar.
     revive_stock: nil,
+    # O CHEFE. "No level mais alto tem monstros que normalmente tenho que usar
+    # todas as skills, finalizar com stun e depois usar o revive pra repetir
+    # esse combo, deixando o boss sempre stunado — eles geralmente têm a vida
+    # 10x maior e um ataque 10x maior também" (29/08). Nenhum destes números é
+    # medido: os multiplicadores são a régua DELE (5x ou 10x, escolhíveis), e o
+    # intervalo é o do mapa dele.
+    #
+    # `nil` desliga — nenhum cenário antigo ganha um chefe que não pediu. O
+    # nascimento tem jitter de ±25% da semente, porque "de tempos em tempos"
+    # não é um metrônomo.
+    boss_every_ms: nil,
+    boss_hp_mult: 10,
+    boss_atk_mult: 10,
+    boss_name: "Chefe",
     # How long a cleared nest takes to be worth walking past again. `nil` means
     # never, which is what a SCENARIO wants: a controlled experiment must not
     # have monsters arriving from off-stage. A HUNT wants a number — no rate
@@ -288,7 +302,22 @@ defmodule Pokex.Sim.World do
             # skill: "quanta gente cada tiro pega". A cast that reaches nobody
             # is the whole difference between a bar on cooldown and damage done,
             # and nothing was counting it.
-            stats: %{killed: 0, vanished: 0, casts: 0, reached: 0},
+            stats: %{
+              killed: 0,
+              vanished: 0,
+              casts: 0,
+              reached: 0,
+              # o placar do chefe: nascidos, mortos, e o MAIOR trecho contínuo
+              # com um chefe ACORDADO em campo — a medida da frase "1 segundo
+              # sem stun no campo quer dizer que eu morri"
+              bosses_born: 0,
+              bosses_dead: 0,
+              boss_awake_max_ms: 0
+            },
+            # o streak corrente da exposição acordada, e a hora do próximo
+            # nascimento (nil = ainda não sorteada)
+            boss_awake_streak_ms: 0,
+            next_boss_at: nil,
             # QUANDO O CONTROLE SAIU. A regra dele é uma janela — "SEMPRE usar o
             # revive dentro da range de 5 segundos no máximo depois de usar a
             # skill de controle" — e até 26/08 nada aqui registrava a ponta de
@@ -478,6 +507,101 @@ defmodule Pokex.Sim.World do
   #
   # `nil` (the default) keeps every SCENARIO a controlled experiment: monsters
   # arriving from off-stage would ruin the one question it exists to ask.
+  # --- o chefe -----------------------------------------------------------
+
+  # "Bosses para nascer aleatoriamente de tempos em tempos" (29/08). O
+  # primeiro sorteio acontece no primeiro tique (o campo `next_boss_at` nasce
+  # nil), e cada nascimento sorteia o próximo — intervalo ±25%, da MESMA
+  # semente que governa o resto do mundo.
+  defp maybe_boss(%{knobs: %{boss_every_ms: nil}} = world), do: world
+
+  defp maybe_boss(%{next_boss_at: nil} = world) do
+    {at, rand} = jitter(world.knobs.boss_every_ms, world.rand)
+    %{world | next_boss_at: world.clock + at, rand: rand}
+  end
+
+  defp maybe_boss(world) do
+    if world.clock >= world.next_boss_at do
+      {at, rand} = jitter(world.knobs.boss_every_ms, world.rand)
+
+      %{world | rand: rand}
+      |> spawn_boss()
+      |> Map.put(:next_boss_at, world.clock + at)
+    else
+      world
+    end
+  end
+
+  defp jitter(base, rand) do
+    {roll, rand} = :rand.uniform_s(div(base, 2) + 1, rand)
+    {div(base * 3, 4) + roll - 1, rand}
+  end
+
+  # Nasce na BORDA da tela, do lado pra onde ele olha: um chefe que brota
+  # embaixo do personagem não dá nem o primeiro segundo de reação, e um fora
+  # da tela não é "nasceu" pra leitura nenhuma.
+  defp spawn_boss(world) do
+    {px, py, pz} = world.pos
+    {pos, rand} = free_spot(%{world | knobs: %{world.knobs | nest_radius: 2}}, {px + 5, py, pz})
+
+    boss = %{
+      id: world.next_id,
+      name: world.knobs.boss_name,
+      nest: :boss,
+      pos: pos,
+      hp: world.knobs.mob_hp * world.knobs.boss_hp_mult,
+      max_hp: world.knobs.mob_hp * world.knobs.boss_hp_mult,
+      spawn: pos,
+      woke?: true,
+      walk_debt_ms: 0,
+      bite_debt_ms: 0,
+      asleep_until: 0,
+      boss?: true,
+      bite_mult: world.knobs.boss_atk_mult
+    }
+
+    %{
+      world
+      | mobs: world.mobs ++ [boss],
+        rand: rand,
+        next_id: world.next_id + 1,
+        stats: bump(world.stats, :bosses_born, 1)
+    }
+  end
+
+  # A MEDIDA DA FRASE DELE: "1 segundo sem stun no campo quer dizer que eu
+  # morri". O streak cresce enquanto existe chefe ACORDADO ADJACENTE à vítima
+  # — na distância em que a mordida sai (`chew/3` usa reach 1) — e o máximo fica no placar: é o
+  # número que a promessa `stun_sempre` cobra. A CHEGADA e o chefe acordado a
+  # dois tiles não contam de propósito: a morte da frase é a mordida, e a
+  # mordida é adjacente. O streak zera quando cada chefe dorme, morre ou se
+  # afasta.
+  defp watch_boss(world, dt_ms) do
+    victim = if world.own.out?, do: world.own.pos, else: world.pos
+
+    awake? =
+      Enum.any?(
+        world.mobs,
+        &(Map.get(&1, :boss?, false) and not asleep?(&1, world) and in_reach?(&1, victim, 1))
+      )
+
+    streak = if awake?, do: world.boss_awake_streak_ms + dt_ms, else: 0
+
+    if Map.get(world.knobs, :trace_boss, false) and awake? and rem(streak, 1000) < dt_ms do
+      IO.puts(
+        "AWAKE #{streak}ms t=#{world.clock} dist=#{inspect(boss_tiles(world))} " <>
+          "out=#{world.own.out?} hp=#{world.own.hp_pct} rr=#{world.rescue_ready_at} " <>
+          "ctl=#{inspect(Enum.map(world.keys, fn {k, v} -> {k, max(v.ready_at - world.clock, 0)} end))}"
+      )
+    end
+
+    %{
+      world
+      | boss_awake_streak_ms: streak,
+        stats: %{world.stats | boss_awake_max_ms: max(world.stats.boss_awake_max_ms, streak)}
+    }
+  end
+
   defp repopulate(%{knobs: %{respawn_ms: nil}} = world), do: world
 
   defp repopulate(world) do
@@ -641,9 +765,11 @@ defmodule Pokex.Sim.World do
     |> follow(dt_ms)
     |> move_mobs(dt_ms)
     |> bite(dt_ms)
+    |> watch_boss(dt_ms)
     |> Map.update!(:clock, &(&1 + dt_ms))
     |> land_revive()
     |> repopulate()
+    |> maybe_boss()
   end
 
   @doc """
@@ -893,8 +1019,12 @@ defmodule Pokex.Sim.World do
   # THE CONTROL KEY, reserved from every ordinary fight by `Strategy.reserved/1`
   # for exactly one moment: the prefix of the rescue. It buys the seconds the
   # revive needs — the pile is asleep while the field is empty.
-  defp damage(world, _key, :crowd),
-    do: %{sleep(world, world.knobs.stun_radius) | stunned_at: world.clock}
+  defp damage(world, _key, :crowd) do
+    if Map.get(world.knobs, :trace_boss, false),
+      do: IO.puts("STUN t=#{world.clock} dist=#{inspect(boss_tiles(world))}")
+
+    %{sleep(world, world.knobs.stun_radius) | stunned_at: world.clock}
+  end
 
   # THE FIRST RUNG of the ladder his support has always had and this world never
   # modelled: a healing skill is free, instant, and works mid-fight. Only the
@@ -1010,6 +1140,38 @@ defmodule Pokex.Sim.World do
     %{world | mobs: mobs}
   end
 
+  @doc """
+  Quantos tiles até o chefe mais perto, medidos do pokémon (é dele que o stun
+  sai) — nil sem chefe na tela. É o que a bancada entrega ao cérebro no lugar
+  do CrowdScan do jogo.
+  """
+  @spec boss_tiles(t) :: non_neg_integer | nil
+  def boss_tiles(world) do
+    origem = if world.own.out?, do: world.own.pos, else: world.pos
+
+    world.mobs
+    |> Enum.filter(&Map.get(&1, :boss?, false))
+    |> Enum.map(fn %{pos: {mx, my, _}} ->
+      {ox, oy, _} = origem
+      max(abs(mx - ox), abs(my - oy))
+    end)
+    |> Enum.min(fn -> nil end)
+  end
+
+  @doc """
+  Quanto falta do sono do chefe mais perto, em ms — 0 acordado, nil sem chefe.
+  É a testemunha que a postura de chefe pede: "o chefe está dormindo, e por
+  quanto tempo ainda?" respondida pelo MUNDO, não pelo carimbo de um aperto
+  que pode ter pego o vento.
+  """
+  @spec boss_asleep_left_ms(t) :: non_neg_integer | nil
+  def boss_asleep_left_ms(world) do
+    world.mobs
+    |> Enum.filter(&Map.get(&1, :boss?, false))
+    |> Enum.map(&max(Map.get(&1, :asleep_until, 0) - world.clock, 0))
+    |> Enum.min(fn -> nil end)
+  end
+
   @doc "Is this creature asleep right now?"
   @spec asleep?(map, t) :: boolean
   def asleep?(mob, %__MODULE__{} = world), do: world.clock < Map.get(mob, :asleep_until, 0)
@@ -1032,6 +1194,7 @@ defmodule Pokex.Sim.World do
     stats =
       world.stats
       |> bump(:killed, length(dead))
+      |> bump(:bosses_dead, Enum.count(dead, &Map.get(&1, :boss?, false)))
       |> bump(:casts, 1)
       |> bump(:reached, reached)
 
@@ -1483,11 +1646,13 @@ defmodule Pokex.Sim.World do
     {mobs, on_pet, on_player} =
       Enum.reduce(world.mobs, {[], 0, 0}, fn mob, {kept, pet, player} ->
         {mob, bites} = chew(mob, world, dt_ms)
+        # a mordida do chefe pesa o multiplicador: "um ataque 10x maior também"
+        weight = bites * Map.get(mob, :bite_mult, 1)
 
         cond do
           bites == 0 -> {kept ++ [mob], pet, player}
-          world.own.out? -> {kept ++ [mob], pet + bites, player}
-          true -> {kept ++ [mob], pet, player + bites}
+          world.own.out? -> {kept ++ [mob], pet + weight, player}
+          true -> {kept ++ [mob], pet, player + weight}
         end
       end)
 

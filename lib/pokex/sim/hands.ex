@@ -334,7 +334,16 @@ defmodule Pokex.Sim.Hands do
   # And no stun without a control key ready — every failure falls toward SAVING.
   defp stun_first?(world, config) do
     Map.get(config, :rescue_stun_first, false) and world.own.out? and
-      ready_crowd_keys(world) != []
+      ready_crowd_keys(world) != [] and not stunned_recently?(world, config)
+  end
+
+  # O #453 DA BANCADA: o resgate de verdade reconhece o stun que o cérebro
+  # acabou de mandar (via carimbo) e não re-stuna um bolo já dormido. Sem este
+  # espelho, cada revive da postura de chefe queimava um SEGUNDO controle —
+  # 45s de cooldown por um sono que já existia.
+  defp stunned_recently?(world, config) do
+    is_integer(world.stunned_at) and
+      world.clock - world.stunned_at <= Map.get(config, :stun_window_ms, 5_000)
   end
 
   defp stun(world, hands, config) do

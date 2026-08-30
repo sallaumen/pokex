@@ -236,6 +236,12 @@ defmodule Pokex.Sim.World do
     # Ambos INVENTADOS, e dos mais dignos de um cronômetro: quanto tempo a
     # skill de controle dele derruba a pilha, e a que distância.
     stun_ms: 4_000,
+    # …e a PEGADA: o sono não cai no aperto — MEDIDO POR ELE (30/08): "o stun
+    # dura 5s, começando a contar depois dos 2s". Durante a pegada o bicho
+    # continua acordado e mordendo; é exatamente o que o settle do resgate
+    # espera antes de recolher. 0 = comportamento antigo (sono instantâneo),
+    # e nenhum cenário velho muda sem pedir.
+    stun_onset_ms: 0,
     stun_radius: 4,
     revive_settle_ms: 500,
     revive_cooldown_ms: 60_000,
@@ -555,6 +561,7 @@ defmodule Pokex.Sim.World do
       woke?: true,
       walk_debt_ms: 0,
       bite_debt_ms: 0,
+      asleep_from: 0,
       asleep_until: 0,
       boss?: true,
       bite_mult: world.knobs.boss_atk_mult
@@ -714,7 +721,9 @@ defmodule Pokex.Sim.World do
         walk_debt_ms: 0,
         bite_debt_ms: 0,
         # Dorme até: uma pilha dormindo não anda e não morde, que é o que faz o
-        # campo vazio do revive sair de graça.
+        # campo vazio do revive sair de graça. `asleep_from` é a PEGADA: o
+        # sono agendado que ainda não caiu.
+        asleep_from: 0,
         asleep_until: 0
       }
 
@@ -1128,16 +1137,25 @@ defmodule Pokex.Sim.World do
   # trailing two tiles behind, this alone moves where a pile has to be standing
   # for an area skill to be worth pressing.
   defp sleep(world, radius) do
-    until = world.clock + world.knobs.stun_ms
+    from = world.clock + world.knobs.stun_onset_ms
+    until = from + world.knobs.stun_ms
 
     mobs =
       Enum.map(world.mobs, fn mob ->
         if in_reach?(mob, world.own.pos, radius),
-          do: %{mob | asleep_until: max(mob.asleep_until, until), bite_debt_ms: 0},
+          do: lull(mob, world, from, until),
           else: mob
       end)
 
     %{world | mobs: mobs}
+  end
+
+  # A emenda: um sono novo agendado NUNCA encurta o que já vale — o
+  # `asleep_from` só anda pra frente se o bicho está acordado agora.
+  defp lull(mob, world, from, until) do
+    novo_from = if asleep?(mob, world), do: Map.get(mob, :asleep_from, 0), else: from
+
+    %{mob | asleep_from: novo_from, asleep_until: max(mob.asleep_until, until), bite_debt_ms: 0}
   end
 
   @doc """
@@ -1172,9 +1190,16 @@ defmodule Pokex.Sim.World do
     |> Enum.min(fn -> nil end)
   end
 
-  @doc "Is this creature asleep right now?"
+  # A COBERTURA restante conta o sono agendado (a pegada em voo) de propósito:
+  # a pergunta do cérebro é "preciso apertar de novo?", e um stun cuja pegada
+  # ainda vai cair já é resposta.
+
+  @doc "Is this creature asleep right now? Durante a PEGADA ainda não está."
   @spec asleep?(map, t) :: boolean
-  def asleep?(mob, %__MODULE__{} = world), do: world.clock < Map.get(mob, :asleep_until, 0)
+  def asleep?(mob, %__MODULE__{} = world) do
+    Map.get(mob, :asleep_from, 0) <= world.clock and
+      world.clock < Map.get(mob, :asleep_until, 0)
+  end
 
   defp hit(world, radius, {lo, hi}) do
     {lo, hi} = boosted(world, {lo, hi})

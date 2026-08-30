@@ -1816,11 +1816,20 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "controle antes do sono acabar"
     end
 
-    test "com a barra AINDA rendendo, nada de stun — todas as skills primeiro" do
-      {_logic, orders} = chefe_step(Logic.new(), com_chefe(%{spent?: false}), 1_000)
+    test "com a barra rendendo e o sono de sobra, nada de stun — só dano" do
+      folgado = com_chefe(%{spent?: false, boss_asleep_left_ms: 5_000})
+      {_logic, orders} = chefe_step(Logic.new(), folgado, 1_000)
 
       refute "1" in orders.opening
       refute orders.revive == :now
+    end
+
+    # chefe ACORDADO é emenda vencida: o stun sai mesmo com a barra rendendo —
+    # o sono protege o pokémon, a barra espera
+    test "chefe acordado: o stun sai mesmo com a barra rendendo" do
+      {_logic, orders} = chefe_step(Logic.new(), com_chefe(%{spent?: false}), 1_000)
+
+      assert "1" in orders.opening
     end
 
     test "chefe LONGE não ganha stun — dormir o vento é chegar acordado" do
@@ -1862,18 +1871,29 @@ defmodule Pokex.Bots.Engine.LogicTest do
       refute segundo.revive == :now
     end
 
-    test "o par respeita o piso de segurança de 5s entre F4s" do
+    # O piso de 5s é do F4, NUNCA do stun: o sono protege o pokémon e não
+    # espera relógio de segurança (medido na bancada: esperar custava 2,2s de
+    # chefe mordendo com o controle pronto).
+    test "o F4 respeita o piso de 5s — e o stun não espera por ele" do
       {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
-      dormindo = com_chefe(%{boss_asleep_left_ms: 2_500, ready_keys: []})
-      {logic, _} = chefe_step(logic, dormindo, 1_400)
+      dormindo = com_chefe(%{boss_asleep_left_ms: 4_000, ready_keys: []})
+      {logic, primeiro} = chefe_step(logic, dormindo, 1_400)
+      assert primeiro.revive == :now
 
-      # novo stun bem depois, mas a MENOS de 5s do último F4: o par segura
-      {logic, cedo} = chefe_step(logic, com_chefe(), 4_000)
-      refute "1" in cedo.opening, "stun sem F4 que caiba no piso é stun no vento"
+      # o chefe acorda cedo: o STUN sai já, mesmo a menos de 5s do último F4…
+      {logic, stun2} = chefe_step(logic, com_chefe(), 4_000)
+      assert "1" in stun2.opening, "o sono esperou o piso do item"
 
-      # …e passado o piso, o par sai
-      {_logic, ok} = chefe_step(logic, com_chefe(), 6_500)
-      assert "1" in ok.opening
+      # …e o F4 desta janela espera o piso vencer
+      {logic, cedo} =
+        chefe_step(logic, com_chefe(%{boss_asleep_left_ms: 6_000, ready_keys: []}), 4_400)
+
+      refute cedo.revive == :now
+
+      {_logic, ok} =
+        chefe_step(logic, com_chefe(%{boss_asleep_left_ms: 5_000, ready_keys: []}), 6_600)
+
+      assert ok.revive == :now
     end
 
     test "chefe acordado com o controle no chão: o F4 compra o controle de volta" do

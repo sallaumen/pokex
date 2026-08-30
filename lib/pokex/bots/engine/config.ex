@@ -54,6 +54,9 @@ defmodule Pokex.Bots.Engine.Config do
     stun_hold_ms: :engine_stun_hold_ms,
     stun_reach_tiles: :engine_stun_reach_tiles,
     rescue_floor_ms: :rescue_cooldown_ms,
+    # a PEGADA do stun é o mesmo fenômeno que o settle do resgate espera —
+    # um número medido, dois usos
+    stun_onset_ms: :rescue_stun_settle_ms,
     boss_names: :engine_boss_names,
     reset_rearm_ms: :engine_reset_rearm_ms,
     band_yellow_pct: :engine_band_yellow_pct,

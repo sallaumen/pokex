@@ -1509,11 +1509,12 @@ defmodule Pokex.Settings do
     # skill de controle". A pilha está dormindo, então o campo vazio não custa
     # nada — e o revive devolve o controle junto com o resto da barra.
     engine_stun_window_ms: 5_000,
-    # QUANTO O CONTROLE DELE SEGURA um bicho dormindo — MEDIDO POR ELE
-    # (30/08): "o stun dura 3 segundos". É a régua do sono no fallback sem
-    # testemunha da postura de chefe; o ciclo em si é dirigido pela barra
-    # gasta, porque o stun é o PREFIXO do revive, nunca um agendamento.
-    engine_stun_hold_ms: 3_000,
+    # QUANTO O CONTROLE DELE SEGURA, contado do APERTO — MEDIDO POR ELE
+    # (30/08, segunda medida): "o stun dura 5s, começando a contar depois dos
+    # 2s". Ou seja: 2s de PEGADA (o mesmo fenômeno que o settle do resgate
+    # espera) + 5s de sono = 7s de cobertura do aperto. A pegada em si o
+    # cérebro lê de `rescue_stun_settle_ms` — um fenômeno, um número.
+    engine_stun_hold_ms: 7_000,
     # OS NOMES DOS CHEFES, separados por vírgula ("Chefe, Boss X"). Vazio =
     # nenhum chefe: a postura de chefe só liga quando uma linha da janela de
     # batalha bate com um destes nomes (caso-insensível). É o que faz o

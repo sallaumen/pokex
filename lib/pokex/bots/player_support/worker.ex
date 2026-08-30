@@ -1185,6 +1185,17 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # of the settle, and the revive waits it out (see `Logic.combo/1`).
   defp crowd_control(_body, :off), do: {[], 0}
 
+  # O CONTROLE JÁ SAIU — pelo cérebro, como prefixo deste revive ("controle
+  # primeiro, revive na sequência"). Nada a apertar: só o resto da espera do
+  # sono, contada daquele aperto. Sem isto era o "controle em cooldown na hora
+  # do revive — tentando o que sobrou" 60 vezes na corrida de 3h de 29/08,
+  # despejando teclas de dano frias em cima de um bolo JÁ dormido.
+  defp crowd_control(_body, {:recent, pressed_at}) do
+    settle = settle_remaining(pressed_at)
+
+    {[log: "🚑 controle já saiu há pouco#{settle_text(settle)} — revivendo na sequência"], settle}
+  end
+
   # The control is WANTED (the pile may be awake) and it is cold. Until 28/08
   # this fell through as "revivendo direto" — settle 0, the recall stripping
   # the field in front of a pile wide awake, and the character died paying it.
@@ -1304,7 +1315,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     if Settings.get(:rescue_stun_first), do: control_stun(), else: {:off, []}
   end
 
-  # Three shapes, because "no control" hides two different situations:
+  # Four shapes, because "no control" hides three different situations —
+  # nothing CLASSIFIED, pressed RECENTLY by the brain (pile already asleep,
+  # wait out the settle from THAT press), and truly COLD (escalate):
   #
   #   * nothing CLASSIFIED (`loadout.crowd == []`) — a permanent fact about
   #     this pokémon; there was never a stun to wait for, revive direct;
@@ -1319,10 +1332,30 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
+  # A janela é a mesma do R10 (`engine_stun_window_ms`): o revive é PRA vir
+  # atrás de um controle recente, e um controle mais velho que ela já não
+  # segura bolo nenhum. A testemunha é o carimbo (`SkillClock.pressed_at/1` —
+  # o eco sobrevive ao reset do próprio revive).
+  defp recent_or_cold(crowd) do
+    window = Settings.get(:engine_stun_window_ms)
+    agora = now()
+
+    recente =
+      crowd
+      |> Enum.map(&SkillClock.pressed_at/1)
+      |> Enum.filter(&(is_integer(&1) and agora - &1 <= window))
+      |> Enum.max(fn -> nil end)
+
+    case recente do
+      nil -> {:cold, []}
+      at -> {{:recent, at}, []}
+    end
+  end
+
   defp control_stun(crowd) do
     case ready_only(crowd) do
       [] ->
-        {:cold, []}
+        recent_or_cold(crowd)
 
       keys ->
         {{:steps, elem(Logic.stun_prefix(Enum.map(keys, &{:skill, &1}), nil), 0)},

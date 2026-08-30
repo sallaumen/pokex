@@ -72,6 +72,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Worker
+  alias Pokex.Bots.SkillClock
   alias Pokex.Bots.PlayerSupport.WorkerTest.BlockingBody
   alias Pokex.Bots.PlayerSupport.WorkerTest.CrashingBody
   alias Pokex.Bots.PlayerSupport.WorkerTest.FakeBody
@@ -1969,6 +1970,42 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
       assert_receive {:rule_alarm, :hp, aviso}, 2_000
       assert aviso =~ "controle em cooldown"
+    end
+
+    # 29/08, a outra metade do desperdício: o CÉREBRO manda o controle como
+    # prefixo do revive ("controle primeiro, revive na sequência") e meio
+    # segundo depois o resgate olha a barra, vê a tecla esfriando e trata como
+    # gelada — escalando teclas de dano frias em cima de um bolo JÁ dormido.
+    # Foram 60 "controle em cooldown na hora do revive" na corrida de 3h. O
+    # carimbo do aperto é a testemunha (o eco sobrevive ao reset), e a espera
+    # conta DAQUELE aperto.
+    @tag :tmp_dir
+    test "controle apertado há pouco NÃO escala — o bolo já está dormindo",
+         %{tmp: tmp, body: body} do
+      Settings.put(:rescue_stun_first, true)
+      # janela larga: numa suíte carregada, subir o worker pode custar mais
+      # que os 5s reais — o que se testa é a decisão, não a corrida
+      Settings.put(:engine_stun_window_ms, 60_000)
+      classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})
+      # o "1" esfriando (o cérebro acabou de usá-lo), a "3" pronta
+      bar_stuck_ready(["3"])
+      SkillClock.wipe()
+      SkillClock.pressed("1")
+      on_exit(fn -> SkillClock.wipe() end)
+
+      low = hp_png(tmp, "recent_control.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      # o revive sai — e NENHUMA outra tecla na frente dele: nada de última
+      # cartada, nada de re-stun
+      assert_receive {:performed, :critical, [{:press, "q"}]}, 2_500
+      refute_received {:performed, :critical, [{:press, "3"}]}
+      refute_received {:performed, :critical, [{:press, "1"} | _]}
     end
   end
 end

@@ -257,6 +257,21 @@ defmodule Pokex.Bots.Combat.Worker do
 
   def handle_info({:key_burst_failed, _reason}, state), do: {:noreply, state}
 
+  # O F4 aterrissou no meio da rajada e a cauda parou no ar. Não é falha de
+  # IO: as teclas seguradas cairiam na janela cega (medido em 30/08 — quase
+  # sempre numa tela já vazia). A próxima decisão relê o mundo, e a largada
+  # dela continua com o `blackout?/1` no comando.
+  def handle_info({:burst_yielded, sent, held}, state) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:combat_log, :macro,
+       "combate: ✂️ o F4 aterrissou no meio da rajada — saiu #{shown(sent)}, segurei #{shown(held)}"}
+    )
+
+    {:noreply, state}
+  end
+
   # The :battle feed died (its consumers map — and this worker's registration — dies with
   # it; a restarted feed starts with nobody attached). Idle/errored: nothing to blind, do
   # not schedule a reattach. Otherwise, combat would silently wedge forever the moment the
@@ -717,7 +732,10 @@ defmodule Pokex.Bots.Combat.Worker do
          # a tecla pronta. O preço de carimbar tarde não se conserta: quem lê
          # no meio da rajada lê um relógio que ainda não existe.
          :ok <- stamp_clock(keys, started_at, opts[:gap_ms] || 0),
-         :ok <- Pokex.Rig.impl().press_many(keys, opts),
+         {:sent, sent} <-
+           keys
+           |> Pokex.Rig.impl().press_many(opts ++ [halt?: tail_fence(keys)])
+           |> burst_result(keys, parent),
          :ok <- Perception.mini_game_gate() do
       # The clock of the receipt is the LAST key, never the first. A burst of n
       # keys takes (n-1) x gap_ms to leave the hand (3,3s with his 500) while
@@ -728,8 +746,10 @@ defmodule Pokex.Bots.Combat.Worker do
       at = now()
 
       # The receipt FIRST: it is the timing-critical half of a burst, and
-      # nothing measured is worth delaying it by even a cast.
-      receipt = ask_for_receipt(keys, before, at, parent)
+      # nothing measured is worth delaying it by even a cast. Only for what
+      # actually LEFT: reading a receipt for a key the fence held would call
+      # it `missed` and buy a retry for a press that never happened.
+      receipt = if sent == [], do: :ok, else: ask_for_receipt(sent, before, at, parent)
 
       # One typed line per BURST — the other half of "quantas teclas matam um
       # bicho". The vitals stream says when the list shrank; this says what was
@@ -738,19 +758,21 @@ defmodule Pokex.Bots.Combat.Worker do
       # `elapsed_ms` is how long the keys took to LEAVE, and it is the number the
       # gap sweep is read against: the burst is also combat's only dispatch slot
       # (`burst_pid`), so every millisecond here is a decision not taken.
-      Pokex.Engine.Events.record(:press, %{
-        keys: keys,
-        n: length(keys) * opts[:tap_count],
-        elapsed_ms: at - started_at
-      })
+      if sent != [] do
+        Pokex.Engine.Events.record(:press, %{
+          keys: sent,
+          n: length(sent) * opts[:tap_count],
+          elapsed_ms: at - started_at
+        })
+      end
 
       # CALIBRATION MODE, and only then: one look at where the damage landed.
       # Spawned like the receipt and for the same reason — this process must die
       # now so the next decision is not skipped as "a burst still in flight".
-      if area?, do: spawn(&AreaProbe.file/0)
+      if area? and sent == keys, do: spawn(&AreaProbe.file/0)
 
       # E o OUTRO modo de checagem: quanto esta tecla tirou.
-      measure_damage(keys)
+      measure_damage(sent)
 
       receipt
     else
@@ -760,6 +782,37 @@ defmodule Pokex.Bots.Combat.Worker do
   catch
     kind, reason -> Logger.debug("combat key burst crashed: #{inspect({kind, reason})}")
   end
+
+  # A cerca da cauda (ver `Pokex.Rig.Mac.walk_burst/3`): a MESMA janela que
+  # barra a LARGADA de uma rajada depois do F4 (`blackout?/1`) patrulha as
+  # teclas que ainda não saíram de uma rajada JÁ em voo. Uma rajada leva
+  # (n-1) × gap pra sair da mão, e o revive corre num processo próprio: na
+  # noite de 30/08 (4h17), 325 rajadas foram atravessadas por um F4 no meio e
+  # 237 teclas aterrissaram DEPOIS dele — dentro da janela cega que o próprio
+  # revive abre, quase sempre com a tela já vazia. Rajada só de Tab fica sem
+  # cerca pelo mesmo motivo que fura o blackout: mirar não conjura nada.
+  #
+  # Os carimbos das teclas seguradas se consertam sozinhos como os de uma
+  # rajada que falhou: o `SkillTruth` os solta em ~1s quando a tela mostra a
+  # tecla pronta.
+  defp tail_fence(keys) do
+    janela = Settings.get(:rescue_blackout_ms)
+
+    if is_integer(janela) and janela > 0 and keys != [Settings.get(:tab_key)] do
+      fn -> ReviveLedger.landed_within?(janela) end
+    end
+  end
+
+  defp burst_result(:ok, keys, _parent), do: {:sent, keys}
+
+  defp burst_result({:halted, pressed}, keys, parent) do
+    sent = Enum.uniq(pressed)
+    Perf.count("combat.burst_yielded")
+    send(parent, {:burst_yielded, sent, keys -- sent})
+    {:sent, sent}
+  end
+
+  defp burst_result(error, _keys, _parent), do: error
 
   # The receipt is read in its OWN process: this one has to die now so the next
   # decision is not skipped as "a burst still in flight" — confirming must cost
@@ -906,6 +959,9 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   # -- broadcasts ---------------------------------------------------------------
+
+  defp shown([]), do: "nenhuma"
+  defp shown(keys), do: Enum.join(keys, "+")
 
   defp broadcast(logic, state),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:combat, snapshot(logic, state)})

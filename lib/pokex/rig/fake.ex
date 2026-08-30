@@ -47,13 +47,29 @@ defmodule Pokex.Rig.Fake do
     end
 
     tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
-    calls = for combo <- combos, _tap <- 1..tap_count, do: {:press, combo}
+    halt? = Keyword.get(opts, :halt?)
+
+    # The tail fence, honored key by key like the real rig: tests arm it (via
+    # ReviveLedger) and assert the held keys never became calls.
+    {pressed, halted?} =
+      Enum.reduce(combos, {[], false}, fn
+        _combo, {acc, true} ->
+          {acc, true}
+
+        combo, {acc, false} ->
+          if is_function(halt?, 0) and halt?.(),
+            do: {acc, true},
+            else: {[combo | acc], false}
+      end)
+
+    pressed = Enum.reverse(pressed)
+    calls = for combo <- pressed, _tap <- 1..tap_count, do: {:press, combo}
 
     Agent.update(__MODULE__, fn state ->
       %{state | calls: Enum.reverse(calls) ++ state.calls}
     end)
 
-    :ok
+    if halted?, do: {:halted, pressed}, else: :ok
   end
 
   @impl true

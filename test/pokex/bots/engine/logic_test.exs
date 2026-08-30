@@ -951,7 +951,15 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {logic, _} = lutando_gasto(200)
       {logic, _} = fuga_step(logic, sem_cooldown(0), 5_000)
 
-      {logic, _} = fuga_step(logic, world(%{hunt: hunt(%{state: :walking})}), 6_000)
+      # a luta termina de verdade: tela limpa (o pisão do trecho de mob que
+      # encerrava lutas vivas morreu com o flip — ver "a mobada FECHA")
+      {logic, _} =
+        fuga_step(
+          logic,
+          world(%{situation: situation(%{enemies: 0}), hunt: hunt(%{state: :walking})}),
+          6_000
+        )
+
       {logic, _} = fuga_step(logic, sem_cooldown(0), 7_000)
       {_logic, orders} = fuga_step(logic, sem_cooldown(0), 7_200)
 
@@ -1920,6 +1928,69 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {logic, _orders} = chefe_step(Logic.new(), mundo, 1_000)
 
       assert logic.state == :engaged
+    end
+  end
+
+  # O CABO DE GUERRA DO TRECHO DE MOB (morte de 30/08, 13:21). O ramo do
+  # luring re-setava o estado pra :gathering a cada tique, pisando no
+  # :bunching que a régua abria: `bunch_from` renascia, "mais 2 passos"
+  # recomeçava do zero, e o fogo nunca liberava — 43 passos de mobada com 6-9
+  # bichos mastigando e nenhuma rajada. "Cheio de monstro atrás de mim e ele
+  # não parou pra matar — é inaceitável."
+  describe "a mobada FECHA no trecho de mob" do
+    @mob Config.merge(%{
+           gather_piles: true,
+           gather_target: 4,
+           bunch_walk_tiles: 2,
+           bunch_ms: 3_000,
+           engage_from: 3,
+           crowd_from: 99,
+           reset_revive: false
+         })
+
+    defp mob_step(logic, world, now), do: Logic.step(logic, world, @mob, now)
+
+    defp trecho(walked, enemies) do
+      world(%{
+        situation:
+          situation(%{
+            enemies: enemies,
+            worth_fighting?: true,
+            spent?: false,
+            walked: walked,
+            walked_total: walked
+          }),
+        hunt: hunt(%{state: :walking, luring?: true})
+      })
+    end
+
+    test "a régua fecha, os passos de arrasto CONTAM, e o fogo sai" do
+      # mobando: a pilha chega no alvo com 10 passos andados
+      {logic, _} = mob_step(Logic.new(), trecho(9, 3), 1_000)
+      {logic, abriu} = mob_step(logic, trecho(10, 4), 1_200)
+      assert abriu.phase in [:bunching, :engaged], "a régua fechou e nada abriu"
+
+      # os passos de arrasto descontam de verdade (2 configurados)
+      {logic, meio} = mob_step(logic, trecho(11, 4), 1_400)
+      refute meio.why =~ "mais 2 passo", "o arrasto recomeçou do zero — o flip voltou"
+
+      {logic, fim_arrasto} = mob_step(logic, trecho(12, 4), 1_600)
+      assert fim_arrasto.phase == :bunching
+      refute fim_arrasto.why =~ "passo(s) pra puxar", "andou 2 e ainda pede passo"
+
+      # vencida a espera do bolo, o fogo LIBERA — mesmo com o trecho de mob
+      # ainda marcado na rota
+      {_logic, fogo} = mob_step(logic, trecho(12, 4), 6_000)
+      assert fogo.phase == :engaged
+      assert fogo.fire == :free
+    end
+
+    test "sem pilha que valha, o trecho segue mobando como sempre" do
+      {logic, _} = mob_step(Logic.new(), trecho(3, 1), 1_000)
+      {_logic, orders} = mob_step(logic, trecho(4, 1), 1_200)
+
+      assert orders.phase == :gathering
+      assert orders.fire == :hold
     end
   end
 end

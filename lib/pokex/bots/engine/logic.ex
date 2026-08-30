@@ -566,6 +566,18 @@ defmodule Pokex.Bots.Engine.Logic do
   # letting that end the gathering would cancel the decision on its own first
   # step.
   defp normal(%{logic: %{state: :gathering}} = t), do: ruler(t)
+
+  # …E A LUTA EM ANDAMENTO TAMBÉM SOBREVIVE AO TRECHO DE MOB. O ramo do
+  # luring (logo abaixo) re-setava o estado pra :gathering a CADA tique,
+  # pisando no :bunching que a régua tinha acabado de abrir: o carimbo
+  # `bunch_from` renascia toda volta, "mais 2 passos pra puxar" recomeçava do
+  # zero eternamente, e o fogo NUNCA liberava enquanto o trecho durasse.
+  # Filmado na morte de 30/08 13:21 — 43 passos de mobada com 6-9 bichos
+  # mastigando, "estourando a área" decidido dezenas de vezes e nenhuma
+  # rajada solta: o cabo de guerra era o cérebro contra ele mesmo.
+  defp normal(%{logic: %{state: state}} = t) when state in [:bunching, :engaged, :skipping],
+    do: ruler(t)
+
   defp normal(%{hunt: %{state: :fighting}} = t), do: ruler(t)
 
   # O TRECHO MARCADO À MÃO, que ele quer parar de marcar — e que continua aqui

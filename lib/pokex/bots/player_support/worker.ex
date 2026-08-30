@@ -33,6 +33,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   @topic "game"
   @default_counters %{rescues: 0, potions: 0, heals: 0, reads: 0, failures: 0, repositions: 0}
 
+  @sentinel_ms 1_500
+
   def topic, do: @topic
 
   def start_link(opts \\ []) do
@@ -152,6 +154,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   def handle_call(:halt, _from, state) do
     state = cancel_timer(%{state | running?: false})
+    # A SENTINELA: parar o bot fecha as mãos, nunca os olhos. Em 30/08 o canto
+    # de comando parou a caçada no meio de uma mobada e o personagem morreu
+    # AFK em 8 minutos SEM UM ALARME — o halt cancelava este timer e ninguém
+    # mais lia a vida DELE. Parado, o tique continua num passo lento e lê só a
+    # barra do personagem: grita no piso e desloga se ele mandou
+    # (`player_hp_logout`). Nada de pokémon, poção ou tecla.
+    state = if state.auto_monitor?, do: reschedule(state, @sentinel_ms), else: state
     broadcast(state)
     {:reply, :ok, state}
   end
@@ -217,7 +226,12 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   @impl true
   # A late tick after a halt (the timer fired before the cancel landed) must NOT resurrect the
   # loop — the running? flag is the source of truth, not the timer.
-  def handle_info(:tick, %{running?: false} = state), do: {:noreply, state}
+  def handle_info(:tick, %{running?: false} = state) do
+    # o passo da sentinela (ver :halt): só os olhos na vida do PERSONAGEM
+    if state.auto_monitor?,
+      do: {:noreply, sentinel_tick(state)},
+      else: {:noreply, state}
+  end
 
   # While the fishing mini-game is being played, the Body is gated — this worker
   # cannot revive or potion anyway — so its HP capture every 120ms is pure waste
@@ -313,6 +327,19 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state = %{state | gate: :mini_game}
     if entered?, do: broadcast(state)
     {:noreply, reschedule(state, Settings.get(:support_tick_ms))}
+  end
+
+  # Um tique de sentinela: lê a barra do personagem (alarme do piso + logout
+  # moram em `guard_player/1`), publica o fato, e nada mais. O custo é uma
+  # captura pequena a cada #{@sentinel_ms}ms.
+  defp sentinel_tick(state) do
+    state =
+      case Calibration.load() do
+        {:ok, calib} -> watch_player(state, calib)
+        _sem_calibracao -> state
+      end
+
+    reschedule(state, @sentinel_ms)
   end
 
   defp run_tick(state) do

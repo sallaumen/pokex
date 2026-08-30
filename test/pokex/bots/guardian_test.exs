@@ -604,4 +604,42 @@ defmodule Pokex.Bots.GuardianTest do
       refute_receive :toggled, 300
     end
   end
+
+  # 30/08: o canto de comando parou a caçada com 5+ bichos aggroados; o
+  # personagem ficou parado na pilha e morreu AFK em 8 minutos. Parar tem que
+  # parar — mas com a janela de batalha cheia, o comando agora grita a
+  # exposição na saída.
+  describe "parar com bicho na tela grita a exposição" do
+    test "com a janela de batalha cheia, o aviso sai" do
+      Pokex.Perception.WorldState.put(
+        :battle,
+        %{enemies: [0, 1, 2, 3, 4]},
+        System.monotonic_time(:millisecond)
+      )
+
+      on_exit(fn -> Pokex.Perception.WorldState.forget(:battle) end)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+      Guardian.warn_if_exposed()
+
+      assert_receive {:rule_alarm, :hp, aviso}, 500
+      assert aviso =~ "5 bicho(s)"
+      assert aviso =~ "EXPOSTO"
+    end
+
+    test "tela limpa ou leitura velha: silêncio" do
+      Pokex.Perception.WorldState.put(
+        :battle,
+        %{enemies: []},
+        System.monotonic_time(:millisecond)
+      )
+
+      on_exit(fn -> Pokex.Perception.WorldState.forget(:battle) end)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+      Guardian.warn_if_exposed()
+
+      refute_receive {:rule_alarm, :hp, _}, 300
+    end
+  end
 end

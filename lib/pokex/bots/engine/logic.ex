@@ -161,16 +161,18 @@ defmodule Pokex.Bots.Engine.Logic do
             # 39 minutos de recuo com pilhas de 9 na tela. Agora o desarme
             # tem prazo (`reset_rearm_ms`) e voz (os whys dizem "desarmado").
             reset_broken_at: nil,
-            # QUANTAS promessas seguidas quebraram. A noite de 29/08 mediu o
-            # que o desarme de prazo único custava: o jogo engole um F4 de vez
-            # em quando (28 de 319 revives, ~9%, sem padrão de cooldown), e
-            # cada engolida virava 600s de "deixando essa pilha" — 11 desarmes,
-            # ~110 min da corrida de 184 com a R3b presa, 77 pilhas puladas na
-            # frente dele ("estar cheio de monstros e continuar andando"). Uma
-            # falha transitória agora custa uma retentativa
-            # (`reset_retry_ms`); só a SEGUNDA seguida compra o desarme longo,
-            # que é a proteção da noite em que o jogo de verdade para de
-            # resetar. Uma promessa CUMPRIDA zera a conta.
+            # QUANTAS promessas seguidas quebraram. A leitura dele (29/08):
+            # "se usou revive e não recuperou cooldown/vida, quer dizer que
+            # NÃO SAIU de verdade — pode só usar de novo". O jogo engole um F4
+            # de vez em quando (28 de 319 revives, ~9%, sem padrão), e fugir
+            # da pilha por causa disso é o perigo real — "numa hunt difícil
+            # correr chama mais bicho ainda". Então a quebra não desarma: ela
+            # conta, e a regra fica ARMADA pra apertar de novo no tique
+            # seguinte ao veredito (o piso `reset_revive_cooldown_ms` dá o
+            # ritmo). Só a TERCEIRA seguida desarma pelo prazo longo — três
+            # F4 sem efeito nenhum é a cara da noite em que o estoque acabou,
+            # e aí sim andar é a resposta certa (o freio do chão, #415). Uma
+            # promessa CUMPRIDA zera a conta.
             reset_strikes: 0,
             # quantos tiles já tinham sido andados quando a fuga da R7 começou —
             # é como se sabe se ela está andando de verdade
@@ -847,12 +849,20 @@ defmodule Pokex.Bots.Engine.Logic do
 
   # O controle está livre pro uso ofensivo? Com a R3b desligada, sempre — não há
   # revive nenhum esperando por ele, e a regra dele de 26/08 vale inteira ("tento
-  # ir usando o 1 pra quando tem muito monstro, pra eu não morrer"). Com ela
-  # ligada, a barra gasta é o sinal de que o próximo trabalho dessa tecla é ser
-  # prefixo — e o piso entre dois revives não entra na conta de propósito: se
-  # entrasse, o controle sairia no meio da espera e não estaria lá quando o piso
-  # passasse, que é exatamente o buraco que isto fecha.
-  defp controle_livre?(t), do: not t.config.reset_revive or t.s.spent? != true
+  # ir usando o 1 pra quando tem muito monstro, pra eu não morrer").
+  #
+  # Com ela ligada, NUNCA. A guarda anterior ("só com a barra fresca") não
+  # bastava: com `crowd_from: 1` o controle saía na ABERTURA de quase todo bolo
+  # — 147 "controle e dano juntos" na corrida de 3h de 29/08 — e o cooldown
+  # dele (40-50s) é da ordem do da barra inteira, então quando a barra
+  # esvaziava 15s depois o revive achava o controle no chão: 60 "controle em
+  # cooldown na hora do revive" na mesma corrida, o resgate escalando exposto.
+  # A ordem dele: "temos é que ser mais rígidos para não ter fluxo onde a
+  # skill de controle tá sendo usada sem querer (…) o caminho não é fazer meu
+  # personagem correr 40s pra esperar a skill de stun que ele usou errado".
+  # Com a R3b ligada o trabalho do controle é UM: prefixo do revive
+  # (`stun_before_reset?`, e o do resgate como reserva).
+  defp controle_livre?(t), do: not t.config.reset_revive
 
   # O PREFIXO DO REVIVE, não uma segunda R10: a pilha não precisa ser grande pra
   # justificar o controle aqui, porque quem está sendo comprado é a barra, não a
@@ -906,8 +916,10 @@ defmodule Pokex.Bots.Engine.Logic do
   defp disarmed_note(_armed_or_not_spent), do: ""
 
   defp kite_reason(%{logic: %{reset_broken_at: at}} = t) when is_integer(at) do
-    left = div(max(rearm_ms(t) - (t.now - at), 0), 1_000)
-    " — o reset está DESARMADO (paguei um revive e a barra não voltou; tento de novo em #{left}s)"
+    left = div(max(t.config.reset_rearm_ms - (t.now - at), 0), 1_000)
+
+    " — o reset está DESARMADO (3 revives seguidos sem efeito nenhum — " <>
+      "confere o ESTOQUE no jogo; tento de novo em #{left}s)"
   end
 
   defp kite_reason(t) do
@@ -1226,7 +1238,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # reset não aconteceu — seja porque o jogo não zera nada, seja porque a
   # leitura mente. As duas conclusões pedem a mesma coisa: parar de pagar.
   defp audit_reset(%{logic: %{reset_broken_at: at}} = t) when is_integer(at) do
-    if t.now - at >= rearm_ms(t),
+    if t.now - at >= t.config.reset_rearm_ms,
       do: %{t.logic | reset_broken_at: nil},
       else: t.logic
   end
@@ -1265,24 +1277,22 @@ defmodule Pokex.Bots.Engine.Logic do
         t.logic
 
       true ->
-        %{
-          close_reset(t.logic)
-          | reset_broken_at: t.now,
-            reset_strikes: t.logic.reset_strikes + 1
-        }
+        judge_broken(t)
     end
   end
 
+  # A quebra REAPERTA em vez de correr: com menos de três seguidas o caso
+  # fecha, a regra continua armada, e `reset_revive?` dispara de novo já no
+  # tique seguinte (o piso de 3s venceu durante o próprio julgamento). Na
+  # terceira, desarma — e o porquê aparece no `disarmed_note`.
+  defp judge_broken(t) do
+    strikes = t.logic.reset_strikes + 1
+    broken_at = if strikes >= 3, do: t.now, else: nil
+
+    %{close_reset(t.logic) | reset_broken_at: broken_at, reset_strikes: strikes}
+  end
+
   defp close_reset(logic), do: %{logic | since: Map.delete(logic.since, :reset_pending)}
-  # O prazo do desarme, por reincidência: a primeira quebra é tratada como o
-  # que ela costuma ser — um F4 engolido pelo jogo — e rearma rápido; da
-  # segunda seguida em diante vale o prazo longo, porque duas cobranças
-  # perdidas seguidas é a cara da noite em que o jogo não devolve a barra.
-  defp rearm_ms(%{logic: %{reset_strikes: strikes}} = t) when strikes >= 2,
-    do: t.config.reset_rearm_ms
-
-  defp rearm_ms(t), do: min(t.config.reset_retry_ms, t.config.reset_rearm_ms)
-
   defp arm_kite(%{logic: %{kite_from: from} = logic}) when is_integer(from), do: logic
 
   defp arm_kite(t),

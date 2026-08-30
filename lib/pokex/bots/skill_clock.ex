@@ -163,6 +163,19 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
+  Esquece DE VERDADE, ecos inclusive — troca de personagem e mesa de teste.
+  O `reset/0` de um revive preserva o eco de propósito; este não preserva
+  nada, porque as teclas de outro personagem não são testemunha de coisa
+  nenhuma.
+  """
+  @spec wipe() :: :ok
+  def wipe do
+    ensure_table()
+    :ets.delete_all_objects(@table)
+    :ok
+  end
+
+  @doc """
   A hora do último aperto de `key` que um `reset/0` apagou, ou nil.
 
   NÃO é cooldown: uma tecla com eco está pronta. Ver `pressed_at/1`, que é

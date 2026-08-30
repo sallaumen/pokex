@@ -615,29 +615,26 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert second.revive == :hold, "ainda dentro do piso"
     end
 
-    # A TRAVA QUE ELE PEDIU (26/08): "usei revive e diz que recuperou 5
-    # cooldowns, mas não recuperou um". Uma regra que paga um revive e não
-    # recebe a barra de volta vai pagar o próximo, e o próximo. Ela se DESARMA
-    # na primeira vez que a promessa não é cumprida.
-    test "e se a barra NÃO voltar, ela se desarma — com prazo, não perpétuo" do
+    # A TRAVA QUE ELE PEDIU (26/08) mudou de gatilho em 29/08: UMA promessa
+    # quebrada é quase sempre um F4 que o jogo engoliu, e a resposta é apertar
+    # de novo (ver os testes de reincidência). O desarme continua existindo —
+    # três sem efeito — e continua com prazo, não perpétuo.
+    test "desarmada na terceira, a regra volta pro jogo depois do prazo" do
       logic = engaged(&reset_step/3)
-      {logic, primeira} = com_controle(logic, spent_fight(), 2_000)
-      assert primeira.revive == :now
 
-      # muito depois do piso, com o pokémon em campo e a barra AINDA vazia
-      passou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
-      {logic, depois} = reset_step(logic, spent_fight(), passou)
+      {logic, quando} =
+        Enum.reduce(1..3, {logic, 2_000}, fn _n, {logic, at} ->
+          {logic, _} = reset_step(logic, spent_fight(), at)
+          {logic, _} = reset_step(logic, spent_fight(), at + 500)
+          quebrou = at + 500 + @reset.reset_revive_cooldown_ms + 10_000
+          {logic, _} = reset_step(logic, spent_fight(), quebrou)
+          {logic, quebrou + 500}
+        end)
 
-      assert depois.revive == :hold
-      assert is_integer(logic.reset_broken_at), "o reset foi cobrado e não veio — sai de cena"
-
-      # …e o recuo DIZ o desarme, em vez de parecer covardia
-      {logic, mudo} = reset_step(logic, spent_fight(), passou + 5_000)
-      assert mudo.revive == :hold
-      assert mudo.why =~ "DESARMADO"
+      assert is_integer(logic.reset_broken_at)
 
       # passado o prazo do rearme, a regra volta pro jogo
-      rearmado = passou + @reset.reset_rearm_ms + 1_000
+      rearmado = quando + @reset.reset_rearm_ms + 1_000
       {logic, _} = reset_step(logic, spent_fight(%{spent?: false}), rearmado)
       assert logic.reset_broken_at == nil
 
@@ -645,57 +642,56 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert de_novo.revive == :now
     end
 
-    # A REINCIDÊNCIA (29/08). O jogo engole um F4 de vez em quando — 28 de 319
-    # revives naquela corrida, sem padrão de cooldown — e cada engolida virava
-    # 600s de "deixando essa pilha": 11 desarmes, ~110 min de 184 com a R3b
-    # presa, e ele vendo o bot "cheio de monstros e continuar andando". A
-    # primeira quebra agora rearma no prazo CURTO (`reset_retry_ms`); só a
-    # segunda seguida compra o desarme longo.
-    test "a PRIMEIRA quebra rearma rápido — um F4 engolido não custa dez minutos" do
+    # A REINCIDÊNCIA, na leitura DELE (29/08): "se usou revive e não recuperou
+    # cooldown/vida, quer dizer que NÃO SAIU de verdade — pode só usar de novo
+    # (…) para de correr!". O jogo engole ~9% dos F4 (28 de 319 na corrida de
+    # 3h), e cada engolida desarmava a R3b por 600s: com a barra vazia e o
+    # reset preso, o bot passava reto pela tela cheia — 77 pilhas puladas.
+    # Fugir é o perigo ("numa hunt difícil chama mais bicho ainda"), então a
+    # quebra REAPERTA: a regra fica armada e o F4 sai de novo. Só a TERCEIRA
+    # seguida desarma — três revives sem efeito nenhum é estoque zerado, e aí
+    # andar é a resposta certa.
+    test "a quebra REAPERTA: o F4 sai de novo em vez de fugir" do
       logic = engaged(&reset_step/3)
       {logic, _} = com_controle(logic, spent_fight(), 2_000)
 
       quebrou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
-      {logic, _} = reset_step(logic, spent_fight(), quebrou)
-      assert is_integer(logic.reset_broken_at)
+      {logic, depois} = reset_step(logic, spent_fight(), quebrou)
+
       assert logic.reset_strikes == 1
+      assert logic.reset_broken_at == nil, "uma engolida não desarma nada"
+      refute depois.why =~ "recuando", "e ninguém sai correndo"
 
-      # bem antes do prazo LONGO, já voltou pro jogo
-      cedo = quebrou + @reset.reset_retry_ms + 1_000
-      assert cedo < quebrou + @reset.reset_rearm_ms
-      {logic, _} = reset_step(logic, spent_fight(), cedo)
-      assert logic.reset_broken_at == nil
-
-      {logic, tick1} = reset_step(logic, spent_fight(), cedo + 1_000)
-      {_logic, tick2} = reset_step(logic, spent_fight(), cedo + 1_500)
-      assert :now in [tick1.revive, tick2.revive], "rearmada, a R3b volta a gastar"
+      # o tique seguinte já pede o revive de novo (controle primeiro ou direto)
+      {logic, tick1} = reset_step(logic, spent_fight(), quebrou + 300)
+      {_logic, tick2} = reset_step(logic, spent_fight(), quebrou + 800)
+      assert :now in [tick1.revive, tick2.revive], "reapertou em vez de correr"
     end
 
-    test "a SEGUNDA quebra seguida desarma pelo prazo longo" do
+    test "só a TERCEIRA quebra seguida desarma — e o porquê fala em estoque" do
       logic = engaged(&reset_step/3)
 
-      # primeira promessa quebrada + retentativa
-      {logic, _} = com_controle(logic, spent_fight(), 2_000)
-      quebrou = 2_000 + @reset.reset_revive_cooldown_ms + 10_000
-      {logic, _} = reset_step(logic, spent_fight(), quebrou)
-      retenta = quebrou + @reset.reset_retry_ms + 1_000
-      {logic, _} = reset_step(logic, spent_fight(), retenta)
-      {logic, tick1} = reset_step(logic, spent_fight(), retenta + 1_000)
-      {logic, tick2} = reset_step(logic, spent_fight(), retenta + 1_500)
-      assert :now in [tick1.revive, tick2.revive], "a retentativa gastou"
+      # três promessas quebradas em sequência
+      {logic, quando} =
+        Enum.reduce(1..3, {logic, 2_000}, fn _n, {logic, at} ->
+          {logic, tick1} = reset_step(logic, spent_fight(), at)
+          {logic, tick2} = reset_step(logic, spent_fight(), at + 500)
+          assert :now in [tick1.revive, tick2.revive]
 
-      # segunda promessa também quebra
-      quebrou2 = retenta + 1_500 + @reset.reset_revive_cooldown_ms + 10_000
-      {logic, _} = reset_step(logic, spent_fight(), quebrou2)
-      assert logic.reset_strikes == 2
+          quebrou = at + 500 + @reset.reset_revive_cooldown_ms + 10_000
+          {logic, _} = reset_step(logic, spent_fight(), quebrou)
+          {logic, quebrou + 500}
+        end)
 
-      # o prazo curto já não solta…
-      {logic, preso} = reset_step(logic, spent_fight(), quebrou2 + @reset.reset_retry_ms + 1_000)
-      assert is_integer(logic.reset_broken_at)
-      assert preso.revive == :hold
+      assert logic.reset_strikes == 3
+      assert is_integer(logic.reset_broken_at), "três sem efeito = estoque, aí sim sai de cena"
 
-      # …só o longo
-      {logic, _} = reset_step(logic, spent_fight(), quebrou2 + @reset.reset_rearm_ms + 1_000)
+      {logic, mudo} = reset_step(logic, spent_fight(), quando + 2_000)
+      assert mudo.revive == :hold
+      assert mudo.why =~ "ESTOQUE"
+
+      # e só o prazo LONGO rearma
+      {logic, _} = reset_step(logic, spent_fight(), quando + @reset.reset_rearm_ms + 2_000)
       assert logic.reset_broken_at == nil
     end
 
@@ -708,12 +704,10 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {logic, _} = reset_step(logic, spent_fight(), quebrou)
       assert logic.reset_strikes == 1
 
-      # …retenta e desta vez a barra VOLTA
-      retenta = quebrou + @reset.reset_retry_ms + 1_000
-      {logic, _} = reset_step(logic, spent_fight(), retenta)
-      {logic, _} = reset_step(logic, spent_fight(), retenta + 1_000)
-      {logic, _} = reset_step(logic, spent_fight(), retenta + 1_500)
-      {logic, _} = reset_step(logic, spent_fight(%{spent?: false}), retenta + 3_000)
+      # …reaperta e desta vez a barra VOLTA
+      {logic, _} = reset_step(logic, spent_fight(), quebrou + 300)
+      {logic, _} = reset_step(logic, spent_fight(), quebrou + 800)
+      {logic, _} = reset_step(logic, spent_fight(%{spent?: false}), quebrou + 2_500)
       assert logic.reset_strikes == 0
     end
 
@@ -1362,8 +1356,29 @@ defmodule Pokex.Bots.Engine.LogicTest do
       logic
     end
 
-    test "numa pilha grande o controle sai junto com o dano" do
+    # A RIGIDEZ DE 29/08: "temos é que ser mais rígidos para não ter fluxo
+    # onde a skill de controle tá sendo usada sem querer". Com crowd_from: 1 o
+    # controle saía na abertura de quase todo bolo (147 "controle e dano
+    # juntos" na corrida de 3h) e o revive achava a tecla no chão (60
+    # "controle em cooldown na hora do revive"). Com a R3b ligada, o controle
+    # tem UM trabalho: prefixo do revive.
+    test "numa pilha grande com a R3b ligada, o controle fica GUARDADO" do
       {_logic, orders} = Logic.step(aberta(pilha(5)), pilha(5), @r10, 200)
+
+      refute "1" in orders.opening
+      refute orders.why =~ "controle e dano juntos"
+    end
+
+    # …e a regra ofensiva de 26/08 ("tento ir usando o 1 pra quando tem muito
+    # monstro") continua inteira pra quem caça SEM a R3b — aí não há revive
+    # esperando pela tecla.
+    test "sem a R3b, o controle ofensivo sai como sempre" do
+      sem = %{@r10 | reset_revive: false}
+      pequena = pilha(2)
+      {logic, _} = Logic.step(Logic.new(), pequena, sem, 0)
+      {logic, _} = Logic.step(logic, pequena, sem, 100)
+
+      {_logic, orders} = Logic.step(logic, pilha(5), sem, 200)
 
       assert "1" in orders.opening
       assert orders.why =~ "controle e dano juntos"
@@ -1407,17 +1422,16 @@ defmodule Pokex.Bots.Engine.LogicTest do
       refute orders.why =~ "dentro da janela"
     end
 
-    # O CONTROLE OFENSIVO NÃO É LICENÇA PRA REVIVER. Até 27/08 a janela não
-    # olhava a barra: com `crowd_from` baixo, qualquer bolo fazia o controle
-    # sair, a janela abria, e o revive saía com a barra INTEIRA na mão. Medido
-    # nas 6 sementes: 19 dos 137 revives do anel saíam com cinco teclas prontas.
-    #
-    # "A gente tem que usar todas as skills, para depois usar um ressurect,
-    # porque ele tem um certo custo que não é de graça" (27/08).
-    test "com a barra cheia, o controle abre a janela mas o revive NÃO sai" do
+    # COM A BARRA CHEIA NADA ACONTECE: nem controle (não há revive pra
+    # prefixar), nem janela, nem revive. Antes de 29/08 o controle ofensivo
+    # saía aqui e abria uma janela que a barra cheia então recusava — duas
+    # regras se estranhando; agora a primeira nem dispara. "A gente tem que
+    # usar todas as skills, para depois usar um ressurect" (27/08) segue
+    # valendo pelo mesmo caminho de sempre: `spent?` na frente de tudo.
+    test "com a barra cheia, nem controle nem revive — tudo guardado" do
       logic = aberta(pilha(5))
       {logic, primeira} = Logic.step(logic, pilha(5), @r10, 200)
-      assert "1" in primeira.opening, "o controle sai — a pilha é grande"
+      refute "1" in primeira.opening
 
       {_logic, orders} = Logic.step(logic, pilha(5), @r10, 1_200)
 

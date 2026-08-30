@@ -385,7 +385,7 @@ defmodule Pokex.Bots.Combat.Worker do
       do:
         {"em área com #{loadout.name}",
          Strategy.opening(loadout, aura_ready?: aura_ready?(loadout))},
-      else: {"com o combo da caçada", recorded}
+      else: {"com o combo da caçada", recorded -- crowd_keys(loadout)}
   end
 
   defp crowd_keys(nil), do: []

@@ -794,6 +794,21 @@ defmodule Pokex.Bots.Engine.Logic do
            revive: :now
          )}
 
+      # O REVIVE COBERTO: a barra gastou, o piso do item venceu, e o sono
+      # ainda cobre a recolhida inteira (pegada + volta + folga) — o F4 sai
+      # SEM stun novo, porque dormir um chefe já dormindo é pagar duas vezes.
+      # É o "usar o revive sempre que fizer sentido, maximizando dano/s": a
+      # barra volta cheia no meio da cobertura, e o stun fica no relógio dele.
+      boss_covered_revive_due?(t) ->
+        {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           opening(t),
+           "chefe coberto e barra gasta — F4 recheia a barra dentro do sono",
+           revive: :now
+         )}
+
       true ->
         nil
     end
@@ -937,17 +952,48 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
-  # O STUN É O PREFIXO DO REVIVE, NUNCA UM AGENDAMENTO. A correção dele
-  # (30/08): "tu só precisa do stun quando vai usar o revive, não precisa usar
-  # antes". Quem dirige o ciclo é a BARRA GASTA — "usar todas as skills,
-  # finalizar com stun e depois usar o revive" — e o sono de 3s existe pra
-  # cobrir exatamente o settle + o F4 + a volta do pokémon. O piso de 1,5s
-  # entre ordens é só o tempo de o aperto anterior chegar ao jogo antes de
-  # acusá-lo de vento (um stun que não pegou é reapertado, de graça).
+  # O STUN É O PREFIXO DO REVIVE, e o ciclo tem DOIS gatilhos:
+  #
+  #   * a BARRA GASTA — "usar todas as skills, finalizar com stun e depois
+  #     usar o revive" (30/08);
+  #   * a EMENDA — a física que ele mediu na segunda passada: o sono dura 5s
+  #     e só pega 2s depois do aperto. O próximo stun tem que sair enquanto o
+  #     sono velho ainda cobre a pegada do novo — cobertura restante ≤ pegada
+  #     — senão cada ciclo abre 2s de chefe acordado que nenhuma rajada paga.
+  #     Com o piso de segurança de 5s entre F4s, a conta fecha exata:
+  #     aperto a cada ~5s, pegada de 2s, sono de 5s — emenda contínua.
+  #
+  # O piso de 1,5s entre ordens é só o tempo de o aperto anterior chegar ao
+  # jogo antes de acusá-lo de vento (um stun que não pegou é reapertado, de
+  # graça).
+  # …e o stun NÃO espera o piso do F4 (o piso protege o ITEM; o sono protege
+  # o pokémon — esperar relógio de segurança com o chefe mordendo custou 2,2s
+  # por ciclo na bancada), NEM sai com a barra gasta no meio da cobertura:
+  # stun em cima de sono pago desperdiça o sono e desalinha a emenda. O stun
+  # tem UM relógio — a emenda.
   defp boss_stun_due?(t) do
     heavy?(t) and control_ready?(t) and close_enough_to_stun?(t) and
-      t.s.spent? == true and elapsed?(t, :stunned, 1_500) and
-      elapsed?(t, :reset_revive, t.config.rescue_floor_ms)
+      emenda_due?(t) and elapsed?(t, :stunned, 1_500)
+  end
+
+  # A cobertura restante chegou na pegada? Com testemunha, é aritmética; sem
+  # (o jogo real, por enquanto), o carimbo da ordem aproxima: cobertura do
+  # aperto = `stun_hold_ms`, então a emenda vence em `hold - pegada`.
+  #
+  # A FOLGA DE 600ms é o preço da margem zero: piso de 5s + pegada de 2s =
+  # cobertura de 7s EXATA, então qualquer deriva de fase (rajada, tique,
+  # blackout) viraria chefe acordado. Emendar 600ms antes sobrepõe 600ms de
+  # sono — que o mundo só estica, nunca encurta — e compra a folga que a
+  # aritmética não dá.
+  @emenda_folga_ms 600
+
+  defp emenda_due?(t) do
+    pegada = t.config.stun_onset_ms + @emenda_folga_ms
+
+    case Map.get(t.s, :boss_asleep_left_ms) do
+      nil -> elapsed?(t, :stunned, max(t.config.stun_hold_ms - pegada, 0))
+      left -> left <= pegada
+    end
   end
 
   # O STUN TEM RAIO. O primeiro rascunho apertava o controle no primeiro
@@ -996,6 +1042,19 @@ defmodule Pokex.Bots.Engine.Logic do
       nil -> true
       revived_at -> revived_at < Map.get(t.logic.since, :stunned)
     end
+  end
+
+  # Sono de sobra = pegada (2s) + recolhida e volta (~1s): abaixo disso o
+  # pokémon voltaria com o chefe acordando na cara. Só com testemunha — sem o
+  # canal (o jogo, por enquanto) este atalho não existe e o par clássico
+  # responde sozinho.
+  defp boss_covered_revive_due?(t) do
+    left = Map.get(t.s, :boss_asleep_left_ms)
+
+    heavy?(t) and t.s.own_out? == true and t.s.spent? == true and
+      is_integer(left) and left >= t.config.stun_onset_ms + 1_000 and
+      elapsed?(t, :reset_revive, t.config.rescue_floor_ms) and
+      affordable?(t)
   end
 
   defp heavy?(t), do: Map.get(t.s, :heavy?, false)

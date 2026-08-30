@@ -241,9 +241,10 @@ defmodule PokexWeb.ConfigLive do
           kind: :sec,
           label: "…quanto o teu stun segura",
           hint:
-            "Quantos segundos a tua skill de controle deixa um bicho dormindo — cronometra " <>
-              "no jogo. O combo de chefe re-stuna com 1s de folga antes deste prazo vencer.",
-          keywords: "stun sono duração segura chefe cronometro"
+            "Do APERTO até o sono acabar: a pegada (~2s até o efeito cair — o mesmo tempo " <>
+              "do settle) + a duração do sono (~5s) = 7. O combo de chefe emenda o próximo " <>
+              "stun quando a cobertura restante chega na pegada.",
+          keywords: "stun sono duração segura chefe cronometro pegada"
         },
         %{
           key: :engine_stun_reach_tiles,

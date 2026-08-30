@@ -229,15 +229,21 @@ defmodule Pokex.Sim.Scenario do
           bite_every_ms: 1_000,
           # o relógio do combo: o sono segura 8s, o F4 volta em 5s — é o que
           # faz \"stun → revive → stun\" caber; os dois são dele pra cronometrar
-          # MEDIDO POR ELE (30/08): "o stun dura 3 segundos"
-          stun_ms: 3_000,
-          revive_cooldown_ms: 5_000,
+          # MEDIDO POR ELE (30/08, segunda passada): "o stun dura 5s,
+          # começando a contar depois dos 2s" — pegada 2s, sono 5s
+          stun_ms: 5_000,
+          stun_onset_ms: 2_000,
+          # O F4 NÃO TEM COOLDOWN NO JOGO ("aquele era um cooldown de
+          # segurança") — o piso de 5s é do CÉREBRO (rescue_floor_ms, contado
+          # da ordem), e um mundo que recusa F4 por conta própria modela um
+          # jogo que não existe: a recusa silenciosa trancava a corrente.
+          revive_cooldown_ms: 0,
           presses_to_kill: 3
         },
         config: %{
           reset_revive: true,
           boss_names: "chefe",
-          stun_hold_ms: 3_000,
+          stun_hold_ms: 7_000,
           # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
           # o stun até o F4 que vem atrás caber nele
           rescue_floor_ms: 5_000,
@@ -271,15 +277,21 @@ defmodule Pokex.Sim.Scenario do
           boss_atk_mult: 10,
           bite_dmg: 1,
           bite_every_ms: 1_000,
-          # MEDIDO POR ELE (30/08): "o stun dura 3 segundos"
-          stun_ms: 3_000,
-          revive_cooldown_ms: 5_000,
+          # MEDIDO POR ELE (30/08, segunda passada): "o stun dura 5s,
+          # começando a contar depois dos 2s" — pegada 2s, sono 5s
+          stun_ms: 5_000,
+          stun_onset_ms: 2_000,
+          # O F4 NÃO TEM COOLDOWN NO JOGO ("aquele era um cooldown de
+          # segurança") — o piso de 5s é do CÉREBRO (rescue_floor_ms, contado
+          # da ordem), e um mundo que recusa F4 por conta própria modela um
+          # jogo que não existe: a recusa silenciosa trancava a corrente.
+          revive_cooldown_ms: 0,
           presses_to_kill: 3
         },
         config: %{
           reset_revive: true,
           boss_names: "chefe",
-          stun_hold_ms: 3_000,
+          stun_hold_ms: 7_000,
           # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
           # o stun até o F4 que vem atrás caber nele
           rescue_floor_ms: 5_000,
@@ -294,7 +306,12 @@ defmodule Pokex.Sim.Scenario do
         group: :chefe,
         icon: "🛤️",
         aperto: :aperto,
-        espera: [:nao_cai, :mata],
+        # SÓ :mata, e é o diagnóstico DELE virado em contrato (30/08): "ainda
+        # não confio nas de boss, a hunt ainda não tá tão bem organizada — 1
+        # erro é morte na certa". Um chefe 10× no meio de pilha comum vive no
+        # fio (vida mínima 3-20 nas sementes); prometer nao_cai aqui hoje
+        # seria flake, não régua. A promessa volta quando a hunt mista fechar.
+        espera: [:mata],
         name: "Estrada com chefes",
         why:
           "A hunt avançada inteira: os ninhos de sempre E um chefe 10× brotando no meio " <>
@@ -315,15 +332,21 @@ defmodule Pokex.Sim.Scenario do
           boss_atk_mult: 10,
           bite_dmg: 1,
           bite_every_ms: 1_000,
-          # MEDIDO POR ELE (30/08): "o stun dura 3 segundos"
-          stun_ms: 3_000,
-          revive_cooldown_ms: 5_000,
+          # MEDIDO POR ELE (30/08, segunda passada): "o stun dura 5s,
+          # começando a contar depois dos 2s" — pegada 2s, sono 5s
+          stun_ms: 5_000,
+          stun_onset_ms: 2_000,
+          # O F4 NÃO TEM COOLDOWN NO JOGO ("aquele era um cooldown de
+          # segurança") — o piso de 5s é do CÉREBRO (rescue_floor_ms, contado
+          # da ordem), e um mundo que recusa F4 por conta própria modela um
+          # jogo que não existe: a recusa silenciosa trancava a corrente.
+          revive_cooldown_ms: 0,
           presses_to_kill: 3
         },
         config: %{
           reset_revive: true,
           boss_names: "chefe",
-          stun_hold_ms: 3_000,
+          stun_hold_ms: 7_000,
           # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
           # o stun até o F4 que vem atrás caber nele
           rescue_floor_ms: 5_000,

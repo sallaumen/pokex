@@ -130,6 +130,16 @@ defmodule PokexWeb.ConfigLive do
           keywords: "revive intervalo cooldown"
         },
         %{
+          key: :revive_dry_action,
+          kind: :select,
+          label: "Bag sem revive: fazer o quê",
+          hint:
+            "Três revives pagos sem a vida voltar = a bag secou (ou o jogo ficou surdo ao F4). " <>
+              "logout SAI do jogo (para a frota antes); stop só para a caçada; alarm só grita — " <>
+              "e gritar foi o que não bastou nas duas mortes de 01/09.",
+          keywords: "revive bag vazia estoque seca logout parar emergência"
+        },
+        %{
           key: :rescue_key,
           kind: :key,
           label: "Tecla do revive",

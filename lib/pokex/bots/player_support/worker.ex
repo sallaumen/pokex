@@ -20,7 +20,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Focus
-  alias Pokex.Bots.{Logout, ReviveLedger, SkillClock}
+  alias Pokex.Bots.{BotSupervisor, Logout, ReviveLedger, SkillClock}
   alias Pokex.Bots.PlayerSupport.ReviveEffect
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.InputGate
@@ -535,13 +535,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp scream_if_dead(state, :quiet), do: state
 
   defp scream_if_dead(state, :scream) do
-    logout? = Settings.get(:player_hp_logout)
     n = ReviveEffect.streak(state.revive_judge)
-
-    socorro =
-      if logout?,
-        do: "saindo do jogo pra proteger o personagem",
-        else: "liga player_hp_logout pra ele sair sozinho da próxima"
+    acao = Settings.get(:revive_dry_action)
 
     # :mortal fura o mudo POR CONSTRUÇÃO: não é um setor da lista fechada
     # (`AlarmCategories`), então nunca entra em `alarm_muted_categories`. Na
@@ -551,18 +546,35 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       Pokex.PubSub,
       @topic,
       {:rule_alarm, :mortal,
-       "🩸 #{n} revives pagos e NENHUM efeito — a BAG está sem revive? Repõe AGORA — #{socorro}"}
+       "🩸 #{n} revives pagos e NENHUM efeito — a BAG está sem revive? " <>
+         "Repõe AGORA — #{dry_text(acao)}"}
     )
 
     broadcast_log(
       :macro,
-      "🩸 #{n} revives pagos sem a vida voltar — bag sem revive (ou o jogo surdo ao F4); #{socorro}"
+      "🩸 #{n} revives pagos sem a vida voltar — bag sem revive (ou o jogo surdo ao F4); " <>
+        dry_text(acao)
     )
 
-    if logout?, do: Logout.request("#{n} revives sem efeito — bag sem revive")
-
+    dry_act(acao, "#{n} revives sem efeito — bag sem revive")
     state
   end
+
+  # A BAG SECA É UMA EMERGÊNCIA COM RESPOSTA PRÓPRIA, e ela não podia depender
+  # de `player_hp_logout` — aquele botão é sobre a vida do PERSONAGEM, e as
+  # duas mortes de 01/09 aconteceram com ele desligado enquanto o bot moía o
+  # pokémon num revive que não fazia nada. Sem revive não existe recuperação:
+  # cada luta daqui pra frente gasta o pokémon e depois o personagem, e nada
+  # disso volta sozinho. Por isso o padrão é DESLOGAR, e não avisar: o
+  # `Logout` já para a frota antes de tentar sair, então até um logout que
+  # falha deixa o bot parado em vez de moendo.
+  defp dry_act("logout", motivo), do: Logout.request(motivo)
+  defp dry_act("stop", motivo), do: BotSupervisor.stop_all(motivo)
+  defp dry_act(_alarm_ou_desconhecido, _motivo), do: :ok
+
+  defp dry_text("logout"), do: "SAINDO do jogo pra proteger o personagem"
+  defp dry_text("stop"), do: "PARANDO a caçada — o personagem fica onde está"
+  defp dry_text(_alarm), do: "só avisando (revive_dry_action está em “alarm”)"
 
   defp player_low(%{player_low_streak: streak, player_alarmed?: false} = state)
        when streak >= 2 do

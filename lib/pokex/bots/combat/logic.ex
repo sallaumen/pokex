@@ -32,7 +32,7 @@ defmodule Pokex.Bots.Combat.Logic do
   and the Body is not involved.
   """
 
-  alias Pokex.Bots.Combat.{Loadout, Strategy}
+  alias Pokex.Bots.Combat.{Loadout, Plan}
 
   defstruct state: :idle,
             config: nil,
@@ -734,42 +734,19 @@ defmodule Pokex.Bots.Combat.Logic do
   #
   # The fallback is not a degraded mode, it IS the behaviour that existed before
   # the loadout: no pokémon chosen means nothing changes.
+  #
+  # AS REGRAS EM SI mudaram de casa em 01/09: elas moram no `Combat.Plan`, com a
+  # abertura que o cérebro monta. As duas metades compunham teclas em lugares
+  # diferentes, e um modo que muda a mão precisa alcançar as duas — senão o
+  # cérebro planeja uma rajada que a mão nunca aperta. `Plan.Standard` é o que
+  # estava escrito aqui, movido inteiro.
   defp attack_keys(%{loadout: loadout, config: config}, obs) do
     if Loadout.attacks?(loadout) do
-      quantos = length(enemies(obs))
-      prontas = obs[:ready_skills]
-
-      # AS DUAS AURAS ENTRAM NA ROTAÇÃO, e não só na abertura. Elas só eram
-      # consideradas em `open_with_combo`, que sai UMA vez na borda da luta: uma
-      # aura que fica pronta no meio de uma luta de quarenta segundos nunca era
-      # apertada. Medido no rastro dele de 27/08: a tecla 2 do Vespiquen (a aura
-      # de dano) saiu 3 vezes contra 28 da tecla 7.
-      #
-      # "A aura de ataque vale a pena ele usar sempre que tiver em luta com um
-      # pokémon e o cooldown estiver disponível; a de defesa, sempre que tem já
-      # uns 2 pokémons atacando ele pelo menos" (27/08).
-      Strategy.skill_order(loadout,
-        enemies: quantos,
-        aoe_from: Map.get(config, :combat_aoe_from_enemies, 3),
-        single_target?: Map.get(config, :combat_single_target, false),
-        aura_ready?: Loadout.aura_ready?(loadout, prontas),
-        shield_ready?:
-          quantos >= Map.get(config, :combat_shield_from_enemies, 2) and
-            Loadout.shield_ready?(loadout, prontas),
-        # …E O DANO PELA MESMA BARRA QUE AS AURAS. Era a única metade da rajada
-        # que saía sem olhar: 81% dos apertos de dano de 29/08 foram em tecla
-        # JÁ esfriando, e 74% das rajadas eram inteiramente assim — onze
-        # minutos de teclado numa caçada de 82, cada tecla fria custando o
-        # `combat_skill_gap_ms` inteiro e ainda comprando uma retentativa.
-        #
-        # SÓ NA ROTAÇÃO, e é de propósito: a mão que o CÉREBRO monta
-        # (`Engine.Inputs`) continua completa, porque a engine lê `opening ==
-        # []` como "nenhum pokémon configurado pra lutar" e sai da luta. As
-        # duas listas parecem a mesma coisa e não são — a bancada mediu a
-        # confusão: filtrar lá derrubou os mortos em 44% e jogou 55% da corrida
-        # no `:handless`.
-        ready_keys: prontas
-      )
+      Plan.for(Map.get(config, :mode)).sustained(loadout, %{
+        enemies: length(enemies(obs)),
+        ready_keys: obs[:ready_skills],
+        config: config
+      })
     else
       # Nobody chosen, or one whose ATTACKS he has not classified — a pokémon
       # can have a scheduled aura and still have nothing here.
@@ -854,7 +831,8 @@ defmodule Pokex.Bots.Combat.Logic do
   # Se a caçada aperta Tab. Desligado por medição dele em campo: o alvo travado
   # não muda o dano (só a área machuca) e move o pokémon pra cima do alvo,
   # desmanchando o bolo que a régua acabou de juntar.
-  defp tab?(%{config: config}), do: Map.get(config, :combat_tab_target, false) == true
+  defp tab?(%{config: config}),
+    do: Plan.for(Map.get(config, :mode)).tab?(%{config: config})
 
   defp observed?(obs), do: obs != nil
 

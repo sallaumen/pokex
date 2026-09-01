@@ -54,6 +54,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   alias Pokex.Bots.Catcher
   alias Pokex.Bots.Cavebot.{Logic, Route, Store}
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.HuntMode
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport
   alias Pokex.Calibration
@@ -428,7 +429,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
         luring?: Logic.luring?(logic),
         wp_index: logic.wp_index,
         waypoints: length(logic.route.waypoints),
-        recovering?: logic.recovering?
+        recovering?: logic.recovering?,
+        # O MODO É RESOLVIDO UMA VEZ, AQUI. Quem escolhe é a rota que ESTA
+        # caçada está andando, e daqui ele viaja como fato: o cérebro lê o
+        # mesmo valor que o combate recebeu no arranque, então os dois não
+        # podem discordar no meio de um tique.
+        mode: HuntMode.in_force(logic.route.mode)
       },
       now
     )
@@ -754,11 +760,17 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # consertado junto (`{:combat_preflight_failed, mensagens}`). O que decide a
   # gravidade é o nome, não a forma — e antes disto a forma nova teria caído
   # calada no bloqueio local, sem trava e sem parar a frota.
+  # O MODO VIAJA COM O ARRANQUE. A rota é quem escolhe, e o combate guarda a
+  # escolha pelo tempo da luta: assim a mão e o cérebro (que lê o mesmo modo no
+  # fato `:hunt`) não podem discordar no meio de um tique.
   defp safe_combat_run(state) do
-    Combat.Worker.run(state.combat, state.combat_run_timeout_ms)
+    Combat.Worker.run(state.combat, state.combat_run_timeout_ms, hunt_mode(state))
   catch
     :exit, _reason -> :timeout
   end
+
+  defp hunt_mode(%{logic: %Logic{route: %Route{mode: mode}}}), do: HuntMode.in_force(mode)
+  defp hunt_mode(_no_route), do: HuntMode.in_force()
 
   defp dangerous?({name, _detail}), do: name in @dangerous_blocks
   defp dangerous?(name), do: name in @dangerous_blocks

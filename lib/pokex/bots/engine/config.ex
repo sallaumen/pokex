@@ -28,6 +28,7 @@ defmodule Pokex.Bots.Engine.Config do
   one" — without having to know the other sixteen.
   """
 
+  alias Pokex.Bots.HuntMode
   alias Pokex.Settings
 
   # knob (what the decision calls it) => setting (what Settings stores it under)
@@ -117,9 +118,20 @@ defmodule Pokex.Bots.Engine.Config do
   @spec bench_only() :: %{atom => String.t()}
   def bench_only, do: @bench_only
 
-  @doc "The knobs as the bot is running them right now."
-  @spec in_force() :: t
-  def in_force, do: Map.new(@knobs, fn {knob, setting} -> {knob, Settings.get(setting)} end)
+  @doc """
+  The knobs as the bot is running them right now, with `mode`'s tactical
+  overlay on top (`Pokex.Bots.HuntMode.engine_overrides/1`).
+
+  The overlay lives in MEMORY and never reaches `settings.json`: a mode that
+  wrote his config would make "um modo não afeta o outro" quietly false, and
+  the page would show a number he never typed.
+  """
+  @spec in_force(HuntMode.t() | nil) :: t
+  def in_force(mode \\ nil) do
+    knobs = Map.new(@knobs, fn {knob, setting} -> {knob, Settings.get(setting)} end)
+
+    Map.merge(knobs, HuntMode.engine_overrides(HuntMode.in_force(mode)))
+  end
 
   @doc "The knobs at their SEEDED values — reproducible, and his tuning aside."
   @spec defaults() :: t

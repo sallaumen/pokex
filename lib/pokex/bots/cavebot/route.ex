@@ -13,6 +13,7 @@ defmodule Pokex.Bots.Cavebot.Route do
   floor nobody marked.
   """
 
+  alias Pokex.Bots.HuntMode
   alias Pokex.Pokedex.SkillProfile
 
   @enforce_keys [:name]
@@ -22,6 +23,11 @@ defmodule Pokex.Bots.Cavebot.Route do
             # THIS route's huddle ruler; nil hands the answer to the global
             # number in /config
             gather_wait_ms: nil,
+            # WHICH combat strategy this route hunts with; nil hands the answer
+            # to the global default (`Pokex.Bots.HuntMode`). A dungeon of strong
+            # monsters and a cheap corridor are not the same fight, and this is
+            # the only field that says so.
+            mode: nil,
             waypoints: []
 
   @typedoc """
@@ -122,6 +128,7 @@ defmodule Pokex.Bots.Cavebot.Route do
           dungeon: String.t() | nil,
           enabled?: boolean,
           gather_wait_ms: non_neg_integer | nil,
+          mode: HuntMode.t() | nil,
           waypoints: [waypoint]
         }
 
@@ -445,6 +452,17 @@ defmodule Pokex.Bots.Cavebot.Route do
   @spec set_gather_wait(t, non_neg_integer | nil) :: t
   def set_gather_wait(%__MODULE__{} = route, ms) when is_nil(ms) or (is_integer(ms) and ms >= 0),
     do: %{route | gather_wait_ms: ms}
+
+  @doc """
+  WHICH combat strategy this route hunts with — `nil` gives the answer back to
+  the global default.
+
+  Whitelisted through `HuntMode.parse/1`, so a mode this build does not know
+  (a hand-edited file, a route written by a newer build) reads as absence and
+  the hunt runs the default instead of raising at the kill spot.
+  """
+  @spec set_mode(t, HuntMode.t() | String.t() | nil) :: t
+  def set_mode(%__MODULE__{} = route, mode), do: %{route | mode: HuntMode.parse(mode)}
 
   @doc "THIS waypoint's huddle; `nil` hands the answer back to the route's ruler."
   @spec set_gather_wait(t, non_neg_integer, non_neg_integer | nil) :: t

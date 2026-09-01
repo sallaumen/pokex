@@ -12,6 +12,22 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
 
   @moduletag :tmp_dir
 
+  test "route round-trip keeps the combat mode" do
+    route = Route.set_mode(Route.new("dungeon forte"), :economy)
+    assert :ok = Store.add(route)
+    assert [%{mode: :economy}] = Store.all()
+  end
+
+  test "a route that chose no mode reads back as nil" do
+    assert :ok = Store.add(Route.new("rota nova"))
+    assert [%{mode: nil}] = Store.all()
+  end
+
+  test "a mode this build does not know reads back as nil" do
+    assert :ok = Store.add(Route.set_mode(Route.new("rota do futuro"), "modo_de_amanha"))
+    assert [%{mode: nil}] = Store.all()
+  end
+
   test "route round-trip with waypoints" do
     {:ok, r} = Route.append(Route.new("cavena", "cavena-dg"), {10, 20, 7})
     assert :ok = Store.add(r)

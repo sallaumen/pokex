@@ -16,7 +16,7 @@ defmodule Pokex.Bots.Engine.Inputs do
   one it CALLS cannot.
   """
 
-  alias Pokex.Bots.Combat.{Loadout, Strategy}
+  alias Pokex.Bots.Combat.{Loadout, Plan}
 
   @typedoc "The `hands` half of the decision world."
   @type t :: %{
@@ -49,49 +49,31 @@ defmodule Pokex.Bots.Engine.Inputs do
   @spec hands(
           Loadout.t() | nil,
           %{:ready_keys => [String.t()] | nil, optional(atom()) => any()},
-          map
+          map,
+          atom | nil
         ) :: t
-  def hands(loadout, picture, config \\ %{})
+  def hands(loadout, picture, config \\ %{}, mode \\ nil) do
+    plan = Plan.for(mode)
 
-  def hands(nil, _picture, _config), do: %{opening: [], small: [], single: [], crowd: []}
+    ctx = %{
+      enemies: Map.get(picture, :enemies),
+      ready_keys: picture.ready_keys,
+      config: config
+    }
 
-  def hands(%Loadout{} = loadout, picture, config) do
     %{
-      opening:
-        Strategy.opening(loadout,
-          single_target?: single?(config),
-          aura_ready?: Loadout.aura_ready?(loadout, picture.ready_keys),
-          shield_ready?: shield?(loadout, picture, config)
-        ),
+      opening: plan.opening(loadout, ctx),
       # A MÃO PEQUENA: a primeira tecla de DANO, sem escudo e sem aura. É o
       # que uma pilha que a régua já chamou de "não vale a área" merece quando
       # a paciência obriga a limpá-la mesmo assim — gastar a rajada inteira num
       # bicho bobo foi como a barra chegou vazia na pilha de verdade (28/08).
-      small:
-        loadout
-        |> Strategy.opening(single_target?: single?(config))
-        |> Enum.take(1),
+      small: plan.small(loadout, ctx),
       # A MESMA REGRA aqui: `single` é o que a fase `:skipping` gasta nas teclas
       # BARATAS, e uma tecla que não machuca não é barata, é perdida.
-      #
-      # E o recuo da área vazia saiu (29/08): "skills de alvo único não
-      # funcionam mais, de propósito". Sem área classificada não sobra tecla
-      # barata pra gastar, e é isso mesmo — ver `Loadout.single_keys/2`.
-      single: Loadout.single_keys(loadout, single?(config)),
-      crowd: loadout.crowd
+      single: plan.single(loadout, ctx),
+      # …e o CONTROLE é do modo também: no Auto Combo o stun é a última metade
+      # do combo do jogo, e não uma tecla que o cérebro gasta.
+      crowd: plan.crowd(loadout, ctx)
     }
-  end
-
-  # A AURA DE DEFESA, pela régua dele: a partir de dois em cima, com a tecla
-  # pronta. O número é o mesmo que o `Combat.Logic` usa na rotação sustentada —
-  # uma regra, um knob, senão a abertura e o resto da luta discordam sobre
-  # quando ele fica indestrutível.
-  defp single?(config), do: Map.get(config, :single_target, false)
-
-  defp shield?(loadout, picture, config) do
-    quantos = Map.get(picture, :enemies)
-
-    is_integer(quantos) and quantos >= Map.get(config, :shield_from, 2) and
-      Loadout.shield_ready?(loadout, picture.ready_keys)
   end
 end

@@ -16,6 +16,7 @@ defmodule Pokex.Bots.Combat.Worker do
   alias Pokex.Bots.AreaProbe
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.{Loadout, Logic, Strategy}
+  alias Pokex.Bots.HuntMode
   alias Pokex.Bots.Perf
   alias Pokex.Bots.ReviveLedger
   alias Pokex.Bots.SkillClock
@@ -72,7 +73,9 @@ defmodule Pokex.Bots.Combat.Worker do
   hunt calls this from inside its own tick, so the default 5s was a silent exit
   waiting to happen.
   """
-  def run(server \\ __MODULE__, timeout \\ 5_000), do: GenServer.call(server, :run, timeout)
+  def run(server \\ __MODULE__, timeout \\ 5_000, mode \\ nil),
+    do: GenServer.call(server, {:run, mode}, timeout)
+
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
@@ -89,6 +92,8 @@ defmodule Pokex.Bots.Combat.Worker do
      %{
        logic: nil,
        timer: nil,
+       # o modo que ESTA luta foi armada com — ver `config_for/1`
+       mode: HuntMode.default(),
        # what the keys of the pokémon he chose DO — nil until :run, and nil
        # forever if he chose none (the fight then presses the configured list)
        loadout: nil,
@@ -120,10 +125,15 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   @impl true
-  def handle_call(:run, _from, state) do
+  def handle_call({:run, mode}, _from, state) do
     case Preflight.run() do
       :ok ->
-        config = Settings.all() |> Map.take(@config_keys)
+        # O MODO É FOTOGRAFADO JUNTO COM A CONFIG, e pela mesma razão: a luta
+        # decide com um retrato só. Quem arma passa o modo que a ROTA escolheu
+        # (o cavebot), e sem ninguém dizendo cai no padrão global — a mesma
+        # resposta que o cérebro dá quando não há caçada.
+        mode = HuntMode.in_force(mode)
+        config = config_for(mode)
         {logic, _actions} = Logic.start(Logic.new(config), now())
         Perception.attach(:battle)
         # The skill-bar feed powers the cooldown-aware rotation. Its loss is GRACEFUL
@@ -142,6 +152,7 @@ defmodule Pokex.Bots.Combat.Worker do
           %{
             state
             | logic: logic,
+              mode: mode,
               feed_ref: ref,
               reattach_attempts: 0,
               held?: false,
@@ -306,6 +317,13 @@ defmodule Pokex.Bots.Combat.Worker do
   def handle_info(_msg, state), do: {:noreply, state}
 
   # -- the step pipeline -------------------------------------------------------
+
+  # `:mode` não é um ajuste do Settings: é a escolha da rota, guardada aqui pelo
+  # tempo da luta pra que o `Combat.Plan` responda igual no retomar depois do
+  # minigame.
+  defp config_for(mode) do
+    Settings.all() |> Map.take(@config_keys) |> Map.put(:mode, mode)
+  end
 
   defp advance(%{logic: %Logic{state: s}} = state, _obs) when s in [:idle, :error],
     do: cancel_timer(state)
@@ -558,8 +576,7 @@ defmodule Pokex.Bots.Combat.Worker do
   # The fight state frozen many seconds ago is garbage — restart the machine,
   # exactly what the old external halt+run pair produced.
   defp resume_from_hold(state) do
-    config = Settings.all() |> Map.take(@config_keys)
-    {logic, _actions} = Logic.start(Logic.new(config), now())
+    {logic, _actions} = Logic.start(Logic.new(config_for(state.mode)), now())
     state = %{state | logic: logic, held?: false}
     broadcast(logic, state)
     state

@@ -39,11 +39,13 @@ defmodule Pokex.Bots.Engine.Worker do
 
   alias Pokex.Bots.Combat
   alias Pokex.Bots.Combat.Loadout
+  alias Pokex.Bots.Combat.Plan
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.Engine.Inputs
   alias Pokex.Bots.Engine.Logic
   alias Pokex.Bots.Engine.Narration
   alias Pokex.Bots.Engine.Situation
+  alias Pokex.Bots.HuntMode
   alias Pokex.Bots.{ReviveLedger, SkillClock}
   alias Pokex.Engine.Events
   alias Pokex.Engine.Vitals
@@ -149,15 +151,23 @@ defmodule Pokex.Bots.Engine.Worker do
     # ONE config for the tick, read once. The picture needs `engage_from` and
     # the decision needs all sixteen, and building two maps from the same
     # settings was two chances to read a different value in the same tick.
-    config = Config.in_force()
-    picture = Situation.build(inputs(state, now, config), config, now)
+    #
+    # …E O MODO VEM DA CAÇADA, não de uma segunda leitura do Settings. Quem
+    # resolve é o Cavebot, uma vez, e publica no fato `:hunt`
+    # (`Pokex.Bots.HuntMode`): assim o cérebro decide com o mesmo modo com que o
+    # combate foi armado. Sem caçada rodando (a pesca), cai no padrão global,
+    # que é o que o `in_force/1` já faz sozinho.
+    hunt = hunt(now)
+    mode = HuntMode.in_force(hunt && hunt[:mode])
+    config = Config.in_force(mode)
+    picture = Situation.build(inputs(state, now, config, mode), config, now)
 
     WorldState.put(:situation, picture, now)
 
     {logic, orders} =
       Logic.step(
         state.logic,
-        %{situation: picture, hunt: hunt(now), hands: hands(state.loadout, picture, config)},
+        %{situation: picture, hunt: hunt, hands: hands(state.loadout, picture, config, mode)},
         config,
         now
       )
@@ -171,7 +181,7 @@ defmodule Pokex.Bots.Engine.Worker do
 
     state
     |> narrate(picture, orders)
-    |> sample_vitals(picture, orders, now)
+    |> sample_vitals(picture, orders, now, config, mode)
     |> Map.merge(%{picture: picture, orders: orders, logic: logic})
     |> tap(&broadcast({:engine, &1.picture, &1.orders}))
   end
@@ -196,8 +206,8 @@ defmodule Pokex.Bots.Engine.Worker do
   #   * how many presses and how long one monster costs (`mob_hp` vs the damage)
   #   * how long F4 leaves the pokemon in the ball (`revive_settle_ms`)
   #   * and whether coming back out resets the cooldowns at all (R3b's premise)
-  defp sample_vitals(state, picture, orders, now) do
-    reading = Vitals.reading(picture, orders, damage_keys(state.loadout, Config.in_force()))
+  defp sample_vitals(state, picture, orders, now, config, mode) do
+    reading = Vitals.reading(picture, orders, damage_keys(state.loadout, config, mode))
 
     if Vitals.due?(state.vitals, reading, now, Settings.get(:engine_vitals_ms)) do
       Events.record(:vitals, reading)
@@ -233,7 +243,8 @@ defmodule Pokex.Bots.Engine.Worker do
   # medição que não conseguia notar a diferença.
   # …e a montagem em si mora em `Engine.Inputs`, chamada também pela bancada:
   # a mesma decisão não pode ser DERIVADA de dois lados.
-  defp hands(loadout, picture, config), do: Inputs.hands(loadout, picture, config)
+  defp hands(loadout, picture, config, mode),
+    do: Inputs.hands(loadout, picture, config, mode)
 
   defp cooldowns(%Loadout{cooldowns: cooldowns}), do: cooldowns
   defp cooldowns(_no_loadout), do: %{}
@@ -250,7 +261,7 @@ defmodule Pokex.Bots.Engine.Worker do
 
   defp control_back_in_ms(_no_loadout, _now), do: nil
 
-  defp inputs(state, now, config) do
+  defp inputs(state, now, config, mode) do
     %{
       battle: battle(now),
       own_hp: own_hp(now),
@@ -267,7 +278,7 @@ defmodule Pokex.Bots.Engine.Worker do
           cooldowns(state.loadout),
           now
         ),
-      damage_keys: damage_keys(state.loadout, config),
+      damage_keys: damage_keys(state.loadout, config, mode),
       control_back_in_ms: control_back_in_ms(state.loadout, now),
       revive_left: ReviveLedger.remaining(),
       # O ESPECIAL VISTO PELA COR (`ShinyGuard`) — o shiny, que é o mesmo bicho
@@ -340,11 +351,12 @@ defmodule Pokex.Bots.Engine.Worker do
   # ignora entrando nesta lista é pior que ausente — ela nunca esfria, então
   # `spent?` nunca fica verdadeiro e o revive de reset nunca sai. Ver
   # `Loadout.single_keys/2`.
-  defp damage_keys(nil, _config), do: []
-
-  defp damage_keys(loadout, config) do
-    loadout.aoe ++ Loadout.single_keys(loadout, Map.get(config, :single_target, false))
-  end
+  # …e QUAIS são elas é do MODO: no Auto Combo a caçada gasta uma tecla só, e
+  # `spent?` medido contra a barra inteira nunca ficaria verdadeiro — o revive
+  # do ciclo morreria em silêncio, que é o mesmo defeito que as teclas de alvo
+  # único causaram em 29/08.
+  defp damage_keys(loadout, config, mode),
+    do: Plan.for(mode).damage_keys(loadout, %{config: config})
 
   # Only the EDGES talk: 200ms of cadence is five lines a second, and a feed
   # nobody can read is silence with more scrolling. WHAT to say is

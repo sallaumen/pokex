@@ -55,7 +55,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest.FakeCombat do
   def init(state), do: {:ok, state}
 
   @impl true
-  def handle_call(:run, _from, {test, run_reply} = state) do
+  def handle_call({:run, mode}, _from, {test, run_reply} = state) do
+    # O MODO VIAJA COM O ARRANQUE: quem arma é a caçada, e é a rota dela que
+    # escolhe. Sem isso a mão e o cérebro podiam discordar dentro de um tique.
+    send(test, {:combat_mode, mode})
     # what Combat would have read on its own first step: the posture fact as it
     # stands the instant the hunt starts it
     posture =
@@ -335,6 +338,30 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
       assert_receive {:posture_at_run, :hold_fire}, 1_000
       assert_receive {:combat_cmd, :run}, 1_000
+    end
+
+    # O MODO DE COMBATE É DA ROTA, e chega junto com o arranque. Sem isto o
+    # combate resolveria o modo por conta própria e a mão poderia lutar num
+    # modo enquanto o cérebro decide noutro.
+    test "combat is started with the mode THIS route chose", %{worker: worker} do
+      {:ok, route} = Route.append(Route.new("rota barata"), {100, 100, 7})
+      :ok = route |> Route.set_mode(:economy) |> Store.add()
+      :ok = Worker.run(worker)
+
+      minimap!({10, 20, 7})
+      tick!(worker)
+
+      assert_receive {:combat_mode, :economy}, 1_000
+    end
+
+    test "a route that chose no mode arms combat with the default", %{worker: worker} do
+      route!()
+      :ok = Worker.run(worker)
+
+      minimap!({10, 20, 7})
+      tick!(worker)
+
+      assert_receive {:combat_mode, :auto_combo}, 1_000
     end
 
     test "with no position it waits instead of opening fire on the pile", %{worker: worker} do

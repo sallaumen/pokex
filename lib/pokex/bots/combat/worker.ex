@@ -15,7 +15,7 @@ defmodule Pokex.Bots.Combat.Worker do
 
   alias Pokex.Bots.AreaProbe
   alias Pokex.Bots.Catcher.Worker
-  alias Pokex.Bots.Combat.{Loadout, Logic, Strategy}
+  alias Pokex.Bots.Combat.{Combo, Loadout, Logic, Plan, Strategy}
   alias Pokex.Bots.HuntMode
   alias Pokex.Bots.Perf
   alias Pokex.Bots.ReviveLedger
@@ -364,7 +364,7 @@ defmodule Pokex.Bots.Combat.Worker do
   # the opening move — area damage needs no target, and Tab comes on the next
   # frame anyway.
   defp open_with_combo(state, :hold_fire, :free_fight, recorded, orders) do
-    {source, keys} = opening_keys(state.loadout, recorded)
+    {source, keys} = opening_keys(state, recorded)
 
     # The order HE left on the kill spot goes FIRST: the Body runs the list in
     # order, and an aura that lands after the area damage did nothing at all.
@@ -409,17 +409,29 @@ defmodule Pokex.Bots.Combat.Worker do
   # it presses whatever his hands pressed at that waypoint, which stops being
   # true the moment he swaps pokémon, and can spend a control skill that was
   # supposed to survive for the revive.
-  defp opening_keys(loadout, {:engine, keys}) do
-    {"com a mão do cérebro", Enum.reject(keys, &(&1 in crowd_keys(loadout)))}
+  defp opening_keys(state, {:engine, keys}) do
+    {"com a mão do cérebro", Enum.reject(keys, &(&1 in crowd_keys(state.loadout)))}
   end
 
-  defp opening_keys(loadout, recorded) do
-    if Loadout.attacks?(loadout),
-      do:
-        {"em área com #{loadout.name}",
-         Strategy.opening(loadout, aura_ready?: aura_ready?(loadout))},
-      else: {"com o combo da caçada", recorded -- crowd_keys(loadout)}
+  # …E A ABERTURA DE RESERVA TAMBÉM É DO MODO. Ela era `Strategy.opening` direto,
+  # e no Auto Combo isso soltava a barra inteira tecla por tecla — exatamente o
+  # que o modo existe pra não fazer. Quem responde "qual é a mão" é um só.
+  defp opening_keys(state, recorded) do
+    ctx = %{
+      enemies: nil,
+      ready_keys: ready_skills(state.loadout),
+      config: state.logic.config
+    }
+
+    case Plan.for(state.mode).opening(state.loadout, ctx) do
+      [] -> {"com o combo da caçada", recorded -- crowd_keys(state.loadout)}
+      keys -> {opening_label(state), keys}
+    end
   end
+
+  defp opening_label(%{mode: :auto_combo}), do: "com a corrente do jogo"
+  defp opening_label(%{loadout: %Loadout{name: name}}), do: "em área com #{name}"
+  defp opening_label(_no_loadout), do: "com a mão do modo"
 
   defp crowd_keys(nil), do: []
   defp crowd_keys(loadout), do: loadout.crowd
@@ -643,6 +655,10 @@ defmodule Pokex.Bots.Combat.Worker do
         Perf.count("combat.revive_blackout")
         {state, :skipped}
 
+      combo_running?(state, keys) ->
+        Perf.count("combat.combo_window")
+        {state, :skipped}
+
       true ->
         parent = self()
         confirm? = Settings.get(:combat_confirm_skills) and state.retry_ok?
@@ -688,6 +704,20 @@ defmodule Pokex.Bots.Combat.Worker do
       ReviveLedger.landed_within?(janela)
   end
 
+  # A CORRENTE DO JOGO AINDA ESTÁ SAINDO. No Auto Combo uma prensa encadeia
+  # todas as skills ofensivas, e uma segunda tecla no meio corta a corrente —
+  # então enquanto ela roda a mão não encosta em nada. A rotação continua
+  # OFERECENDO a tecla a cada tique e é aqui que ela é recusada: oferecer
+  # sempre e recusar por fora é o que faz a primeira prensa depois da janela
+  # sair na hora, sem relógio próprio nenhum.
+  #
+  # O Tab passa pelo mesmo motivo que fura a janela cega: mirar não conjura
+  # nada. E a retentativa de tecla perdida cai aqui também, de propósito — ela
+  # reapertaria o R e recomeçaria a corrente do zero.
+  defp combo_running?(state, keys) do
+    keys != [Settings.get(:tab_key)] and Combo.running?(state.mode)
+  end
+
   # Só com UMA tecla — uma rajada de três tira uma queda só e ninguém sabe de
   # quem foi, que é exatamente o modo que ele descreveu ("ele e um inimigo de
   # vida cheia, usa uma skill e calcula a diferença").
@@ -697,11 +727,6 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   defp measure_damage(_rajada), do: :ok
-
-  # A aura de dano só lidera a rajada quando está PRONTA — "usar a aura 2 quando
-  # disponível" (26/08). A barra é lida do fato, sem captura nova, e uma leitura
-  # velha responde "não", que é o lado barato de errar.
-  defp aura_ready?(loadout), do: Loadout.aura_ready?(loadout, ready_skills(loadout))
 
   # `:ok` porque ela vive dentro do `with` da rajada: o carimbo é um passo da
   # sequência, não um efeito colateral pendurado nela.

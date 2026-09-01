@@ -1420,6 +1420,19 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   #   * classified but COLD — a transient the revive itself caused when it was
   #     spent on a calm screen (28/08): escalate like a missed stun, never
   #     recall bare in front of an awake pile.
+  # O RESGATE CONTINUA COM O CONTROLE, INCLUSIVE NO AUTO COMBO — e é uma escolha
+  # de qual erro é barato.
+  #
+  # Se a corrente do jogo termina em stun (é o que ele descreve: "os monstros
+  # que sobreviverem ainda estarão sob o efeito da skill de controle"), este
+  # prefixo é um aperto a mais por revive: gasta um cooldown e dorme quem já
+  # dormia. Se ela NÃO termina, tirar o prefixo é recolher o pokémon na cara de
+  # uma pilha acordada — que é como o personagem apanha, e como ele morreu em
+  # 28/08. Um aperto desperdiçado contra uma morte não é um empate.
+  #
+  # O CÉREBRO é que não gasta mais o controle no Auto Combo (`Plan.AutoCombo`
+  # devolve `crowd: []`): ele não abre com stun nem carimba janela nenhuma. Aqui
+  # a tecla segue guardada pro momento pra que ela sempre existiu.
   defp control_stun do
     case Loadout.current() do
       nil -> {:off, [log: "🚑 sem controle pronto no pokémon — revivendo direto"]}

@@ -741,16 +741,21 @@ defmodule Pokex.Bots.Combat.Logic do
   # cérebro planeja uma rajada que a mão nunca aperta. `Plan.Standard` é o que
   # estava escrito aqui, movido inteiro.
   defp attack_keys(%{loadout: loadout, config: config}, obs) do
-    if Loadout.attacks?(loadout) do
+    keys =
       Plan.for(Map.get(config, :mode)).sustained(loadout, %{
         enemies: length(enemies(obs)),
         ready_keys: obs[:ready_skills],
         config: config
       })
-    else
+
+    cond do
+      keys != [] -> keys
       # Nobody chosen, or one whose ATTACKS he has not classified — a pokémon
       # can have a scheduled aura and still have nothing here.
-      config.skill_keys
+      not Loadout.attacks?(loadout) -> config.skill_keys
+      # Classificado, e nada pronto agora: a rajada vazia devolve o tique pro
+      # cérebro decidir de novo em 200ms.
+      true -> []
     end
   end
 

@@ -55,6 +55,10 @@ defmodule Pokex.Sim.Scenario do
             # uma pilha dormindo não morde ninguém. O que o cenário fixa aqui
             # ainda pode ser sobrescrito por quem o roda.
             config: %{},
+            # QUAL MODO DE COMBATE esta pergunta é sobre (`Pokex.Bots.HuntMode`).
+            # `nil` é o bot como ele está — o que mantém todo cenário antigo
+            # medindo exatamente o que media.
+            mode: nil,
             script: [],
             # A FORMA DO CHÃO. `:liso` é o que todo cenário sempre foi: um plano
             # infinito onde só criatura atrapalha. `:anel` põe parede em volta do
@@ -200,6 +204,33 @@ defmodule Pokex.Sim.Scenario do
           bite_dmg: 1,
           player_bite_dmg: 1
         }
+      },
+      %__MODULE__{
+        id: "corrente-do-cliente",
+        group: :hunt,
+        icon: "🔗",
+        aperto: :rotina,
+        mode: :auto_combo,
+        espera: [:nao_cai, :mata],
+        name: "Auto Combo (a corrente do cliente)",
+        why:
+          "O mesmo formigueiro, com o modo que ele caça de verdade contra bicho forte: o bot " <>
+            "aperta UMA tecla, o jogo encadeia as skills e termina em stun, e o revive vem logo " <>
+            "atrás pra devolver a barra. A pergunta é se o ciclo se sustenta sozinho — se a " <>
+            "corrente sai, o revive cai depois dela (nunca no meio) e a próxima sai na sequência.",
+        route: :anthill,
+        knobs: %{
+          nest_sizes: %{2 => 4, 3 => 4, 4 => 2, 5 => 1},
+          nest_radius: 3,
+          stray_chance_pct: 60,
+          aggro_tiles: 8,
+          leash_tiles: 12,
+          respawn_ms: 20_000
+        },
+        # A R3b é o que faz o ciclo repetir: barra gasta pela corrente, revive
+        # devolve a barra, corrente de novo. Sem ela o modo aperta uma vez e
+        # espera quarenta segundos de cooldown.
+        config: %{reset_revive: true}
       },
       %__MODULE__{
         id: "chefe-brando",

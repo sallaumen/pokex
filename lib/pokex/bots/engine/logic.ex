@@ -463,8 +463,10 @@ defmodule Pokex.Bots.Engine.Logic do
   # formigueiro, 60 minutos, com o stun na frente: desligar o luxo economiza 11
   # revives por hora e custa 7% dos monstros, nos três pisos. Uma chave cuja
   # posição desligada nunca é a certa não é uma escolha, é entulho.
-  defp revive_now?(t),
-    do: t.s.enemies == 0 or not within?(t, :closing, t.config.closing_timeout_ms)
+  defp revive_now?(t) do
+    not mid_combo?(t) and
+      (t.s.enemies == 0 or not within?(t, :closing, t.config.closing_timeout_ms))
+  end
 
   defp revive_why(%{s: %{enemies: 0}} = t),
     do:
@@ -696,7 +698,8 @@ defmodule Pokex.Bots.Engine.Logic do
   # não disparava NUNCA: 18 revives preparados contra 171 no meio do bolo. Um
   # ou dois restos perseguindo de longe são a tela limpa que essa rota tem.
   defp prepare?(t, ceiling) do
-    t.config.prepare_revive and Map.get(t.s, :prepared?) == false and t.s.own_out? == true and
+    t.config.prepare_revive and not mid_combo?(t) and
+      Map.get(t.s, :prepared?) == false and t.s.own_out? == true and
       quiet?(t, ceiling) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
       t.logic.reset_broken_at == nil and affordable?(t)
   end
@@ -976,7 +979,8 @@ defmodule Pokex.Bots.Engine.Logic do
   # então nenhuma foto valida revive: o único piso é o de segurança
   # (`rescue_floor_ms`), contado do nosso último pedido.
   defp boss_rearm_due?(t) do
-    heavy?(t) and t.s.own_out? == true and not control_ready?(t) and boss_awake?(t) and
+    heavy?(t) and not mid_combo?(t) and t.s.own_out? == true and not control_ready?(t) and
+      boss_awake?(t) and
       elapsed?(t, :reset_revive, t.config.rescue_floor_ms) and
       affordable?(t)
   end
@@ -1053,7 +1057,8 @@ defmodule Pokex.Bots.Engine.Logic do
   # zerado o F4 é um aperto vazio de graça, e correr do chefe é a morte que
   # ele descreveu — não há plano B a proteger.
   defp boss_revive_due?(t) do
-    heavy?(t) and t.s.own_out? == true and is_integer(Map.get(t.logic.since, :stunned)) and
+    heavy?(t) and not mid_combo?(t) and t.s.own_out? == true and
+      is_integer(Map.get(t.logic.since, :stunned)) and
       within?(t, :stunned, t.config.stun_window_ms) and
       stun_seen_for_revive?(t) and
       one_revive_per_stun?(t) and
@@ -1089,13 +1094,30 @@ defmodule Pokex.Bots.Engine.Logic do
   defp boss_covered_revive_due?(t) do
     left = Map.get(t.s, :boss_asleep_left_ms)
 
-    heavy?(t) and t.s.own_out? == true and t.s.spent? == true and
+    heavy?(t) and not mid_combo?(t) and t.s.own_out? == true and t.s.spent? == true and
       is_integer(left) and left >= t.config.stun_onset_ms + 1_000 and
       elapsed?(t, :reset_revive, t.config.rescue_floor_ms) and
       affordable?(t)
   end
 
   defp heavy?(t), do: Map.get(t.s, :heavy?, false)
+
+  # A CORRENTE DO JOGO SAINDO SEGURA TODO REVIVE DE ECONOMIA.
+  #
+  # No Auto Combo uma prensa encadeia as skills ofensivas do pokémon, e o revive
+  # RECOLHE o pokémon: pedido no meio da corrente, ele joga fora metade do dano
+  # que ela ainda ia entregar — e a corrente termina em controle, que é
+  # justamente o sono que faz o revive valer a pena. Por isso o revive do ciclo
+  # é "o mais cedo possível DEPOIS do combo" (Lucas, 01/09), não durante.
+  #
+  # Não segura a EMERGÊNCIA nem o CAÍDO: com o pokémon prestes a cair, terminar
+  # a corrente é o luxo. `nil` é "esta caçada não tem combo" e não segura nada.
+  defp mid_combo?(t) do
+    case Map.get(t.s, :combo_left_ms) do
+      left when is_integer(left) -> left > 0
+      _sem_combo -> false
+    end
+  end
 
   # O controle está livre pro uso ofensivo? Com a R3b desligada, sempre — não há
   # revive nenhum esperando por ele, e a regra dele de 26/08 vale inteira ("tento
@@ -1560,7 +1582,8 @@ defmodule Pokex.Bots.Engine.Logic do
   defp reset_revive?(%{logic: %{reset_broken_at: at}}) when is_integer(at), do: false
 
   defp reset_revive?(t) do
-    t.config.reset_revive and t.s.spent? == true and t.s.own_out? == true and
+    t.config.reset_revive and not mid_combo?(t) and t.s.spent? == true and
+      t.s.own_out? == true and
       is_integer(t.s.enemies) and t.s.enemies >= t.config.engage_from and
       healthy_enough?(t) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
       affordable?(t)

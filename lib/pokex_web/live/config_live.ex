@@ -246,6 +246,26 @@ defmodule PokexWeb.ConfigLive do
               "cuida só do revive. Econômico: Tab, alvo único e área só se precisar, pra rota " <>
               "barata. A rota que escolher um modo manda mais que isto.",
           keywords: "modo caça auto combo econômico estratégia combate"
+        },
+        %{
+          key: :auto_combo_key,
+          kind: :key,
+          label: "Tecla do combo",
+          hint:
+            "A tecla que o JOGO usa pra encadear as skills ofensivas (ex.: r). É um atalho do " <>
+              "cliente, como as posturas — não um slot de pokémon. Em branco, o Auto Combo não " <>
+              "tem o que apertar.",
+          keywords: "combo tecla r auto atalho"
+        },
+        %{
+          key: :auto_combo_window_ms,
+          kind: :ms,
+          label: "O combo ocupa por",
+          hint:
+            "Quanto tempo a corrente do jogo leva pra sair. Nada ofensivo é apertado nessa " <>
+              "janela, e o revive do ciclo espera ela acabar — cortar a corrente joga fora o " <>
+              "dano que faltava. Cronometre uma vez: 4s é chute inicial.",
+          keywords: "combo janela tempo ms corrente"
         }
       ]
     },

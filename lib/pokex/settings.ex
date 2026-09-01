@@ -955,6 +955,17 @@ defmodule Pokex.Settings do
     # rota barata: Tab, alvo único, e área só se ainda precisar. Ver
     # `Pokex.Bots.HuntMode` — a rota manda, isto é o piso.
     hunt_mode: "auto_combo",
+    # A TECLA DO COMBO e QUANTO ELE OCUPA. No cliente dele as skills ofensivas
+    # estão encadeadas atrás de um toque só, então o modo Auto Combo aperta uma
+    # vez e não encosta em mais nada enquanto a corrente roda. É uma tecla do
+    # CLIENTE, como as posturas (shift+1/shift+3) — não um slot de pokémon —,
+    # por isso vive aqui e não no /time.
+    #
+    # A janela é o "não encosta": 4s é a semente que ele deu, e ela vale mais
+    # cronometrada do que adivinhada. Curta demais e a segunda prensa corta a
+    # corrente; longa demais e o revive do ciclo chega tarde.
+    auto_combo_key: "r",
+    auto_combo_window_ms: 4_000,
     defense_mode_key: "shift+3",
     attack_mode_key: "shift+1",
     cavebot_arrival_tolerance_tiles: 1,
@@ -1791,6 +1802,7 @@ defmodule Pokex.Settings do
     crowd_scan_evidence_shrink: 1..16,
     engine_crowd_from: 1..20,
     engine_spent_keys_left: 0..9,
+    auto_combo_window_ms: 500..30_000,
     engine_stun_window_ms: 500..60_000,
     engine_stun_hold_ms: 1_000..120_000,
     engine_boss_grit: 0..40,

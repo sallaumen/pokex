@@ -3,6 +3,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
   alias Pokex.Bots.Combat.Worker
   alias Pokex.Bots.ReviveLedger
+  alias Pokex.Bots.SkillClock
   alias Pokex.Calibration
   alias Pokex.Perception.WorldState
   alias Pokex.Rig.Fake
@@ -18,7 +19,15 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     # …e o Tab LIGADO: desde 27/08 a caçada não trava alvo por padrão, e este
     # arquivo prova o worker levando a máquina de Tab até as teclas. O modo sem
     # Tab é decidido na `Logic` e tem os testes dele lá.
-    SettingsStash.stash!(skill_burst_every_ms: 0, combat_tab_target: true)
+    # ESTE ARQUIVO É SOBRE A MÃO QUE APERTA TECLA POR TECLA: Tab, rajada, recibo,
+    # retentativa. Esse é o modo Econômico — o Auto Combo aperta uma tecla só e
+    # deixa o jogo encadear o resto, e medir a máquina de Tab dentro dele seria
+    # medir um bot que não existe.
+    SettingsStash.stash!(
+      skill_burst_every_ms: 0,
+      combat_tab_target: true,
+      hunt_mode: "economy"
+    )
 
     SettingsStash.stash_keys!([
       :tab_confirm_ms,
@@ -965,6 +974,68 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       abre_o_fogo(worker)
 
       assert eventually(&skill_saiu?/0)
+    end
+  end
+
+  # A JANELA DO AUTO COMBO. Uma prensa encadeia todas as skills ofensivas do
+  # jogo, e uma segunda tecla no meio corta a corrente — então a rotação
+  # continua OFERECENDO a tecla a cada tique e é a cerca que a recusa. Oferecer
+  # sempre e recusar por fora é o que faz a primeira prensa depois da janela
+  # sair na hora, sem um relógio próprio dentro da máquina de luta.
+  describe "a janela do Auto Combo" do
+    @tag :tmp_dir
+    test "a corrente sai UMA vez e a janela recusa a segunda", %{worker: worker} do
+      SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 5_000)
+      SkillClock.reset()
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      abre_o_fogo(worker)
+
+      assert eventually(fn -> "r" in presses() end),
+             "a corrente não saiu: #{inspect(presses())}"
+
+      for _ <- 1..5 do
+        world!(worker, battle_obs(enemies: [0, 1, 2]))
+        Worker.status(worker)
+      end
+
+      refute eventually(fn -> Enum.count(presses(), &(&1 == "r")) > 1 end, 400),
+             "a corrente foi reiniciada dentro da própria janela: #{inspect(presses())}"
+    end
+
+    @tag :tmp_dir
+    test "passada a janela, a corrente sai de novo sozinha", %{worker: worker} do
+      SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 500)
+      SkillClock.reset()
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      abre_o_fogo(worker)
+
+      assert eventually(fn -> "r" in presses() end),
+             "a corrente não saiu: #{inspect(presses())}"
+
+      assert eventually(
+               fn ->
+                 world!(worker, battle_obs(enemies: [0, 1, 2]))
+                 Enum.count(presses(), &(&1 == "r")) > 1
+               end,
+               3_000
+             ),
+             "a corrente não repetiu depois da janela: #{inspect(presses())}"
+    end
+
+    # E NENHUMA TECLA SOLTA: o modo administra o combo e o revive, e mais nada.
+    @tag :tmp_dir
+    test "nenhuma skill individual é apertada", %{worker: worker} do
+      SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 5_000)
+      SkillClock.reset()
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      abre_o_fogo(worker)
+
+      assert eventually(fn -> "r" in presses() end)
+      refute Enum.any?(~w(1 2 3 4 5 6 7), &(&1 in presses()))
+      refute Settings.get(:tab_key) in presses()
     end
   end
 

@@ -34,6 +34,7 @@ defmodule Pokex.Bots.ShinyGuard do
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Calibration
+  alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
   alias Pokex.Vision.{ColorMark, ColorRules, Frame}
@@ -122,6 +123,8 @@ defmodule Pokex.Bots.ShinyGuard do
       rules ->
         case snapshot(state) do
           {:ok, frame, forbidden} -> judge(state, rules, frame, forbidden)
+          # Cego não é "não tem chefe": sem foto o fato NÃO é reescrito, e ele
+          # envelhece sozinho até o cérebro parar de acreditar nele.
           _blind -> state
         end
     end
@@ -151,8 +154,8 @@ defmodule Pokex.Bots.ShinyGuard do
   end
 
   defp judge(state, rules, frame, forbidden) do
-    {state, best} =
-      Enum.reduce(rules, {state, 0}, fn rule, {state, best} ->
+    {state, best, vistos} =
+      Enum.reduce(rules, {state, 0, []}, fn rule, {state, best, vistos} ->
         result =
           ColorMark.scan(frame, rule.specs,
             min_cell_px: rule.min_cell_px,
@@ -161,10 +164,33 @@ defmodule Pokex.Bots.ShinyGuard do
 
         mancha = List.first(result.manchas)
         hit? = mancha != nil and mancha.px >= rule.min_px
-        {advance(state, rule, mancha, hit?), max(best, result.px)}
+
+        {advance(state, rule, mancha, hit?), max(best, result.px),
+         if(hit?, do: [{rule, mancha} | vistos], else: vistos)}
       end)
 
+    publish_special(vistos)
     broadcast_reading(state, best)
+  end
+
+  # O FATO, publicado a CADA varredura — não a cada anúncio. O troféu tem
+  # refratário de um minuto (ninguém quer a metralhadora), mas o cérebro
+  # precisa da PRESENÇA: enquanto o chefe está na tela, `heavy?` tem que ficar
+  # de pé, e cair quando ele sai. São perguntas diferentes e relógios
+  # diferentes.
+  defp publish_special(vistos) do
+    WorldState.put(
+      :special,
+      %{
+        chefe?: Enum.any?(vistos, fn {rule, _m} -> rule.kind == "chefe" end),
+        shiny?: Enum.any?(vistos, fn {rule, _m} -> rule.kind == "shiny" end),
+        vistos:
+          Enum.map(vistos, fn {rule, m} ->
+            %{name: rule.name, kind: rule.kind, px: m.px, point: m.point}
+          end)
+      },
+      System.monotonic_time(:millisecond)
+    )
   end
 
   defp advance(state, rule, _mancha, false),

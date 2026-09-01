@@ -4,6 +4,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.ShinyGuard
   alias Pokex.Calibration
+  alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.SettingsStash
   alias Pokex.Vision.{ColorRules, Frame}
@@ -16,6 +17,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     :persistent_term.erase({ColorRules, :cache})
+    :ets.delete(:pokex_world, :special)
     SettingsStash.stash!(shiny_guard_enabled: true, special_color_scan_ms: 50)
 
     on_exit(fn -> Pokex.TestHome.restore() end)
@@ -180,6 +182,53 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
     assert_receive {:shiny_reading, %{px: px}}, 2_000
     assert px > 0
+  end
+
+  # O FATO pro cérebro: a PRESENÇA, publicada a cada varredura — outro relógio
+  # que o troféu (que tem refratário de um minuto). É o que mantém `heavy?` de
+  # pé enquanto o chefe está na tela e o derruba quando ele sai.
+  test "publica o fato :special com chefe? enquanto a cor está na tela", %{region: region} do
+    %{"slug" => slug} =
+      ColorRules.add(%{
+        "name" => "Chefe da dungeon",
+        "kind" => "chefe",
+        "colors" => [%{"rgb" => [40, 160, 60], "tol_h" => 12, "tol_sv" => 30}],
+        "min_px" => 50
+      })
+      |> elem(1)
+
+    :ok = ColorRules.mark_proven(slug, 3)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+    start_guard(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
+
+    assert_receive {:shiny_seen, _}, 2_000
+
+    assert {:ok, %{chefe?: true, shiny?: false, vistos: [%{name: "Chefe da dungeon"}]}} =
+             WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
+  end
+
+  test "tela limpa publica chefe? false — a postura cai quando ele sai", %{region: region} do
+    regra_provada()
+    limpo = frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [])
+    guard = start_guard(fn _region, _name -> {:ok, limpo} end)
+    _ = :sys.get_state(guard)
+
+    assert eventually(fn ->
+             match?(
+               {:ok, %{chefe?: false, shiny?: false}},
+               WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
+             )
+           end)
+  end
+
+  defp eventually(fun, timeout \\ 1_000) do
+    limite = System.monotonic_time(:millisecond) + timeout
+
+    Stream.repeatedly(fn ->
+      if fun.(), do: true, else: Process.sleep(20) && false
+    end)
+    |> Enum.find(fn ok -> ok or System.monotonic_time(:millisecond) > limite end)
+    |> Kernel.==(true)
   end
 
   test "status expõe o estado do vigia" do

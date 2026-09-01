@@ -68,14 +68,24 @@ jobs:
           key: mix-dev-${{ runner.os }}-${{ hashFiles('mix.lock') }}
           restore-keys: mix-dev-${{ runner.os }}-
 
+      # A PLT carrega o BEAM inteiro dentro dela, então ela é do par
+      # OTP+Elixir tanto quanto do mix.lock. Sem as versões na chave, o
+      # `restore-keys` devolvia alegremente uma PLT de outro par e o dialyzer
+      # parava a CI com "Old PLT file" — vermelho que não é do código de
+      # ninguém (01/09, PR #469).
       - uses: actions/cache@v4
         with:
           path: priv/plts
-          key: plt-${{ runner.os }}-${{ hashFiles('mix.lock') }}
-          restore-keys: plt-${{ runner.os }}-
+          key: plt-${{ runner.os }}-otp27-ex1.19.5-${{ hashFiles('mix.lock') }}
+          restore-keys: plt-${{ runner.os }}-otp27-ex1.19.5-
 
       - run: mix deps.get
       - run: mix credo
+      # Constrói/atualiza a PLT como PASSO PRÓPRIO: uma PLT restaurada de um
+      # mix.lock vizinho é atualizável, e atualizar é barato perto de rodar a
+      # análise duas vezes. Sem isto, "quase certa" é fatal em vez de ser
+      # consertada.
+      - run: mix dialyzer --plt
       - run: mix dialyzer
 
   assets:

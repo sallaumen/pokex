@@ -274,6 +274,13 @@ defmodule Pokex.Sim.World do
     boss_hp_mult: 10,
     boss_atk_mult: 10,
     boss_name: "Chefe",
+    # A REGRA DE COR ENSINADA pra esta dungeon: modela o `ShinyGuard` vendo o
+    # chefe pela cor (uma regra `kind: "chefe"` provada na calibração). Ligado,
+    # o chefe é reconhecido assim que aparece NA TELA — antes de qualquer
+    # luta, que é justamente onde o nome não separa nada e o grit ainda não
+    # tem entrega pra contar. Desligado (o padrão), nenhum cenário antigo
+    # ganha um canal que ele não pediu.
+    boss_color: false,
     # How long a cleared nest takes to be worth walking past again. `nil` means
     # never, which is what a SCENARIO wants: a controlled experiment must not
     # have monsters arriving from off-stage. A HUNT wants a number — no rate
@@ -1352,6 +1359,22 @@ defmodule Pokex.Sim.World do
 
   defp on_screen?(%{pos: {mx, my, _mz}}, {px, py, _pz}, knobs),
     do: abs(mx - px) <= div(knobs.screen_w, 2) and abs(my - py) <= div(knobs.screen_h, 2)
+
+  @doc """
+  O chefe está na tela E a cor dele foi ensinada? — o canal `boss_color?` que o
+  `ShinyGuard` entrega ao cérebro no jogo de verdade.
+
+  Na tela, e não ao alcance: é essa a diferença que importa. O grit só conta
+  depois que a luta abre, e a mordida do 10× começa antes disso.
+  """
+  def boss_color_seen?(%{knobs: %{boss_color: true}} = world) do
+    Enum.any?(
+      world.mobs,
+      &(Map.get(&1, :boss?, false) and on_screen?(&1, world.pos, world.knobs))
+    )
+  end
+
+  def boss_color_seen?(_sem_regra_ensinada), do: false
 
   defp visible(world) do
     world.mobs

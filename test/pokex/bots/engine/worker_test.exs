@@ -77,12 +77,13 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert picture.blind? == true
     end
 
-    # O CHEFE PELA COR chega ao cérebro pelo mesmo quadro-negro: o `ShinyGuard`
-    # publica a presença, o quadro a lê. Um bicho só, abaixo da régua de seis —
-    # sem a cor ele não vale a luta; com ela, vale.
-    test "a cor do chefe atravessa o quadro-negro e vira postura", %{worker: worker} do
+    # O ESPECIAL PELA COR chega ao cérebro pelo mesmo quadro-negro: o
+    # `ShinyGuard` publica a presença, o quadro a lê. Um bicho só, abaixo da
+    # régua de seis — sem a cor ele não vale a luta; com ela, vale, e a postura
+    # inteira liga junto (o shiny É o chefe).
+    test "a cor do especial atravessa o quadro-negro e vira postura", %{worker: worker} do
       see(~w(Electrode))
-      WorldState.put(:special, %{chefe?: true, shiny?: false, vistos: []}, now())
+      WorldState.put(:special, %{especial?: true, vistos: []}, now())
       send(worker, :tick)
       settle(worker)
 
@@ -91,30 +92,16 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert picture.worth_fighting? == true
     end
 
-    # Sem varredura recente a resposta é "não sei" — e não saber é chefe
-    # nenhum: uma postura de chefe mantida por um fato velho é o bot encarando
-    # o que não está mais lá.
-    test "fato de chefe VELHO não sustenta a postura", %{worker: worker} do
+    # Sem varredura recente a resposta é "não sei" — e não saber é especial
+    # nenhum: uma postura mantida por fato velho é o bot encarando o que não
+    # está mais lá.
+    test "fato VELHO não sustenta a postura", %{worker: worker} do
       see(~w(Electrode))
-      WorldState.put(:special, %{chefe?: true, shiny?: false, vistos: []}, now() - 60_000)
+      WorldState.put(:special, %{especial?: true, vistos: []}, now() - 60_000)
       send(worker, :tick)
       settle(worker)
 
       assert {:ok, picture} = WorldState.get(:situation, 5_000, now())
-      assert picture.heavy? == false
-    end
-
-    # O shiny chega pelo MESMO fato, e não vira chefe: o que ele muda é que a
-    # caçada para pra matar em vez de passar reto.
-    test "o shiny da mesma varredura vale a luta, sem virar postura de chefe", %{worker: worker} do
-      see(~w(Electrode))
-      WorldState.put(:special, %{chefe?: false, shiny?: true, vistos: []}, now())
-      send(worker, :tick)
-      settle(worker)
-
-      assert {:ok, picture} = WorldState.get(:situation, 5_000, now())
-      assert picture.shiny? == true
-      assert picture.worth_fighting? == true
       assert picture.heavy? == false
     end
 

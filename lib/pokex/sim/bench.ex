@@ -558,10 +558,11 @@ defmodule Pokex.Sim.Bench do
       revive_left: World.revive_left(world),
       # A DISTÂNCIA DO CHEFE, respondida pelo mundo — o papel que o CrowdScan
       # faz no jogo. Do POKÉMON, não do personagem: o stun sai dele.
-      # O CANAL DA COR: o `ShinyGuard` do jogo publica a presença do chefe, e o
-      # cérebro a lê. Aqui o mundo responde — e só quando o cenário disse que
-      # a regra de cor existe pra esta dungeon (`boss_color`).
-      boss_color?: World.boss_color_seen?(world),
+      # O CANAL DA COR: o `ShinyGuard` do jogo publica a presença do especial
+      # (o shiny, que é o "chefe" dele), e o cérebro a lê. Aqui o mundo
+      # responde — e só quando o cenário disse que a regra de cor existe pra
+      # esta dungeon (`boss_color`).
+      especial?: World.boss_color_seen?(world),
       boss_tiles: World.boss_tiles(world),
       boss_asleep_left_ms: World.boss_asleep_left_ms(world),
       prev: previous

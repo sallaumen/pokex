@@ -2,9 +2,12 @@ defmodule Pokex.Vision.ColorRules do
   @moduledoc """
   O acervo das CORES ESPECIAIS: as regras que o `ColorMark` varre.
 
-  Um shiny no Poké Alliance é um recolor — o Electrode dele é verde onde o
-  comum é vermelho — e um chefe costuma trair-se num detalhe de cor (cabelo,
-  corpo). Cada regra guarda o(s) tom(s) de referência, a tolerância e a
+  **Shiny e "chefe" são a MESMA criatura neste jogo** ("o shiny É o chefe —
+  foi assim que eu usei pra falar antes, mas nesse jogo o que tô chamando de
+  chefe são os shinies", Lucas, 01/09). Um shiny é um recolor — o Electrode
+  dele é verde onde o comum é vermelho —, tem vida e ataque muito maiores, e é
+  ao mesmo tempo o troféu que ele caça. Por isso existe UM tipo de regra e não
+  dois: cada uma guarda o(s) tom(s) de referência, a tolerância e a
   sensibilidade, ensinados no painel de calibração por conta-gotas
   (docs/shiny/plano-shiny-por-cor.md).
 
@@ -24,16 +27,18 @@ defmodule Pokex.Vision.ColorRules do
   def list, do: cache().entries
 
   @doc """
-  Cria uma regra. `attrs` pede `name`, `kind` (`"shiny"` | `"chefe"`) e
-  `colors` (lista de `%{"rgb" => [r, g, b], "tol_h" => graus, "tol_sv" => pct}`);
-  aceita `min_px`, `min_cell_px` e `note`. Nasce ligada e NÃO provada.
+  Cria uma regra. `attrs` pede `name` e `colors` (lista de
+  `%{"rgb" => [r, g, b], "tol_h" => graus, "tol_sv" => pct}`); aceita `min_px`,
+  `min_cell_px` e `note`. Nasce ligada e NÃO provada.
+
+  Não existe `kind`: shiny e chefe são a mesma coisa aqui. Arquivos antigos que
+  guardaram o campo continuam lendo — ele simplesmente não decide mais nada.
   """
-  def add(%{"name" => name, "kind" => kind, "colors" => colors} = attrs)
-      when is_binary(name) and kind in ["shiny", "chefe"] and is_list(colors) and colors != [] do
+  def add(%{"name" => name, "colors" => colors} = attrs)
+      when is_binary(name) and is_list(colors) and colors != [] do
     entry = %{
       "slug" => unique_slug(slug(name), list()),
       "name" => name,
-      "kind" => kind,
       "colors" => Enum.map(colors, &normalize_color/1),
       "min_px" => positive(attrs["min_px"], 25),
       "min_cell_px" => positive(attrs["min_cell_px"], 6),
@@ -51,7 +56,7 @@ defmodule Pokex.Vision.ColorRules do
 
   @doc "Atualiza campos editáveis (tolerâncias, sensibilidade, nota) de uma regra."
   def update(slug, attrs) do
-    editable = ["min_px", "min_cell_px", "note", "colors", "name", "kind"]
+    editable = ["min_px", "min_cell_px", "note", "colors", "name"]
 
     mutate(slug, fn entry ->
       attrs
@@ -96,7 +101,7 @@ defmodule Pokex.Vision.ColorRules do
 
   @doc """
   As regras que o VIGIA varre — ligadas E provadas — já compiladas:
-  `[%{slug, name, kind, min_px, min_cell_px, specs}]`.
+  `[%{slug, name, min_px, min_cell_px, specs}]`.
   """
   def armed do
     cache().armed
@@ -166,7 +171,6 @@ defmodule Pokex.Vision.ColorRules do
               %{
                 slug: e["slug"],
                 name: e["name"],
-                kind: e["kind"],
                 min_px: e["min_px"],
                 min_cell_px: e["min_cell_px"],
                 specs:

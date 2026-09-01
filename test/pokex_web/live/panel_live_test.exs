@@ -719,7 +719,6 @@ defmodule PokexWeb.PanelLiveTest do
     {:ok, %{"slug" => slug}} =
       Pokex.Vision.ColorRules.add(%{
         "name" => "Electrode shiny",
-        "kind" => "shiny",
         "colors" => [%{"rgb" => [40, 160, 60], "tol_h" => 12, "tol_sv" => 30}],
         "min_px" => 50
       })

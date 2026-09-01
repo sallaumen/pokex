@@ -395,25 +395,26 @@ defmodule Pokex.Bots.Engine.SituationTest do
     end
   end
 
-  # O CHEFE PELA COR: o terceiro caminho, e o único que enxerga antes de
-  # apanhar. Nome não separa nada no PA, e o grit precisa da luta já aberta.
-  describe "o chefe pela cor" do
+  # O ESPECIAL PELA COR — e ele é UM só: "o shiny É o chefe (…) nesse jogo o
+  # que tô chamando de chefe são os shinies" (01/09). Uma regra ensinada liga a
+  # postura inteira; não há um segundo tipo de bicho especial pra distinguir.
+  describe "o especial (shiny) pela cor" do
     test "a cor vista liga heavy? e fura a régua sozinha" do
       picture =
         Situation.build(
-          inputs(%{battle: battle(~w(Electrode)), own_out?: true, boss_color?: true}),
+          inputs(%{battle: battle(~w(Electrode)), own_out?: true, especial?: true}),
           %{engage_from: 3},
           1_000
         )
 
-      assert picture.heavy? == true
-      assert picture.worth_fighting? == true, "um chefe sozinho vale a luta"
+      assert picture.heavy? == true, "o shiny É o chefe: postura inteira"
+      assert picture.worth_fighting? == true, "um shiny sozinho vale a luta"
     end
 
     test "sem a cor, um bicho abaixo da régua segue sendo bicho" do
       picture =
         Situation.build(
-          inputs(%{battle: battle(~w(Electrode)), own_out?: true, boss_color?: false}),
+          inputs(%{battle: battle(~w(Electrode)), own_out?: true, especial?: false}),
           %{engage_from: 3},
           1_000
         )
@@ -422,7 +423,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
       assert picture.worth_fighting? == false
     end
 
-    test "canal ausente é chefe nenhum — nenhuma bancada antiga ganha postura" do
+    test "canal ausente é especial nenhum — nenhuma bancada antiga ganha postura" do
       picture =
         Situation.build(
           inputs(%{battle: battle(~w(Electrode)), own_out?: true}),
@@ -431,35 +432,6 @@ defmodule Pokex.Bots.Engine.SituationTest do
         )
 
       assert picture.heavy? == false
-    end
-  end
-
-  # O SHINY: bicho comum com pele rara. Ele NÃO vira chefe (nada de combo
-  # stun+revive), mas a caçada não pode passar reto por ele.
-  describe "o shiny na tela" do
-    test "vale a luta mesmo sozinho — e NÃO liga a postura de chefe" do
-      picture =
-        Situation.build(
-          inputs(%{battle: battle(~w(Electrode)), own_out?: true, shiny_color?: true}),
-          %{engage_from: 3},
-          1_000
-        )
-
-      assert picture.shiny? == true
-      assert picture.worth_fighting? == true
-      assert picture.heavy? == false, "shiny não é chefe: nada de combo de chefe nele"
-    end
-
-    test "sem shiny, o canal fica falso" do
-      picture =
-        Situation.build(
-          inputs(%{battle: battle(~w(Electrode)), own_out?: true}),
-          %{engage_from: 3},
-          1_000
-        )
-
-      assert picture.shiny? == false
-      assert picture.worth_fighting? == false
     end
   end
 

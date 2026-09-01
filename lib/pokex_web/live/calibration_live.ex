@@ -31,7 +31,6 @@ defmodule PokexWeb.CalibrationLive do
   # folgado — o shading do sprite mexe em brilho, não em matiz).
   @special_draft %{
     name: "",
-    kind: "shiny",
     colors: [],
     tol_h: 12,
     tol_sv: 30,
@@ -893,8 +892,6 @@ defmodule PokexWeb.CalibrationLive do
     draft = %{
       draft
       | name: Map.get(params, "name", draft.name),
-        kind:
-          if(Map.get(params, "kind") in ["shiny", "chefe"], do: params["kind"], else: draft.kind),
         tol_h: int_param(params, "tol_h", draft.tol_h, 1, 60),
         tol_sv: int_param(params, "tol_sv", draft.tol_sv, 1, 100),
         min_px: int_param(params, "min_px", draft.min_px, 1, 5_000),
@@ -909,7 +906,6 @@ defmodule PokexWeb.CalibrationLive do
 
     case ColorRules.add(%{
            "name" => String.trim(draft.name),
-           "kind" => draft.kind,
            "colors" => Enum.map(draft.colors, &color_attrs(&1, draft)),
            "min_px" => draft.min_px,
            "min_cell_px" => draft.min_cell_px
@@ -3112,17 +3108,6 @@ defmodule PokexWeb.CalibrationLive do
                     />
                   </label>
 
-                  <label class="flex flex-col gap-1">
-                    <span class="font-mono text-pk-meta text-pk-text-3">o que é</span>
-                    <select
-                      name="kind"
-                      class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-body text-pk-text"
-                    >
-                      <option value="shiny" selected={@special_draft.kind == "shiny"}>shiny ✨</option>
-                      <option value="chefe" selected={@special_draft.kind == "chefe"}>chefe 👹</option>
-                    </select>
-                  </label>
-
                   <label
                     :for={
                       {campo, rotulo, valor, dica} <- [
@@ -3187,7 +3172,7 @@ defmodule PokexWeb.CalibrationLive do
                   </span>
 
                   <span class="min-w-0 flex-1 truncate font-mono text-pk-body text-pk-text">
-                    {if r["kind"] == "chefe", do: "👹", else: "✨"} {r["name"]}
+                    ✨ {r["name"]}
                   </span>
 
                   <span class="pk-num font-mono text-pk-meta text-pk-text-3">

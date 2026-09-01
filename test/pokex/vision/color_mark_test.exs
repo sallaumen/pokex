@@ -99,4 +99,46 @@ defmodule Pokex.Vision.ColorMarkTest do
     # o preço do anti-ruído, pago na borda da mancha
     assert menor.px == 32
   end
+
+  # O CONTA-GOTAS: o clique dele vira um TOM, não um pixel.
+  describe "dominant/3 — o conta-gotas do ensino" do
+    test "o patch inteiro vota: o tom dominante vence o anti-aliasing da borda" do
+      # 5×5 quase todo verde, com dois pixels de borrão azulado na quina
+      f =
+        frame(8, 8, {40, 40, 40}, [
+          {{2, 2, 5, 5}, @verde},
+          {{2, 2, 2, 1}, {60, 90, 200}}
+        ])
+
+      assert {:ok, {r, g, b}} = ColorMark.dominant(f, {4, 4})
+      assert {r, g, b} == @verde
+    end
+
+    test "clicar no cinza não ensina nada — e diz isso" do
+      f = frame(8, 8, {90, 90, 92}, [])
+      assert :none = ColorMark.dominant(f, {4, 4})
+    end
+
+    test "clicar no quase-preto também não ensina" do
+      f = frame(8, 8, {8, 14, 9}, [])
+      assert :none = ColorMark.dominant(f, {4, 4})
+    end
+
+    test "a mediana devolve um tom que EXISTE na tela, nunca a média de dois" do
+      # metade num verde, metade noutro: a média inventaria um terceiro
+      f =
+        frame(8, 8, {40, 40, 40}, [
+          {{2, 2, 5, 3}, {40, 160, 60}},
+          {{2, 5, 5, 2}, {50, 180, 70}}
+        ])
+
+      assert {:ok, cor} = ColorMark.dominant(f, {4, 4})
+      assert cor in [{40, 160, 60}, {50, 180, 70}]
+    end
+
+    test "clique na borda do quadro não estoura o frame" do
+      f = frame(8, 8, {40, 40, 40}, [{{0, 0, 3, 3}, @verde}])
+      assert {:ok, @verde} = ColorMark.dominant(f, {0, 0})
+    end
+  end
 end

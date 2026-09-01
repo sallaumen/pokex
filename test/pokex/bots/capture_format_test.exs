@@ -32,6 +32,10 @@ defmodule Pokex.Bots.CaptureFormatTest do
     # he is being asked to approve.
     "pokemon_teach.png",
     "corpse_teach.png",
+    # O conta-gotas das cores especiais: esta foto vai pro navegador pra ele
+    # CLICAR em cima do tom. Quem varre no escuro (o ShinyGuard, a prova de
+    # ruído) pede `.raw`.
+    "special_teach.png",
     # Part of the diagnostics report he reads.
     "diag_glow.png",
     # The x-ray measures the display's SCALE from this file's PNG header

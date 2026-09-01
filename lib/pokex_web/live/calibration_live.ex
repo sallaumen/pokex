@@ -24,7 +24,30 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.ScreenScale
   alias Pokex.Settings
   alias Pokex.Vision
-  alias Pokex.Vision.Frame
+  alias Pokex.Vision.{ColorMark, ColorRules, Frame}
+
+  # A regra de cor em rascunho: o que o conta-gotas vai enchendo antes de virar
+  # acervo. Nasce com as tolerâncias-semente do plano (matiz apertado, S/V
+  # folgado — o shading do sprite mexe em brilho, não em matiz).
+  @special_draft %{
+    name: "",
+    kind: "shiny",
+    colors: [],
+    tol_h: 12,
+    tol_sv: 30,
+    min_px: 25,
+    min_cell_px: 6
+  }
+
+  # Quantos tons uma regra aceita. Três é o teto do plano: um shiny costuma
+  # trair-se em um ou dois, e cada tom a mais é mais chão dentro do cone.
+  @special_max_colors 3
+
+  # A PROVA DE RUÍDO: quantas fotos do chão e de quanto em quanto tempo. Cinco
+  # segundos de caçada normal — o bastante pra pegar o Torterra virando, a
+  # grama passando e um bicho comum entrando na tela.
+  @floor_samples 12
+  @floor_gap_ms 400
 
   # Neutral: no turn, no scaling. Also the shape every paint carries, so the
   # template can render three sliders without knowing what any of them mean.
@@ -107,7 +130,13 @@ defmodule PokexWeb.CalibrationLive do
        adjust_step: 5,
        tool: nil,
        suggested_mini_game: nil,
-       coord_probe: nil
+       coord_probe: nil,
+       special_shot: nil,
+       special_draft: @special_draft,
+       special_reading: nil,
+       special_msg: nil,
+       special_floor: nil,
+       special_rules: ColorRules.list()
      )}
   end
 
@@ -805,6 +834,138 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  # -- cores especiais: o ensino do shiny/chefe por COR ------------------------
+  #
+  # "Tem 1 shiny, 1 com a base diferente (…) tínhamos que mapear essa cor
+  # especial e apitar quando ela aparecer na tela" (Lucas, 01/09). O ensino é
+  # o mesmo gesto do corpo — fotografa o quadro e clica —, só que o que sai do
+  # clique é um TOM, não um recorte: a pose muda (o Electrode rola de
+  # ponta-cabeça no rollout) e o matiz não.
+  #
+  # `.png` aqui é de propósito, como no ensino de corpos: esta foto vai pro
+  # navegador pra ele clicar em cima. Quem varre no escuro (o `ShinyGuard`) usa
+  # `.raw` — ver `Pokex.Bots.CaptureFormatTest`.
+  def handle_event("special_shot", _params, socket) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, region} <- SpotScan.region(calib),
+         {:ok, frame, _path} <- Capture.frame_with_path(region, "special_teach.png") do
+      shot = %{frame: frame, v: System.system_time(:millisecond), region: region}
+      {:noreply, assign(socket, special_shot: shot, special_msg: nil) |> read_special()}
+    else
+      {:error, reason} when reason in [:no_anchor, :no_screen, :frame_too_small] ->
+        {:noreply, assign(socket, special_msg: {:error, photo_error(reason)})}
+
+      _no_calibration_or_capture ->
+        {:noreply,
+         assign(socket, special_msg: {:error, "precisa de calibração e da captura viva"})}
+    end
+  end
+
+  # O CONTA-GOTAS. O clique cai num pixel; quem ensina é o quadradinho ao redor
+  # dele (`ColorMark.dominant/3`), senão o anti-aliasing entre o bicho e o chão
+  # vira a cor de referência.
+  def handle_event("special_pick", %{"x" => x, "y" => y, "cw" => cw, "nw" => nw}, socket) do
+    case socket.assigns.special_shot do
+      nil ->
+        {:noreply, socket}
+
+      %{frame: frame} ->
+        px = round(x * nw / cw)
+        py = round(y * nw / cw)
+
+        {:noreply, pick_color(socket, frame, px, py)}
+    end
+  end
+
+  def handle_event("special_drop_color", %{"index" => raw}, socket) do
+    draft = socket.assigns.special_draft
+    idx = String.to_integer(raw)
+
+    {:noreply,
+     socket
+     |> assign(special_draft: %{draft | colors: List.delete_at(draft.colors, idx)})
+     |> read_special()}
+  end
+
+  def handle_event("special_form", params, socket) do
+    draft = socket.assigns.special_draft
+
+    draft = %{
+      draft
+      | name: Map.get(params, "name", draft.name),
+        kind:
+          if(Map.get(params, "kind") in ["shiny", "chefe"], do: params["kind"], else: draft.kind),
+        tol_h: int_param(params, "tol_h", draft.tol_h, 1, 60),
+        tol_sv: int_param(params, "tol_sv", draft.tol_sv, 1, 100),
+        min_px: int_param(params, "min_px", draft.min_px, 1, 5_000),
+        min_cell_px: int_param(params, "min_cell_px", draft.min_cell_px, 1, 64)
+    }
+
+    {:noreply, socket |> assign(special_draft: draft) |> read_special()}
+  end
+
+  def handle_event("special_save", _params, socket) do
+    draft = socket.assigns.special_draft
+
+    case ColorRules.add(%{
+           "name" => String.trim(draft.name),
+           "kind" => draft.kind,
+           "colors" => Enum.map(draft.colors, &color_attrs(&1, draft)),
+           "min_px" => draft.min_px,
+           "min_cell_px" => draft.min_cell_px
+         }) do
+      {:ok, entry} ->
+        {:noreply,
+         socket
+         |> assign(
+           special_draft: @special_draft,
+           special_rules: ColorRules.list(),
+           special_msg:
+             {:ok,
+              "regra “#{entry["name"]}” guardada — agora MEÇA O CHÃO nela: sem prova, ela não vigia nada"}
+         )
+         |> read_special()}
+
+      {:error, :invalid} ->
+        {:noreply,
+         assign(socket, special_msg: {:error, "dê um nome à regra e pegue ao menos um tom"})}
+    end
+  end
+
+  def handle_event("special_toggle", %{"slug" => slug}, socket) do
+    entry = Enum.find(socket.assigns.special_rules, &(&1["slug"] == slug))
+    if entry, do: ColorRules.set_enabled(slug, not entry["enabled"])
+    {:noreply, assign(socket, special_rules: ColorRules.list())}
+  end
+
+  def handle_event("special_delete", %{"slug" => slug}, socket) do
+    ColorRules.delete(slug)
+    {:noreply, assign(socket, special_rules: ColorRules.list(), special_msg: nil)}
+  end
+
+  # A PROVA DE RUÍDO, e ela é obrigatória: mede o CHÃO — a caçada normal, sem o
+  # especial na tela — e só então a regra entra no vigia. É o método que
+  # calibrou o grit (#461) e a janela cega (#456): medir antes de cravar
+  # limiar. Sem isto, o verde do próprio Torterra apita a noite inteira.
+  def handle_event("special_floor", %{"slug" => slug}, socket) do
+    case Enum.find(socket.assigns.special_rules, &(&1["slug"] == slug)) do
+      nil ->
+        {:noreply, socket}
+
+      entry ->
+        send(self(), {:floor_sample, slug})
+
+        {:noreply,
+         assign(socket,
+           special_floor: %{slug: slug, name: entry["name"], left: @floor_samples, peak: 0},
+           special_msg: nil
+         )}
+    end
+  end
+
+  def handle_event("special_floor_cancel", _params, socket),
+    do: {:noreply, assign(socket, special_floor: nil)}
+
   def handle_event("corpse_rename", %{"slug" => slug, "name" => name}, socket) do
     case CorpseLibrary.rename(slug, name) do
       {:ok, _slug} ->
@@ -844,6 +1005,24 @@ defmodule PokexWeb.CalibrationLive do
   # The band search runs OFF the event that scheduled it, so the "procurando…"
   # state paints before the hover holds the page for ~2s. Only meaningful while
   # the wizard still sits on the search step — a stale message dies quietly.
+  # Uma foto do chão por vez, com o intervalo entre elas: a LiveView não pode
+  # dormir cinco segundos segurando o socket, e um chão medido em rajada seria
+  # o mesmo quadro doze vezes. Cada amostra guarda só o PICO — é ele que vira
+  # a régua.
+  def handle_info({:floor_sample, slug}, %{assigns: %{special_floor: %{slug: slug} = f}} = socket) do
+    peak = max(f.peak, floor_reading(socket, slug))
+    left = f.left - 1
+
+    if left > 0 do
+      Process.send_after(self(), {:floor_sample, slug}, @floor_gap_ms)
+      {:noreply, assign(socket, special_floor: %{f | left: left, peak: peak})}
+    else
+      {:noreply, close_floor(socket, slug, peak)}
+    end
+  end
+
+  def handle_info({:floor_sample, _stale}, socket), do: {:noreply, socket}
+
   def handle_info(:coord_search, %{assigns: %{step: :minimap_coord_search}} = socket),
     do: {:noreply, run_coord_search(socket)}
 
@@ -981,6 +1160,137 @@ defmodule PokexWeb.CalibrationLive do
   defp keepable(step, draft) when step in [:hp_a, :hp_b], do: draft[:pokemon_hp_region]
   defp keepable(:photo, draft), do: draft[:pokemon_photo_point]
   defp keepable(_step, _draft), do: nil
+
+  # -- cores especiais: as contas -----------------------------------------------
+
+  defp pick_color(socket, frame, px, py) do
+    draft = socket.assigns.special_draft
+
+    if length(draft.colors) >= @special_max_colors do
+      assign(socket,
+        special_msg:
+          {:error, "#{@special_max_colors} tons já é o teto — tire um antes de pegar outro"}
+      )
+    else
+      add_picked(socket, draft, ColorMark.dominant(frame, {px, py}))
+    end
+  end
+
+  defp add_picked(socket, draft, {:ok, rgb}) do
+    socket
+    |> assign(special_draft: %{draft | colors: draft.colors ++ [rgb]}, special_msg: nil)
+    |> read_special()
+  end
+
+  defp add_picked(socket, _draft, :none) do
+    assign(socket,
+      special_msg: {:error, "aí não tem cor pra ensinar (cinza ou escuro demais) — clique no tom"}
+    )
+  end
+
+  # A leitura ao vivo do rascunho sobre a foto: px casados e a maior mancha. É
+  # o que transforma "ajusta a tolerância" em medição em vez de chute.
+  defp read_special(%{assigns: %{special_shot: nil}} = socket),
+    do: assign(socket, special_reading: nil)
+
+  defp read_special(%{assigns: %{special_draft: %{colors: []}}} = socket),
+    do: assign(socket, special_reading: nil)
+
+  defp read_special(socket) do
+    draft = socket.assigns.special_draft
+
+    result =
+      ColorMark.scan(socket.assigns.special_shot.frame, draft_specs(draft),
+        min_cell_px: draft.min_cell_px
+      )
+
+    maior = result.manchas |> List.first() |> then(&if(&1, do: &1.px, else: 0))
+
+    assign(socket,
+      special_reading: %{px: result.px, maior: maior, manchas: length(result.manchas)}
+    )
+  end
+
+  defp draft_specs(draft) do
+    ColorMark.compile(
+      Enum.map(draft.colors, &%{rgb: &1, tol_h: draft.tol_h, tol_sv: draft.tol_sv})
+    )
+  end
+
+  defp color_attrs({r, g, b}, draft),
+    do: %{"rgb" => [r, g, b], "tol_h" => draft.tol_h, "tol_sv" => draft.tol_sv}
+
+  # Uma foto do chão AGORA, lida pela regra salva. Falha de captura vale zero e
+  # não derruba a medição: um quadro perdido não é chão limpo nem sujo.
+  defp floor_reading(socket, slug) do
+    with entry when is_map(entry) <-
+           Enum.find(socket.assigns.special_rules, &(&1["slug"] == slug)),
+         {:ok, calib} <- Calibration.load(),
+         {:ok, region} <- SpotScan.region(calib),
+         {:ok, frame} <- Capture.frame(region, "special_floor.raw") do
+      specs =
+        ColorMark.compile(
+          Enum.map(entry["colors"], fn c ->
+            [r, g, b] = c["rgb"]
+            %{rgb: {r, g, b}, tol_h: c["tol_h"], tol_sv: c["tol_sv"]}
+          end)
+        )
+
+      ColorMark.scan(frame, specs, min_cell_px: entry["min_cell_px"]).manchas
+      |> List.first()
+      |> then(&if(&1, do: &1.px, else: 0))
+    else
+      _blind -> 0
+    end
+  end
+
+  # O chão medido vira régua: o gatilho sobe pra três vezes o pico (margem do
+  # método) mas NUNCA desce do que ele escolheu à mão — afrouxar o limiar de
+  # alguém sem pedir é como perder um shiny por conta própria.
+  defp close_floor(socket, slug, peak) do
+    entry = Enum.find(socket.assigns.special_rules, &(&1["slug"] == slug))
+    sugerido = max(3 * peak, 20)
+    novo = max(sugerido, entry["min_px"])
+
+    if novo != entry["min_px"], do: ColorRules.update(slug, %{"min_px" => novo})
+    ColorRules.mark_proven(slug, peak)
+
+    assign(socket,
+      special_floor: nil,
+      special_rules: ColorRules.list(),
+      special_msg:
+        {:ok,
+         "chão de “#{entry["name"]}” medido em #{@floor_samples} fotos: pico #{peak}px. " <>
+           "Gatilho em #{novo}px e regra PROVADA — #{vigia_estado()}"}
+    )
+  end
+
+  # A regra pode estar provada e ninguém olhando: a guarda tem interruptor
+  # próprio no painel e nasce DESLIGADA. Prometer vigia sem checar seria a
+  # mesma mentira do "revive automático" desligado que engolia 556 pedidos.
+  defp vigia_estado do
+    if Settings.get(:shiny_guard_enabled),
+      do: "o vigia já varre com ela.",
+      else: "falta LIGAR a “Guarda anti-shiny” no painel — sem ela ninguém varre."
+  end
+
+  defp int_param(params, key, atual, min, max) do
+    case Integer.parse(to_string(Map.get(params, key, ""))) do
+      {n, _rest} -> n |> Kernel.max(min) |> Kernel.min(max)
+      :error -> atual
+    end
+  end
+
+  # O quadradinho de cor do ensino: CSS puro, sem gerar imagem pra um pixel.
+  defp swatch({r, g, b}), do: "background: rgb(#{r} #{g} #{b})"
+
+  defp rule_colors(entry),
+    do: Enum.map(entry["colors"], fn %{"rgb" => [r, g, b]} -> {r, g, b} end)
+
+  defp special_zone(nil, _min), do: :none
+  defp special_zone(px, min) when px >= min, do: :hit
+  defp special_zone(px, min) when px >= div(min, 2), do: :warn
+  defp special_zone(_px, _min), do: :safe
 
   defp photo_error(:no_anchor),
     do: "marque o seu personagem na calibração (ou salve a resolução da tela) antes de ensinar"
@@ -2695,6 +3005,237 @@ defmodule PokexWeb.CalibrationLive do
                 entries={@corpse_list}
                 counts={@corpse_counts}
               />
+            </section>
+
+            <section
+              id="special-colors"
+              class="space-y-3 rounded-xl border border-pk-line bg-pk-surface p-4"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <h2 class="text-pk-title font-bold text-pk-text">
+                    Cores especiais (shiny e chefe)
+                  </h2>
+                  <p class="mt-0.5 max-w-prose text-pk-body leading-relaxed text-pk-text-2">
+                    Aqui não se ensina um recorte, se ensina um TOM: fotografe o quadro com o
+                    bicho especial na tela e clique EM CIMA da cor diferente (a base verde do
+                    Electrode shiny, o detalhe do chefe). O tom sobrevive à pose — vale até com
+                    ele de ponta-cabeça no rollout. Depois de salvar,
+                    <b class="text-pk-text">meça o chão</b>
+                    : a regra só entra no vigia depois de provar que a caçada normal não a
+                    dispara.
+                  </p>
+                </div>
+                <button id="special-shot-btn" class="btn btn-sm shrink-0" phx-click="special_shot">
+                  📸 Fotografar o quadro da busca
+                </button>
+              </div>
+
+              <p
+                :if={@special_msg}
+                id="special-msg"
+                class={[
+                  "rounded-lg border px-3 py-2 text-pk-body",
+                  elem(@special_msg, 0) == :ok && "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                  elem(@special_msg, 0) == :error &&
+                    "border-pk-danger-line bg-pk-danger-dim text-pk-danger"
+                ]}
+              >
+                {elem(@special_msg, 1)}
+              </p>
+
+              <div
+                :if={@special_floor}
+                id="special-floor"
+                class="flex flex-wrap items-center gap-3 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+              >
+                <span class="loading loading-spinner loading-xs" />
+                <span>
+                  medindo o chão de <b>{@special_floor.name}</b>
+                  — deixe a caçada rodando SEM o especial na tela ({@special_floor.left} foto(s) restante(s), pico {@special_floor.peak}px)
+                </span>
+                <button
+                  phx-click="special_floor_cancel"
+                  class="cursor-pointer font-mono text-pk-meta text-pk-text-3 hover:text-pk-danger"
+                >
+                  cancelar
+                </button>
+              </div>
+
+              <img
+                :if={@special_shot}
+                id="special-shot"
+                src={"/captures/special_teach.png?v=#{@special_shot.v}"}
+                phx-hook="ImgClick"
+                data-click-event="special_pick"
+                alt="quadro da busca de cores especiais"
+                class="w-full cursor-crosshair rounded-lg border border-pk-line"
+              />
+
+              <div
+                :if={@special_shot}
+                class="space-y-3 rounded-lg border border-pk-line bg-pk-sunken p-3"
+              >
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
+                    tons pegos
+                  </span>
+                  <span :if={@special_draft.colors == []} class="text-pk-body text-pk-text-3">
+                    clique na cor especial na foto acima
+                  </span>
+                  <button
+                    :for={{cor, i} <- Enum.with_index(@special_draft.colors)}
+                    type="button"
+                    phx-click="special_drop_color"
+                    phx-value-index={i}
+                    title="tirar este tom"
+                    class="flex cursor-pointer items-center gap-1.5 rounded border border-pk-line-strong bg-pk-bg px-1.5 py-1 font-mono text-pk-meta text-pk-text-2 hover:text-pk-danger"
+                  >
+                    <span class="size-4 rounded-sm border border-pk-line" style={swatch(cor)} />
+                    {elem(cor, 0)},{elem(cor, 1)},{elem(cor, 2)} ✕
+                  </button>
+                </div>
+
+                <form
+                  id="special-form"
+                  phx-change="special_form"
+                  phx-submit="special_save"
+                  class="flex flex-wrap items-end gap-3"
+                >
+                  <label class="flex flex-col gap-1">
+                    <span class="font-mono text-pk-meta text-pk-text-3">nome</span>
+                    <input
+                      name="name"
+                      value={@special_draft.name}
+                      placeholder="Electrode shiny"
+                      class="input input-sm h-8 w-44 border border-pk-line-strong bg-pk-bg font-mono text-pk-body text-pk-text"
+                    />
+                  </label>
+
+                  <label class="flex flex-col gap-1">
+                    <span class="font-mono text-pk-meta text-pk-text-3">o que é</span>
+                    <select
+                      name="kind"
+                      class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-body text-pk-text"
+                    >
+                      <option value="shiny" selected={@special_draft.kind == "shiny"}>shiny ✨</option>
+                      <option value="chefe" selected={@special_draft.kind == "chefe"}>chefe 👹</option>
+                    </select>
+                  </label>
+
+                  <label
+                    :for={
+                      {campo, rotulo, valor, dica} <- [
+                        {"tol_h", "matiz ±°", @special_draft.tol_h, "quanto o tom pode virar"},
+                        {"tol_sv", "luz ±%", @special_draft.tol_sv, "folga de brilho e saturação"},
+                        {"min_px", "gatilho px", @special_draft.min_px, "mancha mínima pra apitar"},
+                        {"min_cell_px", "célula px", @special_draft.min_cell_px,
+                         "densidade mínima por célula"}
+                      ]
+                    }
+                    class="flex flex-col gap-1"
+                  >
+                    <span class="font-mono text-pk-meta text-pk-text-3" title={dica}>{rotulo}</span>
+                    <input
+                      type="number"
+                      name={campo}
+                      value={valor}
+                      class="input input-sm h-8 w-20 border border-pk-line-strong bg-pk-bg pk-num font-mono text-pk-body text-pk-text"
+                    />
+                  </label>
+
+                  <button
+                    id="special-save"
+                    type="submit"
+                    class="btn btn-sm btn-primary"
+                    disabled={@special_draft.colors == [] or String.trim(@special_draft.name) == ""}
+                  >
+                    Salvar regra
+                  </button>
+                </form>
+
+                <p
+                  :if={@special_reading}
+                  id="special-reading"
+                  class={[
+                    "pk-num rounded border px-2 py-1 font-mono text-pk-body",
+                    case special_zone(@special_reading.maior, @special_draft.min_px) do
+                      :hit -> "border-pk-ok-line bg-pk-ok-dim text-pk-ok"
+                      :warn -> "border-pk-warn-line bg-pk-warn-dim text-pk-warn"
+                      _abaixo -> "border-pk-line bg-pk-bg text-pk-text-2"
+                    end
+                  ]}
+                >
+                  nesta foto: {@special_reading.px}px da cor · maior mancha {@special_reading.maior}px · {@special_reading.manchas} mancha(s) — gatilho em {@special_draft.min_px}px
+                </p>
+              </div>
+
+              <ul :if={@special_rules != []} id="special-rules" class="space-y-1">
+                <li
+                  :for={r <- @special_rules}
+                  class={[
+                    "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-pk-line px-2 py-1.5",
+                    if(r["enabled"], do: "bg-pk-sunken", else: "bg-transparent opacity-70")
+                  ]}
+                >
+                  <span class="flex shrink-0 gap-1">
+                    <span
+                      :for={cor <- rule_colors(r)}
+                      class="size-5 rounded-sm border border-pk-line"
+                      style={swatch(cor)}
+                    />
+                  </span>
+
+                  <span class="min-w-0 flex-1 truncate font-mono text-pk-body text-pk-text">
+                    {if r["kind"] == "chefe", do: "👹", else: "✨"} {r["name"]}
+                  </span>
+
+                  <span class="pk-num font-mono text-pk-meta text-pk-text-3">
+                    gatilho {r["min_px"]}px
+                  </span>
+
+                  <span
+                    :if={r["proven"]}
+                    class="rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 font-mono text-pk-meta text-pk-ok"
+                    title={"chão medido em #{r["proven"]["at"]}"}
+                  >
+                    provada · chão {r["proven"]["floor_px"]}px
+                  </span>
+                  <span
+                    :if={!r["proven"]}
+                    class="rounded border border-pk-warn-line bg-pk-warn-dim px-1.5 font-mono text-pk-meta text-pk-warn"
+                  >
+                    sem prova — não vigia
+                  </span>
+
+                  <button
+                    phx-click="special_floor"
+                    phx-value-slug={r["slug"]}
+                    disabled={@special_floor != nil}
+                    class="btn btn-xs h-6 border border-pk-line-strong bg-transparent px-2 font-mono text-pk-meta text-pk-text-2 hover:text-white"
+                  >
+                    📏 medir o chão
+                  </button>
+
+                  <input
+                    type="checkbox"
+                    class="toggle toggle-success toggle-xs shrink-0"
+                    checked={r["enabled"]}
+                    phx-click="special_toggle"
+                    phx-value-slug={r["slug"]}
+                    aria-label={"vigiar #{r["name"]}"}
+                  />
+
+                  <button
+                    phx-click="special_delete"
+                    phx-value-slug={r["slug"]}
+                    data-confirm={"Apagar a regra de cor #{r["name"]}?"}
+                    class="cursor-pointer font-mono text-pk-meta text-pk-text-3 hover:text-pk-danger"
+                  >
+                    ✕
+                  </button>
+                </li>
+              </ul>
             </section>
           </div>
         </div>

@@ -94,6 +94,14 @@ defmodule PokexWeb.WorldLive do
     "#{status} · confiança #{Map.get(obs, :confidence, 0.0)}"
   end
 
+  # "Não vejo a lista" é um FATO, não um erro: `enemies: nil` é o que a
+  # percepção publica quando a janela de batalha não pôde ser lida (janela
+  # coberta, HUD fora do lugar), e o resto do app já fala assim
+  # (`cavebot_components.count_label/1`). Esta página fazia `length(nil)` e
+  # derrubava a si mesma — a única tela cujo trabalho é mostrar o quadro-negro
+  # cru morria justamente quando havia algo estranho pra ver.
+  defp summary(:battle, %{enemies: nil}), do: "não vejo a lista"
+
   defp summary(:battle, %{enemies: enemies} = obs) do
     lock =
       case obs do

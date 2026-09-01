@@ -1832,6 +1832,37 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.route == :hold
     end
 
+    # O DEFEITO MEDIDO EM 01/09, e o mais caro deles: das 29,3s às 34,9s da
+    # bancada o cérebro ficou em AMARELO — "gastando os cooldowns" — com um
+    # shiny 5× colado e ACORDADO, o controle pronto na mão, e caiu de 58% a 26%
+    # sem apertar o controle uma vez. As bandas de vida ficavam acima da
+    # postura, e a banda revive pra CURAR: curar debaixo da mordida é encher
+    # balde furado, porque o que PARA o dano é o stun. Corrigido: só a perna do
+    # controle fura a fila; o revive continua sendo da banda.
+    test "com o especial ACORDADO o controle fura a banda amarela" do
+      ferido = com_chefe(%{own_hp: 45})
+
+      {logic, orders} = chefe_step(Logic.new(), ferido, 1_000)
+
+      assert orders.band == :yellow, "a vida É amarela — o teste não vale se a banda mudou"
+      assert "1" in orders.opening, "a banda engoliu o controle de novo: #{orders.why}"
+      assert orders.why =~ "controle antes do sono acabar"
+      assert logic.state == :engaged
+    end
+
+    # A banda continua dona do REVIVE: o stun gasta um tique e a cura vem no
+    # seguinte ("controle primeiro, revive na sequência").
+    test "e no tique seguinte a banda volta a mandar — com o bolo já dormindo" do
+      ferido = com_chefe(%{own_hp: 45})
+      {logic, _} = chefe_step(Logic.new(), ferido, 1_000)
+
+      dormindo = com_chefe(%{own_hp: 45, boss_asleep_left_ms: 5_000, ready_keys: []})
+      {_logic, orders} = chefe_step(logic, dormindo, 1_200)
+
+      assert orders.band == :yellow
+      refute orders.why =~ "controle antes do sono acabar"
+    end
+
     test "barra gasta e chefe no alcance: o stun sai como prefixo" do
       {_logic, orders} = chefe_step(Logic.new(), com_chefe(), 1_000)
 

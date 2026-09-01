@@ -232,7 +232,8 @@ defmodule Pokex.Sim.Scenario do
           "O mesmo formigueiro, com o modo que ele caça de verdade contra bicho forte: o bot " <>
             "aperta UMA tecla, o jogo encadeia as skills e termina em stun, e o revive vem logo " <>
             "atrás pra devolver a barra. A pergunta é se o ciclo se sustenta sozinho — se a " <>
-            "corrente sai, o revive cai depois dela (nunca no meio) e a próxima sai na sequência.",
+            "corrente sai, o revive cai depois dela (nunca no meio) e a próxima sai na sequência. " <>
+            "A corrente aqui dura o que ele cronometrou: 3,5 segundos.",
         route: :anthill,
         knobs: %{
           nest_sizes: %{2 => 4, 3 => 4, 4 => 2, 5 => 1},
@@ -240,7 +241,12 @@ defmodule Pokex.Sim.Scenario do
           stray_chance_pct: 60,
           aggro_tiles: 8,
           leash_tiles: 12,
-          respawn_ms: 20_000
+          respawn_ms: 20_000,
+          # MEDIDO POR ELE (01/09): a corrente leva 3,5s pra sair inteira. O
+          # ajuste do bot é 4s — a mesma medida com meia folga, porque a cerca
+          # protege contra uma corrente que engasga. Aqui vale a FÍSICA, não a
+          # crença: o mundo entrega no tempo que o jogo entrega.
+          combo_chain_ms: 3_500
         },
         # A R3b é o que faz o ciclo repetir: barra gasta pela corrente, revive
         # devolve a barra, corrente de novo. Sem ela o modo aperta uma vez e

@@ -266,7 +266,7 @@ defmodule PokexWeb.ConfigLive do
           hint:
             "Quanto tempo a corrente do jogo leva pra sair. Nada ofensivo é apertado nessa " <>
               "janela, e o revive do ciclo espera ela acabar — cortar a corrente joga fora o " <>
-              "dano que faltava. Cronometre uma vez: 4s é chute inicial.",
+              "dano que faltava. Cronometrado em 3,5s; o padrão de 4s é ele com meia folga.",
           keywords: "combo janela tempo ms corrente"
         }
       ]

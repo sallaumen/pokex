@@ -1521,6 +1521,13 @@ defmodule Pokex.Settings do
     # cérebro largar a régua, nunca kitar, e rodar o combo
     # skills → stun → revive dele.
     engine_boss_names: "",
+    # O CHEFE PELO TEMPO DE MATAR: quantas skills de dano ENTREGUES (cooldown
+    # andou) sem NENHUM corpo cair da pilha antes do cérebro declarar chefe.
+    # "Ele tem o mesmo nome que os outros pokémons" (31/08) — o nome não
+    # separa; isto separa: a noite fraca de 31/08 nunca passou de 4 entregas
+    # sem queda (p99 = 3), e um chefe 10× engole 10 em dois giros da barra.
+    # 0 desliga (só o nome declara).
+    engine_boss_grit: 10,
     # ATÉ QUANTOS TILES o controle dele alcança — o gate do stun de chefe:
     # apertar com o alvo além disso é dormir o vento. Um a menos que o raio
     # real da skill, de folga.
@@ -1784,6 +1791,7 @@ defmodule Pokex.Settings do
     engine_spent_keys_left: 0..9,
     engine_stun_window_ms: 500..60_000,
     engine_stun_hold_ms: 1_000..120_000,
+    engine_boss_grit: 0..40,
     engine_stun_reach_tiles: 1..10,
     engine_reset_rearm_ms: 10_000..3_600_000,
     engine_kite_max_ms: 0..600_000,

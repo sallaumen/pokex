@@ -58,6 +58,7 @@ defmodule Pokex.Bots.Engine.Config do
     # um número medido, dois usos
     stun_onset_ms: :rescue_stun_settle_ms,
     boss_names: :engine_boss_names,
+    boss_grit: :engine_boss_grit,
     reset_rearm_ms: :engine_reset_rearm_ms,
     band_yellow_pct: :engine_band_yellow_pct,
     band_red_pct: :engine_band_red_pct,

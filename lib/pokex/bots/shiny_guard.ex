@@ -1,69 +1,63 @@
 defmodule Pokex.Bots.ShinyGuard do
   @moduledoc """
-  The anti-shiny protocol's TRIGGER. Watches the `:battle` feed for the game's
-  OWN shiny marker — the gold ★ the battle list paints before a shiny's name
-  (Lucas, 2026-07-21: "descobri um jeito muito mais fácil, pela estrelinha
-  amarela"). That beats guessing the sprite recolor: it is explicit, it works
-  for ANY shiny (not only the configured names), and it rides the region
-  combat already captures every ~120ms.
+  O vigia das CORES ESPECIAIS — o gatilho do shiny (e do chefe) no Poké
+  Alliance.
 
-  Debounce is a TIME window, not a message count: the feed dedupes identical
-  observations, so a calm list with a shiny broadcasts ONCE — the guard arms a
-  `shiny_confirm_ms` timer on the sighting and fires only if no clean frame
-  refutes it in the window (a one-frame glitch is refuted ~120ms later by the
-  next capture). It LOGS the encounter (Pokex.Pokedex.ShinyLog — the trophy
-  shelf) and acts per `shiny_action`:
+  O detector antigo esperava a estrela dourada que o PokeTibia pintava na
+  battle list; o PA não pinta estrela nenhuma. O que separa o especial do
+  comum aqui é a PALETA: o Electrode shiny é verde onde o comum é vermelho
+  (print de 01/09), e o matiz sobrevive a qualquer pose — até ao rollout de
+  ponta-cabeça. Então o vigia varre o quadrado ao redor do personagem (o
+  mesmo do `SpotScan`) atrás das regras PROVADAS do `ColorRules`, com o
+  `ColorMark` fazendo a leitura.
 
-    * `"escape"` — the emergency-escape protocol (latch, click-walk to the
-      calibrated staircase, full stop, alarm) via the injected `escape_fun`;
-    * `"alarm"` — his "lutar se quiser": keep fighting, broadcast a
-      `{:rule_alarm, _}` so the panel screams (F7 pipeline) and he decides.
+  SEM AÇÕES, por decisão dele (01/09): nem alarme, nem fuga — `shiny_action`
+  e o `escape_fun` morreram com a estrela. Avistou = REGISTRA: linha no
+  diário, troféu no `ShinyLog`, `{:shiny_seen, info}` no tópico "shiny" (o
+  Catcher arma a bola garantida — `shiny_always_ball`), e o medidor vivo do
+  painel. A reação inteligente nasce no protocolo shiny da fase 2 do plano
+  (docs/shiny/plano-shiny-por-cor.md).
 
-  Always-on app child like the Guardian — a shiny is dangerous during MANUAL
-  play too. It manages its own battle-feed attachment from the
-  `shiny_guard_enabled` setting on a slow poll (the demand-driven feed only
-  captures while someone is attached) and holds a refractory window after
-  firing so one sighting can't machine-gun escapes or alarms. It never
-  touches the Body itself — the escape path owns its own gates, the alarm is
-  just PubSub — so no panic fan-out is needed.
+  A confirmação é por VARREDURAS SEGUIDAS (`special_color_confirm_frames`):
+  um vislumbre de um quadro só não registra. O refratário por regra segura a
+  metralhadora. A caixa do personagem e a do pokémon PARADO são proibidas —
+  o verde do Torterra dele é quase o do Electrode shiny (armadilha nº 1 do
+  plano); a prova de ruído do acervo é a outra metade dessa defesa.
 
-  Like the Guardian's session rules, the env flag `:shiny_guard_active` turns
-  the app-global instance off in the test env (a test flipping the global
-  setting must not start real arena captures); test instances opt in with
-  `active: true`.
+  Filho sempre-vivo da aplicação, como o Guardian — um shiny importa também
+  no jogo manual. `:shiny_guard_active` desliga a instância global nos
+  testes; instâncias de teste optam por entrar com `active: true`.
   """
 
   use GenServer
   require Logger
 
-  alias Pokex.Bots.BotSupervisor
-  alias Pokex.Bots.Catcher.Worker
-  alias Pokex.Bots.InputGate
-  alias Pokex.Perception
-  alias Pokex.Perception.Feed
+  alias Pokex.Bots.Capture
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Calibration
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
+  alias Pokex.Vision.{ColorMark, ColorRules, Frame}
 
   @combat_topic "combat"
-  # the panel's live meter subscribes here for throttled per-name readings
+  # o medidor do painel e o Catcher escutam aqui
   @reading_topic "shiny"
-  @poll_ms 1_000
+  @idle_poll_ms 1_000
   @refractory_ms 60_000
   @reading_throttle_ms 700
+  # a janela em que um kill logo depois do avistamento É aquele shiny morrendo
+  @encounter_window_ms 45_000
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
 
     state = %{
-      escape_fun: Keyword.get(opts, :escape_fun, &BotSupervisor.emergency_escape/1),
       active?: Keyword.get(opts, :active, Application.get_env(:pokex, :shiny_guard_active, true)),
-      attached?: false,
-      feed_ref: nil,
-      # a sighting awaiting its confirm window; ref ties the timer to THIS pending
-      pending_ref: nil,
-      pending_px: 0,
-      # NAMES read from the starred rows — the alarm says who it is
-      pending_names: [],
+      capture: Keyword.get(opts, :capture, &Capture.frame/2),
+      # varreduras seguidas com mancha, por regra — a confirmação
+      streaks: %{},
+      # último disparo por regra — o refratário
+      fired_at: %{},
       last_fired_at: nil,
       last_reading_at: nil
     }
@@ -78,13 +72,9 @@ defmodule Pokex.Bots.ShinyGuard do
 
   @impl true
   def init(state) do
-    # Feeds deliver observations by PubSub on the world topic — attach only
-    # creates demand. Without THIS subscribe the guard is attached but deaf
-    # (the bug behind the silent Kingler sighting of 2026-07-21).
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
     # combat's kill broadcast closes an open encounter as "killed"
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.kill_topic())
-    schedule_poll()
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Catcher.Worker.kill_topic())
+    schedule(state)
     {:ok, state}
   end
 
@@ -93,40 +83,21 @@ defmodule Pokex.Bots.ShinyGuard do
     {:reply,
      %{
        enabled?: state.active? and Settings.get(:shiny_guard_enabled),
-       attached?: state.attached?,
-       pending?: state.pending_ref != nil,
-       star_min_columns: Settings.get(:shiny_star_min_columns)
+       armed_rules: length(ColorRules.armed()),
+       pending?: state.streaks != %{}
      }, state}
   end
 
   @impl true
-  def handle_info(:poll, state) do
-    state = sync_attachment(state)
-    schedule_poll()
+  def handle_info(:scan, state) do
+    state =
+      if state.active? and Settings.get(:shiny_guard_enabled),
+        do: look(state),
+        else: %{state | streaks: %{}}
+
+    schedule(state)
     {:noreply, state}
   end
-
-  def handle_info({:world, :battle, obs}, state) do
-    # the world topic carries battle obs whenever ANYONE (combat included)
-    # attaches the feed — a disabled guard must stay inert
-    if state.active? and Settings.get(:shiny_guard_enabled) do
-      px = Map.get(obs, :shiny_star_run, 0)
-      state = broadcast_reading(state, px)
-      seen? = Map.get(obs, :shiny_rows, []) != []
-      {:noreply, advance(state, seen?, px, shiny_names(obs))}
-    else
-      {:noreply, %{state | pending_ref: nil}}
-    end
-  end
-
-  # The confirm window closed. Still pending (no clean frame refuted it) →
-  # a real shiny is on the list.
-  def handle_info({:confirm_shiny, ref}, %{pending_ref: ref} = state),
-    do: {:noreply, fire(%{state | pending_ref: nil}, state.pending_px)}
-
-  def handle_info({:confirm_shiny, _stale}, state), do: {:noreply, state}
-
-  def handle_info({:world, _key, _obs}, state), do: {:noreply, state}
 
   # A kill right after a sighting IS that shiny dying (Lucas: "se eu matei um
   # Shiny"). Outside the window it is an ordinary kill — ignored.
@@ -140,159 +111,138 @@ defmodule Pokex.Bots.ShinyGuard do
     {:noreply, state}
   end
 
-  # The :battle feed died — mark detached; the next poll re-attaches (a fresh
-  # feed starts with nobody attached, same liveness pattern as the catcher's).
-  def handle_info({:DOWN, ref, :process, _obj, _reason}, %{feed_ref: ref} = state),
-    do: {:noreply, %{state | attached?: false, feed_ref: nil, pending_ref: nil}}
-
   def handle_info(_msg, state), do: {:noreply, state}
 
-  defp sync_attachment(%{active?: false} = state), do: state
+  # -- a varredura -------------------------------------------------------------
 
-  defp sync_attachment(state) do
-    enabled? = Settings.get(:shiny_guard_enabled)
+  defp look(state) do
+    case ColorRules.armed() do
+      [] ->
+        %{state | streaks: %{}}
 
-    cond do
-      enabled? and not state.attached? ->
-        Perception.attach(:battle)
-        ref = Process.monitor(Feed.name(:battle))
-        %{state | attached?: true, feed_ref: ref, pending_ref: nil}
-
-      not enabled? and state.attached? ->
-        safe_detach()
-        demonitor(state.feed_ref)
-        %{state | attached?: false, feed_ref: nil, pending_ref: nil}
-
-      true ->
-        state
+      rules ->
+        case snapshot(state) do
+          {:ok, frame, forbidden} -> judge(state, rules, frame, forbidden)
+          _blind -> state
+        end
     end
   end
 
-  defp safe_detach do
-    Perception.detach(:battle)
-  catch
-    _kind, _reason -> :ok
-  end
-
-  defp demonitor(nil), do: :ok
-  defp demonitor(ref), do: Process.demonitor(ref, [:flush])
-
-  # a clean frame refutes any pending sighting
-  defp advance(state, false, _px, _names), do: %{state | pending_ref: nil}
-
-  defp advance(%{pending_ref: nil} = state, true, px, names) do
-    if cooled_down?(state) do
-      ref = make_ref()
-      Process.send_after(self(), {:confirm_shiny, ref}, Settings.get(:shiny_confirm_ms))
-      %{state | pending_ref: ref, pending_px: px, pending_names: names}
-    else
-      state
+  defp snapshot(state) do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, {_x, _y, _w, _h} = region} <- SpotScan.region(calib),
+         {:ok, %Frame{} = frame} <- state.capture.(region, "special_colors.raw") do
+      {:ok, frame, forbidden_boxes(calib, frame, region)}
     end
   end
 
-  # already pending: keep the freshest px (and names) for the log
-  defp advance(state, true, px, names), do: %{state | pending_px: px, pending_names: names}
+  # O personagem e o pokémon PARADO viram caixas proibidas de 3×3 tiles: o
+  # verde do próprio Torterra é quase o do Electrode shiny. Pontos em
+  # coordenadas de TELA; o frame conhece a própria escala.
+  defp forbidden_boxes(calib, %Frame{scale: scale}, {rx, ry, _w, _h}) do
+    meia = round(Calibration.tile_px() * 1.5 * scale)
 
-  # WHO the shiny is: the interpreter already reads each row's name
-  # (enemies_detail + shiny?) — the alarm used to say only "estrela 40px",
-  # forcing a run to the screen to know whether to drop everything.
-  defp shiny_names(obs) do
-    obs
-    |> Map.get(:enemies_detail, [])
-    |> Enum.filter(&(Map.get(&1, :shiny?) == true))
-    |> Enum.map(&Map.get(&1, :name))
+    [calib.player_point, calib.pokemon_spot_point]
     |> Enum.reject(&is_nil/1)
+    |> Enum.map(fn {sx, sy} ->
+      fx = round((sx - rx) * scale)
+      fy = round((sy - ry) * scale)
+      {fx - meia, fy - meia, fx + meia, fy + meia}
+    end)
   end
 
-  # the encounter is "open" for a while after the sighting — long enough for a
-  # fight to end, short enough not to claim an unrelated kill
-  @encounter_window_ms 45_000
+  defp judge(state, rules, frame, forbidden) do
+    {state, best} =
+      Enum.reduce(rules, {state, 0}, fn rule, {state, best} ->
+        result =
+          ColorMark.scan(frame, rule.specs,
+            min_cell_px: rule.min_cell_px,
+            forbidden: forbidden
+          )
+
+        mancha = List.first(result.manchas)
+        hit? = mancha != nil and mancha.px >= rule.min_px
+        {advance(state, rule, mancha, hit?), max(best, result.px)}
+      end)
+
+    broadcast_reading(state, best)
+  end
+
+  defp advance(state, rule, _mancha, false),
+    do: %{state | streaks: Map.delete(state.streaks, rule.slug)}
+
+  defp advance(state, rule, mancha, true) do
+    streak = Map.get(state.streaks, rule.slug, 0) + 1
+    state = %{state | streaks: Map.put(state.streaks, rule.slug, streak)}
+
+    if streak >= Settings.get(:special_color_confirm_frames) and cooled?(state, rule.slug),
+      do: fire(state, rule, mancha),
+      else: state
+  end
+
+  defp cooled?(state, slug) do
+    case Map.get(state.fired_at, slug) do
+      nil -> true
+      at -> System.monotonic_time(:millisecond) - at > @refractory_ms
+    end
+  end
+
+  # Avistou: registra e anuncia — nenhuma ação (decisão dele, 01/09). O
+  # Catcher escuta o {:shiny_seen, _} e arma a bola garantida.
+  defp fire(state, rule, mancha) do
+    icone = if rule.kind == "chefe", do: "👹", else: "✨"
+    reason = "#{icone} #{rule.name} na tela — mancha de #{mancha.px}px da cor dele"
+
+    # the trophy shelf first: the encounter is logged even if a broadcast fails.
+    # `star_px` é o nome histórico do campo (a estrela morreu, o campo ficou):
+    # hoje guarda os px da MANCHA.
+    ShinyLog.record(star_px: mancha.px, action: nil, outcome: "seen", note: rule.name)
+
+    Logger.warning("ShinyGuard: #{reason}")
+    Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:combat_log, :macro, reason})
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @reading_topic,
+      {:shiny_seen, %{px: mancha.px, name: rule.name, kind: rule.kind, point: mancha.point}}
+    )
+
+    now = System.monotonic_time(:millisecond)
+
+    %{
+      state
+      | streaks: Map.delete(state.streaks, rule.slug),
+        fired_at: Map.put(state.fired_at, rule.slug, now),
+        last_fired_at: now
+    }
+  end
 
   defp recent_sighting?(%{last_fired_at: nil}), do: false
 
   defp recent_sighting?(%{last_fired_at: at}),
     do: System.monotonic_time(:millisecond) - at <= @encounter_window_ms
 
-  defp cooled_down?(%{last_fired_at: nil}), do: true
-
-  defp cooled_down?(%{last_fired_at: at}),
-    do: System.monotonic_time(:millisecond) - at > @refractory_ms
-
-  # Feed the panel's live meter — throttled so the arena's ~300ms cadence
-  # doesn't re-render the panel several times a second.
+  # Feed the panel's live meter — throttled so the scan cadence doesn't
+  # re-render the panel several times a second.
   defp broadcast_reading(state, px) do
     now = System.monotonic_time(:millisecond)
 
     if state.last_reading_at == nil or now - state.last_reading_at > @reading_throttle_ms do
-      Phoenix.PubSub.broadcast(
-        Pokex.PubSub,
-        @reading_topic,
-        {:shiny_reading, %{star_run: px, min_px: Settings.get(:shiny_star_min_columns)}}
-      )
-
+      Phoenix.PubSub.broadcast(Pokex.PubSub, @reading_topic, {:shiny_reading, %{px: px}})
       %{state | last_reading_at: now}
     else
       state
     end
   end
 
-  defp fire(state, px) do
-    action = Settings.get(:shiny_action)
-    quem = if state.pending_names == [], do: "", else: " #{Enum.join(state.pending_names, ", ")}"
-    reason = "✨ SHINY#{quem} na lista de batalha (estrela #{px}px)"
+  # Ligado, a cadência é a da varredura; desligado (ou sem regra armada), um
+  # tique lento só pra reavaliar o interruptor.
+  defp schedule(state) do
+    ms =
+      if state.active? and Settings.get(:shiny_guard_enabled) and ColorRules.armed() != [],
+        do: Settings.get(:special_color_scan_ms),
+        else: @idle_poll_ms
 
-    # the trophy shelf first: the encounter is logged even if the action fails.
-    # star_px, not star_run: record/1 reads attrs[:star_px] — the wrong key
-    # left EVERY log trophy without the star measurement since forever.
-    ShinyLog.record(
-      star_px: px,
-      action: action,
-      outcome: "seen",
-      note: if(quem == "", do: nil, else: String.trim(quem))
-    )
-
-    case action do
-      "escape" ->
-        # The latch is a standing stop order (panic corner, logout, met goal).
-        # With it set the guard does NOT act — but keeps shouting: when playing
-        # by hand from the corner, a shiny sighting must still be announced;
-        # what must not happen is the bot dragging the character to the stairs
-        # mid-play. Without this, a sighted shiny moved the character with
-        # everything "stopped", because this guard is an app child stop_all/0
-        # never reaches — it presses no key, but the escape it calls fronts the
-        # game ON PURPOSE and walks to the stairs.
-        if InputGate.panic_latched?() do
-          Logger.warning("ShinyGuard: #{reason} — parada em vigor, NÃO foge; só avisa")
-
-          Phoenix.PubSub.broadcast(
-            Pokex.PubSub,
-            @combat_topic,
-            {:rule_alarm, :shiny, reason <> " — bot parado, decida você"}
-          )
-        else
-          Logger.warning("ShinyGuard: #{reason} — fugindo pela escada")
-          state.escape_fun.(reason)
-          ShinyLog.resolve_last("fled")
-        end
-
-      _alarm_or_fight ->
-        Logger.warning("ShinyGuard: #{reason} — modo lutar, só alarmando")
-
-        Phoenix.PubSub.broadcast(
-          Pokex.PubSub,
-          @combat_topic,
-          {:rule_alarm, :shiny, reason <> " — LUTA!"}
-        )
-    end
-
-    Phoenix.PubSub.broadcast(
-      Pokex.PubSub,
-      @reading_topic,
-      {:shiny_seen, %{px: px, action: action}}
-    )
-
-    %{state | pending_ref: nil, last_fired_at: System.monotonic_time(:millisecond)}
+    Process.send_after(self(), :scan, ms)
   end
-
-  defp schedule_poll, do: Process.send_after(self(), :poll, @poll_ms)
 end

@@ -691,19 +691,18 @@ defmodule PokexWeb.PanelLiveTest do
   @tag :tmp_dir
   # the probe reads the real battle-list capture through the shared Fake's
   # default capture path (/tmp/fake)
-  test "shiny guard: action persists, the probe reads the battle list, the log appears", %{
+  test "shiny guard: a sonda varre por COR e o medidor/troféu aparecem", %{
     conn: conn,
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
+    :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
 
     enabled = Pokex.Settings.get(:shiny_guard_enabled)
-    action = Pokex.Settings.get(:shiny_action)
 
     on_exit(fn ->
       Pokex.TestHome.restore()
       Pokex.Settings.put(:shiny_guard_enabled, enabled)
-      Pokex.Settings.put(:shiny_action, action)
     end)
 
     Pokex.Calibration.save(%Pokex.Calibration{
@@ -713,38 +712,59 @@ defmodule PokexWeb.PanelLiveTest do
       water_point: {400, 300},
       glow_region: {0, 0, 20, 20},
       battle_region: {900, 0, 239, 95},
-      neutral_point: {500, 500}
+      neutral_point: {500, 500},
+      player_point: {500, 350}
     })
 
+    {:ok, %{"slug" => slug}} =
+      Pokex.Vision.ColorRules.add(%{
+        "name" => "Electrode shiny",
+        "kind" => "shiny",
+        "colors" => [%{"rgb" => [40, 160, 60], "tol_h" => 12, "tol_sv" => 30}],
+        "min_px" => 50
+      })
+
+    :ok = Pokex.Vision.ColorRules.mark_proven(slug, 3)
+
+    # o quadro que a sonda vai capturar: a região do SpotScan com uma mancha
+    # verde — escrito em PXRW no caminho fake de captura
+    {:ok, calib} = Pokex.Calibration.load()
+    {:ok, {_x, _y, w, h}} = Pokex.Bots.Catcher.SpotScan.region(calib)
+
+    fundo = for _ <- 1..(w * h), into: <<>>, do: <<40, 40, 40, 255>>
+    frame = %Pokex.Vision.Frame{width: w, height: h, rgba: fundo}
+
+    verde =
+      Enum.reduce(10..23, frame.rgba, fn y, acc ->
+        linha = for _ <- 1..14, into: <<>>, do: <<40, 160, 60, 255>>
+        antes = (y * w + 10) * 4
+        <<head::binary-size(antes), _::binary-size(14 * 4), tail::binary>> = acc
+        head <> linha <> tail
+      end)
+
     File.mkdir_p!("/tmp/fake")
-    # Under a .raw NAME, but PNG BYTES: `Frame.from_file/1` sniffs the header, which
-    # is what makes switching a call site's extension safe even when the
-    # `screencapture` fallback ignores it and writes a PNG anyway.
-    File.cp!("test/fixtures/battle/shiny_star_list.png", "/tmp/fake/shiny_probe.raw")
+    File.write!("/tmp/fake/special_colors.raw", <<"PXRW", 1, w::32, h::32, verde::binary>>)
 
     {:ok, view, _} = live(conn, ~p"/config/editores")
 
     view |> element(~s(input[phx-click="toggle_shiny_guard"])) |> render_click()
     refute Pokex.Settings.get(:shiny_guard_enabled) == enabled
 
-    view |> form("#shiny-cfg-form", %{"shiny_action" => "escape"}) |> render_change()
-    assert Pokex.Settings.get(:shiny_action) == "escape"
-
     view |> element("#shiny-probe") |> render_click()
     html = render(view)
-    assert html =~ "sonda: colunas douradas por linha"
-    assert html =~ "L0:"
+    assert html =~ "Electrode shiny:"
+    assert html =~ "maior mancha"
+
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "shiny", {:shiny_reading, %{px: 4}})
+    assert render(view) =~ "4<span"
+
+    ShinyLog.record(star_px: 22, action: nil, outcome: "visto")
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "shiny",
-      {:shiny_reading, %{star_run: 4, min_px: 3}}
+      {:shiny_seen, %{px: 22, name: "Electrode shiny"}}
     )
-
-    assert render(view) =~ "4<span"
-
-    ShinyLog.record(star_px: 22, action: "escape", outcome: "visto")
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "shiny", {:shiny_seen, %{px: 22, action: "escape"}})
 
     html = render(view)
     assert has_element?(view, "#shiny-log")

@@ -26,7 +26,6 @@ defmodule Pokex.WorldTest do
 
     publish(:battle, %{
       locked?: true,
-      shiny_rows: [1],
       enemies_detail: [%{row: 0, name: "Pidgeot"}]
     })
 
@@ -46,7 +45,8 @@ defmodule Pokex.WorldTest do
     assert snap.inventory == %{f1: 322, f2: 36, e: 7, s_q: 43}
     assert snap.pos == {337, 46_107, 4}
     assert snap.engaged?
-    assert snap.shiny?
+    # a estrela do PXG morreu; o shiny é visto por COR no ShinyGuard
+    refute snap.shiny?
     assert [%{name: "Pidgeot"}] = snap.enemies
     assert World.pokemon_hp_pct(snap) == 5559 / 6410
     assert World.team_health(snap) == %{2 => 0.86}

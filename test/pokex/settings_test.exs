@@ -73,7 +73,7 @@ defmodule Pokex.SettingsTest do
       path,
       JSON.encode!(%{
         "player_mode" => "movimento",
-        "shiny_action" => "fugir",
+        "stop_after_action" => "deslogar",
         "stop_after_action" => "deslogar",
         "alarm_muted_categories" => ["vida", "estoque", "captura"]
       })
@@ -82,13 +82,13 @@ defmodule Pokex.SettingsTest do
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
     assert Settings.get(:player_mode, server) == "moving"
-    assert Settings.get(:shiny_action, server) == "escape"
+    assert Settings.get(:stop_after_action, server) == "logout"
     assert Settings.get(:stop_after_action, server) == "logout"
     assert Settings.get(:alarm_muted_categories, server) == ["hp", "stock", "capture"]
 
     assert gravado(path) == %{
              "player_mode" => "moving",
-             "shiny_action" => "escape",
+             "stop_after_action" => "logout",
              "stop_after_action" => "logout",
              "alarm_muted_categories" => ["hp", "stock", "capture"]
            }

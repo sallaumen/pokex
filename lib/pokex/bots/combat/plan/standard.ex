@@ -65,8 +65,12 @@ defmodule Pokex.Bots.Combat.Plan.Standard do
   def damage_keys(loadout, ctx),
     do: loadout.aoe ++ Loadout.single_keys(loadout, single?(ctx))
 
+  # DESLIGADO, medido em campo por ele: o alvo travado não muda o dano (só a
+  # área machuca nesta dungeon) e move o pokémon pra cima do alvo, desmanchando
+  # o bolo que a régua acabou de juntar. Quem quer Tab é o modo Econômico, e ele
+  # o diz por si — não por um ajuste que podia contradizer o modo.
   @impl true
-  def tab?(ctx), do: knob(ctx, :combat_tab_target, false) == true
+  def tab?(_ctx), do: false
 
   # --- lendo o contexto ------------------------------------------------------
   #

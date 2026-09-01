@@ -206,6 +206,21 @@ defmodule Pokex.Sim.Scenario do
         }
       },
       %__MODULE__{
+        id: "rota-barata",
+        group: :hunt,
+        icon: "🪙",
+        aperto: :rotina,
+        mode: :economy,
+        espera: [:nao_cai, :mata, :anda],
+        name: "Rota barata (Econômico)",
+        why:
+          "A caçada esparsa com o modo magro: sem mobada, sem régua, sem recuo e sem reset — " <>
+            "Tab, a tecla mais barata, um respiro, e a área só se ainda precisar. A pergunta " <>
+            "não é matar mais: é matar o suficiente gastando pouco, e sem deixar o pokémon cair.",
+        route: :hunt_field,
+        knobs: %{respawn_ms: 45_000, aggro_tiles: 8, leash_tiles: 12}
+      },
+      %__MODULE__{
         id: "corrente-do-cliente",
         group: :hunt,
         icon: "🔗",

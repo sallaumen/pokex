@@ -428,6 +428,15 @@ defmodule PokexWeb.ConfigLive do
           keywords: "rajada burst teclas"
         },
         %{
+          key: :skill_burst_every_ms,
+          kind: :ms,
+          label: "Intervalo entre rajadas",
+          hint:
+            "O respiro entre duas decisões de ataque. No Econômico é ele que separa a tecla de " <>
+              "alvo único da de área: uma sai, ele espera, e a outra só sai se ainda precisar.",
+          keywords: "intervalo rajada respiro econômico cadência"
+        },
+        %{
           key: :combat_skill_gap_ms,
           kind: :int,
           unit: "ms",
@@ -444,13 +453,6 @@ defmodule PokexWeb.ConfigLive do
           hint:
             "Desligado (o padrão desde 27/08): as de alvo único mal arranham e atrasam a área.",
           keywords: "alvo único single target rotação"
-        },
-        %{
-          key: :combat_tab_target,
-          kind: :bool,
-          label: "Travar alvo com Tab",
-          hint: "Desligado: o Tab move o pokémon e desarruma o bolo.",
-          keywords: "tab travar alvo lock"
         },
         %{
           key: :combat_shield_from_enemies,

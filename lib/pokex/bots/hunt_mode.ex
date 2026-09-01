@@ -104,11 +104,10 @@ defmodule Pokex.Bots.HuntMode do
 
   ## E só o que o CÉREBRO decide
 
-  `single_target` and `combat_tab_target` are the FIGHT's knobs, read from its
-  own config snapshot — overriding them here would put the brain and the hand
-  on different rules inside one tick, which is the exact defect this module
-  exists to prevent. They belong to the combat plan, with the mode it was armed
-  with.
+  Whether the fight uses Tab, and whether it presses single-target keys, are not
+  knobs at all any more: they are what a mode IS (`Combat.Plan`). A switch that
+  could contradict the mode is the invalid combination this whole split exists
+  to make impossible.
   """
   @spec engine_overrides(t) :: %{atom => term}
   def engine_overrides(:economy) do

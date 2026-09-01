@@ -71,13 +71,12 @@ defmodule Pokex.Bots.HuntModeTest do
     end
   end
 
-  # As duas são do COMBATE, lidas da fotografia dele. Sobrepor aqui poria o
-  # cérebro e a mão em regras diferentes dentro do mesmo tique.
-  test "engine_overrides/1 leaves the fight's own knobs alone" do
+  # Tab e alvo único não são knobs: são o que um modo É (`Combat.Plan`). Uma
+  # chave que pudesse contradizer o modo é a combinação inválida que toda esta
+  # separação existe pra tornar impossível.
+  test "engine_overrides/1 leaves the fight's own hand alone" do
     for mode <- HuntMode.all() do
-      overrides = HuntMode.engine_overrides(mode)
-      refute Map.has_key?(overrides, :single_target)
-      refute Map.has_key?(overrides, :combat_tab_target)
+      refute Map.has_key?(HuntMode.engine_overrides(mode), :single_target)
     end
   end
 

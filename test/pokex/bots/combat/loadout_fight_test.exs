@@ -43,9 +43,10 @@ defmodule Pokex.Bots.Combat.LoadoutFightTest do
     # ela só existe com as de alvo único LIGADAS — por padrão a caçada não as
     # usa ("o que dá dano é a skill em área, praticamente exclusivamente").
     combat_single_target: true,
-    # …e o Tab ligado: este arquivo prova a ORDEM das teclas que chegam ao jogo,
-    # e a máquina que leva a luta até elas aqui é a de travar alvo.
-    combat_tab_target: true,
+    # …e SEM modo: a ordem que este arquivo prova é a do `Plan.Standard` (área
+    # antes de alvo único numa pilha, o inverso num bicho só). Os modos têm mão
+    # própria de propósito, e cada um tem o bloco dele em `plan_test.exs`.
+    mode: nil,
     max_consecutive_failures: 5
   }
 
@@ -59,9 +60,10 @@ defmodule Pokex.Bots.Combat.LoadoutFightTest do
       |> elem(0)
       |> Logic.set_loadout(loadout)
 
-    # hunting → Tab → tabbing → lock → fighting, the way the machine really gets there
-    {logic, _tab} = Logic.step(logic, obs, 10)
-    {_logic, actions} = Logic.step(logic, %{obs | captured_at: 15}, 20)
+    # hunting → fighting num passo só: sem Tab a luta começa por HAVER bicho na
+    # tela, e é a primeira rajada que carrega a ordem que este arquivo prova (a
+    # segunda já vem com o índice da rotação andado).
+    {_logic, actions} = Logic.step(logic, obs, 10)
 
     # uniq: the blind rotation wraps around the list to fill the burst, and what
     # this file is about is the ORDER of the distinct keys, not the burst size
@@ -120,8 +122,7 @@ defmodule Pokex.Bots.Combat.LoadoutFightTest do
           |> elem(0)
           |> Logic.set_loadout(loadout())
 
-        {logic, _tab} = Logic.step(logic, obs, 10)
-        {_logic, actions} = Logic.step(logic, %{obs | captured_at: 15}, 20)
+        {_logic, actions} = Logic.step(logic, obs, 10)
         Enum.uniq(for {:press, key} <- actions, do: key)
       end
 
@@ -169,8 +170,7 @@ defmodule Pokex.Bots.Combat.LoadoutFightTest do
         |> elem(0)
         |> Logic.set_loadout(loadout)
 
-      {logic, _tab} = Logic.step(logic, obs, 10)
-      {_logic, actions} = Logic.step(logic, %{obs | captured_at: 15}, 20)
+      {_logic, actions} = Logic.step(logic, obs, 10)
 
       Enum.uniq(for {:press, key} <- actions, do: key)
     end

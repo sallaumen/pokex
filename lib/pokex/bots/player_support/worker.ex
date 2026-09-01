@@ -21,6 +21,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Focus
   alias Pokex.Bots.{Logout, ReviveLedger, SkillClock}
+  alias Pokex.Bots.PlayerSupport.ReviveEffect
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Logic
@@ -58,6 +59,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       running?: false,
       hp_pct: nil,
       prev_hp_pct: nil,
+      # o juiz de EFEITO do revive: pagou e a vida não voltou? (01/09, a bag seca)
+      revive_judge: ReviveEffect.new(),
       # A VIDA DO PERSONAGEM — a barra vermelha do painel "Pokémon", que apesar
       # do nome é dele, não do bicho. nil enquanto a região não for marcada na
       # calibração ou a leitura não reconhecer a barra.
@@ -354,7 +357,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                 publish_pokemon_fact(%{hp_pct: hp, readable?: true, fainted?: false})
 
                 act(
-                  %{
+                  judge_revive_effect(%{
                     state
                     | prev_hp_pct: state.hp_pct,
                       hp_pct: hp,
@@ -365,7 +368,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                       last_seen_hp: hp,
                       fainted?: false,
                       counters: bump(state.counters, :reads)
-                  },
+                  }),
                   calib
                 )
 
@@ -520,12 +523,55 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
+  # O JUIZ DE EFEITO DO REVIVE, cobrado a cada leitura de vida. A morte de
+  # 01/09: bag sem revive, F4 aterrissando e não fazendo nada, dez pedidos
+  # mudos enquanto o tanque ia de 55% a 2% — e o personagem atrás dele. O
+  # veredito é do `ReviveEffect`; aqui só o grito e o socorro.
+  defp judge_revive_effect(state) do
+    {judge, veredito} = ReviveEffect.tick(state.revive_judge, state.hp_pct, now())
+    scream_if_dead(%{state | revive_judge: judge}, veredito)
+  end
+
+  defp scream_if_dead(state, :quiet), do: state
+
+  defp scream_if_dead(state, :scream) do
+    logout? = Settings.get(:player_hp_logout)
+    n = ReviveEffect.streak(state.revive_judge)
+
+    socorro =
+      if logout?,
+        do: "saindo do jogo pra proteger o personagem",
+        else: "liga player_hp_logout pra ele sair sozinho da próxima"
+
+    # :mortal fura o mudo POR CONSTRUÇÃO: não é um setor da lista fechada
+    # (`AlarmCategories`), então nunca entra em `alarm_muted_categories`. Na
+    # segunda morte de 01/09 o "VOCÊ está com 49%" gritou pra dentro do mudo —
+    # a categoria `hp` estava silenciada junto com quase todas as outras.
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:rule_alarm, :mortal,
+       "🩸 #{n} revives pagos e NENHUM efeito — a BAG está sem revive? Repõe AGORA — #{socorro}"}
+    )
+
+    broadcast_log(
+      :macro,
+      "🩸 #{n} revives pagos sem a vida voltar — bag sem revive (ou o jogo surdo ao F4); #{socorro}"
+    )
+
+    if logout?, do: Logout.request("#{n} revives sem efeito — bag sem revive")
+
+    state
+  end
+
   defp player_low(%{player_low_streak: streak, player_alarmed?: false} = state)
        when streak >= 2 do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       @topic,
-      {:rule_alarm, :hp,
+      # :mortal, não :hp — vida do PERSONAGEM não tem botão de mudo (01/09:
+      # o grito de 49% saiu com a categoria hp silenciada, e ele morreu sem ouvir).
+      {:rule_alarm, :mortal,
        "⚠️ VOCÊ está com #{state.player_hp}% de vida — o personagem, não o pokémon"}
     )
 
@@ -723,6 +769,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       at = now()
       dispatch_fallen(state.body)
       broadcast_log(:macro, "💀 ele segue no chão e o cérebro insiste — revive de novo")
+
+      {judge, veredito} = ReviveEffect.fallen_again(state.revive_judge, at)
+      state = scream_if_dead(%{state | revive_judge: judge}, veredito)
 
       %{
         state
@@ -1148,7 +1197,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
     %{
       state
-      | last_rescue_at: at,
+      | revive_judge: ReviveEffect.paid(state.revive_judge, state.hp_pct, at),
+        last_rescue_at: at,
         rescuing?: true,
         counters: bump(state.counters, :rescues),
         last_action: %{text: "revive", at: at}

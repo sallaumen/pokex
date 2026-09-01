@@ -10,15 +10,17 @@ defmodule Pokex.Vision.ColorMarkTest do
   defp frame(w, h, bg, patches) do
     pixels =
       for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
-        {r, g, b} =
-          Enum.find_value(patches, bg, fn {{px, py, pw, ph}, cor} ->
-            if x >= px and x < px + pw and y >= py and y < py + ph, do: cor
-          end)
-
+        {r, g, b} = cor_em(x, y, bg, patches)
         <<r, g, b, 255>>
       end
 
     %Frame{width: w, height: h, rgba: pixels}
+  end
+
+  defp cor_em(x, y, bg, patches) do
+    Enum.find_value(patches, bg, fn {{px, py, pw, ph}, cor} ->
+      if x >= px and x < px + pw and y >= py and y < py + ph, do: cor
+    end)
   end
 
   defp specs(cor, opts \\ []),

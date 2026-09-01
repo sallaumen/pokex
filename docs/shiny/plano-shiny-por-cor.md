@@ -10,21 +10,21 @@
 Este documento é o plano de implementação. Quem for implementar: leia a seção
 "Armadilhas que já custaram noites" ANTES de escrever qualquer linha.
 
-> **ESTADO (01/09, sessão Fable):** fases 1 e parte da 3 IMPLEMENTADAS —
-> #465 (`Vision.ColorMark` + `Vision.ColorRules`, testados) e o PR do vigia
-> (ShinyGuard re-feito por cor, estrela/ações/`shiny_action`/
-> `shiny_star_min_columns`/`shiny_confirm_ms` REMOVIDOS, sonda do painel
-> varrendo por cor, settings novas `special_color_scan_ms`/
-> `special_color_confirm_frames`). Corpos pintados: o corpses.json dele NÃO
-> tinha amostras `painted` — limpeza foi no-op.
+> **ESTADO (01/09):** fases 1, 3 e o painel de ensino IMPLEMENTADOS.
+> #465 `Vision.ColorMark` + `Vision.ColorRules`; #467 o `ShinyGuard` re-feito
+> por COR (estrela, `shiny_action`, `shiny_star_min_columns`,
+> `shiny_confirm_ms` e o escape REMOVIDOS — avistar é registrar); e o painel
+> de ensino na calibração (§3.4): conta-gotas (`ColorMark.dominant/3`, o
+> patch vota e a mediana decide), leitura ao vivo sobre a foto, **prova de
+> ruído** em 12 fotos do chão que sobe o gatilho pra 3× o pico (e NUNCA abaixa
+> o que ele escolheu à mão), badge provada/sem-prova, liga-desliga e apagar.
+> Corpos pintados: o corpses.json dele não tinha amostras `painted` — no-op.
 >
-> **O QUE FALTA (a continuação com o Opus):** o painel de ENSINO na
-> calibração (§3.4 — conta-gotas, prova de ruído com botão "medir o chão",
-> min_px sugerido 3×, badge "provada"); hoje só se ensina regra por código/
-> arquivo. E a fase 2 inteira (§8): protocolo shiny completo e chefe-por-cor
-> → heavy?. A sonda do painel principal já dá a leitura do chão ao vivo.
-
----
+> **O QUE FALTA:** a fase 2 inteira (§8) — protocolo shiny completo (alvo
+> preferido, corpo do shiny real ensinado na primeira morte, "cor → qual linha
+> da battle list") e chefe-por-cor alimentando `heavy?` junto do grit (#461).
+> E o que só ELE pode fazer: ensinar a primeira regra com o Electrode shiny na
+> tela, medir o chão com o Torterra em campo, e LIGAR a guarda no painel.
 
 ## 1. Por que refazer
 

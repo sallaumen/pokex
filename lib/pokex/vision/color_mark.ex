@@ -44,6 +44,60 @@ defmodule Pokex.Vision.ColorMark do
   end
 
   @doc """
+  O CONTA-GOTAS do ensino: a cor dominante de um quadradinho ao redor de
+  `{x, y}` — o que o clique dele na foto vira.
+
+  Um clique cai num pixel, e um pixel de sprite é anti-aliasing tanto quanto
+  cor: pegar o pixel cru ensinaria a mistura dele com o chão. Então o patch
+  inteiro vota — cinza e quase-preto fora (não têm matiz pra ensinar), o resto
+  agrupado por FAIXA DE MATIZ, e a maior faixa devolve a MEDIANA de cada canal.
+  Mediana e não média: a média entre dois tons vizinhos inventa um terceiro que
+  não está na tela.
+
+  `:none` quando não há cor nenhuma ali (ele clicou na pedra do chão) — quem
+  ensina precisa ouvir isso em vez de receber um cinza silencioso.
+  """
+  @pick_min_delta 25
+  @pick_min_value 30
+  @pick_hue_bin 12
+
+  @spec dominant(Frame.t(), {integer, integer}, pos_integer) ::
+          {:ok, {0..255, 0..255, 0..255}} | :none
+  def dominant(%Frame{} = frame, {x, y}, raio \\ 2) do
+    frame
+    |> patch(x, y, raio)
+    |> Enum.reject(fn {r, g, b} ->
+      mx = max(r, max(g, b))
+      mx - min(r, min(g, b)) < @pick_min_delta or mx < @pick_min_value
+    end)
+    |> Enum.group_by(fn {r, g, b} ->
+      mx = max(r, max(g, b))
+      div(hue(r, g, b, mx, mx - min(r, min(g, b))), @pick_hue_bin)
+    end)
+    |> Enum.max_by(fn {_bin, pixels} -> length(pixels) end, fn -> nil end)
+    |> case do
+      nil -> :none
+      {_bin, pixels} -> {:ok, mediana(pixels)}
+    end
+  end
+
+  defp patch(%Frame{width: w, height: h} = frame, x, y, raio) do
+    for py <- max(y - raio, 0)..min(y + raio, h - 1)//1,
+        px <- max(x - raio, 0)..min(x + raio, w - 1)//1,
+        do: Frame.at(frame, px, py)
+  end
+
+  defp mediana(pixels) do
+    meio = div(length(pixels), 2)
+
+    {
+      pixels |> Enum.map(&elem(&1, 0)) |> Enum.sort() |> Enum.at(meio),
+      pixels |> Enum.map(&elem(&1, 1)) |> Enum.sort() |> Enum.at(meio),
+      pixels |> Enum.map(&elem(&1, 2)) |> Enum.sort() |> Enum.at(meio)
+    }
+  end
+
+  @doc """
   Varre o frame atrás das cores compiladas.
 
   Opções: `cell_px` (#{@default_cell_px}), `min_cell_px` (#{@default_min_cell_px}

@@ -1597,6 +1597,218 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert restored.screen_w == 3440
   end
 
+  # O ENSINO DAS CORES ESPECIAIS. "Tem 1 shiny, 1 com a base diferente (…)
+  # tínhamos que mapear essa cor especial e apitar quando ela aparecer"
+  # (Lucas, 01/09). O que sai do clique é um TOM, não um recorte — a pose muda
+  # (o Electrode rola de ponta-cabeça) e o matiz não.
+  describe "cores especiais (shiny e chefe)" do
+    @verde {40, 160, 60}
+
+    defp cor_frame(w, h, bg, patches) do
+      rgba =
+        for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
+          {r, g, b} = cor_em(x, y, bg, patches)
+          <<r, g, b, 255>>
+        end
+
+      %Pokex.Vision.Frame{width: w, height: h, rgba: rgba}
+    end
+
+    defp cor_em(x, y, bg, patches) do
+      Enum.find_value(patches, bg, fn {{px, py, pw, ph}, cor} ->
+        if x >= px and x < px + pw and y >= py and y < py + ph, do: cor
+      end)
+    end
+
+    defp com_foto(view, frame) do
+      :sys.replace_state(view.pid, fn state ->
+        put_in(state.socket.assigns.special_shot, %{
+          frame: frame,
+          v: 1,
+          region: {0, 0, frame.width, frame.height}
+        })
+      end)
+
+      view
+    end
+
+    defp ensina_regra(view, frame, nome \\ "Electrode shiny") do
+      com_foto(view, frame)
+      render_click(view, "special_pick", %{"x" => 16, "y" => 16, "cw" => 64, "nw" => 64})
+      render_change(view, "special_form", %{"name" => nome, "min_px" => "25"})
+      render_submit(view, "special_save", %{})
+    end
+
+    @tag :tmp_dir
+    test "o conta-gotas vira tom, e a leitura ao vivo mede a foto", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+      foto = cor_frame(64, 64, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}])
+      com_foto(view, foto)
+
+      html = render_click(view, "special_pick", %{"x" => 16, "y" => 16, "cw" => 64, "nw" => 64})
+
+      assert html =~ "40,160,60", "o tom pego tem que aparecer como swatch"
+      assert html =~ "maior mancha 196px", "a leitura ao vivo mede a foto com o tom pego"
+    end
+
+    @tag :tmp_dir
+    test "clicar no chão cinza não ensina nada — e diz por quê", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+      com_foto(view, cor_frame(64, 64, {90, 90, 92}, []))
+
+      html = render_click(view, "special_pick", %{"x" => 32, "y" => 32, "cw" => 64, "nw" => 64})
+
+      assert html =~ "não tem cor pra ensinar"
+    end
+
+    @tag :tmp_dir
+    test "regra salva nasce SEM PROVA e não vigia nada", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+      html = ensina_regra(view, cor_frame(64, 64, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}]))
+
+      assert html =~ "Electrode shiny"
+      assert html =~ "sem prova — não vigia"
+      assert html =~ "MEÇA O CHÃO"
+      assert Pokex.Vision.ColorRules.armed() == [], "sem prova de ruído, o vigia não a recebe"
+    end
+
+    @tag :tmp_dir
+    test "a prova de ruído mede o chão, sobe o gatilho e ARMA a regra", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      Pokex.Calibration.save(complete_calibration())
+      {:ok, _} = Fake.start_link(%{})
+
+      {:ok, view, _html} = live(conn, "/calibration")
+      ensina_regra(view, cor_frame(64, 64, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}]))
+      [%{"slug" => slug}] = Pokex.Vision.ColorRules.list()
+
+      # o CHÃO que a captura vai devolver: uma manchinha de 25px do mesmo verde
+      # (o Torterra dele passando), longe do sinal de um shiny de verdade
+      {:ok, calib} = Pokex.Calibration.load()
+      {:ok, {_x, _y, w, h}} = SpotScan.region(calib)
+      chao = cor_frame(w, h, {40, 40, 40}, [{{0, 0, 5, 5}, @verde}])
+      File.mkdir_p!("/tmp/fake")
+      File.write!("/tmp/fake/special_floor.raw", <<"PXRW", 1, w::32, h::32, chao.rgba::binary>>)
+
+      html = render_click(view, "special_floor", %{"slug" => slug})
+      assert html =~ "medindo o chão"
+
+      # a última foto da série fecha a prova
+      :sys.replace_state(view.pid, fn state ->
+        update_in(state.socket.assigns.special_floor, &%{&1 | left: 1})
+      end)
+
+      send(view.pid, {:floor_sample, slug})
+      html = render(view)
+
+      assert html =~ "pico 25px", "a prova diz o chão que mediu"
+      assert html =~ "provada · chão 25px"
+
+      assert html =~ "falta LIGAR",
+             "regra provada com a guarda desligada não pode prometer vigia"
+
+      assert [%{min_px: 75}] = Pokex.Vision.ColorRules.armed(),
+             "o gatilho vira 3× o chão medido — a margem do método"
+    end
+
+    @tag :tmp_dir
+    test "a prova NUNCA abaixa o gatilho que ele escolheu à mão", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      Pokex.Calibration.save(complete_calibration())
+      {:ok, _} = Fake.start_link(%{})
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      com_foto(view, cor_frame(64, 64, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}]))
+      render_click(view, "special_pick", %{"x" => 16, "y" => 16, "cw" => 64, "nw" => 64})
+      render_change(view, "special_form", %{"name" => "Chefe", "min_px" => "400"})
+      render_submit(view, "special_save", %{})
+
+      [%{"slug" => slug}] = Pokex.Vision.ColorRules.list()
+
+      {:ok, calib} = Pokex.Calibration.load()
+      {:ok, {_x, _y, w, h}} = SpotScan.region(calib)
+      limpo = cor_frame(w, h, {40, 40, 40}, [])
+      File.mkdir_p!("/tmp/fake")
+      File.write!("/tmp/fake/special_floor.raw", <<"PXRW", 1, w::32, h::32, limpo.rgba::binary>>)
+
+      render_click(view, "special_floor", %{"slug" => slug})
+
+      :sys.replace_state(view.pid, fn state ->
+        update_in(state.socket.assigns.special_floor, &%{&1 | left: 1})
+      end)
+
+      send(view.pid, {:floor_sample, slug})
+      render(view)
+
+      assert [%{min_px: 400}] = Pokex.Vision.ColorRules.armed()
+    end
+
+    @tag :tmp_dir
+    test "três tons é o teto, e dá pra tirar um", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      com_foto(
+        view,
+        cor_frame(64, 64, {40, 40, 40}, [
+          {{4, 4, 10, 10}, @verde},
+          {{30, 4, 10, 10}, {220, 200, 40}},
+          {{4, 30, 10, 10}, {60, 90, 220}},
+          {{30, 30, 10, 10}, {220, 60, 200}}
+        ])
+      )
+
+      for {x, y} <- [{8, 8}, {34, 8}, {8, 34}] do
+        render_click(view, "special_pick", %{"x" => x, "y" => y, "cw" => 64, "nw" => 64})
+      end
+
+      html = render_click(view, "special_pick", %{"x" => 34, "y" => 34, "cw" => 64, "nw" => 64})
+      assert html =~ "já é o teto"
+
+      html = render_click(view, "special_drop_color", %{"index" => "0"})
+      refute html =~ "40,160,60"
+    end
+
+    @tag :tmp_dir
+    test "desligar tira do vigia sem apagar; apagar apaga", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+      ensina_regra(view, cor_frame(64, 64, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}]))
+      [%{"slug" => slug}] = Pokex.Vision.ColorRules.list()
+
+      render_click(view, "special_toggle", %{"slug" => slug})
+      assert [%{"enabled" => false}] = Pokex.Vision.ColorRules.list()
+
+      render_click(view, "special_delete", %{"slug" => slug})
+      assert Pokex.Vision.ColorRules.list() == []
+    end
+  end
+
   describe "mapped corpses" do
     # He hunts a shiny Tentacool. A shiny is a RECOLOR of a corpse he has never
     # made, so until one drops he photographs the ordinary body, turns its hue

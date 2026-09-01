@@ -1972,6 +1972,10 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
+  # `:mortal` fura o mudo POR CONSTRUÇÃO: não é um setor da lista fechada
+  # (`AlarmCategories.all/0`), então nunca aparece no botão de silenciar nem
+  # entra em `alarm_muted_categories` — vida-ou-morte não tem botão (01/09:
+  # duas mortes com o alarme de vida do personagem gritando pra dentro do mudo).
   defp category_enabled?(category),
     do: to_string(category) not in Settings.get(:alarm_muted_categories)
 

@@ -204,7 +204,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       worker = start_supervised!({Worker, name: nil, body: body, auto_monitor: true})
       assert :ok = Worker.halt(worker)
 
-      assert_receive {:rule_alarm, :hp, aviso}, 6_000
+      assert_receive {:rule_alarm, :mortal, aviso}, 6_000
       assert aviso =~ "VOCÊ está com"
     end
 
@@ -251,7 +251,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
 
-      assert_receive {:rule_alarm, :hp, msg}, 1_500
+      assert_receive {:rule_alarm, :mortal, msg}, 1_500
       assert msg =~ "VOCÊ"
       assert msg =~ "personagem"
 

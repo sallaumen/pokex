@@ -16,7 +16,6 @@ defmodule Pokex.Settings.Legacy do
 
   @translations %{
     player_mode: %{"parado" => "still", "movimento" => "moving", "caçada" => "hunt"},
-    shiny_action: %{"alarme" => "alarm", "fugir" => "escape"},
     stop_after_action: %{"parar" => "stop", "deslogar" => "logout"},
     stagnation_action: %{"alarme" => "alarm", "parar" => "stop", "deslogar" => "logout"},
     hunt_style: %{"constante" => "steady", "mobada" => "mobbed"},

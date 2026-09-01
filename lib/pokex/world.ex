@@ -73,7 +73,9 @@ defmodule Pokex.World do
       inventory: hud[:slots] || %{f1: nil, f2: nil, e: nil, s_q: nil},
       team: team[:rows] || [],
       enemies: battle[:enemies_detail] || [],
-      shiny?: (battle[:shiny_rows] || []) != [],
+      # a estrela do PXG morreu; o shiny é visto por COR no ShinyGuard, que
+      # anuncia por PubSub — este fato não o carrega mais
+      shiny?: false,
       engaged?: battle[:locked?] == true,
       pos: minimap[:pos],
       pos_age_ms: WorldState.age(:minimap, now),

@@ -24,7 +24,6 @@ defmodule PokexWeb.PanelLive do
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Rig
   alias Pokex.Settings
-  alias Pokex.Vision.Frame
   alias PokexWeb.HeaderState
   alias PokexWeb.PanelForms
   alias PokexWeb.PositionReadout
@@ -197,10 +196,9 @@ defmodule PokexWeb.PanelLive do
        stock_alert_f2: Settings.get(:stock_alert_f2),
        stock_alert_e: Settings.get(:stock_alert_e),
        stock_alert_s_q: Settings.get(:stock_alert_s_q),
-       shiny_action: Settings.get(:shiny_action),
        shiny_msg: nil,
-       shiny_star_run: nil,
-       shiny_star_min_columns: Settings.get(:shiny_star_min_columns),
+       shiny_px: nil,
+       shiny_min_px: shiny_min_px(),
        shiny_log: ShinyLog.entries(),
        potion_pct: Settings.get(:pokemon_hp_potion_pct),
        potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
@@ -491,9 +489,9 @@ defmodule PokexWeb.PanelLive do
     {:noreply, socket}
   end
 
-  # The ShinyGuard's live star reading (throttled) — feeds the meter.
-  def handle_info({:shiny_reading, %{star_run: px, min_px: min_px}}, socket),
-    do: {:noreply, assign(socket, shiny_star_run: px, shiny_star_min_columns: min_px)}
+  # The ShinyGuard's live color reading (throttled) — feeds the meter.
+  def handle_info({:shiny_reading, %{px: px}}, socket),
+    do: {:noreply, assign(socket, shiny_px: px, shiny_min_px: shiny_min_px())}
 
   # The FEED comes from the journal: worker logs arrive normalized, repeats
   # deduplicated, and mount reseeds the history — reloading the page stopped
@@ -1096,44 +1094,21 @@ defmodule PokexWeb.PanelLive do
     {:noreply, assign(socket, shiny_guard_enabled: value)}
   end
 
-  def handle_event("save_shiny_cfg", params, socket) do
-    socket =
-      case params["shiny_action"] do
-        action when action in ["escape", "alarm"] ->
-          Settings.put(:shiny_action, action)
-          assign(socket, shiny_action: action)
-
-        _invalid ->
-          socket
-      end
-
-    {:noreply, socket}
-  end
-
-  # The shiny PROBE: capture the battle list NOW and show the star score of
-  # every row — the tuning tool. A list with no shiny reads 0 everywhere; the
-  # measured star lands at 15+.
+  # A SONDA de cor: varre AGORA o quadrado do SpotScan com as regras LIGADAS
+  # do acervo (provadas ou não — a sonda é justamente a ferramenta de afinar)
+  # e mostra px casados e a maior mancha por regra. Sem o especial na tela,
+  # tudo deve ler perto de 0 — é a leitura do CHÃO que a prova de ruído pede.
   def handle_event("shiny_probe", _params, socket) do
     {msg, px} =
       with {:ok, calib} <- Calibration.load(),
-           {:ok, frame} <- Capture.frame(calib.battle_region, "shiny_probe.raw") do
-        settings = Settings.all()
-        {top, band} = Calibration.row_band_geometry(calib.scale, settings[:battle_row_height])
-        rows = settings[:battle_max_rows]
-        strip = round(Calibration.strip_width() * calib.scale)
-        body = Frame.crop(frame, {0, 0, frame.width - strip, frame.height})
-
-        clusters = Pokex.Vision.star_row_clusters(body, top: top, band: band, rows: rows)
-        best = Enum.max(clusters, fn -> 0 end)
-
-        {"sonda: colunas douradas por linha " <>
-           Enum.map_join(Enum.with_index(clusters), " · ", fn {run, i} -> "L#{i}: #{run}" end) <>
-           " (limiar #{settings[:shiny_star_min_columns]} colunas)", best}
+           {:ok, region} <- Pokex.Bots.Catcher.SpotScan.region(calib),
+           {:ok, frame} <- Capture.frame(region, "special_colors.raw") do
+        probe_colors(frame)
       else
         error -> {"sonda falhou: #{inspect(error)}", nil}
       end
 
-    {:noreply, assign(socket, shiny_msg: msg, shiny_star_run: px)}
+    {:noreply, assign(socket, shiny_msg: msg, shiny_px: px)}
   end
 
   def handle_event("shiny_log_clear", _params, socket) do
@@ -1879,6 +1854,45 @@ defmodule PokexWeb.PanelLive do
 
   defp shiny_log_when(_entry), do: @unknown
 
+  defp probe_colors(frame) do
+    case Enum.filter(Pokex.Vision.ColorRules.list(), & &1["enabled"]) do
+      [] ->
+        {"sonda: nenhuma regra de cor ligada — ensine uma na calibração", nil}
+
+      rules ->
+        leituras = Enum.map(rules, &probe_rule(&1, frame))
+
+        texto =
+          Enum.map_join(leituras, " · ", fn {nome, px, maior} ->
+            "#{nome}: #{px}px (maior mancha #{maior})"
+          end)
+
+        {"sonda: " <> texto, leituras |> Enum.map(&elem(&1, 1)) |> Enum.max(fn -> 0 end)}
+    end
+  end
+
+  defp probe_rule(entry, frame) do
+    specs =
+      Pokex.Vision.ColorMark.compile(
+        Enum.map(entry["colors"], fn c ->
+          [r, g, b] = c["rgb"]
+          %{rgb: {r, g, b}, tol_h: c["tol_h"], tol_sv: c["tol_sv"]}
+        end)
+      )
+
+    res = Pokex.Vision.ColorMark.scan(frame, specs, min_cell_px: entry["min_cell_px"])
+    maior = res.manchas |> List.first() |> then(&if(&1, do: &1.px, else: 0))
+    {entry["name"], res.px, maior}
+  end
+
+  # o gatilho mais sensível entre as regras ARMADAS — a régua do medidor
+  defp shiny_min_px do
+    case Pokex.Vision.ColorRules.armed() do
+      [] -> nil
+      rules -> rules |> Enum.map(& &1.min_px) |> Enum.min()
+    end
+  end
+
   defp shiny_px_label(nil), do: "—"
   defp shiny_px_label(px), do: to_string(px)
 
@@ -2237,8 +2251,9 @@ defmodule PokexWeb.PanelLive do
           <div class="min-w-0 flex-1">
             <p class="text-pk-title font-semibold text-pk-text">Guarda anti-shiny ✨</p>
             <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2">
-              vê a ESTRELA dourada que a lista de batalha põe no shiny — vale pra
-              QUALQUER shiny, e a bola sempre voa (mesmo com captura desligada)
+              vê a COR especial (shiny/chefe) ensinada na calibração — regra só
+              varre depois da prova de ruído, e a bola sempre voa
+              (mesmo com captura desligada)
             </p>
           </div>
           <input
@@ -2250,44 +2265,27 @@ defmodule PokexWeb.PanelLive do
         </div>
 
         <div class="mt-2 flex flex-wrap items-center gap-2">
-          <form
-            id="shiny-cfg-form"
-            phx-change="save_shiny_cfg"
-            class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
-          >
-            <span>ao ver →</span>
-            <select
-              id="shiny-action"
-              name="shiny_action"
-              aria-label="O que fazer ao ver um shiny"
-              class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-            >
-              <option value="escape" selected={@shiny_action == "escape"}>fugir 🏃</option>
-              <option value="alarm" selected={@shiny_action == "alarm"}>
-                lutar (só alarme) ⚔️
-              </option>
-            </select>
-          </form>
-
           <div class="flex min-w-[9rem] flex-1 items-center gap-2">
             <span class={[
               "font-mono text-pk-title font-bold tabular-nums",
-              shiny_px_class(@shiny_star_run, @shiny_star_min_columns)
+              shiny_px_class(@shiny_px, @shiny_min_px)
             ]}>
-              {shiny_px_label(@shiny_star_run)}<span class="text-pk-meta font-normal text-pk-text-3">/{@shiny_star_min_columns} col</span>
+              {shiny_px_label(@shiny_px)}<span class="text-pk-meta font-normal text-pk-text-3">/{shiny_px_label(
+                @shiny_min_px
+              )} px</span>
             </span>
             <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-pk-line">
               <div
                 class={[
                   "h-full rounded-full transition-[width]",
-                  case shiny_zone(@shiny_star_run, @shiny_star_min_columns) do
+                  case shiny_zone(@shiny_px, @shiny_min_px) do
                     :hit -> "bg-pk-danger"
                     :warn -> "bg-pk-warn"
                     :safe -> "bg-pk-ok"
                     :none -> "bg-pk-line-strong"
                   end
                 ]}
-                style={"width: #{shiny_bar_pct(@shiny_star_run, @shiny_star_min_columns)}%"}
+                style={"width: #{shiny_bar_pct(@shiny_px, @shiny_min_px)}%"}
               />
             </div>
           </div>
@@ -2296,7 +2294,7 @@ defmodule PokexWeb.PanelLive do
             id="shiny-probe"
             type="button"
             phx-click="shiny_probe"
-            title="lê a lista de batalha AGORA e mostra a pontuação da estrela por linha — sem shiny na lista tudo deve ler 0px"
+            title="varre AGORA o quadrado ao redor do personagem com as regras de cor ligadas — sem o especial na tela, tudo deve ler perto de 0px (a leitura do chão)"
             class="btn btn-xs h-6 shrink-0 border border-pk-line-strong bg-transparent px-2 text-pk-meta text-pk-text-2 hover:text-white"
           >
             🔬 Sonda

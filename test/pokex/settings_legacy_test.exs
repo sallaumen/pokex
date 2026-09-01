@@ -9,8 +9,6 @@ defmodule Pokex.Settings.LegacyTest do
       assert Legacy.value(:player_mode, "parado") == "still"
       assert Legacy.value(:player_mode, "movimento") == "moving"
       assert Legacy.value(:player_mode, "caçada") == "hunt"
-      assert Legacy.value(:shiny_action, "alarme") == "alarm"
-      assert Legacy.value(:shiny_action, "fugir") == "escape"
       assert Legacy.value(:stop_after_action, "parar") == "stop"
       assert Legacy.value(:stop_after_action, "deslogar") == "logout"
       assert Legacy.value(:stagnation_action, "deslogar") == "logout"
@@ -18,7 +16,7 @@ defmodule Pokex.Settings.LegacyTest do
 
     test "a canonical value passes through untouched" do
       assert Legacy.value(:player_mode, "still") == "still"
-      assert Legacy.value(:shiny_action, "alarm") == "alarm"
+      assert Legacy.value(:stop_after_action, "stop") == "stop"
     end
 
     test "a key with no legacy spelling is returned as it came" do
@@ -43,14 +41,14 @@ defmodule Pokex.Settings.LegacyTest do
     test "translates every value of a whole settings map" do
       legacy = %{
         player_mode: "caçada",
-        shiny_action: "fugir",
+        stop_after_action: "deslogar",
         alarm_muted_categories: ["erro", "fuga"],
         corpse_max_balls: 2
       }
 
       assert Legacy.map(legacy) == %{
                player_mode: "hunt",
-               shiny_action: "escape",
+               stop_after_action: "logout",
                alarm_muted_categories: ["error", "escape"],
                corpse_max_balls: 2
              }

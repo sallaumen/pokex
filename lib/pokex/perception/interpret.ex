@@ -72,21 +72,10 @@ defmodule Pokex.Perception.Interpret do
         :none -> nil
       end
 
-    # The SHINY star (gold ★ before a shiny's name), on the region combat
-    # already captures every ~120ms. The search is restricted to the NAME zone:
-    # creature icons (x<=72) contain yellows that read as the star (Shuckle,
-    # Vileplume — the false alarms that made Lucas turn the guard off;
-    # reproduced on his real captures).
-    stars =
-      Vision.star_rows(body,
-        top: top,
-        band: band,
-        rows: rows,
-        min_cluster: Settings.value(settings, :shiny_star_min_columns),
-        min_x: star_zone(measured)
-      )
-
-    detail = enemies_detail(body, measured, placed, Enum.map(stars, &elem(&1, 0)))
+    # A estrela dourada do PokeTibia morreu com a migração: o Poké Alliance
+    # não marca shiny na battle list. O shiny/chefe agora é visto por COR
+    # (`ShinyGuard` + `Vision.ColorMark`), fora deste leitor.
+    detail = enemies_detail(body, measured, placed, [])
 
     %{
       enemies: Enum.sort(creatures),
@@ -98,9 +87,7 @@ defmodule Pokex.Perception.Interpret do
       # without one.
       hp: Vision.hp_row_counts(body, top: top, band: band, rows: rows),
       locked?: locked_row != nil,
-      locked_row: locked_row,
-      shiny_rows: Enum.map(stars, &elem(&1, 0)),
-      shiny_star_run: stars |> Enum.map(&elem(&1, 1)) |> Enum.max(fn -> 0 end)
+      locked_row: locked_row
     }
   end
 
@@ -125,8 +112,6 @@ defmodule Pokex.Perception.Interpret do
   # x<=52, and the slack covers the whole star glyph even if it starts before
   # the name. Without a measured layout, no restriction — the predicate's color
   # floor stands alone as the defense (covers the Shuckle/Vileplume class).
-  defp star_zone(%{name: {[nx, _ny], _size}}), do: max(nx - 20, 0)
-  defp star_zone(_no_layout), do: 0
 
   # Every occupied row is described, WITH OR WITHOUT a located layout. It used
   # to answer `[]` without one, and that silence is what the panel was really

@@ -499,27 +499,17 @@ defmodule Pokex.Settings do
     # fires nothing, and you must LEAVE the corner before a second command.
     command_corner: true,
     command_corner_dwell_ms: 600,
-    # Shiny guard (Lucas's anti-shiny protocol): watch the arena feed for the
-    # COLOR signature of the watched Shinies (built from the wiki sprites — a
-    # PokeTibia shiny is a full recolor, so no in-game photo is needed). Action on a
-    # confirmed sighting: "escape" = the emergency-escape protocol (staircase);
-    # "alarm" = keep fighting, just scream (his "lutar se quiser").
+    # Shiny guard: vigia de CORES ESPECIAIS (shiny/chefe do Poké Alliance —
+    # a estrela do PokeTibia não existe lá; docs/shiny/plano-shiny-por-cor.md).
+    # As regras moram em ~/.pokex/special_colors.json (ColorRules) e só varrem
+    # depois da prova de ruído. Sem ações: avistou = registra e anuncia.
     shiny_guard_enabled: false,
-    # The battle-list STAR detector (the reliable path — PokeTibia marks a shiny with
-    # a gold ★ before its name). A row is shiny when its densest 3-column gold
-    # window reaches this many pixels; MEASURED on Lucas's real capture
-    # (2026-07-21): the star reads 15+ in that window, a non-shiny row 0, and a
-    # shiny's own sprite icon at most 2. Raise it if a golden sprite ever trips.
-    # A star is a compact glyph: MEASURED, five consecutive columns carry 4-7
-    # gold pixels each. A yellow POKÉMON never stacks like that — a Magikarp's
-    # fins peak at ONE dense column. 3 sits between the two.
-    shiny_star_min_columns: 3,
     # A shiny ALWAYS deserves a pokéball, even with capture_enabled off.
     shiny_always_ball: true,
-    shiny_action: "alarm",
-    # A sighting must survive this long without a clean frame refuting it.
-    # The feed captures every ~120ms, so a one-frame glitch dies in ~120-240ms.
-    shiny_confirm_ms: 400,
+    # a cadência da varredura de cor (quadrado do SpotScan) e quantas
+    # varreduras SEGUIDAS com mancha confirmam um avistamento
+    special_color_scan_ms: 700,
+    special_color_confirm_frames: 2,
     # Anti-stagnation: an ACTIVE session with no sign of life for this window
     # is a stuck bot (empty water, wedged detector, dead spot). Sign of life =
     # kill + MINIGAME WON — not a hook: with the minigame stuck the rod hooks
@@ -1697,7 +1687,6 @@ defmodule Pokex.Settings do
   @enums %{
     stagnation_action: ~w(alarm stop logout),
     stop_after_action: ~w(stop logout),
-    shiny_action: ~w(alarm escape),
     escape_direction: ~w(up down left right),
     hunt_style: ~w(steady mobbed),
     player_mode: ~w(still moving hunt),
@@ -1792,6 +1781,8 @@ defmodule Pokex.Settings do
     engine_stun_window_ms: 500..60_000,
     engine_stun_hold_ms: 1_000..120_000,
     engine_boss_grit: 0..40,
+    special_color_scan_ms: 50..5_000,
+    special_color_confirm_frames: 1..5,
     engine_stun_reach_tiles: 1..10,
     engine_reset_rearm_ms: 10_000..3_600_000,
     engine_kite_max_ms: 0..600_000,

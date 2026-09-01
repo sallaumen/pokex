@@ -27,8 +27,7 @@ defmodule Pokex.Perception.BattleOwnRowTest do
     battle_row_height: 30,
     battle_first_row_y: 31,
     battle_max_rows: 10,
-    target_locked_min_pixels: 120,
-    shiny_star_min_columns: 4
+    target_locked_min_pixels: 120
   }
 
   defp frame!(path) do

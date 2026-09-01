@@ -1311,9 +1311,7 @@ defmodule Pokex.Sim.World do
       red: nil,
       hp: [],
       locked?: false,
-      locked_row: nil,
-      shiny_rows: [],
-      shiny_star_run: 0
+      locked_row: nil
     }
   end
 
@@ -1324,9 +1322,7 @@ defmodule Pokex.Sim.World do
       red: nil,
       hp: [],
       locked?: false,
-      locked_row: nil,
-      shiny_rows: [],
-      shiny_star_run: 0
+      locked_row: nil
     }
   end
 

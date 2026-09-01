@@ -254,6 +254,57 @@ defmodule Pokex.Sim.Scenario do
         }
       },
       %__MODULE__{
+        id: "chefe-incognito",
+        group: :chefe,
+        icon: "🎭",
+        aperto: :rotina,
+        # `aguenta` fica FORA por decisão datada (01/09): a detecção incógnita
+        # tem uma janela sem proteção que o grit não fecha — a mobada arrasta o
+        # mordedor 5× ANTES de existir luta pra medir (o tanque mediu 15-60%
+        # nas sementes). Fechar essa janela pede o segundo sinal, a MORDIDA
+        # (vida caindo rápido demais pro tamanho da pilha) — follow-up. O
+        # contrato promete o que o caminho entrega: o chefe morre e ninguém cai.
+        espera: [:nao_cai, :mata],
+        name: "Chefe incógnito (5×, sem nome)",
+        why:
+          "O chefe DELE de verdade: \"ele tem o mesmo nome que os outros pokémons\" " <>
+            "(31/08). Nenhum nome declara nada — o chefe nasce no meio da caçada comum, o " <>
+            "bolo abre a luta, os comuns caem, e quem NÃO cai depois de engolir a barra " <>
+            "inteira é chefe (o grit). A promessa é a de quem caça sem crachá: o corpo do " <>
+            "chefe no chão e o tanque de pé.",
+        route: :hunt_field,
+        knobs: %{
+          # COMUNS EM VOLTA, de propósito: o grit precisa de luta aberta pra
+          # contar entregas — o caminho real da dungeon dele, onde o chefe
+          # aparece DENTRO do bolo (o chefe sozinho na estrada é buraco
+          # conhecido: sem nome e sem luta não há o que medir; o gatilho pela
+          # MORDIDA fica de fora desta rodada).
+          nest_size: 3,
+          stray_chance_pct: 0,
+          boss_every_ms: 45_000,
+          boss_hp_mult: 5,
+          boss_atk_mult: 5,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          stun_ms: 5_000,
+          stun_onset_ms: 2_000,
+          revive_cooldown_ms: 0,
+          presses_to_kill: 3
+        },
+        config: %{
+          reset_revive: true,
+          # SEM NOME — o teste é exatamente este: o grit declara sozinho.
+          # 6 = 1,5× o máximo que a noite fraca real entregou por pilha (4):
+          # margem de sobra contra falso chefe, e cada tique a menos de
+          # latência é mordida 5× que o tanque não paga.
+          boss_names: "",
+          boss_grit: 6,
+          stun_hold_ms: 7_000,
+          rescue_floor_ms: 5_000,
+          prepare_revive: false
+        }
+      },
+      %__MODULE__{
         id: "chefe-cruel",
         group: :chefe,
         icon: "🐲",

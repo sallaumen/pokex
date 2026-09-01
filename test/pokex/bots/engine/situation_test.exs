@@ -308,6 +308,93 @@ defmodule Pokex.Bots.Engine.SituationTest do
   # O CHEFE, POR NOME. `heavy?` é o gatilho da postura de chefe do cérebro —
   # e ele fura a régua (`worth_fighting?`) porque um chefe sozinho vale a luta
   # que cinco bichos comuns valem.
+  describe "o chefe pelo tempo de matar (grit)" do
+    # "Ele tem o mesmo nome que os outros pokémons" (31/08): o nome não separa
+    # chefe de comum. O que separa é a pilha ENGOLIR skills sem soltar corpo —
+    # medido na noite fraca de 31/08: máximo 4 entregas por pilha (p99 = 3),
+    # e um chefe 10× engole o dobro em dois giros da barra.
+    @grit_config %{engage_from: 3, boss_grit: 6}
+
+    defp tick(prev, over),
+      do: Situation.build(inputs(Map.put(over, :prev, prev)), @grit_config, 1_000)
+
+    test "tecla de dano que saiu da barra soma; a que ficou pronta não" do
+      p1 = tick(nil, %{battle: battle(~w(a b c)), ready_keys: ~w(3 4 5)})
+      assert p1.grit == 0
+
+      p2 = tick(p1, %{battle: battle(~w(a b c)), ready_keys: ~w(5)})
+      assert p2.grit == 2, "3 e 4 saíram da barra com a pilha de pé"
+      assert p2.heavy? == false
+    end
+
+    test "tecla que NÃO é de dano não conta — o ciclo stun+revive não infla o medidor" do
+      p1 = tick(nil, %{battle: battle(~w(a b c)), ready_keys: ~w(1 3), damage_keys: ~w(3)})
+      p2 = tick(p1, %{battle: battle(~w(a b c)), ready_keys: [], damage_keys: ~w(3)})
+      assert p2.grit == 1, "só a 3 é dano; a 1 (controle) saiu e não conta"
+    end
+
+    test "um corpo caindo DESCONTA o preço de um kill, não zera" do
+      p1 = tick(nil, %{battle: battle(~w(a b c)), ready_keys: ~w(3 4 5 6 7 8)})
+      p2 = tick(p1, %{battle: battle(~w(a b c)), ready_keys: []})
+      assert p2.grit == 6
+
+      p3 = tick(p2, %{battle: battle(~w(a b)), ready_keys: []})
+      assert p3.grit == 2, "6 entregues − 4 do corpo que caiu"
+    end
+
+    test "tela limpa zera; barra ilegível segura o que tem sem somar" do
+      p1 = tick(nil, %{battle: battle(~w(a b c)), ready_keys: ~w(3 4 5)})
+      p2 = tick(p1, %{battle: battle(~w(a b c)), ready_keys: []})
+      p3 = tick(p2, %{battle: battle(~w(a b c)), ready_keys: nil})
+      assert p3.grit == 3, "cego não soma nem esquece"
+
+      p4 = tick(p3, %{battle: battle([]), ready_keys: nil})
+      assert p4.grit == 0
+    end
+
+    test "cruzar o knob declara chefe e LATCHA até a pilha zerar" do
+      p1 = tick(nil, %{battle: battle(~w(a b c)), ready_keys: ~w(3 4 5 6 7 8)})
+      p2 = tick(p1, %{battle: battle(~w(a b c)), ready_keys: []})
+      assert p2.heavy? == true, "6 entregues ≥ knob 6"
+      assert p2.heavy_latch? == true
+
+      # o F4 devolve a barra e um comum cai do lado: o grit desconta,
+      # mas a declaração fica — chefe não vira comum no meio da luta
+      p3 = tick(p2, %{battle: battle(~w(a b)), ready_keys: ~w(3 4 5 6 7 8)})
+      assert p3.grit == 2
+      assert p3.heavy? == true, "o latch segura a postura"
+
+      p4 = tick(p3, %{battle: battle([]), ready_keys: ~w(3 4 5 6 7 8)})
+      assert p4.heavy? == false, "pilha zerada solta o latch"
+    end
+
+    test "knob 0 desliga: só o nome declara" do
+      p1 =
+        Situation.build(
+          inputs(%{battle: battle(~w(a b c)), ready_keys: ~w(3 4 5 6 7 8)}),
+          %{engage_from: 3},
+          1_000
+        )
+
+      p2 =
+        Situation.build(
+          inputs(%{battle: battle(~w(a b c)), ready_keys: [], prev: p1}),
+          %{engage_from: 3},
+          1_000
+        )
+
+      assert p2.grit == 6
+      assert p2.heavy? == false
+    end
+
+    test "chefe declarado vale a luta mesmo abaixo da régua" do
+      p1 = tick(nil, %{battle: battle(~w(a b)), ready_keys: ~w(3 4 5 6 7 8)})
+      p2 = tick(p1, %{battle: battle(~w(a b)), ready_keys: []})
+      assert p2.heavy? == true
+      assert p2.worth_fighting? == true, "2 < engage_from 3, mas chefe fura a régua"
+    end
+  end
+
   describe "o chefe na foto" do
     @chefe_config %{engage_from: 3, boss_names: "Chefe, Boss X"}
 

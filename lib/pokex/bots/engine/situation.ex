@@ -85,6 +85,8 @@ defmodule Pokex.Bots.Engine.Situation do
           own_row_seen?: boolean | :unnamed | :by_hp | nil,
           worth_fighting?: boolean,
           heavy?: boolean,
+          grit: non_neg_integer,
+          heavy_latch?: boolean,
           boss_tiles: non_neg_integer | nil,
           boss_asleep_left_ms: non_neg_integer | nil,
           growing?: boolean,
@@ -125,6 +127,11 @@ defmodule Pokex.Bots.Engine.Situation do
     {growing?, stable_since} = settle(battle.enemies, prev, now)
     {walked_total, pile_at} = pace(battle.enemies, Map.get(inputs, :pos), prev)
 
+    grit =
+      grit(battle.enemies, Map.get(inputs, :ready_keys), Map.get(inputs, :damage_keys, []), prev)
+
+    latch? = latch?(battle.enemies, grit, prev, config)
+
     %{
       rows: battle.rows,
       enemies: battle.enemies,
@@ -134,7 +141,16 @@ defmodule Pokex.Bots.Engine.Situation do
       # `boss_names` do /config. É o gatilho da postura de chefe do cérebro —
       # e passa por cima da régua, porque um chefe sozinho vale a luta que
       # cinco bichos comuns valem.
-      heavy?: heavy?(battle.named, config),
+      heavy?: heavy?(battle.named, config) or latch?,
+      # O CHEFE, pelo TEMPO DE MATAR: skills de dano ENTREGUES (saíram da barra)
+      # sem NENHUM corpo cair da pilha. Nome nenhum — "ele tem o mesmo nome que
+      # os outros pokémons" (31/08). Medido na noite fraca de 31/08 (3h42): o
+      # máximo que uma pilha comum engole é 4 entregas (p99 = 3); um chefe 10×
+      # engole o dobro em dois giros da barra. `heavy_latch?` é a memória: uma
+      # vez declarado, o chefe segue chefe até a pilha ZERAR — matar um bicho
+      # comum do lado dele zera o grit, não a declaração.
+      grit: grit,
+      heavy_latch?: latch?,
       # A QUE DISTÂNCIA O CHEFE ESTÁ, em tiles — nil quando ninguém mede. O
       # stun tem raio: apertá-lo com o chefe a 6 tiles é dormir o vento
       # (medido na bancada: o primeiro stun saía a 6 e o chefe chegava
@@ -148,7 +164,8 @@ defmodule Pokex.Bots.Engine.Situation do
       # alvo fora do raio, lag). Com o canal, a postura de chefe mede o ciclo
       # pelo sono real e reaperta de graça um stun que não pegou.
       boss_asleep_left_ms: Map.get(inputs, :boss_asleep_left_ms),
-      worth_fighting?: worth_fighting?(battle.enemies, config) or heavy?(battle.named, config),
+      worth_fighting?:
+        worth_fighting?(battle.enemies, config) or heavy?(battle.named, config) or latch?,
       growing?: growing?,
       stable_since: stable_since,
       stable_for_ms: now - stable_since,
@@ -341,6 +358,63 @@ defmodule Pokex.Bots.Engine.Situation do
     case boss_names(Map.get(config, :boss_names)) do
       [] -> false
       names -> Enum.any?(named, &(String.downcase(Map.get(&1, :name) || "") in names))
+    end
+  end
+
+  # QUANTAS SKILLS DE DANO A PILHA JÁ ENGOLIU sem um corpo cair. Uma entrega é
+  # uma tecla de dano que estava pronta no tique anterior e saiu da barra neste
+  # (cooldown andou = recibo de que o jogo aceitou — tecla engolida continua
+  # pronta e não conta). Só teclas de DANO: o ciclo stun+revive do próprio
+  # chefe não pode inflar o medidor que o declara.
+  #
+  # Zera quando um corpo cai (a pilha encolheu) ou a tela limpa; barra ilegível
+  # não conta nem zera. Kite, espera de cooldown e cegueira não somam nada —
+  # foi exatamente isso que separou o chefe da pilha comum na medição: "spent +
+  # pilha parada" dava 28 falsos chefes/hora, entregas sem queda deram ZERO.
+  # Um corpo caindo DESCONTA o preço típico de um kill em vez de zerar: numa
+  # pilha mista (chefe + comuns) cada comum que morre zerava o medidor e o
+  # chefe comia de graça durante a recontagem — a bancada mediu o tanque em
+  # 5-41% pagando essa latência. Com o desconto, o excedente que o chefe
+  # engoliu sobrevive aos kills dos comuns. O preço (4) é o máximo que a noite
+  # fraca de 31/08 entregou por corpo (p99 = 3) — e com ele o medidor da noite
+  # inteira nunca passou de 4, zero falsos chefes.
+  @kill_cost 4
+
+  defp grit(enemies, ready, damage_keys, prev) do
+    was = Map.get(prev || %{}, :enemies)
+    before = Map.get(prev || %{}, :grit, 0)
+    fired = fired_count(ready, Map.get(prev || %{}, :ready_keys), damage_keys)
+
+    cond do
+      not is_integer(enemies) -> before
+      enemies == 0 -> 0
+      is_integer(was) and enemies < was -> max(before - @kill_cost * (was - enemies), 0)
+      true -> before + fired
+    end
+  end
+
+  defp fired_count(ready, was_ready, damage_keys)
+       when is_list(ready) and is_list(was_ready) do
+    was_ready
+    |> Enum.filter(&(&1 in damage_keys))
+    |> Enum.count(&(&1 not in ready))
+  end
+
+  defp fired_count(_unreadable, _or_no_history, _damage_keys), do: 0
+
+  # A declaração LATCHA: o gatilho é o grit cruzar o knob, e a memória segura a
+  # postura até a pilha zerar — sem ela, o primeiro corpo comum caindo do lado
+  # do chefe (ou o F4 devolvendo a barra) despia a postura no meio da luta.
+  # `boss_grit` 0 = desligado, só o nome declara.
+  defp latch?(enemies, grit, prev, config) do
+    knob = Map.get(config, :boss_grit, 0)
+    alive? = is_integer(enemies) and enemies > 0
+
+    cond do
+      not alive? -> false
+      Map.get(prev || %{}, :heavy_latch?, false) -> true
+      is_integer(knob) and knob > 0 and grit >= knob -> true
+      true -> false
     end
   end
 

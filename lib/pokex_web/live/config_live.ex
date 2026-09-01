@@ -226,14 +226,26 @@ defmodule PokexWeb.ConfigLive do
       title: "Cérebro da caçada",
       rows: [
         %{
+          key: :engine_boss_grit,
+          kind: :int,
+          label: "Chefe pelo tempo de matar",
+          hint:
+            "Quantas skills de dano o bicho engole (cooldown andou) sem NENHUM corpo cair " <>
+              "antes do cérebro declarar chefe e rodar o combo skills → stun → revive. " <>
+              "Uma pilha comum nunca passa de ~4; um chefe 10× engole 10 em dois giros da " <>
+              "barra. 0 desliga (só o nome declara). Vale pra chefe com o MESMO nome dos " <>
+              "outros pokémons.",
+          keywords: "chefe boss tempo grit postura combo stun revive dano"
+        },
+        %{
           key: :engine_boss_names,
           kind: :key,
           label: "Nomes dos chefes",
           hint:
-            "Separados por vírgula (ex.: chefe, boss x). Com um destes nomes na janela de " <>
-              "batalha o cérebro entra na postura de chefe: encara ignorando a régua, nunca " <>
-              "foge, e roda o combo skills → stun → revive mantendo o chefe dormindo. Vazio " <>
-              "desliga.",
+            "Separados por vírgula (ex.: chefe, boss x) — o jeito ANTIGO, pra chefe com " <>
+              "nome próprio na janela de batalha. Com um destes nomes na tela o cérebro " <>
+              "entra na postura de chefe na hora, sem esperar o tempo de matar. Vazio " <>
+              "desliga (o \"chefe pelo tempo de matar\" acima segue valendo).",
           keywords: "chefe boss nome postura combo stun revive"
         },
         %{

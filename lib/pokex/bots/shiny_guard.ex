@@ -30,7 +30,6 @@ defmodule Pokex.Bots.ShinyGuard do
   """
 
   use GenServer
-  require Logger
 
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.SpotScan
@@ -198,7 +197,6 @@ defmodule Pokex.Bots.ShinyGuard do
     # hoje guarda os px da MANCHA.
     ShinyLog.record(star_px: mancha.px, action: nil, outcome: "seen", note: rule.name)
 
-    Logger.warning("ShinyGuard: #{reason}")
     Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:combat_log, :macro, reason})
 
     Phoenix.PubSub.broadcast(

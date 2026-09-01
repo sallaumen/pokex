@@ -889,6 +889,23 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "recuando pelo chão limpo até a barra voltar"
     end
 
+    # A barra volta; o shiny não. Recuar de um shiny é perder o bicho que ele
+    # caça a noite inteira — "matar e capturar um shiny é uma das grandes metas
+    # do jogo" (01/09).
+    test "mas de um SHINY ela não recua — a barra volta, o shiny não" do
+      com_shiny =
+        world(%{
+          situation: situation(%{enemies: 3, spent?: true, walked_total: 0, shiny?: true}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {logic, _} = fuga_step(com_shiny, 0)
+      {_logic, orders} = fuga_step(logic, com_shiny, 200)
+
+      assert orders.route == :hold, "recuou de um shiny: #{orders.why}"
+      refute orders.why =~ "recuando"
+    end
+
     test "mas se não sair do lugar, ela desiste e volta a lutar parada" do
       {logic, _} = lutando_gasto(200)
 

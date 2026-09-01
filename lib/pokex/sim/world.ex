@@ -144,6 +144,11 @@ defmodule Pokex.Sim.World do
     # 60-80 não é um couraçado, é uma mentira com nome bonito. Quem lê a mesa
     # avisa que este cenário está mandando (`presses_to_kill/1`).
     presses_to_kill: nil,
+    # A CORRENTE DO CLIENTE: a tecla que dispara todas as skills ofensivas
+    # sozinha, e quanto tempo ela leva pra sair inteira. `nil` é o mundo de
+    # sempre, onde cada tecla é uma tecla — todo cenário que não pediu combo.
+    combo_key: nil,
+    combo_window_ms: 4_000,
     # measured BY HIM — which keys, put together, kill one monster ("com a
     # Vespiquen, 3, 4 e 5 garantem"). A shortcut that DERIVES a damage for
     # every key in it, so he can start from the fact he holds.
@@ -309,6 +314,17 @@ defmodule Pokex.Sim.World do
             own: nil,
             player: %{hp_pct: 100, alive?: true},
             keys: %{},
+            # A CORRENTE AINDA SAINDO: `[{tecla, quando}]`. O combo do cliente
+            # não é instantâneo — ele encadeia as skills ao longo da janela, e
+            # um bicho pode morrer no meio dela. Modelar tudo no instante zero
+            # media um bot otimista: os que morreriam no fim continuariam
+            # mordendo até lá na vida real, e a bancada não veria esse dano.
+            chain: [],
+            # QUANDO a corrente começou — o que o BOT acredita, e é a crença que
+            # a decisão dele usa. O `chain` é a verdade do mundo (a última tecla
+            # sai um pouco antes do fim da janela); a janela é a promessa que a
+            # mão fez a si mesma quando apertou.
+            combo_at: nil,
             clock: 0,
             failures: MapSet.new(),
             # `casts`/`reached` answer the question he actually asks of an area
@@ -386,6 +402,7 @@ defmodule Pokex.Sim.World do
     # de 12 ainda autorizaria um ninho de 20 de raio.
     knobs =
       @default_knobs
+      |> Map.merge(client_chain())
       |> Map.merge(Keyword.get(opts, :knobs, %{}))
       |> coherent_aggro()
       |> coherent_nest()
@@ -490,6 +507,17 @@ defmodule Pokex.Sim.World do
         key <- keys,
         into: %{},
         do: {key, %{kind: kind, ready_at: 0, cooldown_ms: Map.get(cooldowns, key)}}
+  end
+
+  # A CORRENTE É PROPRIEDADE DO CLIENTE DELE, não de um cenário: se o jogo
+  # encadeia as skills atrás do R, ele encadeia em toda dungeon. Vem do
+  # `Settings` como padrão do mundo, e um cenário ainda pode fixá-la (é um
+  # experimento controlado).
+  defp client_chain do
+    %{
+      combo_key: Pokex.Settings.get(:auto_combo_key),
+      combo_window_ms: Pokex.Settings.get(:auto_combo_window_ms)
+    }
   end
 
   # Nests sit where HIS HAND stopped: a corner carrying `gather_ms` (he waited
@@ -777,6 +805,7 @@ defmodule Pokex.Sim.World do
 
   defp run(world, dt_ms) do
     world
+    |> drain_chain(dt_ms)
     |> walk(dt_ms)
     |> follow(dt_ms)
     |> move_mobs(dt_ms)
@@ -961,11 +990,71 @@ defmodule Pokex.Sim.World do
   defp fire(%{own: %{out?: false}} = world, _key), do: world
 
   defp fire(world, key) do
+    if combo_key?(world, key), do: start_chain(world), else: fire_skill(world, key)
+  end
+
+  defp fire_skill(world, key) do
     case world.keys[key] do
       nil -> world
       %{ready_at: at} when at > world.clock -> world
       skill -> world |> maybe_damage(key, skill.kind) |> spend(key)
     end
+  end
+
+  @doc """
+  Esta tecla é a corrente do cliente neste mundo?
+
+  Pública porque as mãos simuladas precisam saber: a tecla do combo não está no
+  teclado do mundo — ela é um atalho do CLIENTE, não uma skill —, e filtrá-la
+  por "está pronta?" fazia o Auto Combo não apertar nada na bancada.
+  """
+  @spec combo_key?(t, String.t()) :: boolean
+  def combo_key?(world, key) do
+    case world.knobs[:combo_key] do
+      combo when is_binary(combo) and combo != "" -> combo == key
+      _sem_combo -> false
+    end
+  end
+
+  # A CORRENTE COMEÇA. As teclas saem espalhadas pela janela — a última é o
+  # controle, que é como ele descreve o combo ("finalizar com stun"). Uma
+  # corrente já em curso NÃO é reiniciada: no jogo a segunda prensa cai no
+  # meio da primeira, e é exatamente isso que a cerca do bot existe pra evitar.
+  defp start_chain(%{chain: [_ | _]} = world), do: world
+
+  defp start_chain(world) do
+    keys = combo_keys(world)
+    janela = world.knobs[:combo_window_ms] || 0
+    gap = div(janela, max(length(keys), 1))
+
+    chain =
+      keys
+      |> Enum.with_index()
+      |> Enum.map(fn {key, idx} -> {key, world.clock + idx * gap} end)
+
+    drain_chain(%{world | chain: chain, combo_at: world.clock}, 0)
+  end
+
+  @doc """
+  Quanto falta da corrente, pela crença de quem apertou — `0` quando não há
+  corrente saindo.
+
+  É o que o `Combat.Combo` responde no jogo (do carimbo da tecla), e é o número
+  que segura o revive do ciclo. Modelar pela última tecla do `chain` mediria
+  outra coisa: o mundo termina de disparar um pouco antes de a janela fechar.
+  """
+  @spec combo_left_ms(t) :: non_neg_integer
+  def combo_left_ms(%{combo_at: nil}), do: 0
+
+  def combo_left_ms(world),
+    do: max(world.combo_at + (world.knobs[:combo_window_ms] || 0) - world.clock, 0)
+
+  defp drain_chain(%{chain: []} = world, _dt_ms), do: world
+
+  defp drain_chain(world, _dt_ms) do
+    {due, pending} = Enum.split_with(world.chain, fn {_key, at} -> at <= world.clock end)
+
+    Enum.reduce(due, %{world | chain: pending}, fn {key, _at}, acc -> fire_skill(acc, key) end)
   end
 
   # The receipt loop still closes — the bar changes and the confirm succeeds —
@@ -1080,6 +1169,26 @@ defmodule Pokex.Sim.World do
       %{kind: :single} -> band(world, key, world.knobs.single_damage_pct)
       _nothing_that_hurts -> :no_damage
     end
+  end
+
+  @doc """
+  AS TECLAS QUE A CORRENTE DO CLIENTE DISPARA, na ordem em que ele as descreveu:
+  o dano primeiro e o CONTROLE por último.
+
+  "Usar todas as skills, finalizar com stun e depois usar o revive pra repetir
+  esse combo" (Lucas, 30/08), e de novo em 01/09: "os monstros que tiverem
+  sobrevivido ainda estarão sob o efeito da skill de controle". O sono no fim é
+  o que faz o revive do ciclo ser de graça — modelar a corrente sem ele seria
+  provar um combo que o jogo não dá.
+
+  Auras e cura ficam de fora: elas respondem a momentos (a mobada, uma barra de
+  vida) e não a uma corrente de ataque.
+  """
+  @spec combo_keys(t) :: [String.t()]
+  def combo_keys(world) do
+    for kind <- [:aoe, :single, :crowd],
+        {key, %{kind: ^kind}} <- Enum.sort(world.keys),
+        do: key
   end
 
   @doc """

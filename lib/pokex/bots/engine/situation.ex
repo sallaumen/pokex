@@ -99,6 +99,7 @@ defmodule Pokex.Bots.Engine.Situation do
           own_hp: 0..100 | nil,
           own_out?: boolean | :unknown,
           ready_keys: [String.t()] | nil,
+          combo_left_ms: non_neg_integer | nil,
           spent?: boolean | nil,
           prepared?: boolean | nil,
           control_back_in_ms: non_neg_integer | nil,
@@ -186,6 +187,11 @@ defmodule Pokex.Bots.Engine.Situation do
       # "revive é de graça" (o simulador devolve tudo por 500ms) de "revive é um
       # item que acabou às 23:43" (a noite de 27→28/08).
       revive_left: Map.get(inputs, :revive_left),
+      # QUANTO FALTA DA CORRENTE DO JOGO (`Combat.Combo`), em ms — nil quando esta
+      # caçada não tem combo. É a testemunha que impede um revive de recolher o
+      # pokémon com metade das skills por sair: a corrente é indivisível, e
+      # cortá-la joga fora o dano que ela ainda ia entregar.
+      combo_left_ms: Map.get(inputs, :combo_left_ms),
       spent?:
         spent?(
           Map.get(inputs, :damage_keys, []),

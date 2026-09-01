@@ -30,7 +30,7 @@ defmodule Pokex.Bots.Combat.PlanTest do
   end
 
   test "for/1 answers a plan for every mode, and for none" do
-    assert Plan.for(:auto_combo) == Standard
+    assert Plan.for(:auto_combo) == Plan.AutoCombo
     assert Plan.for(:economy) == Standard
     assert Plan.for(nil) == Standard
   end

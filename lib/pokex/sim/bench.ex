@@ -137,6 +137,9 @@ defmodule Pokex.Sim.Bench do
       picture: nil,
       scenario: scenario,
       config: config,
+      # O MODO DE COMBATE que esta pergunta é sobre: é ele que decide qual mão
+      # a decisão recebe (`Combat.Plan`). `nil` é o bot como ele está.
+      mode: Keyword.get(opts, :mode, scenario.mode),
       timeline: [],
       hands: Hands.new(),
       # o que a caçada VIA quando pediu o revive: com o resgate virando combo, a
@@ -187,7 +190,7 @@ defmodule Pokex.Sim.Bench do
     {logic, orders} =
       Logic.step(
         state.logic,
-        decision_world(before, picture, state.hands.leg, state.config),
+        decision_world(before, picture, state.hands.leg, state.config, state.mode),
         state.config,
         before.clock
       )
@@ -556,6 +559,9 @@ defmodule Pokex.Sim.Bench do
       # como acontecer numa simulação. `nil` continua sendo o orçamento
       # desligado, que é o mundo de todo cenário que não pediu um.
       revive_left: World.revive_left(world),
+      # A CORRENTE DO CLIENTE, do lado do mundo: é ela que segura o revive do
+      # ciclo até o combo terminar.
+      combo_left_ms: World.combo_left_ms(world),
       # A DISTÂNCIA DO CHEFE, respondida pelo mundo — o papel que o CrowdScan
       # faz no jogo. Do POKÉMON, não do personagem: o stun sai dele.
       # O CANAL DA COR: o `ShinyGuard` do jogo publica a presença do especial
@@ -579,7 +585,7 @@ defmodule Pokex.Sim.Bench do
 
   # A hunt is always running here — the scenario IS the hunt. Standing where
   # monsters are on screen is `:fighting`, which is what makes the ruler run.
-  defp decision_world(world, picture, leg, config) do
+  defp decision_world(world, picture, leg, config, mode) do
     luring? = luring?(world, leg)
 
     %{
@@ -588,7 +594,7 @@ defmodule Pokex.Sim.Bench do
       # CHAMADA, não derivada: é a mesma função que o `Engine.Worker` usa, e o
       # corte da cauda (declarado em `Engine.Config.bench_only/0`) vem POR CIMA
       # dela, nunca no lugar dela.
-      hands: hands(world, picture, config)
+      hands: hands(world, picture, config, mode)
     }
   end
 
@@ -638,8 +644,8 @@ defmodule Pokex.Sim.Bench do
   # com ela fora o multiplicador de 20% que ele descreveu não multiplicava nada.
   # Um sweep de `aura_boost_pct` dava a mesma linha duas vezes, e a explicação
   # não estava no knob.
-  defp hands(world, picture, config) do
-    hands = Inputs.hands(loadout_of(world), picture, config)
+  defp hands(world, picture, config, mode) do
+    hands = Inputs.hands(loadout_of(world), picture, config, mode)
 
     if config[:spend_the_minimum],
       do: %{

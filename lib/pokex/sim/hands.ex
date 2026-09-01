@@ -273,13 +273,13 @@ defmodule Pokex.Sim.Hands do
   #
   # A ordem de prioridade é preservada: filtrar não é reordenar.
   defp fire(world, %{fire: :free, opening: keys}, hands, config) when keys != [] do
+    gap = gap(config)
+
     case Enum.filter(keys, &ready_key?(world, &1)) do
       [] ->
         {world, hands}
 
       prontas ->
-        gap = Map.get(config, :skill_gap_ms, 0)
-
         plan =
           prontas
           |> Enum.with_index()
@@ -291,9 +291,15 @@ defmodule Pokex.Sim.Hands do
 
   defp fire(world, _holding, hands, _config), do: {world, hands}
 
+  defp gap(config), do: Map.get(config, :skill_gap_ms, 0)
+
+  # A TECLA DO COMBO passa sempre: ela não está no teclado do mundo (é um atalho
+  # do cliente, não uma skill), e filtrá-la por "está pronta?" era o que fazia a
+  # bancada não apertar nada no Auto Combo. Quem sabe o que ela dispara — e o
+  # que já está em cooldown lá dentro — é o mundo.
   defp ready_key?(world, key) do
     case world.keys[key] do
-      nil -> false
+      nil -> World.combo_key?(world, key)
       %{ready_at: at} -> at <= world.clock
     end
   end

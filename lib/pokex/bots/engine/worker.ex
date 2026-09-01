@@ -38,6 +38,7 @@ defmodule Pokex.Bots.Engine.Worker do
   use GenServer
 
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.Combat.Combo
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Combat.Plan
   alias Pokex.Bots.Engine.Config
@@ -281,6 +282,7 @@ defmodule Pokex.Bots.Engine.Worker do
       damage_keys: damage_keys(state.loadout, config, mode),
       control_back_in_ms: control_back_in_ms(state.loadout, now),
       revive_left: ReviveLedger.remaining(),
+      combo_left_ms: Combo.left_ms(mode, now),
       # O ESPECIAL VISTO PELA COR (`ShinyGuard`) — o shiny, que é o mesmo bicho
       # que ele chama de chefe. É o único canal que funciona no jogo dele hoje:
       # o nome não separa e o grit precisa da luta já aberta. Fato velho não

@@ -60,10 +60,11 @@ defmodule Pokex.Bots.Combat.Plan do
   @doc """
   The plan `mode` fights with.
 
-  Everything answers `Plan.Standard` for now — the bot exactly as it is. The
-  point of this step is that the QUESTION moved: the two composers already ask
-  the mode, so the mode's own plan lands without touching either of them again.
+  Anything that is not a mode answers `Plan.Standard` — the bot exactly as it
+  fought before any of this existed, which is the right answer for a caller who
+  could not say what it wanted.
   """
   @spec for(HuntMode.t() | nil) :: module
-  def for(_mode), do: Plan.Standard
+  def for(:auto_combo), do: Plan.AutoCombo
+  def for(_standard_or_unknown), do: Plan.Standard
 end

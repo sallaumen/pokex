@@ -529,6 +529,39 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     defp reset_step(logic, world, now), do: Logic.step(logic, world, @reset, now)
 
+    # A CORRENTE DO JOGO SEGURA O REVIVE. No Auto Combo uma prensa encadeia as
+    # skills, e o revive RECOLHE o pokémon: pedido no meio da corrente, ele
+    # joga fora metade do dano que ela ia entregar — e a corrente termina em
+    # controle, que é o sono que faz o revive valer a pena. "O mais cedo
+    # possível logo DEPOIS do combo" (Lucas, 01/09).
+    # Sem controle na mão o revive é a resposta direta — que é a mão do Auto
+    # Combo: o stun é a última metade da corrente, não uma tecla nossa.
+    defp sem_controle(overrides) do
+      %{spent_fight(overrides) | hands: %{opening: ~w(3 4), single: [], crowd: []}}
+    end
+
+    # O primeiro tique ABRE a luta (a régua fecha a janela e estoura a área); o
+    # revive é decisão do tique seguinte, já dentro do `:engaged`.
+    defp lutando(mundo) do
+      {logic, _abertura} = reset_step(Logic.new(), mundo, 10_000)
+      {_logic, orders} = reset_step(logic, mundo, 10_500)
+      orders
+    end
+
+    test "com a corrente saindo, o reset espera ela acabar" do
+      assert lutando(sem_controle(%{combo_left_ms: 2_500, own_hp: 100})).revive == :hold
+    end
+
+    test "acabada a corrente, o reset sai na hora" do
+      assert lutando(sem_controle(%{combo_left_ms: 0, own_hp: 100})).revive == :now
+    end
+
+    # Sem combo nenhum (todo modo que não é o Auto Combo) a regra não existe:
+    # `nil` é ausência, não uma corrente de duração zero.
+    test "sem corrente, nada muda" do
+      assert lutando(sem_controle(%{combo_left_ms: nil, own_hp: 100})).revive == :now
+    end
+
     defp spent_fight(overrides \\ %{}) do
       world(%{
         situation: situation(Map.merge(%{enemies: 4, spent?: true, own_hp: 100}, overrides)),

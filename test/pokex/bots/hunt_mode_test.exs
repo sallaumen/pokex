@@ -1,6 +1,7 @@
 defmodule Pokex.Bots.HuntModeTest do
   use ExUnit.Case, async: false
 
+  alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.HuntMode
   alias Pokex.Settings
   alias Pokex.SettingsStash
@@ -53,6 +54,41 @@ defmodule Pokex.Bots.HuntModeTest do
   test "in_force/1 falls back to the default when the setting is unreadable" do
     Settings.put(:hunt_mode, "auto_combo")
     assert HuntMode.in_force(:mobbed) == :auto_combo
+  end
+
+  test "engine_overrides/1 only names knobs the decision actually has" do
+    for mode <- HuntMode.all(), {knob, _value} <- HuntMode.engine_overrides(mode) do
+      assert Map.has_key?(Config.knobs(), knob),
+             "#{mode} sobrepõe #{knob}, que não é um knob do cérebro"
+    end
+  end
+
+  # Um modo decide COMO se luta, nunca se o personagem está protegido.
+  test "engine_overrides/1 never touches a safety knob" do
+    for mode <- HuntMode.all(), {knob, _value} <- HuntMode.engine_overrides(mode) do
+      refute knob in HuntMode.forbidden_knobs(),
+             "#{mode} sobrepõe #{knob}, que é uma trava de segurança"
+    end
+  end
+
+  # As duas são do COMBATE, lidas da fotografia dele. Sobrepor aqui poria o
+  # cérebro e a mão em regras diferentes dentro do mesmo tique.
+  test "engine_overrides/1 leaves the fight's own knobs alone" do
+    for mode <- HuntMode.all() do
+      overrides = HuntMode.engine_overrides(mode)
+      refute Map.has_key?(overrides, :single_target)
+      refute Map.has_key?(overrides, :combat_tab_target)
+    end
+  end
+
+  test "engine_overrides/1 answers empty for the mode that runs the bot as it is" do
+    assert HuntMode.engine_overrides(:auto_combo) == %{}
+  end
+
+  test "forbidden_knobs/0 names knobs that exist" do
+    for knob <- HuntMode.forbidden_knobs() do
+      assert Map.has_key?(Config.knobs(), knob), "#{knob} não é um knob do cérebro"
+    end
   end
 
   test "source/1 says where the answer came from" do

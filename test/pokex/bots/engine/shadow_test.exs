@@ -110,6 +110,27 @@ defmodule Pokex.Bots.Engine.ShadowTest do
     assert orders().why =~ "mobando"
   end
 
+  # O MODO CHEGA AO CÉREBRO PELO FATO DA CAÇADA. É a mesma tela e o mesmo
+  # trecho de mobada: o que muda é a rota ter escolhido o Econômico, e a
+  # sobreposição de knobs desligar a mobada sem uma linha nova no `Logic`.
+  test "o modo econômico não junta pilha", %{worker: worker} do
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
+    hunting(%{luring?: true, mode: :economy})
+    tick(worker)
+
+    refute orders().phase == :gathering
+    assert orders().route == :go
+    assert orders().fire == :free
+  end
+
+  test "o auto combo junta, com a mesma tela", %{worker: worker} do
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
+    hunting(%{luring?: true, mode: :auto_combo})
+    tick(worker)
+
+    assert orders().phase == :gathering
+  end
+
   test "with no hunt running there is nothing to decide", %{worker: worker} do
     see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
     tick(worker)

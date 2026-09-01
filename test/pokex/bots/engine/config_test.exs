@@ -45,6 +45,35 @@ defmodule Pokex.Bots.Engine.ConfigTest do
     assert Config.knobs()[:rescue_cooldown_ms] == :rescue_cooldown_ms
   end
 
+  # A SOBREPOSIÇÃO DO MODO. Ela existe pra que o Econômico desligue mobada,
+  # kite e reset SEM uma linha nova dentro do `Logic` — e pra que ninguém
+  # precise escrever no settings.json dele pra isso acontecer.
+  test "o modo econômico desliga as regras caras sem tocar no Settings" do
+    economico = Config.in_force(:economy)
+
+    assert economico.gather_piles == false
+    assert economico.kite_when_spent == false
+    assert economico.reset_revive == false
+    assert economico.prepare_revive == false
+    assert economico.engage_from == 1
+
+    assert Settings.get(:engine_gather_piles) == Settings.defaults()[:engine_gather_piles]
+  end
+
+  test "o auto combo é o bot como ele está — nenhuma sobreposição" do
+    assert Config.in_force(:auto_combo) == Config.in_force(:auto_combo)
+
+    for {knob, setting} <- Config.knobs() do
+      assert Config.in_force(:auto_combo)[knob] == Settings.get(setting),
+             "#{knob} foi sobreposto por um modo que não sobrepõe nada"
+    end
+  end
+
+  test "a sobreposição não muda o CONJUNTO de knobs, só valores" do
+    assert Config.in_force(:economy) |> Map.keys() |> Enum.sort() ==
+             Config.in_force(:auto_combo) |> Map.keys() |> Enum.sort()
+  end
+
   # UM KNOB QUE SÓ A BANCADA LÊ É UMA REGRA QUE O BOT NÃO TEM — e como este mapa
   # é a linha de base de `Bench.default_config/0` E de `Bench.config_in_force/0`
   # (que se documenta como "os knobs como o bot está rodando agora"), a bancada
@@ -58,12 +87,18 @@ defmodule Pokex.Bots.Engine.ConfigTest do
     # a `Logic` decide em cima. Um knob lido só ali estava sendo acusado de
     # órfão (o `spent_keys_left`, 27/08), que é o oposto do que este guarda
     # existe pra achar.
+    # …E O PLANO DE COMBATE ENTRA NA LISTA (01/09): a composição da mão saiu do
+    # `Inputs` e da rotação e passou a morar num lugar só, que o modo escolhe.
+    # `single_target` e `shield_from` são lidos lá — e são regras que o bot TEM,
+    # não regras que só a bancada obedece, que é a pergunta deste guarda.
     fontes =
       [
         "lib/pokex/bots/engine/logic.ex",
         "lib/pokex/bots/engine/worker.ex",
         "lib/pokex/bots/engine/situation.ex",
-        "lib/pokex/bots/engine/inputs.ex"
+        "lib/pokex/bots/engine/inputs.ex",
+        "lib/pokex/bots/combat/plan.ex",
+        "lib/pokex/bots/combat/plan/standard.ex"
       ]
       |> Enum.map_join("\n", &File.read!/1)
 

@@ -85,6 +85,75 @@ defmodule Pokex.Bots.HuntMode do
   end
 
   @doc """
+  The engine knobs this mode CHANGES, by the name the decision calls them
+  (`Pokex.Bots.Engine.Config`) — `%{}` for the mode that runs the bot as it is.
+
+  ## Sobreposição, nunca escrita
+
+  This is merged over `Config.in_force/0` in memory and never written to
+  `settings.json`. Writing is how "um modo não afeta a config do outro" would
+  quietly become false — and how his settings got eaten once already.
+
+  ## Só knobs TÁTICOS
+
+  Nothing here may reach a safety path: the health bands, the revive budget,
+  the give-up brake, the logout, the alarms. A mode decides how a fight is
+  fought, never whether the character is protected — `hunt_mode_test.exs`
+  fails on any key outside `Config.knobs/0` and on any key in the forbidden
+  list.
+
+  ## E só o que o CÉREBRO decide
+
+  `single_target` and `combat_tab_target` are the FIGHT's knobs, read from its
+  own config snapshot — overriding them here would put the brain and the hand
+  on different rules inside one tick, which is the exact defect this module
+  exists to prevent. They belong to the combat plan, with the mode it was armed
+  with.
+  """
+  @spec engine_overrides(t) :: %{atom => term}
+  def engine_overrides(:economy) do
+    %{
+      # Juntar bolo é economia de ÁREA, e numa rota barata a área é a exceção.
+      # Cada pilha juntada é aggro que ninguém pediu.
+      gather_piles: false,
+      bunch_ms: 0,
+      # Bateu, luta: a régua dos três existe pra poupar a área.
+      engage_from: 1,
+      # Recuar compra tempo pra barra voltar. Sem barra pra esperar, recuar só
+      # refaz de costas o chão que a rota acabou de andar.
+      kite_when_spent: false,
+      # As duas regras que COMPRAM conveniência com revive. Numa rota fraca o
+      # revive vale mais no bolso — a emergência e o caído continuam intactos,
+      # porque não passam por aqui.
+      reset_revive: false,
+      prepare_revive: false
+    }
+  end
+
+  def engine_overrides(_runs_the_bot_as_it_is), do: %{}
+
+  @doc """
+  Knobs no mode may touch, named out loud so a test can prove it.
+
+  They are the ones whose wrong value costs a character rather than a hunt.
+  """
+  @spec forbidden_knobs() :: [atom]
+  def forbidden_knobs do
+    [
+      :band_yellow_pct,
+      :band_red_pct,
+      :resume_pct,
+      :revive_reserve,
+      :downed_give_up_ms,
+      :recover_timeout_ms,
+      :revive_confirm_ms,
+      :rescue_cooldown_ms,
+      :rescue_floor_ms,
+      :fainted_revive_cooldown_ms
+    ]
+  end
+
+  @doc """
   WHERE the mode in force came from: the route chose it, or it fell through to
   the global default.
 

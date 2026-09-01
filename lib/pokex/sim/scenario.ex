@@ -352,6 +352,44 @@ defmodule Pokex.Sim.Scenario do
         }
       },
       %__MODULE__{
+        id: "shinies-empilhados",
+        group: :chefe,
+        icon: "✨✨",
+        aperto: :aperto,
+        espera: [:nao_cai, :stun_sempre, :mata],
+        name: "Shinies empilhados (mais de um por grupo)",
+        why:
+          "\"Às vezes tem até mais do que 1 por grupo\" (01/09). O caso que quebrou a " <>
+            "postura: um shiny chega enquanto o outro dorme, e a BANDA DE VIDA tomava a " <>
+            "frente — o cérebro revivia pra curar e não apertava o controle, caindo de 58% a " <>
+            "10% com o bicho colado e acordado. A promessa `stun_sempre` é a régua dele " <>
+            "virada contrato: nenhum especial acordado por perto mais que um ciclo.",
+        route: :hunt_field,
+        knobs: %{
+          nest_size: 3,
+          stray_chance_pct: 0,
+          # curto de propósito: é o que faz dois se sobreporem
+          boss_every_ms: 20_000,
+          boss_hp_mult: 5,
+          boss_atk_mult: 5,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          stun_ms: 5_000,
+          stun_onset_ms: 2_000,
+          revive_cooldown_ms: 0,
+          presses_to_kill: 3,
+          boss_color: true
+        },
+        config: %{
+          reset_revive: true,
+          boss_names: "",
+          boss_grit: 6,
+          stun_hold_ms: 7_000,
+          rescue_floor_ms: 5_000,
+          prepare_revive: false
+        }
+      },
+      %__MODULE__{
         id: "chefe-cruel",
         group: :chefe,
         icon: "🐲",

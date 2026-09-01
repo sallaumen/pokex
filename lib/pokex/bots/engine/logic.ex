@@ -234,6 +234,19 @@ defmodule Pokex.Bots.Engine.Logic do
       # does not mean no pokémon": while fishing, a fresh `revive: :hold` would
       # silently outrank the support's own ladder.
       is_nil(t.hunt) -> guarding(t)
+      # O ESPECIAL ACORDADO NÃO ESPERA BANDA NENHUMA.
+      #
+      # Medido na bancada (01/09, shinies empilhando): das 29,3s às 34,9s o
+      # cérebro ficou em amarelo — "gastando os cooldowns" — com um shiny 5×
+      # COLADO e ACORDADO, o controle PRONTO na mão e o revive liberado, e caiu
+      # de 58% a 26% sem apertar o controle uma vez. A banda revive pra CURAR,
+      # e curar debaixo da mordida é encher um balde furado: o que para o dano
+      # é o stun. "1 segundo sem stun no campo quer dizer que eu morri."
+      #
+      # Só a perna do CONTROLE fura a fila, nunca a postura inteira: a banda
+      # continua dona do revive: gastar um tique de 200ms no stun e reviver no
+      # seguinte é exatamente o "controle primeiro, revive na sequência" dele.
+      boss_stun_due?(t) -> boss_stun(t)
       t.logic.state == :recovering -> recovering(t)
       # R5: a band whose only move is a revive the game will refuse for another
       # forty seconds is not a reason to stand still.
@@ -786,13 +799,7 @@ defmodule Pokex.Bots.Engine.Logic do
       # O controle sai de novo com 1s de folga antes do sono acabar — a folga
       # é a frase dele: "1 segundo sem stun no campo quer dizer que eu morri".
       boss_stun_due?(t) ->
-        {mark(t.logic, :stunned, t.now),
-         Orders.standing_and_firing(
-           :engaged,
-           t.band,
-           crowd(t) ++ opening(t),
-           "chefe na tela — controle antes do sono acabar"
-         )}
+        boss_stun(t)
 
       # …e o revive vem logo atrás de cada stun SEM esperar a barra esvaziar:
       # é o revive que devolve o controle pro próximo ciclo.
@@ -824,6 +831,23 @@ defmodule Pokex.Bots.Engine.Logic do
       true ->
         nil
     end
+  end
+
+  # O CONTROLE, sozinho — a única ordem que PARA o dano do especial. Vive fora
+  # do `boss_orders` porque ela também é cobrada acima das bandas de vida (ver
+  # `decide/1`): reviver sem stunar é curar debaixo da mordida.
+  defp boss_stun(t) do
+    # `enter/3` é idempotente com o estado atual, então chamar daqui não mexe
+    # no relógio de uma luta que já estava em curso — e chamando de FORA do
+    # `engaged` (a fila das bandas) é ele que garante que a luta é uma luta,
+    # não um `:idle` narrando fogo.
+    {t.logic |> enter(:engaged, t.now) |> mark(:stunned, t.now),
+     Orders.standing_and_firing(
+       :engaged,
+       t.band,
+       crowd(t) ++ opening(t),
+       "especial na tela — controle antes do sono acabar"
+     )}
   end
 
   defp engaged_regular(t) do

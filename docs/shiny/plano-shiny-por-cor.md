@@ -47,14 +47,20 @@ amostra por pose. **Presença de COR é invariante à pose e sensível a detalhe
 - `Pokex.Vision.Recolor` (lib/pokex/vision/recolor.ex) — pintar corpo pra ensinar shiny
   nunca morto. FICA (é ferramenta genérica do ensino de corpos, usada em
   calibration_live.ex:1917), mas as amostras `painted: true` de shiny saem (ver §7).
-- Esqueleto do `ShinyGuard` — attach/poll no feed, janela de confirmação
-  (`shiny_confirm_ms`), refratário 60s, ações `alarm | escape`, `Pokex.Pokedex.ShinyLog`
-  (troféu), medidor vivo no painel (`@reading_topic "shiny"`). O esqueleto FICA; só o
-  gatilho muda.
+- Esqueleto do `ShinyGuard` — attach/poll, janela de confirmação (`shiny_confirm_ms`),
+  refratário 60s, `Pokex.Pokedex.ShinyLog` (troféu), medidor vivo no painel
+  (`@reading_topic "shiny"`). O esqueleto FICA; o gatilho muda — e as AÇÕES morrem
+  (decisão dele, 01/09): `alarm` e `escape` saem por inteiro.
 
 **Morre:**
 - O detector de estrela inteiro (dentro de shiny_guard.ex) e `shiny_star_min_columns`
   (settings.ex:516 + row no /config).
+- **As ações `alarm` e `escape` do ShinyGuard, por inteiro** (decisão dele, 01/09):
+  `shiny_action` (settings.ex:519 + range :1700 + row no /config), a integração com
+  `BotSupervisor.emergency_escape/1` (`escape_fun`), a categoria de alarme de shiny em
+  alarm_categories.ex e os testes das duas ações. Avistar = REGISTRAR (ShinyLog +
+  diário + medidor do painel), nada mais — a reação vira responsabilidade do protocolo
+  shiny da fase 2 (§8).
 - Amostras de corpo shiny pintadas (`painted: true` em `~/.pokex/corpses.json`) — com
   backup antes (regra da casa: nunca escrever em ~/.pokex com o servidor dele vivo sem
   backup — memória `configs-nunca-mais-perdidas`).
@@ -97,8 +103,8 @@ escrita atômica). NÃO misturar com corpses.json — regra de cor não é crop.
 ### 3.3 O vigia: `ShinyGuard` re-feito por dentro
 
 Mantém: GenServer sempre-vivo, liga/desliga por setting, janela de confirmação (2
-quadros: um vislumbre de 1 frame não apita), refratário, `shiny_action` (alarm |
-escape), ShinyLog, medidor vivo pro painel.
+quadros: um vislumbre de 1 frame não registra), refratário, ShinyLog, medidor vivo pro
+painel. SEM ações: nem alarme, nem escape — avistou, registra e segue.
 
 Muda o gatilho:
 - **Região:** o mesmo quadrado `(2r+1)` tiles ao redor do personagem do SpotScan
@@ -109,9 +115,10 @@ Muda o gatilho:
 - **Zonas proibidas:** HUD (as do SpotScan) **+ a caixa do PRÓPRIO pokémon** vinda do
   `PokemonTracker` (armadilha nº 1). Sem tracker fresco → usar o ponto calibrado do
   pokémon + 1 tile de folga.
-- Avistou (regra × mancha): loga `"🌟 {name}: {px}px em {point}"`, ShinyLog, alarme
-  categoria própria, ação configurada. `kind: :chefe` → por ora SÓ alarme + log; a
-  ligação com `heavy?`/postura de chefe (#461) é fase futura explícita (§8).
+- Avistou (regra × mancha): loga `"🌟 {name}: {px}px em {point}"` no diário + entrada
+  no ShinyLog + medidor do painel. NADA de ação (alarme e escape deletados). `kind:
+  :chefe` → mesmo tratamento; a ligação com `heavy?`/postura de chefe (#461) é fase
+  futura explícita (§8).
 
 ### 3.4 O painel: calibração → seção "Cores especiais"
 
@@ -130,15 +137,15 @@ crop ajustável sobre o MESMO screenshot — calibration_live.ex:379):
    segundos de caçada normal SEM o especial na tela (e as capturas guardadas em
    `~/.pokex/captures/arena-*.png` como corpus extra) e mostra o pico de px casados.
    O painel SUGERE `min_px = 3× o pico do chão` e marca a regra como "provada".
-   Regra não provada roda só em modo alarme-tímido (log, sem escape).
+   Regra não provada não entra no vigia (só na prova do painel).
 6. Lista de regras: enable/disable, apagar, re-ensinar, swatch + última prova.
 
 ### 3.5 Settings novas (com @ranges e rows no /config)
 
 - `special_color_scan_ms` (500, 200..2000)
 - `special_color_confirm_frames` (2, 1..5)
-- `shiny_action` FICA como está (alarm | escape); `shiny_always_ball` FICA.
-- Morrem: `shiny_star_min_columns`.
+- `shiny_always_ball` FICA.
+- Morrem: `shiny_star_min_columns` e `shiny_action` (com as duas ações).
 
 ## 4. Por que cor-presença e não sprite-histograma (registrado)
 
@@ -173,9 +180,11 @@ re-medir, nunca alargar a zona proibida até cegar o detector.
 - **ColorMark unitário:** frames sintéticos (mancha concentrada vs mesmo total
   espalhado; dois tons; matiz vizinho fora do cone; célula na borda) + 1 fixture real
   (crop pequeno de arena com o shiny, `.raw` como test/support/fixtures/minimap_real.raw).
-- **Guard:** confirmação de 2 quadros (1 quadro não apita), refratário, zona proibida
-  do próprio pokémon (frame com verde SÓ dentro da caixa do tracker → silêncio).
-- **Painel:** prova de ruído sugere min_px = 3× pico; regra não provada não escapa.
+- **Guard:** confirmação de 2 quadros (1 quadro não registra), refratário, zona
+  proibida do próprio pokémon (frame com verde SÓ dentro da caixa do tracker →
+  silêncio), e avistamento NÃO dispara ação nenhuma (só ShinyLog + broadcast).
+- **Painel:** prova de ruído sugere min_px = 3× pico; regra não provada fica fora do
+  vigia.
 - Suíte com `--max-cases 6`; visão em TESTE, nunca `mix run` (memória
   `mix-run-mata-o-helper`).
 
@@ -190,7 +199,8 @@ re-medir, nunca alargar a zona proibida até cegar o detector.
 ## 8. Fases futuras (fora deste plano, anotadas de propósito)
 
 - **Protocolo shiny completo** ("matar e capturar um shiny… hoje nem um dos 2 fazemos
-  direito"): prioridade de alvo quando shiny na tela, bola garantida
+  direito"): é AQUI que a reação ao avistamento nasce de novo (o alarm/escape antigo
+  foi deletado de propósito): prioridade de alvo quando shiny na tela, bola garantida
   (`shiny_always_ball` já existe), corpo do shiny ensinado do REAL na primeira morte
   (aí o acervo de corpos assume a mira). Precisa resolver "cor → qual linha da battle
   list" (a cor não diz a linha; caminho provável: Finder rastreando a mancha + posição).

@@ -153,7 +153,9 @@ defmodule PokexWeb.ConfigLive do
           label: "Dormir a pilha antes",
           hint:
             "Usa o controle do /time antes de reviver — reviver exposto no meio do bolo é como " <>
-              "o personagem apanha.",
+              "o personagem apanha (medido: sem ele, 45 quedas por hora no circuito denso). " <>
+              "No Auto Combo ele NÃO sai: a corrente do jogo já termina em stun, e o revive cai " <>
+              "dentro desse sono.",
           keywords: "stun controle dormir antes revive"
         },
         %{

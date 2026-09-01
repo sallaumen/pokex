@@ -19,7 +19,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.Loadout
+  alias Pokex.Bots.Combat.Plan
   alias Pokex.Bots.Focus
+  alias Pokex.Bots.HuntMode
   alias Pokex.Bots.{BotSupervisor, Logout, ReviveLedger, SkillClock}
   alias Pokex.Bots.PlayerSupport.ReviveEffect
   alias Pokex.Bots.SkillReceipt
@@ -1420,24 +1422,43 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   #   * classified but COLD — a transient the revive itself caused when it was
   #     spent on a calm screen (28/08): escalate like a missed stun, never
   #     recall bare in front of an awake pile.
-  # O RESGATE CONTINUA COM O CONTROLE, INCLUSIVE NO AUTO COMBO — e é uma escolha
-  # de qual erro é barato.
+  # QUEM DIZ QUAL É O CONTROLE É O PLANO DO MODO, não o loadout cru.
   #
-  # Se a corrente do jogo termina em stun (é o que ele descreve: "os monstros
-  # que sobreviverem ainda estarão sob o efeito da skill de controle"), este
-  # prefixo é um aperto a mais por revive: gasta um cooldown e dorme quem já
-  # dormia. Se ela NÃO termina, tirar o prefixo é recolher o pokémon na cara de
-  # uma pilha acordada — que é como o personagem apanha, e como ele morreu em
-  # 28/08. Um aperto desperdiçado contra uma morte não é um empate.
+  # Ele confirmou em 01/09: a corrente do Auto Combo TERMINA em stun. Então lá
+  # a tecla não é nossa pra gastar — prefixar o revive com ela é pagar duas
+  # vezes pelo mesmo sono e deixar o controle gelado pro combo seguinte, e o
+  # `Plan.AutoCombo` responde `[]`.
   #
-  # O CÉREBRO é que não gasta mais o controle no Auto Combo (`Plan.AutoCombo`
-  # devolve `crowd: []`): ele não abre com stun nem carimba janela nenhuma. Aqui
-  # a tecla segue guardada pro momento pra que ela sempre existiu.
+  # NOS OUTROS MODOS ELE FICA, e não por inércia: a bancada mediu o que custa
+  # tirá-lo de um resgate que não tem combo na frente — o circuito denso perde o
+  # pokémon 45 vezes por hora e mata o personagem, contra zero quedas em 48
+  # corridas com ele. Esse número foi medido SEM corrente nenhuma, que é
+  # exatamente a situação dos modos que não têm uma.
+  #
+  # `rescue_stun_first` continua sendo o interruptor mestre por cima disto.
   defp control_stun do
-    case Loadout.current() do
-      nil -> {:off, [log: "🚑 sem controle pronto no pokémon — revivendo direto"]}
-      %{crowd: []} -> {:off, [log: "🚑 sem controle pronto no pokémon — revivendo direto"]}
-      %{crowd: crowd} -> control_stun(crowd)
+    loadout = Loadout.current()
+
+    case Plan.for(hunt_mode()).crowd(loadout, %{config: %{}}) do
+      [] -> {:off, [log: sem_controle_text(loadout)]}
+      crowd -> control_stun(crowd)
+    end
+  end
+
+  defp sem_controle_text(nil), do: "🚑 sem controle pronto no pokémon — revivendo direto"
+
+  defp sem_controle_text(_loadout) do
+    if hunt_mode() == :auto_combo,
+      do: "🚑 o controle é a última parte do combo — revivendo dentro do sono dele",
+      else: "🚑 sem controle pronto no pokémon — revivendo direto"
+  end
+
+  # O MODO DA CAÇADA, lido como fato com idade igual a todo o resto. Sem caçada
+  # rodando (a pesca) cai no padrão global — a mesma resposta que o cérebro dá.
+  defp hunt_mode do
+    case WorldState.get(:hunt, Settings.get(:engine_hunt_max_age_ms), now()) do
+      {:ok, %{mode: mode}} -> HuntMode.in_force(mode)
+      _stale_or_missing -> HuntMode.in_force()
     end
   end
 

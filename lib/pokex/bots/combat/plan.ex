@@ -62,9 +62,11 @@ defmodule Pokex.Bots.Combat.Plan do
 
   Anything that is not a mode answers `Plan.Standard` — the bot exactly as it
   fought before any of this existed, which is the right answer for a caller who
-  could not say what it wanted.
+  could not say what it wanted (a test, a page asking about a pokémon rather
+  than about a hunt).
   """
   @spec for(HuntMode.t() | nil) :: module
   def for(:auto_combo), do: Plan.AutoCombo
-  def for(_standard_or_unknown), do: Plan.Standard
+  def for(:economy), do: Plan.Economy
+  def for(_no_mode), do: Plan.Standard
 end

@@ -51,7 +51,6 @@ defmodule Pokex.Bots.Combat.Worker do
     :combat_aoe_from_enemies,
     :combat_shield_from_enemies,
     :combat_single_target,
-    :combat_tab_target,
     :max_consecutive_failures
   ]
 

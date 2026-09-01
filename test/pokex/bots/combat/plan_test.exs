@@ -31,7 +31,7 @@ defmodule Pokex.Bots.Combat.PlanTest do
 
   test "for/1 answers a plan for every mode, and for none" do
     assert Plan.for(:auto_combo) == Plan.AutoCombo
-    assert Plan.for(:economy) == Standard
+    assert Plan.for(:economy) == Plan.Economy
     assert Plan.for(nil) == Standard
   end
 
@@ -61,6 +61,32 @@ defmodule Pokex.Bots.Combat.PlanTest do
 
     assert Standard.sustained(loadout(), ctx) == ["4"]
     assert Standard.opening(loadout(), ctx) == ["3", "4"]
+  end
+
+  # AS AURAS NA ROTAÇÃO SUSTENTADA, e não só na abertura — elas só eram
+  # consideradas na borda da luta, então uma aura que ficava pronta no meio de
+  # uma luta de quarenta segundos nunca era apertada. No rastro dele de 27/08 a
+  # tecla 2 do Vespiquen (a aura de dano) saiu 3 vezes contra 28 da tecla 7.
+  test "sustained/2 leads with the damage aura the moment it is ready" do
+    ctx = ctx(%{ready_keys: ["2", "3", "4"]})
+
+    assert hd(Standard.sustained(loadout(), ctx)) == "2"
+  end
+
+  test "sustained/2 leaves the aura out while it is cooling" do
+    ctx = ctx(%{ready_keys: ["3", "4"]})
+
+    refute "2" in Standard.sustained(loadout(), ctx)
+  end
+
+  # "A de defesa vale sempre que tem já uns 2 pokémons atacando ele pelo menos"
+  # (27/08) — e com UM na tela ela não sai.
+  test "sustained/2 arms the shield from two on screen, never from one" do
+    com_dois = ctx(%{enemies: 2, ready_keys: ["5", "3", "4"], config: %{shield_from: 2}})
+    com_um = ctx(%{enemies: 1, ready_keys: ["5", "3", "4"], config: %{shield_from: 2}})
+
+    assert hd(Standard.sustained(loadout(), com_dois)) == "5"
+    refute "5" in Standard.sustained(loadout(), com_um)
   end
 
   test "sustained/2 goes blind when the bar cannot be read" do
@@ -95,9 +121,9 @@ defmodule Pokex.Bots.Combat.PlanTest do
            ]
   end
 
-  test "tab?/1 is off unless the knob says otherwise" do
+  # O Tab é do MODO, não de um ajuste: o bot como ele estava não trava alvo.
+  test "tab?/1 is off — the fallback is the bot as it was" do
     refute Standard.tab?(ctx())
-    assert Standard.tab?(ctx(%{config: %{combat_tab_target: true}}))
   end
 
   test "every question answers empty with no pokémon on the field" do

@@ -159,7 +159,7 @@ defmodule Pokex.Bots.MobStretchTest do
     # escolhe — e o combate lê a config quando a caçada o liga, logo abaixo.
     # …e no modo ECONÔMICO, que é o que aperta tecla por tecla: no Auto Combo o
     # combate não usa Tab de propósito, e o sinal de vida deste arquivo é o Tab.
-    Pokex.SettingsStash.stash!(combat_tab_target: true, hunt_mode: "economy")
+    Pokex.SettingsStash.stash!(hunt_mode: "economy")
 
     lure_route!()
     :ok = Cavebot.run(hunt)
@@ -218,7 +218,7 @@ defmodule Pokex.Bots.MobStretchTest do
     # escolhe — e o combate lê a config quando a caçada o liga, logo abaixo.
     # …e no modo ECONÔMICO, que é o que aperta tecla por tecla: no Auto Combo o
     # combate não usa Tab de propósito, e o sinal de vida deste arquivo é o Tab.
-    Pokex.SettingsStash.stash!(combat_tab_target: true, hunt_mode: "economy")
+    Pokex.SettingsStash.stash!(hunt_mode: "economy")
 
     lure_route!()
     :ok = Cavebot.run(hunt)

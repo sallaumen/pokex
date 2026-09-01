@@ -23,11 +23,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     # retentativa. Esse é o modo Econômico — o Auto Combo aperta uma tecla só e
     # deixa o jogo encadear o resto, e medir a máquina de Tab dentro dele seria
     # medir um bot que não existe.
-    SettingsStash.stash!(
-      skill_burst_every_ms: 0,
-      combat_tab_target: true,
-      hunt_mode: "economy"
-    )
+    SettingsStash.stash!(skill_burst_every_ms: 0, hunt_mode: "economy")
 
     SettingsStash.stash_keys!([
       :tab_confirm_ms,

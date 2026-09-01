@@ -46,7 +46,7 @@ defmodule Pokex.Bots.Combat.AutoComboTest do
     end
 
     test "não usa Tab" do
-      refute Plan.AutoCombo.tab?(ctx(%{config: %{combat_tab_target: true}}))
+      refute Plan.AutoCombo.tab?(ctx())
     end
 
     # `spent?` mede contra a BARRA, porque é a barra que a corrente gasta — e é

@@ -1,7 +1,9 @@
 defmodule Pokex.Bots.ShinyGuard do
   @moduledoc """
-  O vigia das CORES ESPECIAIS — o gatilho do shiny (e do chefe) no Poké
-  Alliance.
+  O vigia das CORES ESPECIAIS — o gatilho do SHINY no Poké Alliance, que é o
+  mesmo bicho que ele chamava de "chefe" ("o shiny É o chefe (…) nesse jogo o
+  que tô chamando de chefe são os shinies", 01/09): recolor, vida e ataque
+  muito maiores, e o troféu da noite. Um conceito, um caminho.
 
   O detector antigo esperava a estrela dourada que o PokeTibia pintava na
   battle list; o PA não pinta estrela nenhuma. O que separa o especial do
@@ -182,12 +184,8 @@ defmodule Pokex.Bots.ShinyGuard do
     WorldState.put(
       :special,
       %{
-        chefe?: Enum.any?(vistos, fn {rule, _m} -> rule.kind == "chefe" end),
-        shiny?: Enum.any?(vistos, fn {rule, _m} -> rule.kind == "shiny" end),
-        vistos:
-          Enum.map(vistos, fn {rule, m} ->
-            %{name: rule.name, kind: rule.kind, px: m.px, point: m.point}
-          end)
+        especial?: vistos != [],
+        vistos: Enum.map(vistos, fn {rule, m} -> %{name: rule.name, px: m.px, point: m.point} end)
       },
       System.monotonic_time(:millisecond)
     )
@@ -215,8 +213,7 @@ defmodule Pokex.Bots.ShinyGuard do
   # Avistou: registra e anuncia — nenhuma ação (decisão dele, 01/09). O
   # Catcher escuta o {:shiny_seen, _} e arma a bola garantida.
   defp fire(state, rule, mancha) do
-    icone = if rule.kind == "chefe", do: "👹", else: "✨"
-    reason = "#{icone} #{rule.name} na tela — mancha de #{mancha.px}px da cor dele"
+    reason = "✨ #{rule.name} na tela — mancha de #{mancha.px}px da cor dele"
 
     # the trophy shelf first: the encounter is logged even if a broadcast fails.
     # `star_px` é o nome histórico do campo (a estrela morreu, o campo ficou):
@@ -228,7 +225,7 @@ defmodule Pokex.Bots.ShinyGuard do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       @reading_topic,
-      {:shiny_seen, %{px: mancha.px, name: rule.name, kind: rule.kind, point: mancha.point}}
+      {:shiny_seen, %{px: mancha.px, name: rule.name, point: mancha.point}}
     )
 
     now = System.monotonic_time(:millisecond)

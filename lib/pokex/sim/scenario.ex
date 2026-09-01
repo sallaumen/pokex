@@ -320,7 +320,8 @@ defmodule Pokex.Sim.Scenario do
         espera: [:nao_cai, :mata],
         name: "Chefe pela cor (5×, regra ensinada)",
         why:
-          "O MESMO chefe incógnito, com uma diferença: a regra de cor dele foi ensinada e " <>
+          "O SHINY — que é o que ele chama de chefe neste jogo — com uma diferença pro " <>
+            "incógnito: a regra de cor dele foi ensinada e " <>
             "provada na calibração, então o vigia o reconhece assim que ele aparece na tela — " <>
             "antes de qualquer luta. É o buraco que o grit não fecha (a mobada arrasta o " <>
             "mordedor 5× enquanto ainda não há entrega pra contar), e a promessa a mais é " <>

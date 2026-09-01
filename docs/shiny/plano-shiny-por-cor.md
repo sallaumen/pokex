@@ -1,4 +1,10 @@
-# Plano: shiny e chefe pela COR de referência (Poké Alliance)
+# Plano: o shiny pela COR de referência (Poké Alliance)
+
+> **O SHINY É O "CHEFE"** (Lucas, 01/09): "o shiny É o chefe — foi assim que eu usei
+> pra falar antes, mas nesse jogo o que tô chamando de chefe são os shinies". Uma
+> criatura só: recolor, vida e ataque muito maiores, pede o combo skills → stun →
+> revive, e é o troféu da noite. Onde este documento diz "chefe", leia "shiny" —
+> e o código tem UM conceito (`especial?`), não dois.
 
 > Pedido do Lucas (01/09/2026): "pra identificar o chefe, temos que usar uma COR de referência…
 > os chefes geralmente têm esse detalhe da cor diferente. (…) tem 1 shiny, 1 com a base diferente

@@ -270,29 +270,24 @@ defmodule Pokex.Bots.Engine.Worker do
       damage_keys: damage_keys(state.loadout, config),
       control_back_in_ms: control_back_in_ms(state.loadout, now),
       revive_left: ReviveLedger.remaining(),
-      # O CHEFE VISTO PELA COR (`ShinyGuard`): o único canal de chefe que
-      # funciona no jogo dele hoje — o nome não separa e o grit precisa da
-      # luta aberta. Fato velho não vale: sem varredura recente a resposta é
-      # "não sei", que aqui é "chefe nenhum".
-      boss_color?: special(now).chefe?,
-      # …e o SHINY pela mesma varredura: ele não vira postura de chefe, mas
-      # segura a caçada no lugar até o bicho cair.
-      shiny_color?: special(now).shiny?,
+      # O ESPECIAL VISTO PELA COR (`ShinyGuard`) — o shiny, que é o mesmo bicho
+      # que ele chama de chefe. É o único canal que funciona no jogo dele hoje:
+      # o nome não separa e o grit precisa da luta já aberta. Fato velho não
+      # vale — sem varredura recente a resposta é "não sei", que aqui é "não
+      # tem".
+      especial?: especial?(now),
       prev: state.picture
     }
   end
 
   # Três varreduras de folga: uma foto perdida (jogo sem foco, captura
-  # engasgada) não pode despir a postura de chefe no meio da luta.
-  defp special(now) do
+  # engasgada) não pode despir a postura no meio da luta.
+  defp especial?(now) do
     idade = Settings.get(:special_color_scan_ms) * 3
 
     case WorldState.get(:special, idade, now) do
-      {:ok, %{chefe?: chefe?, shiny?: shiny?}} ->
-        %{chefe?: chefe? == true, shiny?: shiny? == true}
-
-      _stale_or_missing ->
-        %{chefe?: false, shiny?: false}
+      {:ok, %{especial?: true}} -> true
+      _stale_or_missing_or_clean -> false
     end
   end
 

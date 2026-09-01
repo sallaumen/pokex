@@ -66,7 +66,6 @@ defmodule Pokex.Bots.ShinyGuardTest do
         Map.merge(
           %{
             "name" => "Electrode shiny",
-            "kind" => "shiny",
             "colors" => [%{"rgb" => [40, 160, 60], "tol_h" => 12, "tol_sv" => 30}],
             "min_px" => 50
           },
@@ -89,7 +88,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
     start_guard(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
 
-    assert_receive {:shiny_seen, %{px: px, name: "Electrode shiny", kind: "shiny"}}, 2_000
+    assert_receive {:shiny_seen, %{px: px, name: "Electrode shiny"}}, 2_000
     assert px >= 50
     assert_receive {:combat_log, :macro, texto}, 500
     assert texto =~ "Electrode shiny"
@@ -116,7 +115,6 @@ defmodule Pokex.Bots.ShinyGuardTest do
     {:ok, _} =
       ColorRules.add(%{
         "name" => "Sem prova",
-        "kind" => "shiny",
         "colors" => [%{"rgb" => [40, 160, 60], "tol_h" => 12, "tol_sv" => 30}],
         "min_px" => 50
       })
@@ -186,28 +184,19 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
   # O FATO pro cérebro: a PRESENÇA, publicada a cada varredura — outro relógio
   # que o troféu (que tem refratário de um minuto). É o que mantém `heavy?` de
-  # pé enquanto o chefe está na tela e o derruba quando ele sai.
-  test "publica o fato :special com chefe? enquanto a cor está na tela", %{region: region} do
-    %{"slug" => slug} =
-      ColorRules.add(%{
-        "name" => "Chefe da dungeon",
-        "kind" => "chefe",
-        "colors" => [%{"rgb" => [40, 160, 60], "tol_h" => 12, "tol_sv" => 30}],
-        "min_px" => 50
-      })
-      |> elem(1)
-
-    :ok = ColorRules.mark_proven(slug, 3)
+  # pé enquanto o especial está na tela e o derruba quando ele sai.
+  test "publica o fato :special enquanto a cor está na tela", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
     start_guard(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
 
     assert_receive {:shiny_seen, _}, 2_000
 
-    assert {:ok, %{chefe?: true, shiny?: false, vistos: [%{name: "Chefe da dungeon"}]}} =
+    assert {:ok, %{especial?: true, vistos: [%{name: "Electrode shiny"}]}} =
              WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
   end
 
-  test "tela limpa publica chefe? false — a postura cai quando ele sai", %{region: region} do
+  test "tela limpa publica especial? false — a postura cai quando ele sai", %{region: region} do
     regra_provada()
     limpo = frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [])
     guard = start_guard(fn _region, _name -> {:ok, limpo} end)
@@ -215,7 +204,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
     assert eventually(fn ->
              match?(
-               {:ok, %{chefe?: false, shiny?: false}},
+               {:ok, %{especial?: false}},
                WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
              )
            end)

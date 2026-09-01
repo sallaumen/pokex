@@ -890,9 +890,9 @@ defmodule Pokex.Bots.Engine.Logic do
            revive: :now
          )}
 
-      # Nem com chefe, nem com SHINY: recuar de um shiny é perder o bicho que
-      # ele caça a noite inteira — a barra volta, o shiny não.
-      kiting?(t) and not Map.get(t.s, :heavy?, false) and not shiny?(t) ->
+      # Com o especial na tela não se recua: a barra volta em 40s, o shiny não
+      # volta nunca. Não precisa de guarda própria — `heavy?` já é ele.
+      kiting?(t) and not Map.get(t.s, :heavy?, false) ->
         # PELO CHÃO LIMPO, não pela rota: andar pra frente aqui atravessa spawn
         # novo e o trem cresce mais rápido que a barra volta (medido na noite de
         # 27→28/08, 9+ na tela por minutos a fio). Recuar mantém a pilha colada
@@ -1158,8 +1158,6 @@ defmodule Pokex.Bots.Engine.Logic do
     do:
       t.config.reset_revive and
         not elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms)
-
-  defp shiny?(t), do: Map.get(t.s, :shiny?, false) == true
 
   defp kiting?(t) do
     t.config.kite_when_spent and t.s.spent? == true and some?(t.s) and escaping?(t) and

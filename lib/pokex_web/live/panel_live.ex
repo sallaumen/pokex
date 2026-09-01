@@ -2251,9 +2251,9 @@ defmodule PokexWeb.PanelLive do
           <div class="min-w-0 flex-1">
             <p class="text-pk-title font-semibold text-pk-text">Guarda anti-shiny ✨</p>
             <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2">
-              vê a COR especial (shiny/chefe) ensinada na calibração — regra só
-              varre depois da prova de ruído, e a bola sempre voa
-              (mesmo com captura desligada)
+              vê a COR do SHINY ensinada na calibração (o "chefe" deste jogo é
+              ele) — regra só varre depois da prova de ruído, o cérebro entra na
+              postura de chefe, e a bola sempre voa (mesmo com captura desligada)
             </p>
           </div>
           <input

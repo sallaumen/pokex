@@ -162,4 +162,23 @@ defmodule PokexWeb.WorldLiveTest do
     assert html =~ "mini_game"
     assert html =~ "fora do jogo"
   end
+
+  # A tela do quadro-negro morria justamente quando havia algo estranho pra
+  # ver: `enemies: nil` é o que a percepção publica com a janela de batalha
+  # ilegível, e o `summary` fazia `length(nil)`. Derrubava a página inteira —
+  # e, por ser um fato compartilhado, qualquer página aberta depois na mesma
+  # sessão de testes.
+  test "a lista de batalha ILEGÍVEL é um fato, não um crash", %{conn: conn} do
+    Enum.each([:battle, :arena, :corpses, :mini_game], &WorldState.forget/1)
+
+    WorldState.put(
+      :battle,
+      %{enemies: nil, enemies_detail: [], locked?: false, locked_row: nil},
+      System.monotonic_time(:millisecond)
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/world")
+
+    assert view |> element("#world-facts") |> render() =~ "não vejo a lista"
+  end
 end

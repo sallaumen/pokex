@@ -25,6 +25,7 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.SkillMeter
   alias Pokex.Bots.SkillRack
   alias Pokex.Bots.CrowdScan
+  alias Pokex.Bots.HuntMode
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Calibration
   alias Pokex.Perception
@@ -764,6 +765,25 @@ defmodule PokexWeb.CavebotLive do
     with_route(socket, fn route ->
       {Route.set_gather_wait(route, ms), gather_wait_note("a rota", ms)}
     end)
+  end
+
+  # A caçada de pé NÃO troca de modo: metade dos ajustes é lida ao vivo e a
+  # outra metade foi fotografada no arranque do combate, então uma troca no
+  # meio aplica meio modo. O botão já vem desabilitado; isto é a porta dos
+  # fundos, porque um clique forjado não pode furar a regra.
+  def handle_event("set_route_mode", %{"mode" => raw}, socket) do
+    if hunt_idle?(socket.assigns.hunt) do
+      with_route(socket, fn route ->
+        updated = Route.set_mode(route, raw)
+        {updated, route_mode_note(updated, socket.assigns.hunt)}
+      end)
+    else
+      {:noreply,
+       assign(socket,
+         notice: "pare a caçada antes de trocar o modo de combate",
+         notice_kind: :warn
+       )}
+    end
   end
 
   def handle_event("set_waypoint_gather_wait", %{"index" => index} = params, socket) do
@@ -1533,6 +1553,36 @@ defmodule PokexWeb.CavebotLive do
   end
 
   defp parse_ms(_absent), do: nil
+
+  # "" é a AUSÊNCIA — a rota devolvendo a escolha pro /config —, e ela vem
+  # primeiro porque é o estado em que toda rota nasce.
+  defp mode_choices do
+    [{"", "padrão"} | Enum.map(HuntMode.all(), &{Atom.to_string(&1), HuntMode.label(&1)})]
+  end
+
+  defp route_mode_chosen?(%Route{mode: nil}, ""), do: true
+  defp route_mode_chosen?(%Route{mode: mode}, value), do: mode == HuntMode.parse(value)
+  defp route_mode_chosen?(_no_route, _value), do: false
+
+  # O que está VALENDO e de onde veio — a lição do `Modes.overrides/2`: um
+  # valor em vigor cuja origem não aparece é um valor que ele tem que adivinhar.
+  defp route_mode_note(%Route{mode: mode}, hunt) do
+    origem =
+      case HuntMode.source(mode) do
+        :route -> "escolha desta rota"
+        :global -> "padrão do /config"
+      end
+
+    trava = if hunt_idle?(hunt), do: "", else: " · pare a caçada pra trocar"
+
+    "vale #{HuntMode.label(HuntMode.in_force(mode))} (#{origem})#{trava}"
+  end
+
+  defp route_mode_note(_no_route, _hunt), do: ""
+
+  defp hunt_idle?(nil), do: true
+  defp hunt_idle?(%{state: :idle}), do: true
+  defp hunt_idle?(_running), do: false
 
   defp gather_wait_note(what, nil), do: "#{what} voltou a usar o respiro do /config"
   defp gather_wait_note(what, ms), do: "#{what} espera #{ms}ms o bolo fechar"
@@ -3191,6 +3241,40 @@ defmodule PokexWeb.CavebotLive do
                   {if @active_route.enabled?, do: "ligada", else: "desligada"}
                 </button>
               </form>
+
+              <%!-- O MODO DE COMBATE É DA ROTA. A mesma ordem do respiro:
+                a rota manda, e "padrão" devolve a pergunta pro /config. Trocar
+                com a caçada de pé aplicaria metade do modo (o combate
+                fotografa a config no arranque), então o seletor só abre com
+                ela parada — e diz por quê. --%>
+              <div :if={@active_route} class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="font-mono text-pk-meta text-pk-text-2">modo de combate</span>
+                <button
+                  :for={{value, label} <- mode_choices()}
+                  id={"route-mode-" <> (if value == "", do: "default", else: value)}
+                  type="button"
+                  phx-click="set_route_mode"
+                  phx-value-mode={value}
+                  disabled={not hunt_idle?(@hunt)}
+                  aria-pressed={to_string(route_mode_chosen?(@active_route, value))}
+                  class={[
+                    "h-9 rounded-lg border px-3 font-mono text-pk-meta transition",
+                    if(hunt_idle?(@hunt),
+                      do: "cursor-pointer",
+                      else: "cursor-not-allowed opacity-40"
+                    ),
+                    if(route_mode_chosen?(@active_route, value),
+                      do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                      else: "border-pk-line-strong text-pk-text-3 hover:text-pk-text"
+                    )
+                  ]}
+                >
+                  {label}
+                </button>
+                <span class="font-mono text-pk-meta text-pk-text-3">
+                  {route_mode_note(@active_route, @hunt)}
+                </span>
+              </div>
 
               <p :if={@routes == []} class="mt-3 text-pk-body text-pk-text-2">
                 nenhuma rota ainda — crie a primeira e saia andando

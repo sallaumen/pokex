@@ -949,7 +949,12 @@ defmodule Pokex.Settings do
     sweep_radius_tiles: 4,
     sweep_side: "square",
     # --- Cavebot (waypoint-route hunting) --------------------------------------------------------
-    hunt_style: "steady",
+    # QUAL ESTRATÉGIA DE COMBATE a caçada roda quando a rota não escolhe uma.
+    # `auto_combo` é o padrão: o jogo encadeia as skills ofensivas atrás de UMA
+    # tecla, então o bot aperta uma vez e cuida só do revive. `economy` é a
+    # rota barata: Tab, alvo único, e área só se ainda precisar. Ver
+    # `Pokex.Bots.HuntMode` — a rota manda, isto é o piso.
+    hunt_mode: "auto_combo",
     defense_mode_key: "shift+3",
     attack_mode_key: "shift+1",
     cavebot_arrival_tolerance_tiles: 1,
@@ -1696,7 +1701,7 @@ defmodule Pokex.Settings do
     revive_dry_action: ~w(alarm stop logout),
     stop_after_action: ~w(stop logout),
     escape_direction: ~w(up down left right),
-    hunt_style: ~w(steady mobbed),
+    hunt_mode: ~w(auto_combo economy),
     player_mode: ~w(still moving hunt),
     sweep_side: ~w(square right left)
   }

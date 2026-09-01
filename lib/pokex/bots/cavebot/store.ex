@@ -10,6 +10,7 @@ defmodule Pokex.Bots.Cavebot.Store do
   """
 
   alias Pokex.Bots.Cavebot.Route
+  alias Pokex.Bots.HuntMode
   alias Pokex.Home
 
   require Logger
@@ -107,6 +108,7 @@ defmodule Pokex.Bots.Cavebot.Store do
       dungeon: map["dungeon"],
       enabled?: map["enabled"] != false,
       gather_wait_ms: decode_dwell(map["gather_wait_ms"]),
+      mode: HuntMode.parse(map["mode"]),
       waypoints: Enum.map(map["waypoints"] || [], &decode_waypoint/1)
     }
   end
@@ -186,6 +188,7 @@ defmodule Pokex.Bots.Cavebot.Store do
       "dungeon" => route.dungeon,
       "enabled" => route.enabled?,
       "gather_wait_ms" => route.gather_wait_ms,
+      "mode" => encode_mode(route.mode),
       "waypoints" => Enum.map(route.waypoints, &encode_waypoint/1)
     }
   end
@@ -207,6 +210,9 @@ defmodule Pokex.Bots.Cavebot.Store do
       "skills" => Enum.map(Map.get(waypoint, :skills) || [], &Atom.to_string/1),
       "gather_wait_ms" => Map.get(waypoint, :gather_wait_ms)
     }
+
+  defp encode_mode(mode) when is_atom(mode) and not is_nil(mode), do: Atom.to_string(mode)
+  defp encode_mode(_none), do: nil
 
   defp encode_point({x, y}), do: [x, y]
   defp encode_point(_none), do: nil

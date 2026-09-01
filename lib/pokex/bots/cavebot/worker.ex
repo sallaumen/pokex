@@ -54,6 +54,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   alias Pokex.Bots.Catcher
   alias Pokex.Bots.Cavebot.{Logic, Route, Store}
   alias Pokex.Bots.Combat
+  alias Pokex.Bots.HuntMode
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport
   alias Pokex.Calibration
@@ -428,7 +429,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
         luring?: Logic.luring?(logic),
         wp_index: logic.wp_index,
         waypoints: length(logic.route.waypoints),
-        recovering?: logic.recovering?
+        recovering?: logic.recovering?,
+        # O MODO É RESOLVIDO UMA VEZ, AQUI. Quem escolhe é a rota que ESTA
+        # caçada está andando, e daqui ele viaja como fato: o cérebro lê o
+        # mesmo valor que o combate recebeu no arranque, então os dois não
+        # podem discordar no meio de um tique.
+        mode: HuntMode.in_force(logic.route.mode)
       },
       now
     )

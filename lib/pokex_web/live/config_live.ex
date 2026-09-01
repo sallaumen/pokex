@@ -31,6 +31,7 @@ defmodule PokexWeb.ConfigLive do
   use PokexWeb, :live_view
 
   alias Pokex.Bots.AlarmCategories
+  alias Pokex.Bots.HuntMode
   alias Pokex.Settings
 
   # ---------------------------------------------------------------------------
@@ -226,6 +227,25 @@ defmodule PokexWeb.ConfigLive do
           label: "Tecla da poção",
           hint: "Onde a poção está no atalho (ex.: e).",
           keywords: "poção tecla key"
+        }
+      ]
+    },
+    %{
+      id: "modo",
+      icon: "hero-adjustments-horizontal",
+      tint: :info,
+      title: "Modo de caça",
+      note: {"cada rota pode escolher o dela em", "Cavebot → rota ativa", "/cavebot"},
+      rows: [
+        %{
+          key: :hunt_mode,
+          kind: :select,
+          label: "Modo padrão das rotas",
+          hint:
+            "Auto Combo: o jogo encadeia as skills atrás de UMA tecla — o bot aperta uma vez e " <>
+              "cuida só do revive. Econômico: Tab, alvo único e área só se precisar, pra rota " <>
+              "barata. A rota que escolher um modo manda mais que isto.",
+          keywords: "modo caça auto combo econômico estratégia combate"
         }
       ]
     },
@@ -702,6 +722,11 @@ defmodule PokexWeb.ConfigLive do
   defp parse(kind, value) when kind in [:key, :select, :text],
     do: {:ok, value |> to_string() |> String.trim() |> String.downcase()}
 
+  # O valor guardado é código (inglês); o que ele lê é produto. Só onde as duas
+  # coisas divergem — os outros enums já guardam a palavra que a tela mostra.
+  defp option_text(:hunt_mode, value), do: HuntMode.label(HuntMode.parse(value))
+  defp option_text(_key, value), do: value
+
   defp to_int(value) do
     case Integer.parse(String.trim(to_string(value))) do
       {n, ""} -> {:ok, n}
@@ -862,7 +887,7 @@ defmodule PokexWeb.ConfigLive do
                       value={opt}
                       selected={opt == Settings.get(row.key)}
                     >
-                      {opt}
+                      {option_text(row.key, opt)}
                     </option>
                   </select>
 

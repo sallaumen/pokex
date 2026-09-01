@@ -673,6 +673,13 @@ defmodule Pokex.Settings do
     #
     # Uma tecla em cooldown é PULADA, e sem controle pronto simplesmente não há
     # prefixo — sempre falhando na direção de SALVAR.
+    # A BAG SECA: o que fazer quando três revives pagos não devolvem vida
+    # nenhuma (`Pokex.Bots.PlayerSupport.ReviveEffect`). "logout" é o padrão
+    # porque sem revive não há recuperação — as duas mortes de 01/09 foram
+    # exatamente o bot moendo o pokémon com a bag vazia. "stop" para a frota e
+    # deixa o personagem onde está; "alarm" só grita (e gritar foi o que não
+    # bastou).
+    revive_dry_action: "logout",
     rescue_stun_first: true,
     # The main Pokémon's own HEALING SKILL — the rung above the potion. A skill is
     # an instant press, not a channel, so unlike the potion it works MID-FIGHT,
@@ -1686,6 +1693,7 @@ defmodule Pokex.Settings do
   # already validate on their own write path.
   @enums %{
     stagnation_action: ~w(alarm stop logout),
+    revive_dry_action: ~w(alarm stop logout),
     stop_after_action: ~w(stop logout),
     escape_direction: ~w(up down left right),
     hunt_style: ~w(steady mobbed),

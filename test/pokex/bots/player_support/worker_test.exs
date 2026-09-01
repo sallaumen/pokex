@@ -2042,4 +2042,62 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       refute_received {:performed, :critical, [{:press, "1"} | _]}
     end
   end
+
+  # A BAG SECA TEM RESPOSTA PRÓPRIA. As duas mortes de 01/09 foram o bot moendo
+  # o pokémon com a bag vazia enquanto o único socorro estava atrás de um botão
+  # sobre OUTRA coisa (a vida do personagem). Sem revive não há recuperação:
+  # cada luta daqui gasta o pokémon e depois o personagem.
+  describe "quando a bag seca" do
+    # Duas quebras já contadas e uma sonda VENCIDA no ar: a próxima leitura de
+    # vida (que o worker faz sozinho, e o retrato de teste dá em 30%) fecha a
+    # terceira e o veredito sai. Injetar as três prontas não serviria — o juiz
+    # já teria gritado por dentro, e o refratário calaria o worker.
+    defp seca_o_juiz(worker) do
+      :sys.replace_state(worker, fn state ->
+        vencida = System.monotonic_time(:millisecond) - 6_000
+
+        %{
+          state
+          | revive_judge: %{probe: %{at: vencida, hp: 90}, streak: 2, screamed_at: nil}
+        }
+      end)
+    end
+
+    # O QUE SE COBRA AQUI é a ESCOLHA — qual socorro a bag seca pediu —, dita
+    # em voz alta no alarme. Executar o socorro é do `Logout`/`BotSupervisor`,
+    # que têm os testes deles; o que não existia era a bag seca ter voz própria
+    # em vez de depender do botão da vida do PERSONAGEM.
+    @tag :tmp_dir
+    test "o padrão DESLOGA — o único socorro que existe sem revive", %{tmp: tmp, body: body} do
+      Settings.put(:revive_dry_action, "logout")
+      low = hp_png(tmp, "bag_seca_logout.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+      seca_o_juiz(worker)
+
+      assert_receive {:rule_alarm, :mortal, texto}, 2_000
+      assert texto =~ "BAG está sem revive"
+      assert texto =~ "SAINDO do jogo"
+    end
+
+    @tag :tmp_dir
+    test "em “alarm” ele só grita — e diz que só está gritando", %{tmp: tmp, body: body} do
+      Settings.put(:revive_dry_action, "alarm")
+      low = hp_png(tmp, "bag_seca_alarme.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+      seca_o_juiz(worker)
+
+      assert_receive {:rule_alarm, :mortal, texto}, 2_000
+      assert texto =~ "só avisando"
+    end
+  end
 end

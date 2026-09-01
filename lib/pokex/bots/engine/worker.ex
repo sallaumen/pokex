@@ -274,19 +274,25 @@ defmodule Pokex.Bots.Engine.Worker do
       # funciona no jogo dele hoje — o nome não separa e o grit precisa da
       # luta aberta. Fato velho não vale: sem varredura recente a resposta é
       # "não sei", que aqui é "chefe nenhum".
-      boss_color?: boss_color?(now),
+      boss_color?: special(now).chefe?,
+      # …e o SHINY pela mesma varredura: ele não vira postura de chefe, mas
+      # segura a caçada no lugar até o bicho cair.
+      shiny_color?: special(now).shiny?,
       prev: state.picture
     }
   end
 
   # Três varreduras de folga: uma foto perdida (jogo sem foco, captura
   # engasgada) não pode despir a postura de chefe no meio da luta.
-  defp boss_color?(now) do
+  defp special(now) do
     idade = Settings.get(:special_color_scan_ms) * 3
 
     case WorldState.get(:special, idade, now) do
-      {:ok, %{chefe?: true}} -> true
-      _stale_or_missing_or_clean -> false
+      {:ok, %{chefe?: chefe?, shiny?: shiny?}} ->
+        %{chefe?: chefe? == true, shiny?: shiny? == true}
+
+      _stale_or_missing ->
+        %{chefe?: false, shiny?: false}
     end
   end
 

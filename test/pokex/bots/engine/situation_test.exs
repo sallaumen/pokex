@@ -434,6 +434,35 @@ defmodule Pokex.Bots.Engine.SituationTest do
     end
   end
 
+  # O SHINY: bicho comum com pele rara. Ele NÃO vira chefe (nada de combo
+  # stun+revive), mas a caçada não pode passar reto por ele.
+  describe "o shiny na tela" do
+    test "vale a luta mesmo sozinho — e NÃO liga a postura de chefe" do
+      picture =
+        Situation.build(
+          inputs(%{battle: battle(~w(Electrode)), own_out?: true, shiny_color?: true}),
+          %{engage_from: 3},
+          1_000
+        )
+
+      assert picture.shiny? == true
+      assert picture.worth_fighting? == true
+      assert picture.heavy? == false, "shiny não é chefe: nada de combo de chefe nele"
+    end
+
+    test "sem shiny, o canal fica falso" do
+      picture =
+        Situation.build(
+          inputs(%{battle: battle(~w(Electrode)), own_out?: true}),
+          %{engage_from: 3},
+          1_000
+        )
+
+      assert picture.shiny? == false
+      assert picture.worth_fighting? == false
+    end
+  end
+
   describe "o chefe na foto" do
     @chefe_config %{engage_from: 3, boss_names: "Chefe, Boss X"}
 

@@ -216,8 +216,10 @@ re-medir, nunca alargar a zona proibida até cegar o detector.
 ## 8. Fases futuras (fora deste plano, anotadas de propósito)
 
 - **Protocolo shiny completo** ("matar e capturar um shiny… hoje nem um dos 2 fazemos
-  direito"): é AQUI que a reação ao avistamento nasce de novo (o alarm/escape antigo
-  foi deletado de propósito): prioridade de alvo quando shiny na tela, bola garantida
+  direito"). JÁ FEITO deste item: o shiny na tela **vale a luta** mesmo sozinho
+  (`worth_fighting?`) e a caçada **não recua** dele (a R7 não kita com shiny na
+  tela) — sem virar postura de chefe, que ele não é. Falta: prioridade de ALVO
+  (qual linha da battle list é o shiny — a cor não diz a linha), bola garantida
   (`shiny_always_ball` já existe), corpo do shiny ensinado do REAL na primeira morte
   (aí o acervo de corpos assume a mira). Precisa resolver "cor → qual linha da battle
   list" (a cor não diz a linha; caminho provável: Finder rastreando a mancha + posição).

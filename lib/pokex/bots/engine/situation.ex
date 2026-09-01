@@ -87,6 +87,7 @@ defmodule Pokex.Bots.Engine.Situation do
           heavy?: boolean,
           grit: non_neg_integer,
           heavy_latch?: boolean,
+          shiny?: boolean,
           boss_tiles: non_neg_integer | nil,
           boss_asleep_left_ms: non_neg_integer | nil,
           growing?: boolean,
@@ -151,6 +152,12 @@ defmodule Pokex.Bots.Engine.Situation do
       # comum do lado dele zera o grit, não a declaração.
       grit: grit,
       heavy_latch?: latch?,
+      # O SHINY NA TELA, visto pela cor (`ShinyGuard`). Não é chefe — é um
+      # bicho comum com uma pele rara, então NADA de postura de chefe aqui:
+      # o que ele muda é que a caçada não pode passar reto nem recuar dele.
+      # "Matar e capturar um shiny é uma das grandes metas do jogo, e hoje nem
+      # um dos 2 fazemos direito" (01/09).
+      shiny?: Map.get(inputs, :shiny_color?) == true,
       # A QUE DISTÂNCIA O CHEFE ESTÁ, em tiles — nil quando ninguém mede. O
       # stun tem raio: apertá-lo com o chefe a 6 tiles é dormir o vento
       # (medido na bancada: o primeiro stun saía a 6 e o chefe chegava
@@ -166,7 +173,7 @@ defmodule Pokex.Bots.Engine.Situation do
       boss_asleep_left_ms: Map.get(inputs, :boss_asleep_left_ms),
       worth_fighting?:
         worth_fighting?(battle.enemies, config) or heavy?(battle.named, config) or latch? or
-          boss_color?(inputs),
+          boss_color?(inputs) or Map.get(inputs, :shiny_color?) == true,
       growing?: growing?,
       stable_since: stable_since,
       stable_for_ms: now - stable_since,

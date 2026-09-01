@@ -104,6 +104,20 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert picture.heavy? == false
     end
 
+    # O shiny chega pelo MESMO fato, e não vira chefe: o que ele muda é que a
+    # caçada para pra matar em vez de passar reto.
+    test "o shiny da mesma varredura vale a luta, sem virar postura de chefe", %{worker: worker} do
+      see(~w(Electrode))
+      WorldState.put(:special, %{chefe?: false, shiny?: true, vistos: []}, now())
+      send(worker, :tick)
+      settle(worker)
+
+      assert {:ok, picture} = WorldState.get(:situation, 5_000, now())
+      assert picture.shiny? == true
+      assert picture.worth_fighting? == true
+      assert picture.heavy? == false
+    end
+
     test "halting takes the picture down with it", %{worker: worker} do
       see(~w(Venonat Paras Venomoth))
       send(worker, :tick)

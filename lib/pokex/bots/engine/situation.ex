@@ -141,7 +141,7 @@ defmodule Pokex.Bots.Engine.Situation do
       # `boss_names` do /config. É o gatilho da postura de chefe do cérebro —
       # e passa por cima da régua, porque um chefe sozinho vale a luta que
       # cinco bichos comuns valem.
-      heavy?: heavy?(battle.named, config) or latch?,
+      heavy?: heavy?(battle.named, config) or latch? or boss_color?(inputs),
       # O CHEFE, pelo TEMPO DE MATAR: skills de dano ENTREGUES (saíram da barra)
       # sem NENHUM corpo cair da pilha. Nome nenhum — "ele tem o mesmo nome que
       # os outros pokémons" (31/08). Medido na noite fraca de 31/08 (3h42): o
@@ -165,7 +165,8 @@ defmodule Pokex.Bots.Engine.Situation do
       # pelo sono real e reaperta de graça um stun que não pegou.
       boss_asleep_left_ms: Map.get(inputs, :boss_asleep_left_ms),
       worth_fighting?:
-        worth_fighting?(battle.enemies, config) or heavy?(battle.named, config) or latch?,
+        worth_fighting?(battle.enemies, config) or heavy?(battle.named, config) or latch? or
+          boss_color?(inputs),
       growing?: growing?,
       stable_since: stable_since,
       stable_for_ms: now - stable_since,
@@ -417,6 +418,14 @@ defmodule Pokex.Bots.Engine.Situation do
       true -> false
     end
   end
+
+  # O CHEFE PELA COR — o terceiro caminho, e o único que enxerga ANTES de
+  # apanhar. O nome não separa nada no Poké Alliance ("ele tem o mesmo nome
+  # que os outros pokémons") e o grit precisa da luta já aberta: contra chefe
+  # solitário abaixo da régua, e contra o chefe que a mobada arrasta junto,
+  # os dois chegam tarde. A cor chega na hora — é a regra `kind: "chefe"` que
+  # ele ensinou e PROVOU na calibração, vista pelo `ShinyGuard`.
+  defp boss_color?(inputs), do: Map.get(inputs, :boss_color?) == true
 
   defp boss_names(nil), do: []
   defp boss_names(names) when is_list(names), do: Enum.map(names, &String.downcase/1)

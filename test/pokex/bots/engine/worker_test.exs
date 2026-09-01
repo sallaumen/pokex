@@ -77,6 +77,33 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert picture.blind? == true
     end
 
+    # O CHEFE PELA COR chega ao cérebro pelo mesmo quadro-negro: o `ShinyGuard`
+    # publica a presença, o quadro a lê. Um bicho só, abaixo da régua de seis —
+    # sem a cor ele não vale a luta; com ela, vale.
+    test "a cor do chefe atravessa o quadro-negro e vira postura", %{worker: worker} do
+      see(~w(Electrode))
+      WorldState.put(:special, %{chefe?: true, shiny?: false, vistos: []}, now())
+      send(worker, :tick)
+      settle(worker)
+
+      assert {:ok, picture} = WorldState.get(:situation, 5_000, now())
+      assert picture.heavy? == true
+      assert picture.worth_fighting? == true
+    end
+
+    # Sem varredura recente a resposta é "não sei" — e não saber é chefe
+    # nenhum: uma postura de chefe mantida por um fato velho é o bot encarando
+    # o que não está mais lá.
+    test "fato de chefe VELHO não sustenta a postura", %{worker: worker} do
+      see(~w(Electrode))
+      WorldState.put(:special, %{chefe?: true, shiny?: false, vistos: []}, now() - 60_000)
+      send(worker, :tick)
+      settle(worker)
+
+      assert {:ok, picture} = WorldState.get(:situation, 5_000, now())
+      assert picture.heavy? == false
+    end
+
     test "halting takes the picture down with it", %{worker: worker} do
       see(~w(Venonat Paras Venomoth))
       send(worker, :tick)

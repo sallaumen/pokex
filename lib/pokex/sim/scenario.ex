@@ -305,6 +305,52 @@ defmodule Pokex.Sim.Scenario do
         }
       },
       %__MODULE__{
+        id: "chefe-pela-cor",
+        group: :chefe,
+        icon: "🎨",
+        aperto: :rotina,
+        # MEDIDO no A/B contra o incógnito (6 sementes, 3 min): a cor leva o
+        # pior momento de 5% pra 27% e a mediana de 15% pra 34%, com o triplo
+        # de chefes mortos. Ainda assim `aguenta` (≥50) fica FORA, e o motivo
+        # está nos rastros: o tombo que sobra é sempre o PRIMEIRO bolo, aos
+        # ~40s, antes de qualquer chefe aparecer — ninho de comuns com a barra
+        # gasta. Não é falha de detecção, é o preço de mobar; prometer aqui
+        # seria cobrar da cor uma dívida que não é dela. O ganho está travado
+        # no teste comparativo dos invariantes.
+        espera: [:nao_cai, :mata],
+        name: "Chefe pela cor (5×, regra ensinada)",
+        why:
+          "O MESMO chefe incógnito, com uma diferença: a regra de cor dele foi ensinada e " <>
+            "provada na calibração, então o vigia o reconhece assim que ele aparece na tela — " <>
+            "antes de qualquer luta. É o buraco que o grit não fecha (a mobada arrasta o " <>
+            "mordedor 5× enquanto ainda não há entrega pra contar), e a promessa a mais é " <>
+            "exatamente essa: aqui o tanque tem que AGUENTAR.",
+        route: :hunt_field,
+        knobs: %{
+          nest_size: 3,
+          stray_chance_pct: 0,
+          boss_every_ms: 45_000,
+          boss_hp_mult: 5,
+          boss_atk_mult: 5,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          stun_ms: 5_000,
+          stun_onset_ms: 2_000,
+          revive_cooldown_ms: 0,
+          presses_to_kill: 3,
+          # A DIFERENÇA, e a única: a cor foi ensinada.
+          boss_color: true
+        },
+        config: %{
+          reset_revive: true,
+          boss_names: "",
+          boss_grit: 6,
+          stun_hold_ms: 7_000,
+          rescue_floor_ms: 5_000,
+          prepare_revive: false
+        }
+      },
+      %__MODULE__{
         id: "chefe-cruel",
         group: :chefe,
         icon: "🐲",

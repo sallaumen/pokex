@@ -20,9 +20,12 @@ Este documento é o plano de implementação. Quem for implementar: leia a seç�
 > o que ele escolheu à mão), badge provada/sem-prova, liga-desliga e apagar.
 > Corpos pintados: o corpses.json dele não tinha amostras `painted` — no-op.
 >
-> **O QUE FALTA:** a fase 2 inteira (§8) — protocolo shiny completo (alvo
-> preferido, corpo do shiny real ensinado na primeira morte, "cor → qual linha
-> da battle list") e chefe-por-cor alimentando `heavy?` junto do grit (#461).
+> **O QUE FALTA:** o protocolo shiny completo (§8) — alvo preferido, corpo do
+> shiny real ensinado na primeira morte, "cor → qual linha da battle list".
+> O **chefe-por-cor JÁ ALIMENTA `heavy?`**: o `ShinyGuard` publica o fato
+> `:special` a cada varredura e o cérebro o lê (fato velho = chefe nenhum).
+> Medido na bancada (6 sementes × 3 min, mesmo mundo com e sem a regra de
+> cor): pior momento 5% → 27%, mediana 15% → 34%, o triplo de chefes mortos.
 > E o que só ELE pode fazer: ensinar a primeira regra com o Electrode shiny na
 > tela, medir o chão com o Torterra em campo, e LIGAR a guarda no painel.
 
@@ -218,9 +221,14 @@ re-medir, nunca alargar a zona proibida até cegar o detector.
   (`shiny_always_ball` já existe), corpo do shiny ensinado do REAL na primeira morte
   (aí o acervo de corpos assume a mira). Precisa resolver "cor → qual linha da battle
   list" (a cor não diz a linha; caminho provável: Finder rastreando a mancha + posição).
-- **Chefe por cor → `heavy?`:** regra kind: :chefe vira canal da Situation (como
-  `boss_tiles`), somando ao grit (#461) — e junto o sinal da MORDIDA (buraco nomeado
-  no #461 pro chefe solitário/mobada).
+- ~~**Chefe por cor → `heavy?`**~~ — FEITO: a regra `kind: "chefe"` vira o fato
+  `:special` (publicado a cada varredura do vigia, lido pelo cérebro com prazo de
+  três varreduras) e entra no `heavy?` ao lado do nome e do grit. É o único canal
+  que enxerga ANTES da luta abrir, e por isso fecha os dois buracos nomeados no
+  #461 (chefe solitário abaixo da régua, e o mordedor que a mobada arrasta).
+  O que ele NÃO fecha, medido: o tombo do PRIMEIRO bolo (~40s, ninho de comuns
+  com a barra gasta) — por isso o cenário 🎨 promete `nao_cai`+`mata` e não
+  `aguenta`. O sinal da MORDIDA continua na fila pra esse pedaço.
 
 ## 9. Armadilhas que já custaram noites (ler antes de codar)
 

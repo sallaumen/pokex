@@ -395,6 +395,45 @@ defmodule Pokex.Bots.Engine.SituationTest do
     end
   end
 
+  # O CHEFE PELA COR: o terceiro caminho, e o único que enxerga antes de
+  # apanhar. Nome não separa nada no PA, e o grit precisa da luta já aberta.
+  describe "o chefe pela cor" do
+    test "a cor vista liga heavy? e fura a régua sozinha" do
+      picture =
+        Situation.build(
+          inputs(%{battle: battle(~w(Electrode)), own_out?: true, boss_color?: true}),
+          %{engage_from: 3},
+          1_000
+        )
+
+      assert picture.heavy? == true
+      assert picture.worth_fighting? == true, "um chefe sozinho vale a luta"
+    end
+
+    test "sem a cor, um bicho abaixo da régua segue sendo bicho" do
+      picture =
+        Situation.build(
+          inputs(%{battle: battle(~w(Electrode)), own_out?: true, boss_color?: false}),
+          %{engage_from: 3},
+          1_000
+        )
+
+      assert picture.heavy? == false
+      assert picture.worth_fighting? == false
+    end
+
+    test "canal ausente é chefe nenhum — nenhuma bancada antiga ganha postura" do
+      picture =
+        Situation.build(
+          inputs(%{battle: battle(~w(Electrode)), own_out?: true}),
+          %{engage_from: 3},
+          1_000
+        )
+
+      assert picture.heavy? == false
+    end
+  end
+
   describe "o chefe na foto" do
     @chefe_config %{engage_from: 3, boss_names: "Chefe, Boss X"}
 

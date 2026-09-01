@@ -270,8 +270,24 @@ defmodule Pokex.Bots.Engine.Worker do
       damage_keys: damage_keys(state.loadout, config),
       control_back_in_ms: control_back_in_ms(state.loadout, now),
       revive_left: ReviveLedger.remaining(),
+      # O CHEFE VISTO PELA COR (`ShinyGuard`): o único canal de chefe que
+      # funciona no jogo dele hoje — o nome não separa e o grit precisa da
+      # luta aberta. Fato velho não vale: sem varredura recente a resposta é
+      # "não sei", que aqui é "chefe nenhum".
+      boss_color?: boss_color?(now),
       prev: state.picture
     }
+  end
+
+  # Três varreduras de folga: uma foto perdida (jogo sem foco, captura
+  # engasgada) não pode despir a postura de chefe no meio da luta.
+  defp boss_color?(now) do
+    idade = Settings.get(:special_color_scan_ms) * 3
+
+    case WorldState.get(:special, idade, now) do
+      {:ok, %{chefe?: true}} -> true
+      _stale_or_missing_or_clean -> false
+    end
   end
 
   defp battle(now) do

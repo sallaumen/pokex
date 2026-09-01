@@ -561,7 +561,7 @@ defmodule Pokex.Sim.Bench do
       revive_left: World.revive_left(world),
       # A CORRENTE DO CLIENTE, do lado do mundo: é ela que segura o revive do
       # ciclo até o combo terminar.
-      combo_left_ms: World.combo_left_ms(world),
+      combo_left_ms: World.combo_left_ms(world, Map.get(config, :combo_window_ms) || 0),
       # A DISTÂNCIA DO CHEFE, respondida pelo mundo — o papel que o CrowdScan
       # faz no jogo. Do POKÉMON, não do personagem: o stun sai dele.
       # O CANAL DA COR: o `ShinyGuard` do jogo publica a presença do especial

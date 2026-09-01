@@ -45,12 +45,16 @@ defmodule Pokex.Sim.Knobs do
     # nada. É o número que a Central chama de "o que limita o dano da caçada", e
     # que a bancada media como zero.
     skill_gap_ms: :combat_skill_gap_ms,
-    # …E A CORRENTE DO CLIENTE, do lado do MUNDO. No Auto Combo o bot aperta uma
-    # tecla e é o JOGO que dispara as skills — então quem tem que saber disso é
-    # o mundo simulado, não o bot. Sem isto a bancada mediria um bot apertando
-    # uma tecla que o mundo ignora: zero mortos, e o veredito culpando a regra
-    # em vez do modelo. É a quinta vez que a bancada mediria um parecido.
+    # …E A CORRENTE DO CLIENTE. No Auto Combo o bot aperta uma tecla e é o JOGO
+    # que dispara as skills — então quem tem que saber disso é o mundo simulado,
+    # não o bot. Sem isto a bancada mediria um bot apertando uma tecla que o
+    # mundo ignora: zero mortos, e o veredito culpando a regra em vez do modelo.
+    # É a quinta vez que a bancada mediria um parecido.
     combo_key: :auto_combo_key,
+    # A CERCA DO BOT (a crença), não a física da corrente: é ela que o cérebro
+    # simulado consulta pra saber se ainda está no meio do combo. A duração real
+    # da corrente é `combo_chain_ms`, knob do mundo — as duas são a mesma medida
+    # com folga diferente, e confundi-las provaria um combo que o jogo não dá.
     combo_window_ms: :auto_combo_window_ms,
     # …e QUANTO ELE INSISTE numa parede antes de desistir do canto. O caminhante
     # simulado não tem o `unstick/3` do cavebot, então sem um teto ele encosta

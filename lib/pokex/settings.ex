@@ -944,9 +944,14 @@ defmodule Pokex.Settings do
     # CLIENTE, como as posturas (shift+1/shift+3) — não um slot de pokémon —,
     # por isso vive aqui e não no /time.
     #
-    # A janela é o "não encosta": 4s é a semente que ele deu, e ela vale mais
-    # cronometrada do que adivinhada. Curta demais e a segunda prensa corta a
-    # corrente; longa demais e o revive do ciclo chega tarde.
+    # A janela é o "não encosta", e ela é MEDIDA: ele cronometrou a corrente em
+    # 3,5s (01/09) e escolheu 4s — meio segundo de folga, 14%. Curta demais e a
+    # segunda prensa corta a corrente pela metade; longa demais e o revive do
+    # ciclo chega tarde, com os sobreviventes já acordando.
+    #
+    # A folga não é decoração: o jogo engole ~9% das teclas sem padrão (medido
+    # em 319 revives), e uma corrente que engasga dura mais que a medição
+    # limpa.
     auto_combo_key: "r",
     auto_combo_window_ms: 4_000,
     defense_mode_key: "shift+3",

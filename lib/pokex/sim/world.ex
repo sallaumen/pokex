@@ -145,10 +145,15 @@ defmodule Pokex.Sim.World do
     # avisa que este cenário está mandando (`presses_to_kill/1`).
     presses_to_kill: nil,
     # A CORRENTE DO CLIENTE: a tecla que dispara todas as skills ofensivas
-    # sozinha, e quanto tempo ela leva pra sair inteira. `nil` é o mundo de
+    # sozinha, e quanto tempo o JOGO leva pra entregá-las. `nil` é o mundo de
     # sempre, onde cada tecla é uma tecla — todo cenário que não pediu combo.
+    #
+    # `combo_chain_ms` é FÍSICA e não crença: a cerca do bot
+    # (`auto_combo_window_ms`) é a mesma medida com folga, e misturar as duas
+    # aqui provaria um combo que o jogo não dá — a mesma armadilha de
+    # `stun_hold_ms` (crença) contra `stun_ms` (verdade).
     combo_key: nil,
-    combo_window_ms: 4_000,
+    combo_chain_ms: 4_000,
     # measured BY HIM — which keys, put together, kill one monster ("com a
     # Vespiquen, 3, 4 e 5 garantem"). A shortcut that DERIVES a damage for
     # every key in it, so he can start from the fact he holds.
@@ -516,7 +521,7 @@ defmodule Pokex.Sim.World do
   defp client_chain do
     %{
       combo_key: Pokex.Settings.get(:auto_combo_key),
-      combo_window_ms: Pokex.Settings.get(:auto_combo_window_ms)
+      combo_chain_ms: Pokex.Settings.get(:auto_combo_window_ms)
     }
   end
 
@@ -1024,8 +1029,8 @@ defmodule Pokex.Sim.World do
 
   defp start_chain(world) do
     keys = combo_keys(world)
-    janela = world.knobs[:combo_window_ms] || 0
-    gap = div(janela, max(length(keys), 1))
+    corrente = world.knobs[:combo_chain_ms] || 0
+    gap = div(corrente, max(length(keys), 1))
 
     chain =
       keys
@@ -1036,18 +1041,19 @@ defmodule Pokex.Sim.World do
   end
 
   @doc """
-  Quanto falta da corrente, pela crença de quem apertou — `0` quando não há
-  corrente saindo.
+  Quanto falta da corrente PELA CRENÇA de quem apertou — `janela_ms` é a cerca
+  do bot (`auto_combo_window_ms`), não a física deste mundo.
 
-  É o que o `Combat.Combo` responde no jogo (do carimbo da tecla), e é o número
-  que segura o revive do ciclo. Modelar pela última tecla do `chain` mediria
-  outra coisa: o mundo termina de disparar um pouco antes de a janela fechar.
+  É o que o `Combat.Combo` responde no jogo, lendo o carimbo da tecla, e é o
+  número que segura o revive do ciclo. Medir pela última tecla do `chain`
+  responderia outra pergunta: o jogo termina de disparar antes de a cerca abrir,
+  e é a CERCA que decide quando o bot volta a agir.
   """
-  @spec combo_left_ms(t) :: non_neg_integer
-  def combo_left_ms(%{combo_at: nil}), do: 0
+  @spec combo_left_ms(t, non_neg_integer) :: non_neg_integer
+  def combo_left_ms(%{combo_at: nil}, _janela_ms), do: 0
 
-  def combo_left_ms(world),
-    do: max(world.combo_at + (world.knobs[:combo_window_ms] || 0) - world.clock, 0)
+  def combo_left_ms(world, janela_ms),
+    do: max(world.combo_at + janela_ms - world.clock, 0)
 
   defp drain_chain(%{chain: []} = world, _dt_ms), do: world
 

@@ -99,7 +99,13 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       # are ABOUT it set their own
       rescue_stun_settle_ms: 0,
       rescue_enabled: true,
-      potion_battle_clear_ms: 0
+      potion_battle_clear_ms: 0,
+      # O MODO ECONÔMICO NA BASE: o prefixo de stun do resgate é a tecla de
+      # controle DO POKÉMON, e no Auto Combo ela não é nossa — a corrente do
+      # jogo já termina em stun. Este arquivo é sobre o combo do resgate, então
+      # ele roda no modo em que esse combo existe. O bloco do Auto Combo está
+      # no fim.
+      hunt_mode: "economy"
     )
 
     SettingsStash.stash_keys!([
@@ -618,6 +624,32 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_500
     assert await_log("sem controle pronto") =~ "revivendo direto"
+  end
+
+  @tag :tmp_dir
+  # NO AUTO COMBO O PREFIXO NÃO SAI, e a tecla de controle está lá, pronta, de
+  # propósito: quem a gasta é a corrente do jogo, que termina em stun
+  # (confirmado por ele em 01/09). Apertá-la aqui seria pagar duas vezes pelo
+  # mesmo sono e deixar o controle gelado pro combo seguinte.
+  test "no Auto Combo o resgate revive direto — a corrente já dormiu a pilha", %{
+    tmp: tmp,
+    body: body
+  } do
+    SettingsStash.stash!(hunt_mode: "auto_combo", rescue_stun_first: true)
+    classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})
+
+    low = hp_png(tmp, "low_auto_combo.png", 6)
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+    orders!(:now)
+
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    worker = start_worker(body)
+    assert :ok = Worker.run(worker)
+
+    assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_500
+    refute_receive {:performed, :critical, [{:press, "1"}]}, 500
+
+    assert await_log("última parte do combo") =~ "dentro do sono"
   end
 
   @tag :tmp_dir

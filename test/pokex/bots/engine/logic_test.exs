@@ -1671,6 +1671,83 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
   end
 
+  # "Quando não consegue matar 1 pokémon com um combo, sobra 1, ele sai correndo
+  # tentando mobar (…) quando tem 1 shiny ali é normal precisar do loop de 3~4
+  # combos de revive até matar." Quem tomou a área inteira e ficou de pé vale a
+  # luta, sem nome e sem cor.
+  describe "o sobrevivente da corrente" do
+    defp corrente(left_ms, enemies, extra \\ %{}) do
+      world(%{
+        situation:
+          situation(
+            Map.merge(
+              %{enemies: enemies, worth_fighting?: false, combo_left_ms: left_ms, spent?: false},
+              extra
+            )
+          ),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    # a corrente sai (2 tiques), acaba com 1 na tela, e o revive de reset volta a barra
+    defp depois_da_corrente(logic \\ Logic.new(), enemies \\ 1) do
+      {logic, _} = Logic.step(logic, corrente(3_000, 6), @config, 1_000)
+      {logic, _} = Logic.step(logic, corrente(1_000, 6), @config, 1_200)
+      {logic, fim} = Logic.step(logic, corrente(0, enemies, %{spent?: true}), @config, 1_400)
+      {logic, fim}
+    end
+
+    test "sobrou um: o reset diz que é sobrevivente, e a luta continua em cima dele" do
+      {logic, fim} = depois_da_corrente()
+      assert fim.revive == :now
+      assert fim.why =~ "sobrevivente da corrente (1 de 6)"
+
+      # a barra voltou NA TELA: a promessa fecha e a luta segue, parada, batendo
+      lido = corrente(0, 1, %{spent?: false, bar_seen?: true, own_out?: true})
+      {_logic, orders} = Logic.step(logic, lido, @config, 5_000)
+
+      assert orders.route == :hold, orders.why
+      assert orders.fire == :free, orders.why
+    end
+
+    # A LISTA PISCA: a linha do sobrevivente some um tique e volta. Um tique
+    # vazio fecha a rodada (a luta vira estrada), e no tique seguinte a régua
+    # veria "só 1: não vale" — o latch é o que faz ela abrir de novo em cima.
+    test "a lista piscando não solta o latch: no tique seguinte a régua abre de novo em cima" do
+      {logic, _} = depois_da_corrente()
+      lido = %{spent?: false, bar_seen?: true, own_out?: true}
+      {logic, _} = Logic.step(logic, corrente(0, 1, lido), @config, 5_000)
+      {logic, _} = Logic.step(logic, corrente(0, 0, lido), @config, 5_200)
+      assert logic.survivors != nil
+
+      {_logic, orders} = Logic.step(logic, corrente(0, 1, lido), @config, 5_400)
+
+      assert orders.route == :hold, orders.why
+      assert orders.fire == :free, orders.why
+      assert orders.why =~ ~r/sobrevivente|estourando/, orders.why
+    end
+
+    test "a tela limpa por um segundo solta o latch" do
+      {logic, _} = depois_da_corrente()
+
+      logic =
+        Enum.reduce(1..5, logic, fn i, acc ->
+          {acc, _} = Logic.step(acc, corrente(0, 0), @config, 2_000 + i * 200)
+          acc
+        end)
+
+      assert logic.survivors == nil
+    end
+
+    test "passadas seis correntes, deixa pra trás e pede nome ou cor" do
+      logic = %{Logic.new() | survivors: %{since: 0, chains: 6}}
+      {_logic, fim} = depois_da_corrente(logic)
+
+      assert fim.why =~ "7 correntes e ainda sobrou"
+      assert fim.why =~ "marque o nome ou a cor"
+    end
+  end
+
   # 17:06 de 02/09: a vida do pokémon não foi lida a caçada inteira, o reset
   # do fim da corrente foi recusado por isso e sobrou a retirada. "Ao fim do
   # combo é o momento PERFEITO pra usar o revive — os monstros ao redor já

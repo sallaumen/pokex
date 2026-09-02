@@ -179,7 +179,14 @@ defmodule Pokex.Bots.Engine.Logic do
             kite_from: nil,
             # desde quando a barra do pokémon não é lida (fora do chão provado);
             # campo próprio porque `since` é zerado a cada rodada
-            hp_blind_since: nil
+            hp_blind_since: nil,
+            # A CORRENTE VISTA SAINDO no tique anterior — é o que permite ver a
+            # borda em que ela ACABA, sem relógio próprio
+            chain_seen?: false,
+            # O SOBREVIVENTE DA CORRENTE: quem tomou a área inteira e ficou de pé
+            # (`%{since, chains}`; nil = ninguém). Um sobrevivente é forte por
+            # definição, e a resposta é ficar: revive → corrente → … até cair.
+            survivors: nil
 
   @type t :: %__MODULE__{}
   @type orders :: Orders.t()
@@ -205,9 +212,11 @@ defmodule Pokex.Bots.Engine.Logic do
   defp tick(logic, world, config, now) do
     situation = world.situation
 
+    logic = logic |> track_hp_blind(situation, now) |> track_survivors(situation, now)
+
     %{
-      logic: track_hp_blind(logic, situation, now),
-      s: situation,
+      logic: logic,
+      s: with_survivors(situation, logic),
       hunt: Map.get(world, :hunt),
       hands: Map.get(world, :hands) || %{},
       config: config,
@@ -215,6 +224,83 @@ defmodule Pokex.Bots.Engine.Logic do
       band: band(situation, config)
     }
   end
+
+  # O SOBREVIVENTE DA CORRENTE. "Quando não consegue matar 1 pokémon com um
+  # combo, sobra 1, ele sai correndo tentando mobar (…) quando tem 1 shiny
+  # ali é normal precisar do loop de 3~4 combos de revive até matar (…)
+  # deixando shinies pra trás, o que é MUITO perigoso, pois são absurdamente
+  # fortes" (02/09). Medido nos registros de decisão do mesmo dia: 55 vezes
+  # "combo acabou com bicho na tela" seguido de "seguindo a rota" com bicho na
+  # tela.
+  #
+  # Quem tomou a área inteira e continua listado é forte por definição — não
+  # precisa de nome nem de cor. A borda em que a corrente ACABA (vista saindo
+  # no tique anterior, zerada agora) com alguém ainda na lista abre o latch:
+  # a pilha passa a VALER a luta (a régua abre parado em vez de "não vale,
+  # seguindo a rota") e o ciclo revive → corrente repete até a tela limpar.
+  # Com teto: passadas `@survivor_max_chains` correntes, o latch solta e a
+  # linha pede nome/cor — aí é chefe de verdade, com o ciclo dele.
+  @survivor_max_chains 6
+
+  # A LISTA PISCA: a linha do sobrevivente some por um tique (nome ilegível, a
+  # linha própria descontada) e volta. Um tique vazio não é tela limpa — o
+  # latch só solta com a tela vazia por `@survivor_empty_ticks` seguidos.
+  @survivor_empty_ticks 5
+
+  defp track_survivors(%{survivors: nil} = logic, %{enemies: 0}, _now),
+    do: %{logic | chain_seen?: false}
+
+  defp track_survivors(%{survivors: survivors} = logic, %{enemies: 0}, _now) do
+    empty = Map.get(survivors, :empty, 0) + 1
+
+    if empty >= @survivor_empty_ticks,
+      do: %{logic | survivors: nil, chain_seen?: false},
+      else: %{logic | survivors: Map.put(survivors, :empty, empty), chain_seen?: false}
+  end
+
+  defp track_survivors(logic, situation, now) do
+    left = Map.get(situation, :combo_left_ms)
+    logic = %{logic | survivors: logic.survivors && Map.put(logic.survivors, :empty, 0)}
+
+    cond do
+      is_integer(left) and left > 0 -> %{logic | chain_seen?: true}
+      chain_ended?(logic, left, situation) -> arm_survivors(logic, now)
+      true -> logic
+    end
+  end
+
+  # A BORDA: a corrente foi vista saindo e agora está zerada, com a lista lida.
+  defp chain_ended?(logic, left, %{enemies: n}),
+    do: logic.chain_seen? and left == 0 and is_integer(n)
+
+  defp arm_survivors(%{survivors: survivors} = logic, now) do
+    chains = if(survivors, do: survivors.chains, else: 0) + 1
+    since = if(survivors, do: survivors.since, else: now)
+    %{logic | chain_seen?: false, survivors: %{since: since, chains: chains, empty: 0}}
+  end
+
+  @doc "O latch do sobrevivente está armado (e dentro do teto de correntes)?"
+  @spec survivor?(t) :: boolean
+  def survivor?(%{survivors: %{chains: chains}}), do: chains <= @survivor_max_chains
+  def survivor?(_ninguem), do: false
+
+  # A foto ganha a decisão do latch: um sobrevivente vale a luta.
+  defp with_survivors(situation, logic) do
+    if survivor?(logic) and Map.get(situation, :worth_fighting?) == false,
+      do: %{situation | worth_fighting?: true},
+      else: situation
+  end
+
+  defp survivor_note(%{logic: %{survivors: %{chains: n}}} = t) when n > @survivor_max_chains,
+    do:
+      " — #{n} correntes e ainda sobrou #{count(t.s)}: deixando pra trás, isso é chefe de verdade (marque o nome ou a cor)"
+
+  defp survivor_note(%{logic: %{survivors: %{chains: n}} = logic}),
+    do: " — #{survivor_label(logic)} (#{n} de #{@survivor_max_chains}): revive e de novo em cima"
+
+  defp survivor_note(_ninguem), do: ""
+
+  defp survivor_label(_chain), do: "sobrevivente da corrente"
 
   # A CEGUEIRA DA VIDA, cronometrada: desde quando a barra do pokémon não é
   # lida, fora do chão provado (ali ela some porque o pokémon caiu). Some
@@ -721,6 +807,11 @@ defmodule Pokex.Bots.Engine.Logic do
       # atrás é colecionar mordida que ninguém paga.
       Map.get(t.s, :heavy?, false) ->
         engaged(%{t | logic: enter(t.logic, :engaged, t.now)})
+
+      # …e o sobrevivente da corrente também: quem tomou a área inteira e ficou
+      # de pé não é pilha pra puxar, é luta — a régua abre em cima dele.
+      survivor?(t.logic) ->
+        ruler(t)
 
       t.config.gather_piles and pile_payable?(t) ->
         {reset_fight(t.logic, :gathering),
@@ -1447,7 +1538,7 @@ defmodule Pokex.Bots.Engine.Logic do
          Orders.walking(:travelling, t.band, "nada aqui — seguindo a rota")}
 
       rushing_in?(t) ->
-        open(t, "#{count(t.s)}: caindo em cima, sem esperar juntar")
+        open(t, rushing_why(t))
 
       # R6. The pile is worth fighting AND it has been walked for: the steps
       # bought whatever was going to join, and dragging further only spends the
@@ -1544,8 +1635,12 @@ defmodule Pokex.Bots.Engine.Logic do
   #
   # O pé PARA (a rota segura) e o fogo espera: parar é o que faz eles virem, e é
   # o que a mão dele faz. Passado o relógio, abre com tudo.
+  # …e o SOBREVIVENTE não espera ninguém fechar: ele já está em cima do
+  # pokémon (tomou a corrente inteira ali). Esperar `bunch_ms` a cada volta do
+  # ciclo era 6s de mordida 10× por corrente — medido na bancada (02/09): dos
+  # quatro chefes, dois caíam.
   defp open(t, why) do
-    if t.config.bunch_ms > 0 do
+    if t.config.bunch_ms > 0 and not survivor?(t.logic) do
       # O MESMO TIQUE já entra na espera e decide: parado, contando.
       logic = enter(t.logic, :bunching, t.now)
 
@@ -1592,9 +1687,12 @@ defmodule Pokex.Bots.Engine.Logic do
   # recusado por isso e sobrou a retirada — "ao fim do combo é o momento
   # PERFEITO pra usar o revive, os monstros ao redor já ficam stunados". Só o
   # chão PROVADO (`false`) recusa, e esse já tem o próprio caminho (`downed`).
+  # …e o CHEFE só fura este reset quando o cérebro tem controle pra dar (o
+  # ciclo stun → revive do Econômico); no Auto Combo a corrente já termina em
+  # stun, e o reset depois dela É o ciclo de chefe.
   defp combo_reset_due?(t) do
     Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? != false and
-      not heavy?(t) and t.logic.reset_broken_at == nil and
+      not (heavy?(t) and crowd(t) != []) and t.logic.reset_broken_at == nil and
       elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and affordable?(t)
   end
 
@@ -1624,7 +1722,7 @@ defmodule Pokex.Bots.Engine.Logic do
        :resetting,
        t.band,
        "combo acabou com a barra gasta — revive agora, #{count(t.s)} ainda no sono" <>
-         sem_vida_note(t),
+         survivor_note(t) <> sem_vida_note(t),
        revive: :now
      )}
   end
@@ -1666,7 +1764,16 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp walked(t), do: Map.get(t.s, :walked, 0)
 
-  defp rushing_in?(t), do: t.s.worth_fighting? and not t.config.gather_piles
+  # …e o SOBREVIVENTE cai em cima sempre, com a juntada ligada ou não: quem
+  # tomou a área inteira e ficou de pé é luta, não pilha pra juntar.
+  defp rushing_in?(t),
+    do: survivor?(t.logic) or (t.s.worth_fighting? and not t.config.gather_piles)
+
+  defp rushing_why(%{logic: logic} = t) do
+    if survivor?(logic),
+      do: "#{count(t.s)}: #{survivor_label(logic)}, de novo em cima",
+      else: "#{count(t.s)}: caindo em cima, sem esperar juntar"
+  end
 
   # O ALVO DO BOLO, e não só os passos: "quando encontra dois monstros, pode
   # andar bastante até ter seis monstros; se tiver cinco monstros na tela, pode

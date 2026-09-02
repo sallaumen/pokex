@@ -335,6 +335,45 @@ defmodule Pokex.Sim.Scenario do
         config: %{reset_revive: true}
       },
       %__MODULE__{
+        id: "shiny-sem-nome",
+        group: :chefe,
+        icon: "🕶️",
+        aperto: :aperto,
+        mode: :auto_combo,
+        espera: [:nao_cai, :mata],
+        name: "Shiny sem nome (10×, sem cor e sem nome)",
+        why:
+          "\"Quando não consegue matar 1 pokémon com um combo, sobra 1, ele sai correndo " <>
+            "tentando mobar — quando tem 1 shiny ali é normal precisar do loop de 3~4 combos de " <>
+            "revive até matar; deixar shinies pra trás é MUITO perigoso, eles são absurdamente " <>
+            "fortes\" (02/09). Um chefe 10× que NÃO está marcado: sem nome nas regras e sem cor. " <>
+            "Só o que o cérebro vê é um bicho que tomou a corrente inteira e continua de pé — e " <>
+            "a régua cobra que ele fique e repita até a tela limpar.",
+        route: :hunt_field,
+        knobs: %{
+          # um ninho pequeno: o bolo abre a luta, os comuns caem na corrente, e
+          # quem fica de pé é o sobrevivente — o "sobra 1" dele
+          nest_size: 3,
+          # o ninho RENASCE: a estrada dele nunca fica vazia, e é no meio do bolo
+          # que o shiny vira sobrevivente — sozinho, o mundo simulado não o
+          # deixa alcançar quem anda (mordida só encostado)
+          respawn_ms: 20_000,
+          stray_chance_pct: 0,
+          boss_every_ms: 40_000,
+          # 5× a vida (≈ 4 correntes, "o loop de 3~4 combos" dele) e 10× o ataque
+          boss_hp_mult: 5,
+          boss_atk_mult: 10,
+          boss_color: false,
+          boss_name: "Venusaur",
+          presses_to_kill: 3,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          stun_ms: 5_000,
+          combo_chain_ms: 3_500
+        },
+        config: %{reset_revive: true, boss_names: ""}
+      },
+      %__MODULE__{
         id: "chefe-brando",
         group: :chefe,
         icon: "👹",

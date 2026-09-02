@@ -96,6 +96,13 @@ defmodule Pokex.Sim.Bench do
   def run(%Scenario{} = scenario, opts \\ []) do
     duration = Keyword.get(opts, :duration_ms, @default_duration_ms)
 
+    mode = Keyword.get(opts, :mode, scenario.mode)
+
+    # DÍVIDA CONSCIENTE (02/09): o bot aplica a sobreposição do modo
+    # (`Engine.Config.in_force/1`) e a bancada NÃO — um Auto Combo que ainda
+    # junta pilha andando. Aplicar aqui derruba a promessa `anda` de três
+    # cenários (o bot parado 56-79% da corrida sem juntar): é medição e régua
+    # novas, com PR próprio.
     config =
       default_config()
       |> Map.merge(scenario.config)
@@ -138,7 +145,7 @@ defmodule Pokex.Sim.Bench do
       config: config,
       # O MODO DE COMBATE que esta pergunta é sobre: é ele que decide qual mão
       # a decisão recebe (`Combat.Plan`). `nil` é o bot como ele está.
-      mode: Keyword.get(opts, :mode, scenario.mode),
+      mode: mode,
       timeline: [],
       hands: Hands.new(),
       # o que a caçada VIA quando pediu o revive: com o resgate virando combo, a
@@ -280,6 +287,7 @@ defmodule Pokex.Sim.Bench do
       |> tally_risk(world, orders, picture)
       |> tally_violations(world, orders, picture)
       |> tally_kite(orders)
+      |> tally_survivor(state.logic, orders, picture)
       |> tally_bodies(previous, world)
       |> tally_death(previous, world)
       |> tally_revive(decided_on, world, orders, picture, hands, state.asked_revive)
@@ -366,6 +374,22 @@ defmodule Pokex.Sim.Bench do
 
     Map.update!(metrics, :violations, &(broken ++ &1))
   end
+
+  # O SOBREVIVENTE DEIXADO PRA TRÁS: o cérebro com o latch armado (alguém tomou
+  # a corrente inteira e ficou de pé, ou está mordendo forte) e a ordem sendo
+  # ANDAR com bicho na tela. "Deixar shinies pra trás é MUITO perigoso" (02/09).
+  # Só as fases em que a RÉGUA decidiu andar: a estrada (`:travelling`) é a
+  # perna sem luta, em que o cavebot de verdade para no primeiro bicho.
+  @ruler_walks [:sizing, :gathering, :skipping]
+
+  defp tally_survivor(metrics, logic, %{route: :go, phase: phase}, %{enemies: n})
+       when phase in @ruler_walks and is_integer(n) and n > 0 do
+    if Logic.survivor?(logic),
+      do: Map.update!(metrics, :violations, &[:left_survivor | &1]),
+      else: metrics
+  end
+
+  defp tally_survivor(metrics, _logic, _orders, _picture), do: metrics
 
   # A RETIRADA CONTADA: quantos tiques a ordem foi andar a rota ao contrário.
   defp tally_kite(metrics, %{route: :back}), do: %{metrics | kites: metrics.kites + 1}

@@ -20,7 +20,7 @@ defmodule Pokex.Rig.Mac do
          :ok <- KeyEvents.key(:press, code, focus_app()) do
       :ok
     else
-      _fallback -> run_key(Commands.press(combo, focus_app: focus_app()))
+      _fallback -> run_key(Commands.press(combo, key_opts()))
     end
   end
 
@@ -135,6 +135,11 @@ defmodule Pokex.Rig.Mac do
   # keystroke script when the user is off on the panel/browser. Settings-driven so it can be
   # turned off (ensure_game_focus) or renamed if the game ever leaves Wine (game_app_name).
   # Fail-open: if Settings isn't up (early boot), skip the guard rather than block the press.
+  # O que TODA prensa por osascript precisa saber: pra onde apontar, e quanto o
+  # modificador segura antes da tecla (ver `Commands.key_lines/2`).
+  defp key_opts,
+    do: [focus_app: focus_app(), modifier_settle_ms: Pokex.Settings.get(:key_modifier_settle_ms)]
+
   defp focus_app do
     if Pokex.Settings.get(:ensure_game_focus), do: Pokex.Settings.get(:game_app_name)
   catch

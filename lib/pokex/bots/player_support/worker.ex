@@ -361,6 +361,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                   }
                   |> maybe_revive_fallen()
                   |> maybe_retry_fallen()
+                  |> say_unreadable()
 
                 publish_pokemon_fact(%{
                   hp_pct: nil,
@@ -837,6 +838,21 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       now: now()
     }
   end
+
+  # Três segundos sem reconhecer a barra (25 leituras a 120ms) é dito UMA vez
+  # por episódio — o painel Pokémon saiu do lugar, ou a calibração envelheceu.
+  @unreadable_said_at 25
+
+  defp say_unreadable(%{unreadable_streak: @unreadable_said_at} = state) do
+    broadcast_log(
+      :macro,
+      "🩸 não reconheço a barra de vida do pokémon há 3s — o painel Pokémon mudou de lugar? confira a calibração"
+    )
+
+    state
+  end
+
+  defp say_unreadable(state), do: state
 
   defp ready_heal_keys do
     case Loadout.current() do

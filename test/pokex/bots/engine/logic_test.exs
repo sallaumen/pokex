@@ -1671,6 +1671,48 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
   end
 
+  # 17:06 de 02/09: a vida do pokémon não foi lida a caçada inteira, o reset
+  # do fim da corrente foi recusado por isso e sobrou a retirada. "Ao fim do
+  # combo é o momento PERFEITO pra usar o revive — os monstros ao redor já
+  # ficam stunados."
+  describe "o fim da corrente sem leitura da vida" do
+    defp fim_da_corrente(own_out?, spent? \\ true) do
+      world(%{
+        situation:
+          situation(%{
+            enemies: 2,
+            spent?: spent?,
+            own_out?: own_out?,
+            own_hp: nil,
+            combo_left_ms: 0,
+            worth_fighting?: true
+          }),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    test "vida ilegível não bloqueia o revive: sai, parado, e diz por quê" do
+      {_logic, orders} = Logic.step(Logic.new(), fim_da_corrente(:unknown), @config, 1_000)
+
+      assert orders.revive == :now, orders.why
+      assert orders.route == :hold
+      assert orders.why =~ "sem leitura da vida"
+      refute orders.route == :back
+    end
+
+    test "o chão PROVADO continua sendo o caído, não o reset" do
+      {_logic, orders} = Logic.step(Logic.new(), fim_da_corrente(false), @config, 1_000)
+
+      assert orders.phase == :downed
+    end
+
+    test "com a barra ainda cheia, nada de revive" do
+      {_logic, orders} = Logic.step(Logic.new(), fim_da_corrente(:unknown, false), @config, 1_000)
+
+      assert orders.revive == :hold
+    end
+  end
+
   describe "deixar a pilha pra trás" do
     defp passando(config) do
       pequena =

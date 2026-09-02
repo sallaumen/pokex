@@ -1331,7 +1331,7 @@ defmodule Pokex.Bots.Engine.Logic do
     hp = Map.get(t.s, :player_hp)
     drop = Map.get(t.s, :player_drop, 0)
 
-    t.s.spent? == true and t.s.own_out? == true and is_integer(hp) and
+    t.s.spent? == true and t.s.own_out? != false and is_integer(hp) and
       (drop >= 10 or (hp <= t.config.player_floor_pct and drop > 0)) and
       not Map.has_key?(t.logic.since, :reset_pending)
   end
@@ -1548,8 +1548,13 @@ defmodule Pokex.Bots.Engine.Logic do
   # `combo_left_ms == 0` só existe no Auto Combo (fora dele é `nil`): a
   # corrente acabou ou nunca saiu — e com a barra gasta as duas pedem o mesmo.
   # O chefe tem o ciclo dele; o desarme e o orçamento continuam valendo.
+  # `own_out? != false`, não `== true`: a vida ILEGÍVEL não é um pokémon na
+  # bola. Às 17:06 de 02/09 a barra não foi lida a caçada inteira, o reset foi
+  # recusado por isso e sobrou a retirada — "ao fim do combo é o momento
+  # PERFEITO pra usar o revive, os monstros ao redor já ficam stunados". Só o
+  # chão PROVADO (`false`) recusa, e esse já tem o próprio caminho (`downed`).
   defp combo_reset_due?(t) do
-    Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? == true and
+    Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? != false and
       not heavy?(t) and t.logic.reset_broken_at == nil and
       elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and affordable?(t)
   end
@@ -1579,10 +1584,16 @@ defmodule Pokex.Bots.Engine.Logic do
      Orders.standing(
        :resetting,
        t.band,
-       "combo acabou com a barra gasta — revive agora, #{count(t.s)} ainda no sono",
+       "combo acabou com a barra gasta — revive agora, #{count(t.s)} ainda no sono" <>
+         sem_vida_note(t),
        revive: :now
      )}
   end
+
+  defp sem_vida_note(%{s: %{own_hp: nil}}),
+    do: " (sem leitura da vida — a corrente deixou todos no sono, revivo pelo relógio)"
+
+  defp sem_vida_note(_lida), do: ""
 
   # A ESPERA, parada. Até 02/09 ela tinha uma primeira metade que andava
   # ("mais uns 5 passos" pra arrastar o bolo, 27/08); com "não dar mais nenhum
@@ -1750,7 +1761,7 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp reset_revive?(t) do
     t.config.reset_revive and not mid_combo?(t) and t.s.spent? == true and
-      t.s.own_out? == true and
+      t.s.own_out? != false and
       is_integer(t.s.enemies) and t.s.enemies >= t.config.engage_from and
       healthy_enough?(t) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
       affordable?(t)

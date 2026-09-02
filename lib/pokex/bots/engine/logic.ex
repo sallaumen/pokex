@@ -1354,8 +1354,14 @@ defmodule Pokex.Bots.Engine.Logic do
       # R6. The pile is worth fighting AND it has been walked for: the steps
       # bought whatever was going to join, and dragging further only spends the
       # rope R2 charges for.
+      # AS FRASES NOMEIAM A REGRA. "10 passos e não veio mais ninguém" foi a
+      # pergunta dele de 02/09 — ele quis subir os 10 e não tinha a palavra pra
+      # procurar. Cada saída da régua diz qual knob a fechou.
       gathered_enough?(t) ->
-        open(t, "#{count(t.s)} depois de #{walked(t)} passos juntando: estourando a área")
+        open(
+          t,
+          "#{count(t.s)} depois de #{walked(t)} passos juntando (bolo cheio): estourando a área"
+        )
 
       stopped_arriving?(t) ->
         open(t, "#{count(t.s)} e pararam de chegar: estourando a área")
@@ -1363,7 +1369,20 @@ defmodule Pokex.Bots.Engine.Logic do
       # "Ou quando a gente já andou demais e não achou mais ninguém": past the
       # patience, what is there is worth more than what might still come.
       patience_out?(t) ->
-        open(t, "#{walked(t)} passos e não veio mais ninguém: matando #{count(t.s)}")
+        open(
+          t,
+          "paciência: #{walked(t)} passos e não veio mais ninguém — matando #{count(t.s)}"
+        )
+
+      # O TETO NUMA PILHA QUE VALE ABRE, NÃO PULA. A semente sempre prometeu
+      # "decide com o que apareceu", e o código pulava a pilha inteira com a
+      # frase "não vale a área" — mentindo, porque ela valia. Era o que fazia
+      # subir a paciência ser perigoso: passos a mais que estourassem o teto
+      # viravam pilha deixada pra trás. Medido na bancada (02/09): o teto pula
+      # pilha boa zero vezes nos defaults, então isto só muda o que acontece
+      # quando ele SOBE a paciência — que é a hora em que precisa estar certo.
+      ceiling_out?(t) and t.s.worth_fighting? ->
+        open(t, "#{count(t.s)} e o teto da juntada venceu: abrindo com o que veio")
 
       true ->
         still_sizing(t)
@@ -1372,10 +1391,16 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp still_sizing(t) do
     cond do
-      # Nothing worth having, and the clock says stop looking here.
-      not within?(t, :sizing, t.config.size_ceiling_ms) ->
+      # Nothing worth having, and the clock says stop looking here. Só chega
+      # aqui pilha que NÃO vale — a que vale abriu na régua, no teto.
+      ceiling_out?(t) ->
         {%{t.logic | state: :skipping},
-         Orders.walking(:skipping, t.band, "só #{count(t.s)}: não vale a área — seguindo a rota")}
+         Orders.walking(
+           :skipping,
+           t.band,
+           "só #{count(t.s)} em #{div(t.config.size_ceiling_ms, 1_000)}s (teto da juntada): " <>
+             "não vale a área — seguindo a rota"
+         )}
 
       # AND OTHERWISE: KEEP WALKING. This branch used to stand still counting,
       # which is the one thing his own hands never do — "que que custa eu andar
@@ -1556,6 +1581,8 @@ defmodule Pokex.Bots.Engine.Logic do
   defp gathering_why(t) do
     "juntando: #{count(t.s)} até agora, #{walked(t)} de #{t.config.gather_tiles} passos"
   end
+
+  defp ceiling_out?(t), do: not within?(t, :sizing, t.config.size_ceiling_ms)
 
   defp walked(t), do: Map.get(t.s, :walked, 0)
 

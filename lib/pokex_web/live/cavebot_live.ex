@@ -1584,7 +1584,12 @@ defmodule PokexWeb.CavebotLive do
   defp hunt_idle?(%{state: :idle}), do: true
   defp hunt_idle?(_running), do: false
 
-  defp gather_wait_note(what, nil), do: "#{what} voltou a usar o respiro do /config"
+  # HONESTA SOBRE O QUE O RESPIRO É HOJE: o fallback de quando o cérebro não
+  # está falando. Com o cérebro falando, a régua do /config manda.
+  defp gather_wait_note(what, nil),
+    do:
+      "#{what} voltou ao respiro global do /config — que só vale quando o cérebro não está falando"
+
   defp gather_wait_note(what, ms), do: "#{what} espera #{ms}ms o bolo fechar"
 
   # What his hands measured, offered as a starting point — and only when it is

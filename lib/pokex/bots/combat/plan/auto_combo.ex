@@ -42,11 +42,41 @@ defmodule Pokex.Bots.Combat.Plan.AutoCombo do
 
   # A ROTAÇÃO É A MESMA TECLA, e é ela que faz o ciclo repetir. A abertura sai
   # UMA vez, na borda em que o fogo libera; sem uma rotação que insista, o
-  # segundo combo da luta nunca sairia. A cerca da janela é que recusa as
-  # prensas que chegam cedo demais — oferecer sempre e recusar por fora é o que
-  # faz a primeira tecla depois da janela sair na hora.
+  # segundo combo da luta nunca sairia.
+  #
+  # …MAS SÓ COM BARRA PRA GASTAR, e é isto que fecha o ciclo dele.
+  #
+  # A corrente encadeia as skills DO POKÉMON: com todas em cooldown, apertar a
+  # tecla não faz nada no jogo — e faz uma coisa péssima no bot, porque reabre a
+  # janela de 4s e o revive perde a vez. Foi o que a noite de 02/09 mostrou:
+  # 56 combos, 50 deles com a barra JÁ vazia, um a cada 4,0-4,5s (a janela
+  # fechando e a rotação reapertando na hora), e só 7 revives. O cérebro decide
+  # a cada 200ms e a mão dispara no frame seguinte: a mão sempre ganhava a
+  # corrida, e o "usar o revive logo depois do combo" nunca acontecia.
+  #
+  # Com a barra vazia a resposta certa é NÃO APERTAR: aí o `mid_combo?` abre, o
+  # cérebro vê `spent?` e manda o revive — que é o que devolve a barra e o que
+  # faz a corrente seguinte valer alguma coisa.
   @impl true
-  def sustained(loadout, ctx), do: combo_key(loadout, ctx)
+  def sustained(loadout, ctx) do
+    if bar_spent?(loadout, ctx), do: [], else: combo_key(loadout, ctx)
+  end
+
+  # Vazia é NENHUMA tecla de dano pronta. Leitura ausente é cega, e cega aperta:
+  # segurar a corrente por causa de uma barra que ninguém conseguiu ler é o pior
+  # lado de errar — a mesma regra que a rotação comum já segue.
+  defp bar_spent?(loadout, ctx) do
+    case Map.get(ctx, :ready_keys) do
+      nil ->
+        false
+
+      ready ->
+        case Plan.Standard.damage_keys(loadout, ctx) do
+          [] -> false
+          keys -> not Enum.any?(keys, &(&1 in ready))
+        end
+    end
+  end
 
   # Não existe "mão pequena" numa tecla só: a corrente é indivisível.
   @impl true

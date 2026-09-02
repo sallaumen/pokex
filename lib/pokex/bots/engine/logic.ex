@@ -293,6 +293,17 @@ defmodule Pokex.Bots.Engine.Logic do
       # seguinte é exatamente o "controle primeiro, revive na sequência" dele.
       boss_stun_due?(t) -> boss_stun(t)
       t.logic.state == :recovering -> recovering(t)
+      # A REGRA DELE, ESCRITA COMO REGRA — não caída das outras. "Logo depois do
+      # combo estar finalizado, usar o revive pra resetar os cooldowns." Três
+      # noites ela não saiu, e cada vez por um portão escrito pro modo antigo:
+      # a R3b exige seis na tela, o preparo exige tela limpa, os dois esperam
+      # a janela do combo — e quando a janela abre a caçada já está juntando o
+      # próximo grupo, onde nenhuma regra de revive é sequer consultada
+      # (09:14:16 de 02/09: "estourando a área" → "recuando" → "pilha limpa"
+      # no mesmo segundo, e nunca um F4). Aqui ela vem ANTES das bandas e da
+      # régua: a corrente acabou e a barra está gasta, então revive — com bicho
+      # ou sem, andando ou parado, porque os que sobraram ainda estão dormindo.
+      combo_reset_due?(t) -> combo_reset(t)
       # R5: a band whose only move is a revive the game will refuse for another
       # forty seconds is not a reason to stand still.
       t.band in [:yellow, :red] and not revive_plausible?(t) -> unaided(t)
@@ -1449,6 +1460,27 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp small(%{hands: %{small: keys}}), do: keys
   defp small(_no_hands), do: []
+
+  # `combo_left_ms == 0` só existe no Auto Combo (fora dele é `nil`): a
+  # corrente acabou ou nunca saiu — e com a barra gasta as duas pedem o mesmo.
+  # O chefe tem o ciclo dele; o desarme e o orçamento continuam valendo.
+  defp combo_reset_due?(t) do
+    Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? == true and
+      not heavy?(t) and t.logic.reset_broken_at == nil and
+      elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and affordable?(t)
+  end
+
+  # Rota e fogo seguros desde o pedido: o tique seguinte já é a espera pela
+  # barra (`hold_until_reset_seen/2`), e a corrente volta na borda do fogo.
+  defp combo_reset(t) do
+    {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
+     Orders.standing(
+       :resetting,
+       t.band,
+       "combo acabou com a barra gasta — revive agora, #{count(t.s)} ainda no sono",
+       revive: :now
+     )}
+  end
 
   # A ESPERA, em duas metades, e a primeira ANDA.
   #

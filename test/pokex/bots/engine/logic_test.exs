@@ -1711,6 +1711,34 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert orders.revive == :hold
     end
+
+    # "É legal ter aviso disso pra evitar de eu fazer merda por não saber que ele
+    # não tá pegando dados corretos — não iniciar o cavebot e talz."
+    test "oito segundos sem leitura da vida param a caçada, e a leitura de volta solta" do
+      cego = fim_da_corrente(:unknown, false)
+
+      {logic, cedo} = Logic.step(Logic.new(), cego, @config, 1_000)
+      refute cedo.phase == :stranded
+
+      {logic, parou} = Logic.step(logic, cego, @config, 9_500)
+      assert parou.phase == :stranded
+      assert parou.route == :hold
+      assert parou.why =~ "recalibre"
+
+      lido = put_in(cego.situation.own_hp, 90) |> put_in([:situation, :own_out?], true)
+      {logic, voltou} = Logic.step(logic, lido, @config, 9_700)
+      refute voltou.phase == :stranded
+      assert logic.hp_blind_since == nil
+    end
+
+    test "o chão provado não conta como cegueira" do
+      caido = fim_da_corrente(false, false)
+
+      {logic, _} = Logic.step(Logic.new(), caido, @config, 1_000)
+      {_logic, orders} = Logic.step(logic, caido, @config, 9_500)
+
+      assert orders.phase == :downed
+    end
   end
 
   describe "deixar a pilha pra trás" do

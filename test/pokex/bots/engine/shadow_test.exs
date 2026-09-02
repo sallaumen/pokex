@@ -40,6 +40,12 @@ defmodule Pokex.Bots.Engine.ShadowTest do
     )
 
     WorldState.clear()
+    # O RELÓGIO DAS TECLAS É GLOBAL: um carimbo deixado por outro arquivo faz a
+    # barra parecer gasta aqui, e desde #499 barra gasta + corrente acabada +
+    # vida sem leitura é REVIVE (o que a CI viu como :resetting onde se esperava
+    # a régua). Este quadro começa com o relógio limpo.
+    Pokex.Bots.SkillClock.wipe()
+    Pokex.Bots.ReviveLedger.reset()
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
     {:ok, worker} = Worker.start_link(name: nil, active: false)

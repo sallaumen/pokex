@@ -64,6 +64,9 @@ defmodule Pokex.Bots.Engine.Config do
     downed_give_up_ms: :engine_downed_give_up_ms,
     prepare_max_enemies: :engine_prepare_max_enemies,
     revive_reserve: :engine_revive_reserve,
+    # A vida DELE, não a do pokémon: o piso do alarme é também o piso da emergência
+    # do cérebro (02/09) — quem está fora do alcance do pokémon bate nele.
+    player_floor_pct: :player_hp_floor_pct,
     closing_timeout_ms: :engine_closing_timeout_ms,
     revive_confirm_ms: :engine_revive_confirm_ms,
     reset_revive: :engine_reset_revive,

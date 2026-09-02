@@ -894,7 +894,8 @@ defmodule Pokex.Settings do
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_bunch_ms: 0..30_000,
-    engine_gather_target: 1..20,
+    # 8 é o que cabe ao redor do pokémon; acima disso o resto fica longe e bate NELE (02/09).
+    engine_gather_target: 1..8,
     engine_patience_tiles: 1..200,
     engine_size_ceiling_ms: 100..600_000,
     engine_band_yellow_pct: 0..100,

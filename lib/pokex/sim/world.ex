@@ -967,6 +967,9 @@ defmodule Pokex.Sim.World do
   defp stamp_floor(world),
     do: %{world | rescue_ready_at: world.clock + world.knobs.revive_cooldown_ms}
 
+  defp fresh_bar(world),
+    do: Map.new(world.keys, fn {key, skill} -> {key, %{skill | ready_at: 0}} end)
+
   defp fainted_floor(world),
     do: Map.get(world.knobs, :fainted_revive_cooldown_ms, world.knobs.revive_cooldown_ms)
 
@@ -992,7 +995,7 @@ defmodule Pokex.Sim.World do
       | own: own,
         revive_at: nil,
         revived_at: world.clock,
-        keys: Map.new(world.keys, fn {key, skill} -> {key, %{skill | ready_at: 0}} end)
+        keys: fresh_bar(world)
     }
   end
 
@@ -1513,6 +1516,16 @@ defmodule Pokex.Sim.World do
     world.mobs
     |> Enum.filter(&on_screen?(&1, world.pos, world.knobs))
     |> Enum.map(&%{name: &1.name, hp_pct: &1.hp / &1.max_hp, shiny?: false})
+  end
+
+  # A BARRA QUE DEMORA A APARECER depois do revive (`bar_lag_after_revive_ms`):
+  # a física zerou, a TELA ainda mostra tudo esfriando. É o desarme FALSO de
+  # 28/08 ("usei revive e diz que recuperou 5 cooldowns, mas não recuperou
+  # um"): três vezes e o cérebro desarma o reset — e o que ele faz desarmado,
+  # com uma barra que na verdade está cheia, é o que o cenário mede.
+  defp ready_keys(%{revived_at: at} = world) when is_integer(at) do
+    lag = Map.get(world.knobs, :bar_lag_after_revive_ms, 0)
+    if world.clock - at < lag, do: [], else: ready_keys(%{world | revived_at: nil})
   end
 
   defp ready_keys(world) do

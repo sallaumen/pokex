@@ -283,6 +283,58 @@ defmodule Pokex.Sim.Scenario do
         config: %{reset_revive: true}
       },
       %__MODULE__{
+        id: "nove-em-cima",
+        group: :hunt,
+        icon: "🎱",
+        aperto: :aperto,
+        mode: :auto_combo,
+        espera: [:nao_morre, :nao_recua, :mata],
+        name: "Nove em cima (mais do que cabe ao redor)",
+        why:
+          "\"Só 8 conseguem ficar ao redor do meu pokémon — os outros podem ficar longe e fazer " <>
+            "eu morrer durante o revive. Nesse caso não dá pra usar o auto-combo e sair correndo, " <>
+            "vai piorar a situação; o ideal é arriscar o quanto antes\" (02/09). Ninhos de nove e " <>
+            "dez: a corrente, o revive — e nunca a retirada.",
+        route: :anthill,
+        knobs: %{
+          nest_sizes: %{9 => 3, 10 => 2},
+          nest_radius: 3,
+          stray_chance_pct: 40,
+          aggro_tiles: 8,
+          leash_tiles: 12,
+          respawn_ms: 20_000,
+          combo_chain_ms: 3_500
+        },
+        config: %{reset_revive: true, gather_target: 8}
+      },
+      %__MODULE__{
+        id: "barra-que-demora",
+        group: :hunt,
+        icon: "🧯",
+        aperto: :aperto,
+        mode: :auto_combo,
+        espera: [:nao_morre, :nao_recua, :mata],
+        name: "A barra que demora a aparecer (reset desarmado)",
+        why:
+          "\"Usei revive e diz que recuperou 5 cooldowns, mas não recuperou um\" — a tela demora " <>
+            "a mostrar a barra de volta, três vezes seguidas, e o cérebro DESARMA o reset por dez " <>
+            "minutos com uma barra que na verdade está cheia. O que ele faz desarmado é o que se " <>
+            "mede: até 02/09 recuava pelo chão limpo a cada barra vazia (39 minutos de kite em " <>
+            "28/08); agora luta parado com o que volta, que o r solta as de alvo único também.",
+        route: :anthill,
+        knobs: %{
+          nest_sizes: %{2 => 4, 3 => 4, 4 => 2, 5 => 1},
+          nest_radius: 3,
+          stray_chance_pct: 60,
+          aggro_tiles: 8,
+          leash_tiles: 12,
+          respawn_ms: 20_000,
+          combo_chain_ms: 3_500,
+          bar_lag_after_revive_ms: 4_500
+        },
+        config: %{reset_revive: true}
+      },
+      %__MODULE__{
         id: "chefe-brando",
         group: :chefe,
         icon: "👹",

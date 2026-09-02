@@ -299,6 +299,12 @@ defmodule Pokex.Bots.Engine.Logic do
       # Health rules the rest: the revive needs no attack key, and a pokémon
       # about to fall must not be abandoned because nobody classified its bar.
       t.band == :red -> emergency(t)
+      # O PERSONAGEM ESTÁ APANHANDO. "Só 8 conseguem ficar ao redor do meu
+      # pokémon — os outros podem ficar longe e com isso fazer eu morrer durante
+      # o revive (…) nessas horas o ideal é arriscar o quanto antes" (02/09).
+      # Com a barra gasta, a barra cheia é a única resposta, e ela vem ANTES da
+      # corrente acabar: cortar a cauda custa dano; esperar custa ele.
+      bleeding?(t) -> bleeding(t)
       # O CICLO DO AUTO COMBO, nos passos que ele numerou — e ABAIXO do vermelho
       # de propósito: o chão de segurança nunca espera a corrente.
       #
@@ -492,7 +498,10 @@ defmodule Pokex.Bots.Engine.Logic do
     cond do
       # R2: stop extending the gathering FIRST, then let what is already coming
       # arrive. The ceiling is what makes this a decision instead of a hang.
-      not settled?(t) and within?(t, :closing, t.config.closing_timeout_ms) ->
+      # …mas não com mais bicho do que cabe ao redor: os de fora não vão
+      # "fechar" nunca, e cada segundo de espera é mordida nele.
+      not crowded?(t) and not settled?(t) and
+          within?(t, :closing, t.config.closing_timeout_ms) ->
         {t.logic,
          Orders.standing(
            :closing,
@@ -1277,8 +1286,8 @@ defmodule Pokex.Bots.Engine.Logic do
   defp kite_reason(%{logic: %{reset_broken_at: at}} = t) when is_integer(at) do
     left = div(max(t.config.reset_rearm_ms - (t.now - at), 0), 1_000)
 
-    " — o reset está DESARMADO (3 revives seguidos sem efeito nenhum — " <>
-      "confere o ESTOQUE no jogo; tento de novo em #{left}s)"
+    " — reset DESARMADO (3 revives seguidos sem efeito): lutando parado com o que " <>
+      "volta, o r solta as de alvo único também; confere o ESTOQUE, tento em #{left}s"
   end
 
   defp kite_reason(t) do
@@ -1292,9 +1301,50 @@ defmodule Pokex.Bots.Engine.Logic do
       t.config.reset_revive and
         not elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms)
 
+  # …e NÃO SAI com o reset desarmado: dez minutos recuando é pior que lutar
+  # parado com o que volta — o `r` solta as de alvo único também (02/09).
+  #
+  # Com mais bicho do que cabe ao redor ("não dá pra usar o auto-combo e sair
+  # correndo, vai piorar a situação") a resposta é o REVIVE, o quanto antes —
+  # e ele vem antes deste ramo sempre que existe (reset, sangrando, vermelho).
+  # A retirada só sobra quando não há revive nenhum a dar (reset desligado, ou
+  # a reserva batida): aí ela é a única saída, com 4 ou com 9 — parado numa
+  # nuvem que não morre é a noite inteira no mesmo canto (medido: o enxame de
+  # uma hora parava de girar).
   defp kiting?(t) do
     t.config.kite_when_spent and t.s.spent? == true and some?(t.s) and escaping?(t) and
-      kite_budget_left?(t)
+      kite_budget_left?(t) and t.logic.reset_broken_at == nil and not reset_no_piso?(t)
+  end
+
+  # MAIS BICHO DO QUE CABE AO REDOR DO POKÉMON: 8 tiles vizinhos, 8 bocas. O
+  # nono em diante fica longe, fora da área e do stun, e bate NELE.
+  @fits_around 8
+
+  defp crowded?(%{s: %{enemies: n}}) when is_integer(n), do: n > @fits_around
+  defp crowded?(_unknown), do: false
+
+  # A VIDA DELE CAINDO com a barra gasta — CAINDO, não baixa: vida baixa parada
+  # é o alarme do suporte (e o modo hard vive com 1 de vida a noite inteira);
+  # sangrar é a foto de agora abaixo da anterior. Dez pontos de uma vez é o jato
+  # de água na cara; abaixo do piso do alarme qualquer ponto a menos já basta.
+  defp bleeding?(t) do
+    hp = Map.get(t.s, :player_hp)
+    drop = Map.get(t.s, :player_drop, 0)
+
+    t.s.spent? == true and t.s.own_out? == true and is_integer(hp) and
+      (drop >= 10 or (hp <= t.config.player_floor_pct and drop > 0)) and
+      not Map.has_key?(t.logic.since, :reset_pending)
+  end
+
+  defp bleeding(t) do
+    {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
+     Orders.standing_and_firing(
+       :emergency,
+       t.band,
+       opening(t),
+       "VOCÊ está apanhando (#{Map.get(t.s, :player_hp)}%) com a barra gasta — revive agora, custe o que custar",
+       revive: :now
+     )}
   end
 
   # O TETO DA RETIRADA — e ele existe porque a retirada não termina sozinha.

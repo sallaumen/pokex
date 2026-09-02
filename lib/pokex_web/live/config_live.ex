@@ -77,7 +77,8 @@ defmodule PokexWeb.ConfigLive do
           kind: :pct,
           label: "Alarme da sua vida abaixo de",
           hint:
-            "Duas leituras seguidas da SUA vida abaixo disto tocam o alarme. 0 desliga o alarme; a leitura continua.",
+            "Duas leituras seguidas da SUA vida abaixo disto tocam o alarme. E o cérebro trata " <>
+              "como emergência: com a barra gasta, revive na hora. 0 desliga o alarme; a leitura continua.",
           keywords: "vida personagem player você piso alarme"
         },
         %{
@@ -291,7 +292,8 @@ defmodule PokexWeb.ConfigLive do
           kind: :int,
           label: "O bolo está cheio com (bichos)",
           hint:
-            "Parado, contando quem chega: com este tanto na tela abre o fogo sem esperar mais.",
+            "Parado, contando quem chega: com este tanto na tela abre o fogo sem esperar mais. " <>
+              "No máximo 8: só 8 cabem ao redor do pokémon; o resto fica longe e bate em você.",
           keywords: "juntar mobar gather alvo pilha bolo cheio"
         },
         %{

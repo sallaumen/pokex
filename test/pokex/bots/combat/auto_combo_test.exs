@@ -52,8 +52,23 @@ defmodule Pokex.Bots.Combat.AutoComboTest do
     # `spent?` mede contra a BARRA, porque é a barra que a corrente gasta — e é
     # ela que o revive devolve. Reportar a tecla do combo aqui faria a pergunta
     # ser sobre uma tecla que a barra não mostra.
-    test "o que conta como barra gasta continua sendo a barra do pokémon" do
+    test "o que conta como barra gasta é a ÁREA do pokémon" do
       assert Plan.AutoCombo.damage_keys(loadout(), ctx()) == ["3", "4"]
+    end
+
+    # As de alvo único voltam em 10-20s contra 35-60s da área, e uma delas
+    # pronta sozinha segurava `spent?` em falso: a corrida de 23:04 de 01/09
+    # apertou o combo cinco vezes com "1 de 8 pronta" e nunca reviveu.
+    test "as de alvo único ficam de fora mesmo com a chave ligada" do
+      ligada = ctx(%{config: %{single_target: true, combat_single_target: true}})
+
+      assert Plan.AutoCombo.damage_keys(loadout(), ligada) == ["3", "4"]
+    end
+
+    test "uma tecla barata pronta não segura a corrente com a área toda gasta" do
+      so_a_barata = ctx(%{ready_keys: ["7"], config: %{combat_single_target: true}})
+
+      assert Plan.AutoCombo.sustained(loadout(), so_a_barata) == []
     end
 
     test "a tecla não depende do pokémon — ela é do cliente" do

@@ -38,6 +38,9 @@ defmodule Pokex.Bots.Engine.LogicTest do
         prepared?: true,
         blind?: false,
         ready_keys: nil,
+        # a foto da barra EXISTE nestes quadros: `spent?`/`prepared?` acima
+        # são leituras, e o reset é cobrado por imagem (01/09)
+        bar_seen?: true,
         # a segunda metade da régua (R6): quantos passos já foram andados
         # puxando ESTA pilha, e o contador monotônico do qual ela sai
         walked: 0,
@@ -554,6 +557,82 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     test "acabada a corrente, o reset sai na hora" do
       assert lutando(sem_controle(%{combo_left_ms: 0, own_hp: 100})).revive == :now
+    end
+
+    # O RESET É COBRADO POR IMAGEM (01/09): "temos que ter certeza de que os
+    # cooldowns foram resetados antes de continuar a rota — se não tiver
+    # recuperado, não podemos continuar". Depois do pedido, rota e fogo
+    # seguram até a FOTO da barra dizer que ela voltou.
+    # Dois tiques: o primeiro abre a luta, o segundo pede o revive.
+    defp pedido(mundo) do
+      {logic, _abertura} = reset_step(Logic.new(), mundo, 10_000)
+      {logic, pedido} = reset_step(logic, mundo, 10_500)
+      assert pedido.revive == :now
+      logic
+    end
+
+    test "depois de pedir o revive, a rota e o fogo seguram até a barra voltar na tela" do
+      logic = pedido(sem_controle(%{own_hp: 100}))
+
+      ainda_gasta = sem_controle(%{own_hp: 100, spent?: true, bar_seen?: true})
+      {_logic, espera} = reset_step(logic, ainda_gasta, 10_900)
+
+      assert espera.phase == :resetting
+      assert espera.route == :hold
+      assert espera.fire == :hold
+      assert espera.why =~ "ainda não voltou na tela"
+    end
+
+    test "a barra de volta NA FOTO libera a rota no mesmo tique" do
+      logic = pedido(sem_controle(%{own_hp: 100}))
+
+      voltou = sem_controle(%{own_hp: 100, spent?: false, bar_seen?: true})
+      {logic, livre} = reset_step(logic, voltou, 11_500)
+
+      refute livre.phase == :resetting
+      assert livre.fire == :free
+      assert logic.reset_strikes == 0
+      refute Map.has_key?(logic.since, :reset_pending)
+    end
+
+    # O relógio zerado diz "tudo pronto" pra quem não viu nada: sem foto, a
+    # promessa fica em aberto — e a rota, segura.
+    test "sem foto da barra, 'tudo pronto' pelo relógio NÃO cumpre a promessa" do
+      logic = pedido(sem_controle(%{own_hp: 100}))
+
+      cega = sem_controle(%{own_hp: 100, spent?: false, bar_seen?: false})
+      {logic, espera} = reset_step(logic, cega, 11_500)
+
+      assert espera.phase == :resetting
+      assert espera.why =~ "ilegível"
+      assert Map.has_key?(logic.since, :reset_pending)
+    end
+
+    # Cega até o prazo, a promessa fecha como INVERIFICÁVEL: nem cumprida
+    # (não zera as quebras) nem quebrada (não conta strike por uma barra que
+    # ninguém leu) — e a rota volta a andar.
+    test "cega até o prazo, a promessa fecha sem strike e a rota volta" do
+      logic = %{pedido(sem_controle(%{own_hp: 100})) | reset_strikes: 1}
+
+      cega = sem_controle(%{own_hp: 100, spent?: false, bar_seen?: false})
+      {logic, depois} = reset_step(logic, cega, 10_500 + 3_000 + 5_000 + 200)
+
+      refute depois.phase == :resetting
+      refute Map.has_key?(logic.since, :reset_pending)
+      assert logic.reset_strikes == 1
+    end
+
+    # O CHEFE NÃO ESPERA: o ciclo dele (stun na emenda, F4 a cada 5s) é mais
+    # curto que o prazo da promessa, e segurá-lo era acordar o chefe com o
+    # controle na mão.
+    test "com o chefe na tela a promessa não segura nada" do
+      logic = pedido(sem_controle(%{own_hp: 100}))
+
+      chefe = sem_controle(%{own_hp: 100, spent?: true, bar_seen?: true, heavy?: true})
+      {_logic, ordens} = reset_step(logic, chefe, 10_900)
+
+      refute ordens.phase == :resetting
+      assert ordens.fire == :free
     end
 
     # Sem combo nenhum (todo modo que não é o Auto Combo) a regra não existe:

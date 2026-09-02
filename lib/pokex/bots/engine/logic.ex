@@ -217,10 +217,55 @@ defmodule Pokex.Bots.Engine.Logic do
   # and a six-branch cond, so reading the order meant reading four places in the
   # right sequence. Splitting it again to buy a lower complexity score would
   # undo exactly that, so the check is off for this head and this head only.
-  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp decide(t) do
     t = %{t | logic: audit_reset(t)}
 
+    t |> choose() |> hold_until_reset_seen(t)
+  end
+
+  # O RESET É UMA PROMESSA COBRADA POR IMAGEM. "Temos que ter certeza de que
+  # os cooldowns foram resetados antes de continuar a rota — se não tiver
+  # recuperado, não podemos continuar" (01/09). Enquanto `:reset_pending`
+  # estiver aberto, a decisão da caçada vira ESPERA: a rota segura e a mão fica
+  # quieta. Seguir andando com a barra gasta é chegar no próximo grupo sem
+  # nada; apertar o combo em cima de um reset que ainda não aconteceu é o que
+  # ele viu às 23:04 — o relógio zerado dizia "barra cheia" 3s depois do F4.
+  #
+  # Uma SOBREPOSIÇÃO, não um ramo da fila: as regras continuam decidindo, e só
+  # o que sai muda. O chefe fica de fora — o ciclo dele (stun a cada emenda,
+  # F4 a cada 5s) tem física medida em oito PRs e é mais curto que o prazo da
+  # promessa; segurá-lo era acordar o chefe com o controle na mão. E as fases
+  # de emergência ficam de fora porque já seguram a rota por conta própria.
+  @held_by_reset [:travelling, :gathering, :sizing, :bunching, :engaged, :skipping]
+
+  # O tique que PEDE o revive passa inteiro — a ordem diz por que reviveu, e
+  # o suporte a lê no tique seguinte. A espera começa daí.
+  defp hold_until_reset_seen({logic, orders}, t) do
+    pending? = Map.has_key?(logic.since, :reset_pending)
+
+    if pending? and orders.revive == :hold and orders.phase in @held_by_reset and
+         not heavy?(t) do
+      {logic, %{orders | phase: :resetting, route: :hold, fire: :hold, why: awaiting_why(t)}}
+    else
+      {logic, orders}
+    end
+  end
+
+  defp awaiting_why(t) do
+    segundos = div(t.now - Map.get(t.logic.since, :reset_pending, t.now), 1_000)
+
+    tela =
+      if bar_seen?(t),
+        do: "a barra ainda não voltou na tela",
+        else: "a barra está ilegível"
+
+    "revive pedido há #{segundos}s — #{tela}; a rota só segue com os cooldowns de volta"
+  end
+
+  defp bar_seen?(t), do: Map.get(t.s, :bar_seen?) == true
+
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
+  defp choose(t) do
     cond do
       # NOTHING IS ON THE FIELD, and it was PROVEN — `own_out?` answers
       # `:unknown` when the bar merely could not be read. Every rule below this
@@ -648,7 +693,9 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp normal(t) do
     if prepare?(t, t.config.prepare_max_enemies) do
-      {reset_fight(t.logic, :travelling) |> mark(:reset_revive, t.now),
+      {reset_fight(t.logic, :travelling)
+       |> mark(:reset_revive, t.now)
+       |> mark(:reset_pending, t.now),
        Orders.walking(
          :travelling,
          t.band,
@@ -746,7 +793,9 @@ defmodule Pokex.Bots.Engine.Logic do
   # keeps the hunt standing at a spot it has already cleared.
   defp engaged(%{s: %{enemies: 0}} = t) do
     if prepare?(t, 0) do
-      {reset_fight(t.logic, :travelling) |> mark(:reset_revive, t.now),
+      {reset_fight(t.logic, :travelling)
+       |> mark(:reset_revive, t.now)
+       |> mark(:reset_pending, t.now),
        Orders.walking(
          :travelling,
          t.band,
@@ -1537,9 +1586,15 @@ defmodule Pokex.Bots.Engine.Logic do
   # quanto melhor o reset trabalhava, mais certo ele quebrava. Foi o minuto 1
   # da corrida de 28/08 — cinco resets perfeitos, um veredito errado, e 39
   # minutos de "recuando pelo chão limpo" com o estoque a 700.
+  # …E A PROMESSA VISTA É VISTA NA TELA. Depois do revive o relógio está
+  # zerado, então `spent? == false` com a barra ilegível é o relógio falando
+  # sozinho — "tudo pronto" de quem não viu nada. Cumprida só com a FOTO
+  # (regra dele: "vamos validar os cooldowns por imagem"). Sem foto até o
+  # prazo, o caso fecha como inverificável: nem cumprida (não zera as
+  # quebras), nem quebrada (não conta strike por uma barra que ninguém leu).
   defp judge_reset(t, at) do
     cond do
-      t.s.own_out? == true and t.s.spent? == false ->
+      t.s.own_out? == true and t.s.spent? == false and bar_seen?(t) ->
         %{close_reset(t.logic) | reset_strikes: 0}
 
       t.now - at < t.config.revive_confirm_ms + reset_grace_ms(t) ->
@@ -1547,6 +1602,9 @@ defmodule Pokex.Bots.Engine.Logic do
 
       t.s.own_out? != true ->
         t.logic
+
+      not bar_seen?(t) ->
+        close_reset(t.logic)
 
       true ->
         judge_broken(t)

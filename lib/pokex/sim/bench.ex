@@ -544,6 +544,7 @@ defmodule Pokex.Sim.Bench do
       pos: World.observe(world, :minimap).pos,
       own_name: world.own.name,
       ready_keys: World.observe(world, :skill_bar).ready_keys,
+      bar_seen?: World.observe(world, :skill_bar).ready_keys != nil,
       damage_keys: damage_keys(world, config),
       # …e o mesmo relógio do controle que o worker entrega, lido do mundo: aqui
       # o cooldown é fato, não carimbo.

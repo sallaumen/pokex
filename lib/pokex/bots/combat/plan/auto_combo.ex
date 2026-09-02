@@ -18,13 +18,19 @@ defmodule Pokex.Bots.Combat.Plan.AutoCombo do
   isso `crowd/2` é `[]`: o cérebro não tem controle pra gastar, e o resgate
   também não vai prefixar nada.
 
-  ## O que `spent?` mede continua sendo a BARRA
+  ## O que `spent?` mede é a ÁREA
 
-  `damage_keys/2` é o mesmo do modo comum, e é de propósito. A corrente gasta as
-  skills DO POKÉMON: quando ela termina, elas estão em cooldown, e é exatamente
-  por isso que o revive vale a pena — ele as devolve. Reportar `["r"]` aqui
-  faria `spent?` falar de uma tecla que a barra não mostra, e todo revive que
-  depende dele morreria em silêncio (o defeito do alvo único, 29/08).
+  `damage_keys/2` é a área do pokémon, e só ela. A corrente gasta as skills DO
+  POKÉMON: quando ela termina, elas estão em cooldown, e é exatamente por isso
+  que o revive vale a pena — ele as devolve. Reportar `["r"]` aqui faria
+  `spent?` falar de uma tecla que a barra não mostra (o defeito do alvo único,
+  29/08).
+
+  E as de alvo único ficam de FORA mesmo com `combat_single_target` ligado: as
+  dele voltam em 10-20s contra 35-60s da área, e uma delas pronta sozinha era o
+  que segurava `spent?` em falso — a corrida de 23:04 de 01/09 apertou o combo
+  cinco vezes com "1 de 8 pronta" e nunca reviveu. "O que dá dano é a skill em
+  área, praticamente exclusivamente" (27/08): a barra que importa é essa.
 
   ## Quem impede a segunda prensa não é este módulo
 
@@ -35,7 +41,7 @@ defmodule Pokex.Bots.Combat.Plan.AutoCombo do
 
   @behaviour Pokex.Bots.Combat.Plan
 
-  alias Pokex.Bots.Combat.{Combo, Plan}
+  alias Pokex.Bots.Combat.Combo
 
   @impl true
   def opening(loadout, ctx), do: combo_key(loadout, ctx)
@@ -71,7 +77,7 @@ defmodule Pokex.Bots.Combat.Plan.AutoCombo do
         false
 
       ready ->
-        case Plan.Standard.damage_keys(loadout, ctx) do
+        case damage_keys(loadout, ctx) do
           [] -> false
           keys -> not Enum.any?(keys, &(&1 in ready))
         end
@@ -91,7 +97,8 @@ defmodule Pokex.Bots.Combat.Plan.AutoCombo do
   def crowd(_loadout, _ctx), do: []
 
   @impl true
-  def damage_keys(loadout, ctx), do: Plan.Standard.damage_keys(loadout, ctx)
+  def damage_keys(%{aoe: aoe}, _ctx), do: aoe
+  def damage_keys(_no_loadout, _ctx), do: []
 
   # "Não usar Tab."
   @impl true

@@ -48,6 +48,7 @@ defmodule Pokex.Bots.Engine.Orders do
           | :closing
           | :emergency
           | :recovering
+          | :resetting
           | :unaided
           | :downed
           | :stranded

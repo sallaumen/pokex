@@ -13,11 +13,11 @@ defmodule Pokex.Bots.SkillTruthTest do
   @now System.monotonic_time(:millisecond)
 
   setup do
-    SkillClock.reset()
+    SkillClock.wipe()
     SkillTruth.ensure_table()
     :ets.delete_all_objects(SkillTruth.table())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
-    on_exit(fn -> SkillClock.reset() end)
+    on_exit(fn -> SkillClock.wipe() end)
     :ok
   end
 

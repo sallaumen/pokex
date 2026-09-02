@@ -1525,8 +1525,8 @@ defmodule PokexWeb.CavebotLiveTest do
   # problemas de leitura do jogo" (Lucas, 2026-08-27).
   describe "a fileira da barra" do
     setup do
-      Pokex.Bots.SkillClock.reset()
-      on_exit(&Pokex.Bots.SkillClock.reset/0)
+      Pokex.Bots.SkillClock.wipe()
+      on_exit(&Pokex.Bots.SkillClock.wipe/0)
       :ok
     end
 

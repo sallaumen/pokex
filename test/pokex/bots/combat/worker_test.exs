@@ -13,6 +13,11 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   setup %{tmp_dir: tmp} do
     # one shared blackboard: start from an empty world, never from the last test's
     WorldState.clear()
+    # …e as duas memórias do bot, que agora pertencem à aplicação (não morrem
+    # mais com o processo do teste): um F4 pousado no teste anterior é um
+    # blackout de 2s neste, e um carimbo velho é uma tecla que não sai.
+    ReviveLedger.reset()
+    Pokex.Bots.SkillClock.wipe()
 
     Application.put_env(:pokex, :home_dir, tmp)
 
@@ -165,7 +170,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       do: :ets.new(:combat_clock_peek, [:set, :public, :named_table])
 
     :ets.delete(:combat_clock_peek, :peek)
-    Pokex.Bots.SkillClock.reset()
+    Pokex.Bots.SkillClock.wipe()
 
     anterior = Application.get_env(:pokex, :rig)
     Application.put_env(:pokex, :rig, ClockPeekRig)
@@ -982,7 +987,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     @tag :tmp_dir
     test "a corrente sai UMA vez e a janela recusa a segunda", %{worker: worker} do
       SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 5_000)
-      SkillClock.reset()
+      SkillClock.wipe()
       :ok = Worker.run(worker, 5_000, :auto_combo)
 
       abre_o_fogo(worker)
@@ -1005,7 +1010,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     @tag :tmp_dir
     test "depois do revive devolver a barra, a corrente sai de novo", %{worker: worker} do
       SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 500)
-      SkillClock.reset()
+      SkillClock.wipe()
       :ok = Worker.run(worker, 5_000, :auto_combo)
 
       abre_o_fogo(worker)
@@ -1046,7 +1051,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     test "a corrente carimba o relógio — senão a barra parece cheia pra sempre",
          %{worker: worker} do
       SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 5_000)
-      SkillClock.reset()
+      SkillClock.wipe()
       :ok = Worker.run(worker, 5_000, :auto_combo)
 
       barra = Pokex.Bots.SkillBar.keys(4)
@@ -1072,7 +1077,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     test "com a barra vazia a corrente NÃO sai — o revive é que tem a vez",
          %{worker: worker} do
       SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 500)
-      SkillClock.reset()
+      SkillClock.wipe()
       :ok = Worker.run(worker, 5_000, :auto_combo)
 
       # a barra diz: nenhuma tecla de dano pronta
@@ -1098,7 +1103,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     @tag :tmp_dir
     test "nenhuma skill individual é apertada", %{worker: worker} do
       SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 5_000)
-      SkillClock.reset()
+      SkillClock.wipe()
       :ok = Worker.run(worker, 5_000, :auto_combo)
 
       abre_o_fogo(worker)

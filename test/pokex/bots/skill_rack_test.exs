@@ -25,8 +25,8 @@ defmodule Pokex.Bots.SkillRackTest do
   }
 
   setup do
-    SkillClock.reset()
-    on_exit(&SkillClock.reset/0)
+    SkillClock.wipe()
+    on_exit(&SkillClock.wipe/0)
     :ok
   end
 

@@ -208,7 +208,7 @@ defmodule Pokex.Bots.BodyTest do
   # 28/08). O carimbo agora pergunta ao portão.
   test "um press com o portão fechado NÃO carimba o relógio das teclas", %{body: body} do
     alias Pokex.Bots.SkillClock
-    SkillClock.reset()
+    SkillClock.wipe()
 
     InputGate.set_focus_ok(false)
     on_exit(fn -> InputGate.set_focus_ok(true) end)
@@ -220,7 +220,7 @@ defmodule Pokex.Bots.BodyTest do
     assert :ok = Body.perform([{:press, "6"}], :normal, body)
     assert SkillClock.last_press("6")
 
-    SkillClock.reset()
+    SkillClock.wipe()
   end
 
   test "the cursor restore can be turned off", %{body: body} do

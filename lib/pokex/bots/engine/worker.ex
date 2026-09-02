@@ -263,6 +263,8 @@ defmodule Pokex.Bots.Engine.Worker do
   defp control_back_in_ms(_no_loadout, _now), do: nil
 
   defp inputs(state, now, config, mode) do
+    screen = Perception.ready_skills(now)
+
     %{
       battle: battle(now),
       own_hp: own_hp(now),
@@ -273,12 +275,8 @@ defmodule Pokex.Bots.Engine.Worker do
       # revive pra zerar a barra — sai daqui, e ela estava sendo respondida por
       # uma foto que pode ter até `skill_bar_fact_max_age_ms` de idade.
       ready_keys:
-        SkillClock.ready(
-          Perception.ready_skills(now),
-          Loadout.keys(state.loadout),
-          cooldowns(state.loadout),
-          now
-        ),
+        SkillClock.ready(screen, Loadout.keys(state.loadout), cooldowns(state.loadout), now),
+      bar_seen?: is_list(screen),
       damage_keys: damage_keys(state.loadout, config, mode),
       control_back_in_ms: control_back_in_ms(state.loadout, now),
       revive_left: ReviveLedger.remaining(),

@@ -293,23 +293,27 @@ defmodule Pokex.Bots.Engine.Logic do
       # seguinte é exatamente o "controle primeiro, revive na sequência" dele.
       boss_stun_due?(t) -> boss_stun(t)
       t.logic.state == :recovering -> recovering(t)
-      # A REGRA DELE, ESCRITA COMO REGRA — não caída das outras. "Logo depois do
-      # combo estar finalizado, usar o revive pra resetar os cooldowns." Três
-      # noites ela não saiu, e cada vez por um portão escrito pro modo antigo:
-      # a R3b exige seis na tela, o preparo exige tela limpa, os dois esperam
-      # a janela do combo — e quando a janela abre a caçada já está juntando o
-      # próximo grupo, onde nenhuma regra de revive é sequer consultada
-      # (09:14:16 de 02/09: "estourando a área" → "recuando" → "pilha limpa"
-      # no mesmo segundo, e nunca um F4). Aqui ela vem ANTES das bandas e da
-      # régua: a corrente acabou e a barra está gasta, então revive — com bicho
-      # ou sem, andando ou parado, porque os que sobraram ainda estão dormindo.
-      combo_reset_due?(t) -> combo_reset(t)
       # R5: a band whose only move is a revive the game will refuse for another
       # forty seconds is not a reason to stand still.
       t.band in [:yellow, :red] and not revive_plausible?(t) -> unaided(t)
       # Health rules the rest: the revive needs no attack key, and a pokémon
       # about to fall must not be abandoned because nobody classified its bar.
       t.band == :red -> emergency(t)
+      # O CICLO DO AUTO COMBO, nos passos que ele numerou — e ABAIXO do vermelho
+      # de propósito: o chão de segurança nunca espera a corrente.
+      #
+      # Passo 3-4: enquanto a corrente sai, o cérebro INTEIRO para. "Ele não pode
+      # sair andando" — andar durante a janela é chamar bicho novo pra cima de
+      # um revive que vem em segundos, e "pode ser mortal usar o revive enquanto
+      # ainda tem monstro na tela". Na noite de 02/09 o "pilha limpa — seguindo
+      # a rota" saía DENTRO da janela, e o F4 caía já andando.
+      mid_combo?(t) -> combo_running(t)
+      # Passo 6: a corrente acabou e a barra está gasta, então revive — com
+      # bicho ou sem, porque os que sobraram ainda estão no sono que a própria
+      # corrente deixou. Três noites essa regra não saiu por ter sido deixada
+      # cair das antigas (seis na tela, tela limpa, fase da caçada); agora é
+      # regra, e vem antes da régua.
+      combo_reset_due?(t) -> combo_reset(t)
       t.band == :yellow -> closing(t)
       t.s.blind? -> blind(t)
       # NO HANDS. `fire: :free` with an empty `opening` means "fight, I have no
@@ -1468,6 +1472,24 @@ defmodule Pokex.Bots.Engine.Logic do
     Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? == true and
       not heavy?(t) and t.logic.reset_broken_at == nil and
       elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and affordable?(t)
+  end
+
+  # PARADO ENQUANTO A CORRENTE SAI. A rota segura; o fogo fica livre de
+  # propósito — a cerca do combate já recusa qualquer tecla na janela, e
+  # segurar o fogo trocaria a postura pra defesa no meio da corrente. A luta
+  # vira `:engaged` aqui (idempotente), pra que depois do reset, se sobrou
+  # bicho, a régua continue em "matando o que já abriu" e a corrente saia de
+  # novo — "quantas vezes precisarmos até matar o shiny".
+  defp combo_running(t) do
+    left = Map.get(t.s, :combo_left_ms, 0)
+
+    {enter(t.logic, :engaged, t.now),
+     Orders.standing_and_firing(
+       :engaged,
+       t.band,
+       opening(t),
+       "corrente saindo (#{left}ms) — parado até ela acabar, sem chamar mais ninguém"
+     )}
   end
 
   # Rota e fogo seguros desde o pedido: o tique seguinte já é a espera pela

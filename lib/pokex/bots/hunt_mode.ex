@@ -86,7 +86,7 @@ defmodule Pokex.Bots.HuntMode do
 
   @doc """
   The engine knobs this mode CHANGES, by the name the decision calls them
-  (`Pokex.Bots.Engine.Config`) — `%{}` for the mode that runs the bot as it is.
+  (`Pokex.Bots.Engine.Config`) — `%{}` only for a value that names no mode.
 
   ## Sobreposição, nunca escrita
 
@@ -129,7 +129,19 @@ defmodule Pokex.Bots.HuntMode do
     }
   end
 
-  def engine_overrides(_runs_the_bot_as_it_is), do: %{}
+  # O AUTO COMBO NÃO JUNTA ANDANDO. É o modo das hunts fortes, e a regra dele
+  # (02/09) é literal: "se tem 8 na tela ele deveria parar na hora, não dar
+  # mais nenhum passo e deixar os bichos virem até mim — andar até eles é mais
+  # perigoso ainda, que vai chamar ainda mais bicho". O diário de 07:58 mostra o
+  # porquê: a lista leu 2→3→4→6 enquanto ele andava 11 passos "juntando", e
+  # pulou pra 9 de uma vez — os que corriam atrás dele FORA da tela não entram
+  # na contagem até alcançá-lo. Ele via doze; o bot via seis e foi buscar mais.
+  # Parado, a régua conta quem chega, abre quando vale, e a corrente cuida do
+  # resto. Custo medido na bancada: −14% de mortos no cenário do combo, zero
+  # quedas dos dois lados — e a bancada não enxerga os doze fora da tela.
+  def engine_overrides(:auto_combo), do: %{gather_piles: false}
+
+  def engine_overrides(_unknown_runs_the_bot_as_it_is), do: %{}
 
   @doc """
   Knobs no mode may touch, named out loud so a test can prove it.

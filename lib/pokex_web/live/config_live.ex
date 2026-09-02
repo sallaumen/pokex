@@ -1114,25 +1114,30 @@ defmodule PokexWeb.ConfigLive do
   attr :key, :atom, required: true
 
   defp mode_note(assigns) do
-    assigns = assign(assigns, :forced, forced_by_economy(assigns.key))
+    assigns = assign(assigns, :forced, forced_by_modes(assigns.key))
 
     ~H"""
     <span
-      :if={@forced != nil}
+      :for={{modo, valor} <- @forced}
       class="shrink-0 rounded border border-pk-line-strong bg-pk-sunken px-1.5 py-0.5 font-mono text-pk-meta uppercase tracking-[0.08em] text-pk-text-3"
-      title="No modo Econômico este ajuste é forçado em memória; o número acima vale nos outros modos"
+      title={"No modo #{modo} este ajuste é forçado em memória; o número acima vale nos outros modos"}
     >
-      econômico força {@forced}
+      {String.downcase(modo)} força {valor}
     </span>
     """
   end
 
-  defp forced_by_economy(key) do
-    with {knob, _setting} <- Enum.find(Config.knobs(), fn {_knob, setting} -> setting == key end),
-         {:ok, value} <- Map.fetch(HuntMode.engine_overrides(:economy), knob) do
-      forced_text(value)
-    else
-      _not_forced -> nil
+  # Um chip por modo que força este ajuste — lido de `HuntMode.engine_overrides/1`,
+  # a mesma lista que o cérebro obedece, nunca uma cópia.
+  defp forced_by_modes(key) do
+    case Enum.find(Config.knobs(), fn {_knob, setting} -> setting == key end) do
+      {knob, _setting} ->
+        for mode <- HuntMode.all(),
+            {:ok, value} <- [Map.fetch(HuntMode.engine_overrides(mode), knob)],
+            do: {HuntMode.label(mode), forced_text(value)}
+
+      nil ->
+        []
     end
   end
 

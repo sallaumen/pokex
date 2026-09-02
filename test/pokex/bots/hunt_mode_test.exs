@@ -80,8 +80,14 @@ defmodule Pokex.Bots.HuntModeTest do
     end
   end
 
-  test "engine_overrides/1 answers empty for the mode that runs the bot as it is" do
-    assert HuntMode.engine_overrides(:auto_combo) == %{}
+  # O Auto Combo é o modo das hunts fortes, e lá ninguém anda pra buscar bicho:
+  # "andar até eles é mais perigoso ainda, que vai chamar ainda mais bicho".
+  test "engine_overrides/1 stops the auto combo from gathering by walking" do
+    assert HuntMode.engine_overrides(:auto_combo) == %{gather_piles: false}
+  end
+
+  test "engine_overrides/1 answers empty only for a value that names no mode" do
+    assert HuntMode.engine_overrides(nil) == %{}
   end
 
   test "forbidden_knobs/0 names knobs that exist" do

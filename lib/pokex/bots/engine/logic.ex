@@ -692,14 +692,13 @@ defmodule Pokex.Bots.Engine.Logic do
            "sem barra e sem revive pra comprá-la — não abro pilha: seguindo a rota"
          )}
 
+      # SEM JUNTAR, O TRECHO DE MOBADA É RÉGUA COMO QUALQUER OUTRO. Isto era
+      # "batendo enquanto ando" — a rota seguia andando com a pilha atrás, que
+      # é exatamente o que ele proibiu em 02/09 ("não dar mais nenhum passo,
+      # deixar os bichos virem até mim"). A régua para: conta quem chega, abre
+      # quando vale, e o teto bounds a espera.
       true ->
-        {reset_fight(t.logic, :travelling),
-         Orders.walking_and_firing(
-           :travelling,
-           t.band,
-           opening(t),
-           "trecho de mobada, mas sem juntar pilha: batendo enquanto ando"
-         )}
+        ruler(t)
     end
   end
 

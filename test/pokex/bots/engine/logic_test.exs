@@ -1601,14 +1601,22 @@ defmodule Pokex.Bots.Engine.LogicTest do
       refute orders.fire == :free
     end
 
-    test "a stretch recorded for mobbing is walked with the fire free" do
-      world = world(%{hunt: hunt(%{state: :walking, luring?: true})})
+    # Era "batendo enquanto ando": a rota seguia com a pilha atrás. Desde 02/09
+    # ("não dar mais nenhum passo, deixar os bichos virem até mim") o trecho de
+    # mobada sem juntada é régua como qualquer outro — e uma pilha que vale
+    # abre PARADO.
+    test "a stretch recorded for mobbing stops for a pile worth the area" do
+      world =
+        world(%{
+          situation: situation(%{enemies: 6, worth_fighting?: true}),
+          hunt: hunt(%{state: :walking, luring?: true})
+        })
 
       {_logic, orders} = solo_step(world, 1_000)
 
-      assert orders.route == :go
+      assert orders.route == :hold
       assert orders.fire == :free
-      assert orders.why =~ "sem juntar pilha"
+      assert orders.why =~ "caindo em cima"
     end
 
     test "the ruler still rules: below it, nothing is engaged" do

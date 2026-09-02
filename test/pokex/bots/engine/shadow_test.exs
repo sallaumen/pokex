@@ -99,15 +99,16 @@ defmodule Pokex.Bots.Engine.ShadowTest do
 
   defp now, do: System.monotonic_time(:millisecond)
 
+  # Desde 02/09 nenhum modo junta andando ("andar até eles chama mais bicho"):
+  # seis na tela num trecho de mobada é PARAR e abrir, não puxar.
   test "the orders reach the blackboard", %{worker: worker} do
     see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
     hunting(%{luring?: true})
     tick(worker)
 
-    assert orders().phase == :gathering
-    assert orders().route == :go
-    assert orders().fire == :hold
-    assert orders().why =~ "mobando"
+    assert orders().route == :hold
+    assert orders().fire == :free
+    assert orders().why =~ "caindo em cima"
   end
 
   # O MODO CHEGA AO CÉREBRO PELO FATO DA CAÇADA. É a mesma tela e o mesmo
@@ -119,16 +120,20 @@ defmodule Pokex.Bots.Engine.ShadowTest do
     tick(worker)
 
     refute orders().phase == :gathering
-    assert orders().route == :go
+    assert orders().route == :hold
     assert orders().fire == :free
   end
 
-  test "o auto combo junta, com a mesma tela", %{worker: worker} do
+  # …e o Auto Combo também não — mas por outro motivo: é o modo das hunts
+  # fortes, e lá "andar até eles chama ainda mais bicho" (02/09). Com a mesma
+  # tela ele PARA: a rota segura e o fogo abre, porque seis já vale a área.
+  test "o auto combo não junta: com a tela cheia ele para e abre", %{worker: worker} do
     see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
     hunting(%{luring?: true, mode: :auto_combo})
     tick(worker)
 
-    assert orders().phase == :gathering
+    refute orders().phase == :gathering
+    assert orders().route == :hold
   end
 
   test "with no hunt running there is nothing to decide", %{worker: worker} do
@@ -146,23 +151,25 @@ defmodule Pokex.Bots.Engine.ShadowTest do
 
     assert_receive {:engine_log, :macro, "quadro: 🧠" <> shadow}
     assert shadow =~ "6 inimigos"
-    assert shadow =~ "estourando a área"
+    assert shadow =~ "caindo em cima"
     assert shadow =~ "[liberaria o fogo]"
   end
 
-  # R1 no campo, na forma que ele deu a ela em 25/08: UM monstro num canto não
-  # é uma luta, é uma pilha pra carregar junto enquanto a caçada anda — e a
-  # régua de passos é quem diz quando ela vira luta.
-  test "it would carry a lone monster along instead of standing next to it", %{worker: worker} do
+  # UM monstro num canto não é uma luta — e desde 02/09 também não é uma pilha
+  # pra carregar junto: nenhum modo anda pra buscar bicho ("andar até eles chama
+  # ainda mais bicho"). O que resta é contar parado e, se ninguém mais vier, o
+  # teto da juntada passa reto. Isto cobra o PARADO: nem um passo com a pilha
+  # atrás.
+  test "it counts a lone monster standing still instead of carrying it along", %{worker: worker} do
     see(~w(Venonat))
     hunting(%{state: :fighting})
 
     tick(worker)
-    assert orders().phase == :gathering
-    assert orders().route == :go
+    assert orders().phase == :sizing
+    assert orders().route == :hold
     assert orders().fire == :hold
-    assert_receive {:engine_log, :macro, "quadro: 🧠" <> juntando}
-    assert juntando =~ "juntando"
+    assert_receive {:engine_log, :macro, "quadro: 🧠" <> contando}
+    assert contando =~ "contando"
   end
 
   test "nobody obeys yet: the posture the fight reads is untouched", %{worker: worker} do

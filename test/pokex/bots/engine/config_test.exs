@@ -60,13 +60,15 @@ defmodule Pokex.Bots.Engine.ConfigTest do
     assert Settings.get(:engine_gather_piles) == Settings.defaults()[:engine_gather_piles]
   end
 
-  test "o auto combo é o bot como ele está — nenhuma sobreposição" do
-    assert Config.in_force(:auto_combo) == Config.in_force(:auto_combo)
-
-    for {knob, setting} <- Config.knobs() do
+  # O Auto Combo sobrepõe UMA coisa: ninguém anda pra buscar bicho numa hunt
+  # forte (02/09). Todo o resto é o ajuste dele.
+  test "o auto combo só desliga a juntada andando" do
+    for {knob, setting} <- Config.knobs(), knob != :gather_piles do
       assert Config.in_force(:auto_combo)[knob] == Settings.get(setting),
-             "#{knob} foi sobreposto por um modo que não sobrepõe nada"
+             "#{knob} foi sobreposto sem ser a juntada"
     end
+
+    assert Config.in_force(:auto_combo).gather_piles == false
   end
 
   test "a sobreposição não muda o CONJUNTO de knobs, só valores" do

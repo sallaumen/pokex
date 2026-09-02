@@ -43,12 +43,8 @@ defmodule Pokex.Bots.SkillClock do
 
   @table :pokex_skill_clock
 
-  # O QUE ASSUMIR PARA A TECLA QUE ELE AINDA NÃO MEDIU (pedido dele, 27/08: "na
-  # falta de configuração, faz ele assumir que o cooldown é 45 segundos").
-  #
-  # É a média das duas famílias que o vídeo mediu (26/08, gravação de 53s): as
-  # teclas 1, 2 e 3 voltam com 40s e as 4, 5 e 6 com 50s. O mesmo número que o
-  # simulador usa pra quem não tem cooldown escrito.
+  # O QUE ASSUMIR PARA A TECLA QUE ELE AINDA NÃO MEDIU (pedido dele, 27/08: "na falta de
+  # configuração, faz ele assumir que o cooldown é 45 segundos").
   @assumed_ms 45_000
 
   @doc "O cooldown assumido pra tecla sem número escrito."

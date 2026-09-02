@@ -24,12 +24,8 @@ defmodule Pokex.Calibration do
     # watches ONLY this region and searches all of it. Without it, the box is
     # DERIVED from the character and the skill bar — see mini_game_region/1.
     :mini_game_region,
-    # HAND-MARKED position & minimap (2026-07-30): the map rectangle, the
-    # character's FIXED cross (the map slides under it) and the textual
-    # coordinate strip. Auto-layout regions are anchored and die when the game
-    # window moves — the drift class that took the cavebot down. Manual wins;
-    # layout becomes the fallback (resolvers minimap_*_region/1 and
-    # minimap_player_point/1 below).
+    # HAND-MARKED position & minimap (2026-07-30): the map rectangle, the character's FIXED
+    # cross (the map slides under it) and the textual coordinate strip.
     :minimap_region,
     :minimap_player_point,
     :minimap_coord_region,
@@ -56,9 +52,8 @@ defmodule Pokex.Calibration do
     # Optional (PlayerSupport): the main Pokémon's HP bar, and the portrait to aim Shift+Q at.
     :pokemon_hp_region,
     :pokemon_photo_point,
-    # Optional: a barra VERMELHA do painel "Pokémon" — que é a vida do
-    # PERSONAGEM, não do pokémon (medido 26/08; o nome do painel é a armadilha).
-    # Sem ela marcada, a vida do personagem simplesmente não é lida.
+    # Optional: a barra VERMELHA do painel "Pokémon" — que é a vida do PERSONAGEM, não do
+    # pokémon (medido 26/08; o nome do painel é a armadilha).
     :player_hp_region
   ]
 
@@ -90,30 +85,8 @@ defmodule Pokex.Calibration do
   CHARACTER, which is where the game draws the bar — one anchor, already
   calibrated, moving with the HUD, so a resolution change re-derives by itself.
   """
-  # The hand mark always wins; otherwise the strip is DERIVED from the CHARACTER
-  # — the one anchor the game itself draws the bar over.
-  #
-  # The four numbers ARE Lucas's own mark, measured (2026-08-10, 3440×1440):
-  # `{1707, 673, 24, 474}` against a player point of `{1707, 689}` — the bar's
-  # centre 12pt to his RIGHT, 24 wide, starting 16 above him and running 474
-  # down. He marked it, played with it, and asked for it as the default: "tu
-  # pode fazer essa config ser sempre sugerida como padrão".
-  #
-  # The old derivation guessed instead, and every number was wrong: 100 wide
-  # (4×), starting 50 to the LEFT of a bar that lives to the right, from 60
-  # above down to the skill bar — 125pt past the bar's real end. That is the box
-  # that dragged scenery in and blinded the pilot.
-  #
-  # WHY THE BOUNDS MATTER BEYOND FALSE POSITIVES: the pilot works in a position
-  # NORMALISED inside the bar, so a bar measured 810 when it is 470 puts the
-  # fish and the capsule in the wrong place (trace error_mean 11%). Bounds that
-  # match the real thing do not just avoid ghosts: they fix the aim.
-  #
-  # The magnitudes are settings in ScreenScale's LINEAR family, so another
-  # monitor scales them by the same ruler as every other pixel-denominated seed.
-  #
-  # No character marked = nil, and the watcher goes BLIND AND SAYS SO rather
-  # than scanning somewhere it was never taught.
+  # The hand mark always wins; otherwise the strip is DERIVED from the CHARACTER — the one
+  # anchor the game itself draws the bar over.
   def mini_game_region(%__MODULE__{mini_game_region: region}) when is_tuple(region), do: region
   def mini_game_region(%__MODULE__{} = calib), do: derived_mini_game_region(calib)
 
@@ -132,11 +105,8 @@ defmodule Pokex.Calibration do
     {centre - div(width, 2), top, width, height}
   end
 
-  # The MARKED character, never `player_point/1`'s screen-centre fallback: a
-  # strip hung off a guessed anchor is guess number three, and the first two
-  # both failed in the field (the half-screen box, and the tile box that read
-  # dark trunk + blue flowers as "bar + capsule"). No character = nil, and the
-  # watcher goes blind AND SAYS SO.
+  # The MARKED character, never `player_point/1`'s screen-centre fallback: a strip hung off a
+  # guessed anchor is guess number three, and the first two both failed
   def derived_mini_game_region(%__MODULE__{}), do: nil
 
   @doc """
@@ -223,10 +193,8 @@ defmodule Pokex.Calibration do
   end
 
   def save(%__MODULE__{} = calib, path \\ nil) do
-    # Saving the ACTIVE calibration also snapshots it under this monitor's key
-    # (see snapshot_for_screen/1). Lucas's design (2026-08-07): one calibration
-    # per monitor, remembered — never adapted by arithmetic. An explicit path
-    # (profiles, the snapshot itself) skips this, so it cannot recurse.
+    # Saving the ACTIVE calibration also snapshots it under this monitor's key (see
+    # snapshot_for_screen/1).
     if is_nil(path), do: snapshot_for_screen(calib)
     path = path || Pokex.Home.calibration_file()
     File.mkdir_p!(Path.dirname(path))
@@ -267,13 +235,8 @@ defmodule Pokex.Calibration do
       {:ok, from_map(map)}
     end
   catch
-    # This answers {:ok, t} | {:error, reason}, and every caller is written to
-    # that contract — including the always-on support monitor, which reloads the
-    # calibration EVERY TICK (120ms). A file whose numbers are unreadable (half
-    # written, hand-edited, from an older schema) is an error, never a raise: one
-    # that did raise on 2026-08-27 terminated that monitor tick after tick until
-    # BotSupervisor's restart intensity ran out, then the application's, and the
-    # whole VM went down with it.
+    # This answers {:ok, t} | {:error, reason}, and every caller is written to that contract —
+    # including the always-on support monitor, which reloads the calibration EVERY TICK (120ms).
     kind, reason -> {:error, {:calibracao_ilegivel, {kind, reason}}}
   end
 
@@ -303,18 +266,8 @@ defmodule Pokex.Calibration do
     }
   end
 
-  # A layout located on ANOTHER screen is worse than none: its regions land
-  # outside the frame, the captures quarantine, and every consumer goes blind
-  # while looking calibrated. Geometry decides.
-  #
-  # And a layout that cannot be READ at all is dropped rather than allowed to
-  # condemn the file it rides in: the auto-located HUD is an ENRICHMENT of the
-  # hand marks, which stand on their own — `Layout.region/2` and
-  # `Layout.region_opts/2` both already answer for a nil layout, and Lucas ran
-  # without a `layout_fix.json` for months. What can fail here is everything
-  # `Layout.current/0` touches: the blackboard, the persisted file's shape, and
-  # the module itself (2026-08-27: `:undef` for a few ticks while the dev code
-  # reloader had it purged mid-recompile).
+  # A layout located on ANOTHER screen is worse than none: its regions land outside the frame,
+  # the captures quarantine, and every consumer goes blind while looking calibrated.
   defp layout_in_force(screen_w, screen_h) do
     case Pokex.Layout.current() do
       nil -> nil
@@ -392,12 +345,7 @@ defmodule Pokex.Calibration do
     ArgumentError -> %{}
   end
 
-  # THE SEED SCREEN KEEPS NO SIDECAR. On the screen the numbers were measured on,
-  # a stored copy can never be more right than the seed itself — and a stale one
-  # is a loaded gun: his own `auto-3440x1440` sidecar still held the ruler
-  # accident of 2026-08-24 (`tile_px` 255, `glow_threshold` 4168) days after the
-  # settings themselves were repaired, one click on "Usar" away from breaking
-  # the hunt again. Any leftover file is removed rather than trusted.
+  # THE SEED SCREEN KEEPS NO SIDECAR.
   defp write_profile_settings(slug, calib) do
     if Pokex.ScreenScale.reference_screen?(calib) do
       File.rm(profile_settings_path(slug))
@@ -649,16 +597,8 @@ defmodule Pokex.Calibration do
 
   defp scaled(_unmarked, _ratio), do: nil
 
-  # Measured on Lucas's 3440×1440 screen (2026-08-26): the active Pokémon's bar is the FIRST
-  # row of the Pokebar panel — its track runs x 46..166 at y 1105, and the row pitch is 49.
-  # This estimate lets the PlayerSupport run before the field is calibrated; set the real
-  # region in the calibration UI to fine-tune per screen.
-  #
-  # THE BAR ABOVE IS NOT IT. Poké Alliance's panel is titled "Pokémon", carries the active
-  # Pokémon's portrait, and its red bar is the CHARACTER's health — 400/400 in the same frame
-  # where the Pokémon was at 74%. The old default here pointed at the previous client's party
-  # slots and now lands on that panel's title bar and the grass beside it, where it reads a
-  # confident 76% of nothing.
+  # Measured on Lucas's 3440×1440 screen (2026-08-26): the active Pokémon's bar is the FIRST row
+  # of the Pokebar panel — its track runs x 46..166 at y 1105, and the row pitch is 49.
   @default_pokemon_hp_region {46, 1105, 121, 13}
   # Still the old client's point: nothing reads it today (the revive presses a key), so it is
   # left unmeasured rather than guessed.

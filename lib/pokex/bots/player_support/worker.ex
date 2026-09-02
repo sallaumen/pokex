@@ -63,17 +63,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       prev_hp_pct: nil,
       # o juiz de EFEITO do revive: pagou e a vida não voltou? (01/09, a bag seca)
       revive_judge: ReviveEffect.new(),
-      # A VIDA DO PERSONAGEM — a barra vermelha do painel "Pokémon", que apesar
-      # do nome é dele, não do bicho. nil enquanto a região não for marcada na
-      # calibração ou a leitura não reconhecer a barra.
+      # A VIDA DO PERSONAGEM — a barra vermelha do painel "Pokémon", que apesar do nome é dele,
+      # não do bicho.
       player_hp: nil,
       player_low_streak: 0,
       player_alarmed?: false,
       last_rescue_at: nil,
-      # A ÚLTIMA VEZ QUE O CÉREBRO PEDIU UM REVIVE E A CHAVE DELE ESTAVA
-      # DESLIGADA. Sem isto o pedido morre em silêncio: em 27/08 a engine pediu
-      # 556 vezes num dia e nenhuma tecla saiu, porque `rescue_enabled` nasce
-      # desligado e ninguém tinha por onde ver isso.
+      # A ÚLTIMA VEZ QUE O CÉREBRO PEDIU UM REVIVE E A CHAVE DELE ESTAVA DESLIGADA.
       last_switch_warn_at: nil,
       # true from the moment a combo is dispatched until {:rescue_done, _, _}
       # reports back — see act/2's re-entry guard.
@@ -159,12 +155,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   def handle_call(:halt, _from, state) do
     state = cancel_timer(%{state | running?: false})
-    # A SENTINELA: parar o bot fecha as mãos, nunca os olhos. Em 30/08 o canto
-    # de comando parou a caçada no meio de uma mobada e o personagem morreu
-    # AFK em 8 minutos SEM UM ALARME — o halt cancelava este timer e ninguém
-    # mais lia a vida DELE. Parado, o tique continua num passo lento e lê só a
-    # barra do personagem: grita no piso e desloga se ele mandou
-    # (`player_hp_logout`). Nada de pokémon, poção ou tecla.
+    # A SENTINELA: parar o bot fecha as mãos, nunca os olhos.
     state = if state.auto_monitor?, do: reschedule(state, @sentinel_ms), else: state
     broadcast(state)
     {:reply, :ok, state}
@@ -176,29 +167,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     {:reply, :ok, state}
   end
 
-  # Emergency escape (Actions & Rules). Deliberate flee — bypasses thresholds
-  # and combat logic, and FRONTS THE GAME first: the flee must work exactly
-  # when the game is NOT focused (Lucas on the panel, or away — live finding
-  # 2026-07-20: the focus gate swallowed the test click). The PANIC CORNER
-  # still vetoes: the human kill switch outranks any flee. Rides :critical so
-  # the WHOLE sequence enters the Body ahead of everything, atomically.
+  # Emergency escape (Actions & Rules).
   def handle_call(:flee_to_escape, _from, state) do
     with {:ok, %Calibration{escape_point: point}} when is_tuple(point) <- Calibration.load(),
          :ok <- Focus.ensure_front() do
       # THE WALK GOES OFF THE LOOP, AND THIS ANSWERS AT ONCE.
-      # `BotSupervisor.emergency_escape/1` is latch → flee → STOP THE FLEET, and
-      # this used to sit inside `Body.perform` (which waits `:infinity`) for the
-      # whole `escape_walk_wait_ms`. At his 5000 the sequence outlives the 5s
-      # DEFAULT timeout of the caller's own `GenServer.call`: whoever ordered the
-      # escape died of a timeout and `stop_all` NEVER RAN — the fleet kept
-      # hunting beside the shiny that triggered the flee, with only the latch
-      # (which forbids auto-resume, not actuation) standing.
-      #
-      # A safety path never waits on the fleeing party. `:ok` therefore means
-      # "the escape LEFT", not "the character arrived"; the arrival is what the
-      # log below announces, with its real outcome.
-      #
-      # UNLINKED on purpose: the halt that follows must not kill the walk.
       spawn(flee_walk(point, state.body))
 
       state = %{state | last_action: %{text: "fuga (escada)", at: now()}}
@@ -238,12 +211,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       else: {:noreply, state}
   end
 
-  # While the fishing mini-game is being played, the Body is gated — this worker
-  # cannot revive or potion anyway — so its HP capture every 120ms is pure waste
-  # that queues ahead of the game's strip captures in the single serialized
-  # broker and starves them (measured 2026-07-23: the game's cadence blew from
-  # 80ms to ~250ms behind ~6 feed/support captures per 250ms). Skip the capture,
-  # say so on the pill, and resume the instant the overlay clears.
+  # While the fishing mini-game is being played, the Body is gated — this worker cannot revive
+  # or potion anyway — so its HP capture every 120ms is pure waste that
   def handle_info(:tick, state) do
     if Pokex.Perception.mini_game_playing?() do
       handle_mini_game_tick(state)
@@ -299,9 +268,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     {:noreply, state}
   end
 
-  # The fallen revive reporting back. A refusal here is louder than the low-HP
-  # one: with nobody on the field, "as teclas não saíram" means the character
-  # is standing there alone.
+  # The fallen revive reporting back.
   def handle_info({:fallen_done, :ok}, state) do
     # O caído também abre a janela cega: o pokémon volta agora e leva os
     # mesmos ~2s até conjurar.
@@ -374,14 +341,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                   calib
                 )
 
-              # The region doesn't look like the bar (minimized party window, or no Pokémon
-              # out of the ball): UNKNOWN — clear the reading so nothing can act on a
-              # stale/garbage value, and say why in the panel. The fact says readable?: false,
-              # which is exactly what the fishing gate treats as "sem pokémon ativo".
-              # gate: nil here and below — these branches never reach act/2 (the
-              # only other place that clears it), so a gate from a previous tick
-              # used to survive the whole bad-reading stretch, explaining the
-              # screen with a reason that already passed.
+              # The region doesn't look like the bar (minimized party window, or no Pokémon out
+              # of the ball): UNKNOWN — clear the reading so nothing can act on a stale/garbage
+              # value, and say why in the panel.
               :unrecognized ->
                 state =
                   %{
@@ -409,10 +371,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
             calib
           )
 
-        # The file exists but its numbers cannot be read (half-written, hand-edited,
-        # an older schema). Says so rather than borrowing "sem calibração": that one
-        # sends him to the wizard, and re-marking a screen does not repair a file
-        # that is already corrupt on disk.
+        # The file exists but its numbers cannot be read (half-written, hand-edited, an older
+        # schema).
         {:error, {:calibracao_ilegivel, _reason}} ->
           %{state | hp_pct: nil, gate: nil, error: "calibração ilegível (arquivo corrompido?)"}
 
@@ -429,20 +389,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
     {:noreply, reschedule(state, Settings.get(:support_tick_ms))}
   catch
-    # The monitor that keeps him alive must not be killable by what it reads OR
-    # by whom it calls. `read_hp/1` has been uncrashable since it was written;
-    # the rest of the tick was not — and the rest of the tick includes three
-    # `GenServer.call`s into the Body (potion, heal, reposition), which is the
-    # exact shape the workspace rule forbids: a process that must survive never
-    # depends on another answering. A Body restarting mid-perform used to take
-    # this worker with it, and at a 120ms cadence three deaths in 360ms exhaust
-    # BotSupervisor's default restart intensity, then the application's, and the
-    # whole VM goes down (2026-08-27, via a raise in `Calibration.load/1`).
-    #
-    # Never silent: it lands on the panel as an error and bumps the failures
-    # counter, the same surface a bad HP read uses. And it MUST reschedule — a
-    # loop that stops without dying is worse than one that dies, because no
-    # supervisor comes to restart it.
+    # The monitor that keeps him alive must not be killable by what it reads OR by whom it
+    # calls.
     kind, reason ->
       {:noreply,
        state
@@ -525,10 +473,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # O JUIZ DE EFEITO DO REVIVE, cobrado a cada leitura de vida. A morte de
-  # 01/09: bag sem revive, F4 aterrissando e não fazendo nada, dez pedidos
-  # mudos enquanto o tanque ia de 55% a 2% — e o personagem atrás dele. O
-  # veredito é do `ReviveEffect`; aqui só o grito e o socorro.
+  # O JUIZ DE EFEITO DO REVIVE, cobrado a cada leitura de vida.
   defp judge_revive_effect(state) do
     {judge, veredito} = ReviveEffect.tick(state.revive_judge, state.hp_pct, now())
     scream_if_dead(%{state | revive_judge: judge}, veredito)
@@ -540,10 +485,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     n = ReviveEffect.streak(state.revive_judge)
     acao = Settings.get(:revive_dry_action)
 
-    # :mortal fura o mudo POR CONSTRUÇÃO: não é um setor da lista fechada
-    # (`AlarmCategories`), então nunca entra em `alarm_muted_categories`. Na
-    # segunda morte de 01/09 o "VOCÊ está com 49%" gritou pra dentro do mudo —
-    # a categoria `hp` estava silenciada junto com quase todas as outras.
+    # :mortal fura o mudo POR CONSTRUÇÃO: não é um setor da lista fechada (`AlarmCategories`),
+    # então nunca entra em `alarm_muted_categories`.
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       @topic,
@@ -562,14 +505,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state
   end
 
-  # A BAG SECA É UMA EMERGÊNCIA COM RESPOSTA PRÓPRIA, e ela não podia depender
-  # de `player_hp_logout` — aquele botão é sobre a vida do PERSONAGEM, e as
-  # duas mortes de 01/09 aconteceram com ele desligado enquanto o bot moía o
-  # pokémon num revive que não fazia nada. Sem revive não existe recuperação:
-  # cada luta daqui pra frente gasta o pokémon e depois o personagem, e nada
-  # disso volta sozinho. Por isso o padrão é DESLOGAR, e não avisar: o
-  # `Logout` já para a frota antes de tentar sair, então até um logout que
-  # falha deixa o bot parado em vez de moendo.
+  # A BAG SECA É UMA EMERGÊNCIA COM RESPOSTA PRÓPRIA, e ela não podia depender de
+  # `player_hp_logout` — aquele botão é sobre a vida do PERSONAGEM, e as duas mortes
   defp dry_act("logout", motivo), do: Logout.request(motivo)
   defp dry_act("stop", motivo), do: BotSupervisor.stop_all(motivo)
   defp dry_act(_alarm_ou_desconhecido, _motivo), do: :ok
@@ -615,8 +552,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
     with {:ok, frame} <- Capture.frame(region, "pokemon_hp.raw") do
       # A frame that doesn't LOOK like the bar (party window minimized → the region shows game
-      # world) is UNKNOWN, not a reading: a garbage fill% here read as "low HP" and fired the
-      # combo in an open/close loop, burning potions and revives.
+      # world) is UNKNOWN, not a reading: a garbage fill% here read as "low HP"
       if Vision.hp_region_plausible?(frame,
            min_brightness: min_b,
            min_saturation: min_s,
@@ -634,9 +570,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  # The bar's rounded tips eat the last columns of the box, so the raw fill plateaus below
-  # 100 at genuinely full health (Lucas's: 95). Rescale so "full raw" reads — and gates — as
-  # 100%; everything below scales proportionally.
+  # The bar's rounded tips eat the last columns of the box, so the raw fill plateaus below 100
+  # at genuinely full health (Lucas's: 95).
   defp normalize_hp(raw) do
     case Settings.get(:pokemon_hp_full_at_pct) do
       full when is_integer(full) and full > 0 and full < 100 ->
@@ -652,13 +587,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # defocused game must stop revive AND potion, not just have the Rig silently swallow them.
   defp act(state, calib) do
     if InputGate.allowed?() do
-      # rescuing? guards re-entry while the LAST combo is still in flight — the
-      # engine's own orders naturally drop revive: :now once it enters
-      # :recovering, but that transition costs one of ITS ticks, which can be
-      # slower than this worker's, so a fresh fact can still read :now for one
-      # tick after a combo has already been dispatched (measured 2026-08-17
-      # writing this PR's tests: without this, the escalation/stun tests fired
-      # the combo twice, mid-sequence).
+      # rescuing?
       state = unlatch_stale_rescue(state)
 
       case rescue_decision(state) do
@@ -669,20 +598,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
           fire_rescue(%{state | gate: nil}, decision == :rescue)
       end
     else
-      # Everything this worker exists for is blocked here, and until now the ONLY
-      # sign was a small badge in the panel header. "revive is on and nothing
-      # happened" is unanswerable when the closed gate is invisible: name it.
+      # Everything this worker exists for is blocked here, and until now the ONLY sign was a
+      # small badge in the panel header.
       %{state | gate: closed_gate()}
     end
   end
 
-  # O PEDIDO QUE MORRE NA CHAVE. `rescue_enabled` é a mão dele no interruptor e
-  # continua vencendo o cérebro — mas um cérebro pedindo revive contra uma chave
-  # desligada é a coisa mais cara que este bot faz em silêncio: em 27/08 a
-  # engine pediu 556 vezes num dia inteiro e nenhuma tecla saiu.
-  #
-  # Um aviso a cada cinco minutos, e só quando o pedido é de AGORA: barulho de
-  # tique a tique seria a mesma invisibilidade com outro nome.
+  # O PEDIDO QUE MORRE NA CHAVE.
   @switch_warn_every_ms 300_000
   defp warn_switch_off(state) do
     if engine_revive() == :now and not Settings.get(:rescue_enabled) and
@@ -706,30 +628,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp switch_warn_due?(%{last_switch_warn_at: at}),
     do: now() - at >= @switch_warn_every_ms
 
-  # The pokémon FELL. Nothing is on the field, which means the character is the
-  # one taking the hits — so this is the shortest path in the whole module:
-  # portrait, max revive, out. No stun (there is nobody left to protect), no
-  # settle (every ms is exposure), and the hands go to a task like every other
-  # actuation so the monitor keeps answering `:halt` (2026-08-14).
-  #
-  # `last_seen_hp: nil` afterwards is the anti-loop: the next revive costs a
-  # fresh sighting of a LIVE bar, so a pokémon simply stored in its ball can
-  # never drain the stock.
-  # THE F4 PUTS THE POKÉMON IN ITS BALL, so the unreadable ticks right after a
-  # revive are the RESULT of that revive, not a death. Two of them (240ms) plus
-  # the sub-35 reading that ORDERED this very revive were enough for the fallen
-  # path to declare a death and fire a SECOND revive — this one with no stun
-  # prefix, recalling the pokémon again in front of a wide-awake pile, which is
-  # exactly what `rescue_stun_first` exists to prevent.
-  #
-  # The two cases are indistinguishable on screen, so this does not decide
-  # between them: it WAITS. The number is the engine's own
-  # `engine_revive_confirm_ms` on purpose, not a new one — "the ordinary reason
-  # to be off the field is a revive already in flight, and how long one takes to
-  # show itself" is a question the brain already answered, and hands that keep a
-  # different clock from the brain is the bug behind every wrong number in this
-  # subsystem so far. Past that window the bar is STILL gone, the revive
-  # provably did not land, and the fallen path is right to fire.
+  # The pokémon FELL.
   defp fresh_rescue?(%{last_rescue_at: at}) when is_integer(at),
     do: now() - at < Settings.get(:engine_revive_confirm_ms)
 
@@ -887,19 +786,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   end
 
   # The combat read costs a screen capture, so it only happens when a potion is otherwise due.
-  # ONE clear read is NOT "out of battle": fished enemies re-aggress in the post-kill gap and
-  # the game cancels the heal channel, wasting the potion (Lucas, live 2026-07-20) — so the
-  # potion only fires after a CONTINUOUS battle-free window (potion_battle_clear_ms). Any
-  # in-combat/unknown read — or the potion not being due — resets the streak.
   defp maybe_potion(state, calib) do
     if Logic.potion_wanted?(potion_input(state)) do
       case interrupt?(state, calib) do
         {:ok, false} ->
           potion_after_clear_window(state)
 
-        # The sip is DUE and the read says a heal would be interrupted. Without
-        # this the panel showed nothing while a potion sat blocked (measured
-        # 2026-07-22: HP 32%, potion on, zero sips, hold_reason nil).
+        # The sip is DUE and the read says a heal would be interrupted.
         _interrupted_or_unknown ->
           %{state | battle_clear_since: nil, gate: :potion_in_combat}
       end
@@ -908,18 +801,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # After every battle, send the Pokémon back to its calibrated strategic tile with a
-  # MIDDLE click (the game's "step here" command) — battles drag it off the spot where
-  # it hits several enemies at once. Same battle-clear caution as the potion, on its
-  # own window/clock: battle presence comes from the :battle fact (a free ETS read),
-  # so no combat running = no battles seen = nothing to undo. The click needs the
-  # native key-event helper (cliclick has no middle button); a failed click keeps
-  # reposition_pending? so the next clear window retries.
-  #
-  # Only while STANDING. The calibrated tile is his fishing spot: walking, this
-  # would middle-click him back to it after every fight and undo the whole trip.
-  # The mode bundle switches the setting off when he moves, but the check lives
-  # here too — the worker must not depend on the panel having applied a preset.
+  # After every battle, send the Pokémon back to its calibrated strategic tile with a MIDDLE
+  # click (the game's "step here" command) — battles drag it off the spot where it hits several
+  # enemies at once.
   defp maybe_reposition(state) do
     with "still" <- Settings.get(:player_mode),
          true <- Settings.get(:reposition_enabled),
@@ -963,10 +847,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # Clicking ON a ladder USES it, and using only works when adjacent (Lucas,
-  # live 2026-07-20) — so the flee is: click-walk to the calibrated APPROACH
-  # tile, wait the walk out, then arrow-step INTO the staircase. One atomic
-  # perform: nothing can interleave mid-flee.
+  # Clicking ON a ladder USES it, and using only works when adjacent (Lucas, live 2026-07-20) —
+  # so the flee is: click-walk to the calibrated APPROACH tile, wait
   @escape_step_gap_ms 300
 
   defp flee_actions(point) do
@@ -1047,26 +929,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     }
   end
 
-  # Would a heal be interrupted right now? Only that question matters for the
-  # potion — a sip drunk mid-interrupt is wasted.
-  #
-  # The trigger is DAMAGE, and damage has two readable faces:
-  #   * a lock ring — a selected target, i.e. a fight you are trading blows in;
-  #   * the player's own HP DROPPING since the last read — the direct proof that
-  #     something is hitting you, which is exactly the re-aggro the old rule was
-  #     built for (a fished enemy attacks in the post-kill gap, no ring yet).
-  #
-  # The OLD rule counted "any enemy row in the battle list" as combat. But
-  # hunting means an enemy is listed essentially always, so the potion NEVER
-  # fired while hunting (measured 2026-07-22: enemy listed, not locked, nothing
-  # attacking → zero sips forever). A creature merely on screen is not damage;
-  # the two faces above are. The skill-bar cooldown would be a third face, but
-  # its feed is demand-driven and absent during manual play — the very case this
-  # worker protects — so it is deliberately not used here.
-  #
-  # The :battle feed interprets the ring/list every ~120ms while combat runs —
-  # read the blackboard first (zero extra capture); fall back to a direct
-  # capture+interpret when the entry is stale/missing (manual play, bots off).
+  # Would a heal be interrupted right now?
   defp interrupt?(state, calib) do
     if taking_damage?(state) do
       {:ok, true}
@@ -1098,11 +961,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   defp locked?(obs), do: obs[:locked?] == true
 
-  # Reposition keeps the BROADER notion — "any enemy nearby" — on purpose: it
-  # sends the Pokémon back to its tile only when things are truly quiet, and a
-  # listed-but-unlocked creature is still a reason not to walk into it. Only the
-  # POTION gate narrowed to lock-ring-or-damage; the two answer different
-  # questions ("would a heal be wasted?" vs "is it safe to walk?").
+  # Reposition keeps the BROADER notion — "any enemy nearby" — on purpose: it sends the Pokémon
+  # back to its tile only when things are truly quiet, and a
   defp engaged?(obs), do: obs[:locked?] == true or (obs[:enemies] || []) != []
 
   # Stamp last_potion_at BEFORE dispatch (same rationale as the combo): if the press errors, the
@@ -1122,32 +982,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state
   end
 
-  # THE ENGINE IS THE ONLY VOICE on WHEN it is tactically worth reviving — the
-  # whole point of R3: a health percentage alone cannot tell a live pile with
-  # every cooldown up from a cleared one with nothing left, and the old ladder
-  # only ever asked the first question. "quem manda ser tomada uma poção ou
-  # reviver um pokémon não deveria ser só um observador da vida, puramente"
-  # (Lucas, 2026-08-17).
-  #
-  # `rescue_enabled` is checked FIRST and outside the engine's reach on
-  # purpose: it is his own hand on the switch, and no amount of "the engine
-  # says now" may override a toggle he turned off. Past that, the engine's
-  # answer is obeyed literally in both directions, and a stale/missing fact
-  # holds rather than guessing — including while fishing, where `hunt: nil`
-  # still bands on HP and answers `:now` on yellow/red (see
-  # `Engine.Logic`'s "No hunt does not mean no pokémon"), so there is no
-  # health band left that only the old ladder could see.
-  #
-  # `rescue_cooldown_ms` still floors the PACE, independent of the tactics:
-  # his own dial, still visible and editable in the panel, and a second net
-  # under the engine's own — a real cooldown even if the engine's judgment on
-  # WHEN it is worth reviving ever misfires into asking twice too close
-  # together.
-  # `:rescue` protects the recall (stun prefix + settle); `:rescue_bare` is the
-  # engine's `:prepare` — a calm-screen revive that must NOT spend the control
-  # key, because a control spent on a calm revive is a control that is cold for
-  # the dangerous one (28/08, the death).
-  # `rescuing?` outranks every decision: the last combo is still in flight.
+  # THE ENGINE IS THE ONLY VOICE on WHEN it is tactically worth reviving — the whole point of
+  # R3: a health percentage alone cannot tell a live pile with every
   defp rescue_decision(%{rescuing?: true}), do: :hold
   defp rescue_decision(state), do: revive_decision(state)
 
@@ -1173,14 +1009,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # Mark the attempt time BEFORE dispatching, so the cooldown holds even if the combo errors —
-  # a dying-Pokémon loop must never re-fire and burn the expensive revives.
-  #
-  # The belt to the task's suspenders: a rescue still marked in-flight this long
-  # after it was dispatched is not coming back, whatever swallowed its report.
-  # The combo is a stun receipt (`rescue_confirm_ms`) plus a settle plus one
-  # `Body.perform`; a minute is far past every one of them and still far below
-  # "the night is over".
+  # Mark the attempt time BEFORE dispatching, so the cooldown holds even if the combo errors — a
+  # dying-Pokémon loop must never re-fire and burn the expensive revives.
   @rescue_latch_max_ms 60_000
 
   defp unlatch_stale_rescue(%{rescuing?: true, last_rescue_at: at} = state)
@@ -1259,48 +1089,19 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp refusal_text(:input_gate_closed), do: "jogo sem foco ou pânico — nada é pressionado"
   defp refusal_text(reason), do: inspect(reason)
 
-  # The crowd control goes out FIRST, ALONE, and is CONFIRMED before the
-  # pokémon leaves the field.
-  #
-  # "Eu uso geralmente as skills 1 e 2 para justamente silenciar os pokémons ao
-  # redor, colocar eles para dormir, e aí, sim, eu tiro meu Pokémon de campo"
-  # (Lucas, 2026-08-11). Riding inside the same atomic sequence as the recall,
-  # the stun could silently not land — unfocused window, shut gate, no mana —
-  # and the recall would strip the field anyway, in front of everything, wide
-  # awake. The receipt is the cooldown (`Pokex.Bots.SkillReceipt`): a skill
-  # that fired is no longer ready.
-  #
-  # Splitting the sequence does NOT widen the exposure: the pokémon is still
-  # out, still tanking, while the confirmation is read. What it costs is one
-  # skill-bar reading, and what it buys is knowing. Runs INSIDE the rescue
-  # task (see dispatch_rescue/3) — the receipt wait belongs to the hands, not
-  # to the monitor's loop.
-  #
-  # The receipt is NOT the sleep, and reading it as such is what nearly killed
-  # the character on 2026-08-14: the cooldown starts the instant the key goes
-  # out, so the confirmation came back in ~100ms and the recall stripped the
-  # field while the pile was still awake. So the answer carries what is LEFT
-  # of the settle, and the revive waits it out (see `Logic.combo/1`).
+  # The crowd control goes out FIRST, ALONE, and is CONFIRMED before the pokémon leaves the
+  # field.
   defp crowd_control(_body, :off), do: {[], 0}
 
-  # O CONTROLE JÁ SAIU — pelo cérebro, como prefixo deste revive ("controle
-  # primeiro, revive na sequência"). Nada a apertar: só o resto da espera do
-  # sono, contada daquele aperto. Sem isto era o "controle em cooldown na hora
-  # do revive — tentando o que sobrou" 60 vezes na corrida de 3h de 29/08,
-  # despejando teclas de dano frias em cima de um bolo JÁ dormido.
+  # O CONTROLE JÁ SAIU — pelo cérebro, como prefixo deste revive ("controle primeiro, revive na
+  # sequência").
   defp crowd_control(_body, {:recent, pressed_at}) do
     settle = settle_remaining(pressed_at)
 
     {[log: "🚑 controle já saiu há pouco#{settle_text(settle)} — revivendo na sequência"], settle}
   end
 
-  # The control is WANTED (the pile may be awake) and it is cold. Until 28/08
-  # this fell through as "revivendo direto" — settle 0, the recall stripping
-  # the field in front of a pile wide awake, and the character died paying it.
-  # Now it is the SAME escalation a missed stun earns (his 2026-08-14
-  # decision): whatever is still ready goes out first — another control puts
-  # the pile down, plain damage may end it — and the settle counts from THAT
-  # press. Nothing ready = recall at once, loudly.
+  # The control is WANTED (the pile may be awake) and it is cold.
   defp crowd_control(body, :cold) do
     {extra_notes, settle} = last_resort(body, [])
 
@@ -1338,10 +1139,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     {SkillReceipt.verdict(SkillReceipt.check(before, later, keys)), at}
   end
 
-  # The escalation Lucas asked for (2026-08-14): another control key may still
-  # put the pile down, and plain damage may simply end it. With nothing left to
-  # press there is nothing to wait for either — recall AT ONCE, because from
-  # there on the clock only costs the pokémon's HP.
+  # The escalation Lucas asked for (2026-08-14): another control key may still put the pile
+  # down, and plain damage may simply end it.
   defp last_resort(body, tried) do
     keys =
       Logic.last_resort_keys(
@@ -1373,10 +1172,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp settle_remaining(pressed_at),
     do: max(Settings.get(:rescue_stun_settle_ms) - (now() - pressed_at), 0)
 
-  # Every outcome still ends in a revive — a pokémon left dead is worse than a
-  # pokémon revived in the open, and that was already this module's rule
-  # ("fail in the direction of SAVING"). What changes is that a stun that did
-  # not land now SAYS SO, loudly, instead of being assumed.
+  # Every outcome still ends in a revive — a pokémon left dead is worse than a pokémon revived
+  # in the open, and that was already this module's rule ("fail in the direction of SAVING").
   defp stun_note(:confirmed, keys, settle),
     do: [
       log:
@@ -1397,45 +1194,14 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp settle_text(0), do: ""
   defp settle_text(ms), do: ", esperando #{ms}ms o bolo dormir"
 
-  # The STUN prefix: the on-field pokémon's own control keys, pressed and
-  # CONFIRMED before it leaves. Off by default — this client's revive is one
-  # key and the field empties for a moment only (Lucas, 2026-08-24), so the
-  # prefix costs a confirmation wait that the pokémon may not have to spare.
-  # Turn it on and the hunt pays that wait to have the pile asleep first.
-  #
-  # "Ele não está usando a skill 1, que seria a skill guardada para reviver, e
-  # a skill de stun (…) eu morri já por culpa disso!" (Lucas, 2026-08-14).
-  # Combat RESERVES `loadout.crowd` from every ordinary fight for exactly this
-  # moment (`Strategy.reserved/1`, and /time labels the key that way) — a key
-  # reserved by everyone and pressed by nobody was the bug. Every failure still
-  # falls toward SAVING: no control ready, no prefix, and the revive happens.
+  # The STUN prefix: the on-field pokémon's own control keys, pressed and CONFIRMED before it
+  # leaves.
   defp rescue_stun_steps do
     if Settings.get(:rescue_stun_first), do: control_stun(), else: {:off, []}
   end
 
-  # Four shapes, because "no control" hides three different situations —
-  # nothing CLASSIFIED, pressed RECENTLY by the brain (pile already asleep,
-  # wait out the settle from THAT press), and truly COLD (escalate):
-  #
-  #   * nothing CLASSIFIED (`loadout.crowd == []`) — a permanent fact about
-  #     this pokémon; there was never a stun to wait for, revive direct;
-  #   * classified but COLD — a transient the revive itself caused when it was
-  #     spent on a calm screen (28/08): escalate like a missed stun, never
-  #     recall bare in front of an awake pile.
-  # QUEM DIZ QUAL É O CONTROLE É O PLANO DO MODO, não o loadout cru.
-  #
-  # Ele confirmou em 01/09: a corrente do Auto Combo TERMINA em stun. Então lá
-  # a tecla não é nossa pra gastar — prefixar o revive com ela é pagar duas
-  # vezes pelo mesmo sono e deixar o controle gelado pro combo seguinte, e o
-  # `Plan.AutoCombo` responde `[]`.
-  #
-  # NOS OUTROS MODOS ELE FICA, e não por inércia: a bancada mediu o que custa
-  # tirá-lo de um resgate que não tem combo na frente — o circuito denso perde o
-  # pokémon 45 vezes por hora e mata o personagem, contra zero quedas em 48
-  # corridas com ele. Esse número foi medido SEM corrente nenhuma, que é
-  # exatamente a situação dos modos que não têm uma.
-  #
-  # `rescue_stun_first` continua sendo o interruptor mestre por cima disto.
+  # Four shapes, because "no control" hides three different situations — nothing CLASSIFIED,
+  # pressed RECENTLY by the brain (pile already asleep, wait out the
   defp control_stun do
     loadout = Loadout.current()
 
@@ -1533,13 +1299,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       last_action: state.last_action
     }
 
-  # The support worker's "why am I waiting". A closed GATE comes first — it
-  # blocks everything, so the clock reasons behind it are noise. Then each armed
-  # clear-window clock; both waiting at once join in one text. nil = nothing
-  # pending.
-  #
-  # A silent hold is the worst outcome this worker can produce: it looks exactly
-  # like a broken toggle, and Lucas spent a session unable to tell them apart.
+  # The support worker's "why am I waiting".
   defp hold_reason(state) do
     case gate_text(state.gate) do
       nil -> clock_reason(state)

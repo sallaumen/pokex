@@ -574,15 +574,9 @@ defmodule Pokex.Vision do
       else: bar_run_scan(rest, index + 1, width, min_run, run)
   end
 
-  # Three bar colours, all measured on real captures: GREEN while healthy, RED
-  # at low HP in the old client, and the AMBER the new one paints for a damaged
-  # bar — (124, 130, 24) on 2026-08-24, where red and green sit within 6 of each
-  # other and neither dominates. Without the amber clause a creature vanished
-  # from the battle read the moment it took a hit, which is the worst possible
-  # blindness: it is exactly the creature the bot is fighting. Blue stays out
-  # (the spent part of the bar is (39, 59, 79)), and so does everything the
-  # contiguity rule already rejects — red name text and the lock ring are
-  # sparse, never a solid run.
+  # Three bar colours, all measured on real captures: GREEN while healthy, RED at low HP in the
+  # old client, and the AMBER the new one paints for a damaged bar — (124, 130, 24) on
+  # 2026-08-24, where red and green sit within 6 of each other and neither dominates. Without
   defp hp_bar_px?(r, g, b) do
     (g >= 120 and g >= r + 40 and g >= b + 40) or
       (r >= 120 and r >= g + 40 and r >= b + 40) or
@@ -896,13 +890,7 @@ defmodule Pokex.Vision do
 
     {known, bright, total} = hp_known_px(rgba, min_b, min_s, max_track, 0, 0, 0)
 
-    # A UNIFORMLY DARK region is a covered window, not an empty bar. Without
-    # this floor every dark pixel counted as "the bar's empty track", so the
-    # browser sitting in front of the game read as a perfectly recognised bar
-    # that happened to be at 0% — and fired the survival combo on a Pokémon at
-    # full health (Lucas, 2026-08-07, single monitor). Measured on his screen:
-    # the real bar is 68.5% bright (fill, borders, and the white "13520/13520"
-    # that is there even at 0 HP); the covered frame was 0.1%.
+    # A UNIFORMLY DARK region is a covered window, not an empty bar.
     known * 100 >= min_known * total and bright * 100 >= min_bright * total
   end
 
@@ -955,12 +943,8 @@ defmodule Pokex.Vision do
 
     {filled, text_only} = column_kinds(rgba, w, min_b, min_s)
 
-    # The NUMBERS are drawn ON TOP of the bar, and a column hidden entirely
-    # behind a white digit says nothing about the fill. Counting those as EMPTY
-    # is why a bar reading 13710/13710 came back as 58%: 28 of his 157 columns
-    # were pure text (measured 2026-08-07). They leave the denominator instead —
-    # neither filling nor emptying — so the percentage is judged only on the
-    # columns that can actually answer.
+    # The NUMBERS are drawn ON TOP of the bar, and a column hidden entirely behind a white digit
+    # says nothing about the fill.
     judged = w - text_only
 
     if judged > 0, do: round(filled * 100 / judged), else: 0
@@ -969,9 +953,6 @@ defmodule Pokex.Vision do
   def hp_fill_pct(_frame, _opts), do: 0
 
   # Per column: does it hold FILL, and is it nothing but the white number?
-  # A column is "filled" if any pixel is a WARM COLOURED one: bright enough (not
-  # black), saturated enough (not the white number), and not blue-dominant (not
-  # the blue game background).
   defp column_kinds(rgba, w, min_b, min_s) do
     {filled, lettered} = column_scan(rgba, 0, w, min_b, min_s, MapSet.new(), MapSet.new())
     text_only = lettered |> MapSet.difference(filled) |> MapSet.size()

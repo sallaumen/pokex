@@ -260,20 +260,23 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp track_survivors(logic, situation, now) do
     left = Map.get(situation, :combo_left_ms)
-    survivors = logic.survivors && Map.put(logic.survivors, :empty, 0)
+    logic = %{logic | survivors: logic.survivors && Map.put(logic.survivors, :empty, 0)}
 
     cond do
-      is_integer(left) and left > 0 ->
-        %{logic | chain_seen?: true, survivors: survivors}
-
-      logic.chain_seen? and left == 0 and is_integer(situation.enemies) ->
-        chains = if(survivors, do: survivors.chains, else: 0) + 1
-        since = if(survivors, do: survivors.since, else: now)
-        %{logic | chain_seen?: false, survivors: %{since: since, chains: chains, empty: 0}}
-
-      true ->
-        %{logic | survivors: survivors}
+      is_integer(left) and left > 0 -> %{logic | chain_seen?: true}
+      chain_ended?(logic, left, situation) -> arm_survivors(logic, now)
+      true -> logic
     end
+  end
+
+  # A BORDA: a corrente foi vista saindo e agora está zerada, com a lista lida.
+  defp chain_ended?(logic, left, %{enemies: n}),
+    do: logic.chain_seen? and left == 0 and is_integer(n)
+
+  defp arm_survivors(%{survivors: survivors} = logic, now) do
+    chains = if(survivors, do: survivors.chains, else: 0) + 1
+    since = if(survivors, do: survivors.since, else: now)
+    %{logic | chain_seen?: false, survivors: %{since: since, chains: chains, empty: 0}}
   end
 
   @doc "O latch do sobrevivente está armado (e dentro do teto de correntes)?"
@@ -1535,7 +1538,7 @@ defmodule Pokex.Bots.Engine.Logic do
          Orders.walking(:travelling, t.band, "nada aqui — seguindo a rota")}
 
       rushing_in?(t) ->
-        open(t, "#{count(t.s)}: caindo em cima, sem esperar juntar")
+        open(t, rushing_why(t))
 
       # R6. The pile is worth fighting AND it has been walked for: the steps
       # bought whatever was going to join, and dragging further only spends the
@@ -1543,11 +1546,6 @@ defmodule Pokex.Bots.Engine.Logic do
       # AS FRASES NOMEIAM A REGRA. "10 passos e não veio mais ninguém" foi a
       # pergunta dele de 02/09 — ele quis subir os 10 e não tinha a palavra pra
       # procurar. Cada saída da régua diz qual knob a fechou.
-      # O SOBREVIVENTE (ou quem me morde forte) é LUTA, não pilha pra juntar:
-      # abre antes de qualquer juntada, com a juntada ligada ou não.
-      survivor?(t.logic) ->
-        open(t, "#{count(t.s)}: #{survivor_label(t.logic)}, de novo em cima")
-
       gathered_enough?(t) ->
         open(
           t,
@@ -1766,7 +1764,16 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp walked(t), do: Map.get(t.s, :walked, 0)
 
-  defp rushing_in?(t), do: t.s.worth_fighting? and not t.config.gather_piles
+  # …e o SOBREVIVENTE cai em cima sempre, com a juntada ligada ou não: quem
+  # tomou a área inteira e ficou de pé é luta, não pilha pra juntar.
+  defp rushing_in?(t),
+    do: survivor?(t.logic) or (t.s.worth_fighting? and not t.config.gather_piles)
+
+  defp rushing_why(%{logic: logic} = t) do
+    if survivor?(logic),
+      do: "#{count(t.s)}: #{survivor_label(logic)}, de novo em cima",
+      else: "#{count(t.s)}: caindo em cima, sem esperar juntar"
+  end
 
   # O ALVO DO BOLO, e não só os passos: "quando encontra dois monstros, pode
   # andar bastante até ter seis monstros; se tiver cinco monstros na tela, pode

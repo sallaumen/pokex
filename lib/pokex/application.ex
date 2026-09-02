@@ -51,6 +51,9 @@ defmodule Pokex.Application do
       # The anti-shiny watchdog (always-on like Guardian; manages its own
       # arena-feed attachment from the shiny_guard_enabled setting).
       Pokex.Bots.ShinyGuard,
+      # O olho da espera (fase 1): fotografa ao redor do pokémon enquanto o
+      # cérebro espera o bolo, e só mede.
+      Pokex.Bots.CrowdWatch,
       # Ends the session (idle/goal rules or the manual button). After BotSupervisor
       # because it halts the fleet.
       Pokex.Bots.Logout,

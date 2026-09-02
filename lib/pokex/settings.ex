@@ -693,6 +693,9 @@ defmodule Pokex.Settings do
     # How far out `Pokex.Bots.CrowdScan` looks when asked. The box it captures is
     # this many tiles in EVERY direction, so raising it costs area quadratically —
     # 6 already covers more than any area skill in the game reaches.
+    # O OLHO DA ESPERA (fase 1, 02/09): fotografa ao redor do pokémon enquanto o cérebro
+    # espera o bolo e escreve no feed quantos estão a 1 tile. Só mede.
+    crowd_watch_enabled: true,
     crowd_scan_radius_tiles: 6,
     # How much the evidence picture is shrunk before it is drawn.
     crowd_scan_evidence_shrink: 4,

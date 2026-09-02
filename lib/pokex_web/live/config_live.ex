@@ -326,6 +326,15 @@ defmodule PokexWeb.ConfigLive do
           hint:
             "Entre um grupo e outro, se metade da barra está em cooldown, gasta um revive antes de encontrar a próxima pilha.",
           keywords: "preparado prepare revive entre grupos"
+        },
+        %{
+          key: :crowd_watch_enabled,
+          kind: :bool,
+          label: "Olhar a pilha enquanto espera (só mede)",
+          hint:
+            "Esperando o bolo, fotografa ao redor do pokémon a cada meio segundo e escreve no feed " <>
+              "quantos estão a 1 tile. Ainda não decide nada por isso. Desligue se a batalha atrasar.",
+          keywords: "olho perto pilha foto medir crowd alcance tile"
         }
       ]
     },

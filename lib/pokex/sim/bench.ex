@@ -185,7 +185,11 @@ defmodule Pokex.Sim.Bench do
     before = previous |> World.step(@tick_ms) |> apply_script(state.scenario, was)
 
     picture =
-      Situation.build(inputs(before, state.picture, state.config), state.config, before.clock)
+      Situation.build(
+        inputs(before, state.picture, state.config, state.mode),
+        state.config,
+        before.clock
+      )
 
     {logic, orders} =
       Logic.step(
@@ -533,7 +537,7 @@ defmodule Pokex.Sim.Bench do
     end)
   end
 
-  defp inputs(world, previous, config) do
+  defp inputs(world, previous, config, mode) do
     battle = World.observe(world, :battle)
     pokemon = World.observe(world, :pokemon)
 
@@ -562,7 +566,11 @@ defmodule Pokex.Sim.Bench do
       revive_left: World.revive_left(world),
       # A CORRENTE DO CLIENTE, do lado do mundo: é ela que segura o revive do
       # ciclo até o combo terminar.
-      combo_left_ms: World.combo_left_ms(world, Map.get(config, :combo_window_ms) || 0),
+      # O MESMO CONTRATO DO JOGO (`Combat.Combo.left_ms/2`): fora do Auto Combo
+      # não há corrente, e a resposta é `nil` — nunca zero, que é "acabou
+      # agora". Sem isto a bancada dava zero a TODO cenário e a regra do revive
+      # pós-combo disparava em mundos sem corrente nenhuma.
+      combo_left_ms: combo_left_ms(world, config, mode),
       # A DISTÂNCIA DO CHEFE, respondida pelo mundo — o papel que o CrowdScan
       # faz no jogo. Do POKÉMON, não do personagem: o stun sai dele.
       # O CANAL DA COR: o `ShinyGuard` do jogo publica a presença do especial
@@ -645,6 +653,11 @@ defmodule Pokex.Sim.Bench do
   # com ela fora o multiplicador de 20% que ele descreveu não multiplicava nada.
   # Um sweep de `aura_boost_pct` dava a mesma linha duas vezes, e a explicação
   # não estava no knob.
+  defp combo_left_ms(world, config, :auto_combo),
+    do: World.combo_left_ms(world, Map.get(config, :combo_window_ms) || 0)
+
+  defp combo_left_ms(_world, _config, _no_chain), do: nil
+
   defp hands(world, picture, config, mode) do
     hands = Inputs.hands(loadout_of(world), picture, config, mode)
 

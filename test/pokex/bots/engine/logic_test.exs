@@ -555,8 +555,15 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert lutando(sem_controle(%{combo_left_ms: 2_500, own_hp: 100})).revive == :hold
     end
 
+    # …e agora sai no PRIMEIRO tique, antes da régua: é a regra dele escrita
+    # como regra (`combo_reset_due?`), não a R3b caindo por acaso no segundo.
     test "acabada a corrente, o reset sai na hora" do
-      assert lutando(sem_controle(%{combo_left_ms: 0, own_hp: 100})).revive == :now
+      mundo = sem_controle(%{combo_left_ms: 0, own_hp: 100})
+      {logic, primeiro} = reset_step(Logic.new(), mundo, 10_000)
+      {_logic, segundo} = reset_step(logic, mundo, 10_500)
+
+      assert primeiro.revive == :now
+      assert segundo.phase == :resetting
     end
 
     # O RESET É COBRADO POR IMAGEM (01/09): "temos que ter certeza de que os
@@ -633,6 +640,71 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       refute ordens.phase == :resetting
       assert ordens.fire == :free
+    end
+
+    # A REGRA DELE, como regra: "logo depois do combo estar finalizado, usar o
+    # revive". O caso exato de 09:14:16 de 02/09 — a corrente matou o grupo, a
+    # caçada já estava JUNTANDO o próximo, e nenhuma regra de revive era
+    # consultada nessa fase.
+    test "corrente acabada e barra gasta reviveM mesmo com a caçada juntando o próximo grupo" do
+      juntando =
+        world(%{
+          situation: situation(%{enemies: 1, combo_left_ms: 0, spent?: true, own_hp: 100}),
+          hunt: hunt(%{state: :walking, luring?: true}),
+          hands: %{opening: ["r"], single: [], crowd: []}
+        })
+
+      {logic, primeiro} = reset_step(Logic.new(), juntando, 10_000)
+      {logic, pedido} = reset_step(logic, juntando, 10_500)
+
+      assert :now in [primeiro.revive, pedido.revive]
+      assert Map.has_key?(logic.since, :reset_pending)
+    end
+
+    test "com a corrente ainda saindo, o revive espera a janela" do
+      no_meio =
+        world(%{
+          situation: situation(%{enemies: 1, combo_left_ms: 1_500, spent?: true, own_hp: 100}),
+          hunt: hunt(%{state: :walking, luring?: true}),
+          hands: %{opening: ["r"], single: [], crowd: []}
+        })
+
+      {logic, a} = reset_step(Logic.new(), no_meio, 10_000)
+      {_logic, b} = reset_step(logic, no_meio, 10_500)
+
+      refute :now in [a.revive, b.revive]
+    end
+
+    # Fora do Auto Combo `combo_left_ms` é nil, e nil não é "acabou agora".
+    test "sem corrente nenhuma a regra não existe" do
+      economico =
+        world(%{
+          situation: situation(%{enemies: 1, combo_left_ms: nil, spent?: true, own_hp: 100}),
+          hunt: hunt(%{state: :walking, luring?: true}),
+          hands: %{opening: ["3"], single: [], crowd: []}
+        })
+
+      {logic, a} = reset_step(Logic.new(), economico, 10_000)
+      {_logic, b} = reset_step(logic, economico, 10_500)
+
+      refute :now in [a.revive, b.revive]
+    end
+
+    test "o pedido segura a rota, e o tique seguinte espera a barra na tela" do
+      juntando =
+        world(%{
+          situation: situation(%{enemies: 1, combo_left_ms: 0, spent?: true, own_hp: 100}),
+          hunt: hunt(%{state: :walking, luring?: true}),
+          hands: %{opening: ["r"], single: [], crowd: []}
+        })
+
+      {logic, pedido} = reset_step(Logic.new(), juntando, 10_000)
+      assert pedido.revive == :now
+      assert pedido.route == :hold
+
+      {_logic, espera} = reset_step(logic, juntando, 10_400)
+      assert espera.phase == :resetting
+      assert espera.route == :hold
     end
 
     # Sem combo nenhum (todo modo que não é o Auto Combo) a regra não existe:

@@ -32,6 +32,7 @@ defmodule Pokex.Sim.Verdict do
   # A ORDEM É A DA TELA. Uma promessa quebrada aparece primeiro na lista de
   # falhas, então a mais grave vem antes: cair é pior que gastar revive à toa.
   @promessas [
+    {:nao_morre, "ele não morre", "o PERSONAGEM sobrevive — a única que custa a noite inteira"},
     {:nao_cai, "não cai", "o pokémon não vai ao chão nenhuma vez"},
     {:mata, "mata", "a caçada matou alguma coisa — não andou em círculos"},
     {:anda, "anda", "não passou a corrida parada no mesmo lugar"},
@@ -114,6 +115,12 @@ defmodule Pokex.Sim.Verdict do
   def seal(veredito), do: if(passed?(veredito), do: :ok, else: :falhou)
 
   # --- as cobranças -----------------------------------------------------------
+
+  defp check(:nao_morre, %{outcome: %{player_died_at: nil}}),
+    do: {true, "o personagem terminou vivo"}
+
+  defp check(:nao_morre, %{outcome: %{player_died_at: at}}),
+    do: {false, "o PERSONAGEM morreu em #{segundos(at)}"}
 
   defp check(:nao_cai, %{metrics: %{deaths: []}}), do: {true, "ficou de pé a corrida inteira"}
 

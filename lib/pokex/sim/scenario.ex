@@ -254,6 +254,35 @@ defmodule Pokex.Sim.Scenario do
         config: %{reset_revive: true}
       },
       %__MODULE__{
+        id: "modo-hard",
+        group: :hunt,
+        icon: "🧟",
+        aperto: :aperto,
+        mode: :auto_combo,
+        espera: [:nao_morre, :mata],
+        name: "Modo hard (ele com 1 de vida)",
+        why:
+          "A vida dele como ela é: \"no modo hard parece que tô jogando Dark Souls — se tem " <>
+            "monstro ao meu redor e uso o revive, esse período de menos de 1s que o revive me " <>
+            "deixa exposto eu já tomo um jato de água ou uma folha de navalha na cara e morro\". " <>
+            "O mesmo formigueiro e a mesma corrente, com o personagem com 1 de vida: a PRIMEIRA " <>
+            "mordida que chegar nele durante o campo vazio é a morte. Se o ciclo não for 100% " <>
+            "seguro — revive só com todo mundo dormindo ou longe — ele morre aqui antes de " <>
+            "morrer lá. Cada detalhe importa.",
+        route: :anthill,
+        knobs: %{
+          nest_sizes: %{2 => 4, 3 => 4, 4 => 2, 5 => 1},
+          nest_radius: 3,
+          stray_chance_pct: 60,
+          aggro_tiles: 8,
+          leash_tiles: 12,
+          respawn_ms: 20_000,
+          combo_chain_ms: 3_500,
+          player_hp: 1
+        },
+        config: %{reset_revive: true}
+      },
+      %__MODULE__{
         id: "chefe-brando",
         group: :chefe,
         icon: "👹",

@@ -952,6 +952,20 @@ defmodule Pokex.Sim.WorldTest do
       assert chewed.player.alive?
     end
 
+    # O MODO HARD (02/09): "coloca meu personagem com 1 de HP; se não fizer algo
+    # 100% seguro, ele morre no simulador". A primeira mordida no campo vazio é
+    # a morte — que é a régua que ele joga de verdade.
+    test "com 1 de vida, a primeira mordida no campo vazio o mata" do
+      world = biting_world(%{player_hp: 1})
+      assert world.player.hp_pct == 1
+
+      long = Enum.reduce(1..400, world, fn _tick, w -> World.step(w, 50) end)
+
+      refute long.own.out?
+      refute long.player.alive?
+      assert long.player.hp_pct == 0
+    end
+
     test "once the pokemon falls, the bites land on him instead" do
       world = biting_world()
       long = Enum.reduce(1..400, world, fn _tick, w -> World.step(w, 50) end)
@@ -1018,20 +1032,24 @@ defmodule Pokex.Sim.WorldTest do
     %{world | mobs: [%{hd(world.mobs) | pos: {x, y + 1, z}}]}
   end
 
-  defp biting_world do
+  defp biting_world(knobs \\ %{}) do
     World.new(nest_route(),
       loadout: loadout(),
-      knobs: %{
-        nest_size: 1,
-        nest_radius: 0,
-        aggro_tiles: 99,
-        mob_ms_per_tile: 50,
-        leash_tiles: 99,
-        bite_dmg: 2,
-        bite_every_ms: 100,
-        player_bite_dmg: 5,
-        stray_chance_pct: 0
-      }
+      knobs:
+        Map.merge(
+          %{
+            nest_size: 1,
+            nest_radius: 0,
+            aggro_tiles: 99,
+            mob_ms_per_tile: 50,
+            leash_tiles: 99,
+            bite_dmg: 2,
+            bite_every_ms: 100,
+            player_bite_dmg: 5,
+            stray_chance_pct: 0
+          },
+          knobs
+        )
     )
   end
 

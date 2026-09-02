@@ -275,7 +275,7 @@ defmodule Pokex.Sim.Hands do
   defp fire(world, %{fire: :free, opening: keys}, hands, config) when keys != [] do
     gap = gap(config)
 
-    case Enum.filter(keys, &ready_key?(world, &1)) do
+    case Enum.filter(keys, &ready_key?(world, &1, config)) do
       [] ->
         {world, hands}
 
@@ -293,15 +293,33 @@ defmodule Pokex.Sim.Hands do
 
   defp gap(config), do: Map.get(config, :skill_gap_ms, 0)
 
-  # A TECLA DO COMBO passa sempre: ela não está no teclado do mundo (é um atalho
-  # do cliente, não uma skill), e filtrá-la por "está pronta?" era o que fazia a
-  # bancada não apertar nada no Auto Combo. Quem sabe o que ela dispara — e o
-  # que já está em cooldown lá dentro — é o mundo.
-  defp ready_key?(world, key) do
+  # A TECLA DO COMBO não está no teclado do mundo (é um atalho do cliente, não
+  # uma skill), então ela passa por OUTRAS duas perguntas — as mesmas que o bot
+  # de verdade faz, e que esta mão não fazia:
+  #
+  #   * a CERCA (`Combat.Worker.combo_running?/2`): enquanto a janela do combo
+  #     está aberta, a tecla não sai. Sem ela a bancada reapertava o R no meio
+  #     segundo entre a corrente física (3,5s) acabar e a janela (4s) fechar,
+  #     `combo_at` renascia, e a janela nunca fechava: "corrente saindo" de
+  #     1100ms voltando pra 3900ms, revive nunca, pokémon a vermelho, e o
+  #     personagem morto no campo vazio da emergência (modo hard, 02/09) — o
+  #     sexto bot-que-não-existe medido por esta bancada;
+  #   * a BARRA (`Plan.AutoCombo.sustained/2`): sem tecla de área pronta a
+  #     corrente não sai, senão ela reabre a janela por nada.
+  defp ready_key?(world, key, config) do
     case world.keys[key] do
-      nil -> World.combo_key?(world, key)
+      nil -> World.combo_key?(world, key) and combo_allowed?(world, config)
       %{ready_at: at} -> at <= world.clock
     end
+  end
+
+  defp combo_allowed?(world, config) do
+    janela = Map.get(config, :combo_window_ms) || 0
+
+    World.combo_left_ms(world, janela) == 0 and
+      Enum.any?(world.keys, fn {_key, skill} ->
+        skill.kind == :aoe and skill.ready_at <= world.clock
+      end)
   end
 
   # THE RESCUE IS A COMBO, NOT A KEY — and modelling only the key made every

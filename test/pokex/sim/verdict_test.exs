@@ -44,6 +44,20 @@ defmodule Pokex.Sim.VerdictTest do
     cumpriu?
   end
 
+  # A promessa mais grave: é o PERSONAGEM, não o pokémon — e é a única que
+  # custa a noite inteira.
+  describe "ele não morre" do
+    test "vivo no fim, cumpre" do
+      assert cumpriu?(report(%{outcome: %{player_died_at: nil}}), :nao_morre)
+    end
+
+    test "morto, reprova e diz quando" do
+      [v] = Verdict.judge(report(%{outcome: %{player_died_at: 42_000}}), [:nao_morre])
+      refute v.cumpriu?
+      assert inspect(v) =~ "PERSONAGEM"
+    end
+  end
+
   describe "não cai" do
     test "sem quedas, cumpre" do
       assert cumpriu?(report(%{}), :nao_cai)

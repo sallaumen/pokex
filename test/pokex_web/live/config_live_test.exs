@@ -43,6 +43,12 @@ defmodule PokexWeb.ConfigLiveTest do
     {:ok, _view, html} = live(conn, ~p"/config")
 
     assert html =~ "cfg-row-player_hp_logout"
+    # A RÉGUA INTEIRA na página (02/09): ele quis subir os "10 passos" e não
+    # tinha onde. E a linha diz quando o modo Econômico sobrepõe o número.
+    assert html =~ "cfg-row-engine_patience_tiles"
+    assert html =~ "cfg-row-engine_size_ceiling_ms"
+    assert html =~ "cfg-row-cavebot_gather_wait_ms"
+    assert html =~ "econômico força desligado"
     assert html =~ "Logout automático"
   end
 

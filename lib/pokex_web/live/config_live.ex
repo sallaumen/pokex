@@ -31,6 +31,7 @@ defmodule PokexWeb.ConfigLive do
   use PokexWeb, :live_view
 
   alias Pokex.Bots.AlarmCategories
+  alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.HuntMode
   alias Pokex.Settings
 
@@ -336,6 +337,67 @@ defmodule PokexWeb.ConfigLive do
           label: "Juntar até (bichos)",
           hint: "A janela de mob fecha quando o bolo chega neste tamanho.",
           keywords: "juntar mobar gather alvo pilha bolo"
+        },
+        %{
+          key: :engine_gather_piles,
+          kind: :bool,
+          label: "Juntar bolo andando",
+          hint:
+            "Ligado: ao ver bicho, anda puxando até o bolo fechar (a régua abaixo). Desligado: " <>
+              "bateu, luta. O modo Econômico desliga isto sozinho.",
+          keywords: "juntar mobar bolo pilha andar régua"
+        },
+        %{
+          key: :engine_gather_tiles,
+          kind: :int,
+          label: "Passos mínimos com o bolo cheio",
+          hint:
+            "Com \"juntar até\" batido, ainda anda isto antes de abrir — os passos são o que " <>
+              "traz quem ia se juntar.",
+          keywords: "passos juntar bolo cheio régua"
+        },
+        %{
+          key: :engine_pile_settle_ms,
+          kind: :ms,
+          label: "Pararam de chegar",
+          hint: "Bolo cheio e a contagem parada por isto: abre sem esperar mais.",
+          keywords: "pararam chegar contagem parada régua"
+        },
+        %{
+          key: :engine_patience_tiles,
+          kind: :int,
+          label: "Paciência (passos)",
+          hint:
+            "Andou isto com bicho na tela e o bolo não encheu: mata o que tem. É o \"10 passos " <>
+              "e não veio mais ninguém\" do feed. Subindo, suba o teto abaixo junto (~0,8s por passo).",
+          keywords: "paciência passos não veio mais ninguém régua"
+        },
+        %{
+          key: :engine_size_ceiling_ms,
+          kind: :ms,
+          label: "Teto da juntada",
+          hint:
+            "Passou disto desde que viu a pilha: se ela vale a área, abre com o que veio; se " <>
+              "não vale, deixa pra trás. Tem que caber a paciência em passos.",
+          keywords: "teto juntada tempo pilha régua"
+        },
+        %{
+          key: :engine_skip_fire,
+          kind: :bool,
+          label: "Bater ao deixar a pilha",
+          hint:
+            "Ao pular uma pilha que não vale, ainda solta as teclas baratas em quem vier junto.",
+          keywords: "pular pilha bater alvo único"
+        },
+        %{
+          key: :cavebot_gather_wait_ms,
+          kind: :ms,
+          label: "Respiro ao chegar (antigo)",
+          hint:
+            "O respiro do \"até aqui\" antes do cérebro existir. Hoje só vale quando o cérebro " <>
+              "não está falando (fato velho); com ele falando, a régua acima manda. A rota e o " <>
+              "waypoint podem sobrescrever na página do Cavebot.",
+          keywords: "respiro chegar até aqui espera bolo rota waypoint"
         },
         %{
           key: :engine_bunch_walk_tiles,
@@ -891,6 +953,7 @@ defmodule PokexWeb.ConfigLive do
                     {row.label}
                   </span>
                   <.hint text={row.hint} />
+                  <.mode_note key={row.key} />
                   <.saved_tick saved={@saved} key={row.key} />
                 </button>
 
@@ -908,6 +971,7 @@ defmodule PokexWeb.ConfigLive do
                     {row.label}
                   </label>
                   <.hint text={row.hint} />
+                  <.mode_note key={row.key} />
                   <.saved_tick saved={@saved} key={row.key} />
 
                   <select
@@ -1044,6 +1108,38 @@ defmodule PokexWeb.ConfigLive do
   end
 
   # O ? de cada linha: a explicação inteira, só quando perguntada.
+  # O MODO SOBREPÕE EM MEMÓRIA e a página mostra o global — então a linha diz
+  # quando o número dela pode não ser o que está valendo. A pergunta que a
+  # revisão de 02/09 fez: "a página deve marcar quando o modo sobrepõe?". Sim.
+  attr :key, :atom, required: true
+
+  defp mode_note(assigns) do
+    assigns = assign(assigns, :forced, forced_by_economy(assigns.key))
+
+    ~H"""
+    <span
+      :if={@forced != nil}
+      class="shrink-0 rounded border border-pk-line-strong bg-pk-sunken px-1.5 py-0.5 font-mono text-pk-meta uppercase tracking-[0.08em] text-pk-text-3"
+      title="No modo Econômico este ajuste é forçado em memória; o número acima vale nos outros modos"
+    >
+      econômico força {@forced}
+    </span>
+    """
+  end
+
+  defp forced_by_economy(key) do
+    with {knob, _setting} <- Enum.find(Config.knobs(), fn {_knob, setting} -> setting == key end),
+         {:ok, value} <- Map.fetch(HuntMode.engine_overrides(:economy), knob) do
+      forced_text(value)
+    else
+      _not_forced -> nil
+    end
+  end
+
+  defp forced_text(true), do: "ligado"
+  defp forced_text(false), do: "desligado"
+  defp forced_text(value), do: to_string(value)
+
   defp hint(assigns) do
     ~H"""
     <span

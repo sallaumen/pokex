@@ -617,7 +617,9 @@ defmodule Pokex.Settings do
     # QUANTOS BICHOS FAZEM UM BOLO — o alvo que a régua persegue antes de fechar a janela.
     engine_gather_target: 6,
     # …and a ceiling, because R2 says greed makes the pile VANISH: past this, the hunt decides
-    # with whatever showed up instead of waiting more.
+    # with whatever showed up instead of waiting more — ABRE se a pilha vale a área, PULA se
+    # não vale (até 02/09 pulava as duas, e "não vale a área" mentia na primeira). Tem que
+    # caber a paciência em passos: 10 passos cabem em 8s; 20 passos pedem ~16s.
     engine_size_ceiling_ms: 8_000,
     # THE BANDS (2026-08-17).
     engine_band_yellow_pct: 60,

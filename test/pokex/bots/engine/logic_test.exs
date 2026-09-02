@@ -216,6 +216,29 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "não vale"
     end
 
+    # O TETO NUMA PILHA QUE VALE ABRE. Até 02/09 pulava com "não vale a área"
+    # — mentindo, porque valia — e era o que fazia subir a paciência ser
+    # perigoso: passos a mais que estourassem o teto viravam pilha deixada.
+    test "a pile worth fighting, past the ceiling, opens instead of being skipped" do
+      worth =
+        situation(%{
+          enemies: 6,
+          worth_fighting?: true,
+          growing?: true,
+          stable_for_ms: 0,
+          walked: 2
+        })
+
+      w = world(%{situation: worth, hunt: hunt(%{state: :fighting})})
+
+      {logic, _} = step(w, 1_000)
+      {logic, orders} = step(logic, w, 1_000 + @config.size_ceiling_ms)
+
+      refute logic.state == :skipping
+      assert orders.fire == :free
+      assert orders.why =~ "teto"
+    end
+
     test "a pile still walking in is gathered, not fired at" do
       arriving = situation(%{enemies: 4, growing?: true, stable_for_ms: 0, walked: 0})
       w = world(%{situation: arriving, hunt: hunt(%{state: :fighting})})

@@ -46,7 +46,8 @@ defmodule Pokex.Sim.Verdict do
      "a vida nunca caiu abaixo da metade — nenhuma janela cascateou"},
     {:stun_sempre, "chefe sempre no ciclo",
      "nenhum chefe passou de uma janela estrutural acordado (3s) — acima disso um ciclo se perdeu"},
-    {:limpa, "limpa a tela", "terminou sem monstro de pé"}
+    {:limpa, "limpa a tela", "terminou sem monstro de pé"},
+    {:nao_recua, "não recua", "nunca andou a rota ao contrário com a barra vazia (R7)"}
   ]
 
   @type promessa ::
@@ -58,6 +59,7 @@ defmodule Pokex.Sim.Verdict do
           | :sem_revive
           | :sem_dano
           | :aguenta
+          | :nao_recua
           | :stun_sempre
           | :limpa
   @type t :: %{
@@ -126,6 +128,12 @@ defmodule Pokex.Sim.Verdict do
 
   defp check(:nao_cai, %{metrics: %{deaths: quedas}}),
     do: {false, "caiu #{length(quedas)}× (primeira em #{segundos(hd(quedas))})"}
+
+  # "Não dá pra usar o auto-combo e sair correndo, vai piorar a situação" (02/09).
+  defp check(:nao_recua, %{metrics: %{kites: 0}}), do: {true, "nunca recuou"}
+
+  defp check(:nao_recua, %{metrics: %{kites: n}}),
+    do: {false, "recuou em #{n} tique(s)"}
 
   defp check(:mata, %{outcome: %{killed: n}}) when n > 0, do: {true, "#{n} mortos"}
   defp check(:mata, _nada), do: {false, "não matou nada"}

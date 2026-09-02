@@ -242,6 +242,8 @@ defmodule Pokex.Sim.Bench do
       by_phase: %{},
       by_band: %{},
       violations: [],
+      # tiques em que a ordem foi RECUAR (R7) — a promessa `nao_recua` lê isto
+      kites: 0,
       min_hp: nil,
       bosses_born: 0,
       bosses_dead: 0,
@@ -277,6 +279,7 @@ defmodule Pokex.Sim.Bench do
       |> tally_time(world, orders, picture)
       |> tally_risk(world, orders, picture)
       |> tally_violations(world, orders, picture)
+      |> tally_kite(orders)
       |> tally_bodies(previous, world)
       |> tally_death(previous, world)
       |> tally_revive(decided_on, world, orders, picture, hands, state.asked_revive)
@@ -363,6 +366,10 @@ defmodule Pokex.Sim.Bench do
 
     Map.update!(metrics, :violations, &(broken ++ &1))
   end
+
+  # A RETIRADA CONTADA: quantos tiques a ordem foi andar a rota ao contrário.
+  defp tally_kite(metrics, %{route: :back}), do: %{metrics | kites: metrics.kites + 1}
+  defp tally_kite(metrics, _sem_recuo), do: metrics
 
   defp tally_bodies(metrics, before, world) do
     # A INVARIANTE DA TECLA ESPECIAL: a corrente nunca sai com seta segurada.
@@ -558,6 +565,8 @@ defmodule Pokex.Sim.Bench do
     %{
       battle: if(battle.enemies == nil, do: nil, else: battle),
       own_hp: pokemon.hp_pct,
+      # A vida DELE, do mundo: o cérebro passou a olhar pra ela (02/09).
+      player_hp: world.player.hp_pct,
       own_out?: out_state(pokemon),
       pos: World.observe(world, :minimap).pos,
       own_name: world.own.name,

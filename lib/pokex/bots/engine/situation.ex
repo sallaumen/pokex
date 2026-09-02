@@ -97,6 +97,9 @@ defmodule Pokex.Bots.Engine.Situation do
           pile_walk_at: non_neg_integer,
           walked: non_neg_integer,
           own_hp: 0..100 | nil,
+          # A VIDA DELE, e quanto ela caiu desde a foto anterior (0 sem queda).
+          player_hp: 0..100 | nil,
+          player_drop: non_neg_integer,
           own_out?: boolean | :unknown,
           ready_keys: [String.t()] | nil,
           combo_left_ms: non_neg_integer | nil,
@@ -177,6 +180,8 @@ defmodule Pokex.Bots.Engine.Situation do
       pile_walk_at: pile_at,
       walked: walked_total - pile_at,
       own_hp: Map.get(inputs, :own_hp),
+      player_hp: Map.get(inputs, :player_hp),
+      player_drop: player_drop(Map.get(inputs, :player_hp), prev),
       own_out?: Map.get(inputs, :own_out?, :unknown),
       ready_keys: Map.get(inputs, :ready_keys),
       # QUANTO FALTA PRO CONTROLE VOLTAR, em ms — nil quando ninguém sabe. É o
@@ -360,6 +365,13 @@ defmodule Pokex.Bots.Engine.Situation do
   # R1, his ruler: "se tem 1 ou 2 monstros, eu às vezes até ignoro aquele mob e
   # sigo a minha vida (…) eu realmente mato quando tem uns três". Not knowing is
   # not worth fighting either — that call belongs to the consumer.
+  # Quanto a vida DELE caiu entre duas fotos — só cai, nunca sobe: uma leitura
+  # ruim para cima não vira "sangrando" na volta.
+  defp player_drop(hp, %{player_hp: before}) when is_integer(hp) and is_integer(before),
+    do: max(before - hp, 0)
+
+  defp player_drop(_hp, _sem_anterior), do: 0
+
   defp worth_fighting?(enemies, config) when is_integer(enemies),
     do: enemies >= Map.fetch!(config, :engage_from)
 

@@ -268,6 +268,7 @@ defmodule Pokex.Bots.Engine.Worker do
     %{
       battle: battle(now),
       own_hp: own_hp(now),
+      player_hp: player_hp(now),
       own_out?: own_out?(now),
       own_name: state.loadout && state.loadout.name,
       pos: pos(now),
@@ -306,6 +307,15 @@ defmodule Pokex.Bots.Engine.Worker do
     case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now) do
       {:ok, obs} -> obs
       _stale_or_missing -> nil
+    end
+  end
+
+  # A vida DELE, publicada pelo suporte (`PlayerSupport.Worker`) a cada leitura
+  # da barra vermelha. Velha ou ilegível é `nil`, que aqui é "não sei".
+  defp player_hp(now) do
+    case WorldState.get(:player, Settings.get(:engine_hunt_max_age_ms), now) do
+      {:ok, %{hp_pct: hp}} when is_integer(hp) -> hp
+      _sem_leitura -> nil
     end
   end
 

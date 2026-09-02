@@ -1,3 +1,23 @@
+defmodule Pokex.Sim.VerdictTest.NaoRecua do
+  use ExUnit.Case, async: true
+
+  alias Pokex.Sim.Verdict
+
+  defp corrida(kites) do
+    %{
+      metrics: %{deaths: [], kites: kites, ms_stalled: 0, ms: 60_000, revives: [], min_hp: 90},
+      outcome: %{killed: 3, player_died_at: nil}
+    }
+  end
+
+  # "Não dá pra usar o auto-combo e sair correndo, vai piorar a situação" (02/09).
+  test "nao_recua cobra zero tiques de retirada" do
+    assert [%{cumpriu?: true}] = Verdict.judge(corrida(0), [:nao_recua])
+    assert [%{cumpriu?: false} = falhou] = Verdict.judge(corrida(7), [:nao_recua])
+    assert inspect(falhou) =~ "7"
+  end
+end
+
 defmodule Pokex.Sim.VerdictTest do
   @moduledoc """
   A promessa de um cenário, cobrada da corrida.

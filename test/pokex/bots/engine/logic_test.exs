@@ -1520,6 +1520,157 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # R1 manda ignorar um ou dois e seguir a vida. Só que quem vem atrás morde o
   # caminho inteiro, e a fase que anda BATENDO mata mais por minuto no bench.
   # A chave existe pra ele decidir, com o número na frente.
+  # "Só 8 conseguem ficar ao redor do meu pokémon — os outros podem ficar longe
+  # e fazer eu morrer durante o revive. Nesse caso não dá pra usar o auto-combo
+  # e sair correndo, vai piorar a situação; o ideal é arriscar o quanto antes"
+  # (02/09).
+  describe "mais bicho do que cabe ao redor" do
+    # Sem reset possível a barra vazia cai na retirada (R7) — que é o que este
+    # bloco isola: `reset_revive: false` tira a R3b do caminho.
+    @sem_reset Config.merge(%{reset_revive: false, engage_from: 2, bunch_ms: 0, gather_target: 1})
+
+    defp pilha_com_barra(enemies, spent?) do
+      world(%{
+        situation: situation(%{enemies: enemies, spent?: spent?, worth_fighting?: true}),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    # A luta ABRE com barra e só depois ela esvazia: uma pilha encontrada já sem
+    # barra nem é aberta (a régua a deixa pra trás), e a retirada é regra de
+    # luta aberta.
+    defp luta_aberta_sem_barra(enemies, config) do
+      {logic, _} = Logic.step(Logic.new(), pilha_com_barra(enemies, false), config, 1_000)
+      {logic, _} = Logic.step(logic, pilha_com_barra(enemies, true), config, 1_200)
+      Logic.step(logic, pilha_com_barra(enemies, true), config, 1_400)
+    end
+
+    test "com 4 em cima e a barra vazia, recua (R7 como sempre)" do
+      {_logic, orders} = luta_aberta_sem_barra(4, @sem_reset)
+
+      assert orders.route == :back
+    end
+
+    # Com 9 e um revive a dar, a resposta é o revive — antes de qualquer
+    # retirada. Sem revive nenhum (reset desligado), a retirada é a única
+    # saída, com 4 ou com 9: parado numa nuvem que não morre é a noite inteira
+    # no mesmo canto.
+    test "com 9 em cima e o reset possível, revive em vez de recuar" do
+      com_reset = Config.merge(%{engage_from: 2, bunch_ms: 0, gather_target: 1})
+      {_logic, orders} = luta_aberta_sem_barra(9, com_reset)
+
+      refute orders.route == :back, orders.why
+      assert orders.revive == :now, orders.why
+    end
+
+    test "sem revive nenhum a dar, com 9 recua como com 4 — é a única saída" do
+      {_logic, orders} = luta_aberta_sem_barra(9, @sem_reset)
+
+      assert orders.route == :back, orders.why
+    end
+
+    # O amarelo "esperando a pilha fechar" espera quem nunca vai fechar: os de
+    # fora não cabem. Com 9+ a rodada não espera.
+    test "no amarelo com 9 em cima não espera a pilha fechar" do
+      amarelo =
+        world(%{
+          situation:
+            situation(%{enemies: 9, own_hp: 45, stable_for_ms: 0, growing?: true, spent?: false}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {_logic, orders} = Logic.step(Logic.new(), amarelo, @sem_reset, 1_000)
+
+      refute orders.why =~ "esperando a pilha fechar"
+      assert orders.fire == :free
+    end
+  end
+
+  # Dez minutos recuando é pior que arriscar: com o reset DESARMADO a barra
+  # vazia luta parada com o que volta — o r solta as de alvo único também.
+  describe "o reset desarmado" do
+    test "não recua: luta parado, e diz por quê" do
+      desarmado = %{Logic.new() | reset_broken_at: 500}
+      config = Config.merge(%{engage_from: 2, bunch_ms: 0, gather_target: 1})
+
+      com_barra =
+        world(%{
+          situation: situation(%{enemies: 4, spent?: false, worth_fighting?: true}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      sem_barra = put_in(com_barra.situation.spent?, true)
+
+      {logic, _} = Logic.step(desarmado, com_barra, config, 1_000)
+      {logic, _} = Logic.step(logic, sem_barra, config, 1_200)
+      {_logic, orders} = Logic.step(logic, sem_barra, config, 1_400)
+
+      refute orders.route == :back
+      assert orders.fire == :free
+      assert orders.why =~ "DESARMADO"
+      assert orders.why =~ "alvo único"
+    end
+  end
+
+  # A VIDA DELE. "Esse período de menos de 1s que o revive me deixa exposto eu
+  # já tomo um jato de água na cara e morro" — e quem está fora do alcance do
+  # pokémon bate nele o tempo todo. Com a barra gasta, revive na hora, antes
+  # até de a corrente acabar.
+  describe "o personagem apanhando" do
+    defp sangrando(player_hp, extra) do
+      world(%{
+        situation:
+          situation(
+            Map.merge(
+              %{enemies: 9, spent?: true, own_out?: true, player_hp: player_hp, player_drop: 0},
+              extra
+            )
+          ),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    test "abaixo do piso, com a barra gasta: revive agora, mesmo com a corrente saindo" do
+      {_logic, orders} =
+        Logic.step(
+          Logic.new(),
+          sangrando(40, %{player_drop: 3, combo_left_ms: 2_000}),
+          @config,
+          1_000
+        )
+
+      assert orders.revive == :now, orders.why
+      assert orders.why =~ "VOCÊ está apanhando"
+    end
+
+    test "uma queda de dez pontos entre duas fotos também é sangrar" do
+      {_logic, orders} =
+        Logic.step(
+          Logic.new(),
+          sangrando(80, %{player_drop: 12, combo_left_ms: 2_000}),
+          @config,
+          1_000
+        )
+
+      assert orders.revive == :now
+    end
+
+    test "com a vida dele inteira, a corrente segue sem revive" do
+      {_logic, orders} =
+        Logic.step(Logic.new(), sangrando(95, %{combo_left_ms: 2_000}), @config, 1_000)
+
+      assert orders.revive == :hold
+      assert orders.why =~ "corrente saindo"
+    end
+
+    test "sem leitura da vida dele, nada muda" do
+      {_logic, orders} =
+        Logic.step(Logic.new(), sangrando(nil, %{combo_left_ms: 2_000}), @config, 1_000)
+
+      assert orders.revive == :hold
+    end
+  end
+
   describe "deixar a pilha pra trás" do
     defp passando(config) do
       pequena =
@@ -1782,7 +1933,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
       gasta = pilha(5, %{spent?: true})
       logic = aberta(gasta)
       {logic, primeira} = Logic.step(logic, gasta, @r10, 200)
-      assert "1" in primeira.opening
+      assert "1" in primeira.opening, primeira.why
 
       {_logic, orders} = Logic.step(logic, gasta, @r10, 1_200)
 

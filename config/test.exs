@@ -94,6 +94,8 @@ config :pokex, :front_game_cmd, false
 # The app-wide ShinyGuard must NOT attach the real arena feed when a test flips
 # the global shiny_guard_enabled setting. Guard tests opt back in with `active: true`.
 config :pokex, :shiny_guard_active, false
+# O olho da espera (CrowdWatch) não fotografa na suíte: cada teste injeta o `look` que quer.
+config :pokex, :crowd_watch_active, false
 # O Logout global fica inerte na suíte: um pedido acidental travaria o latch e
 # pararia a frota compartilhada. Testes optam por entrar com `active: true`.
 config :pokex, :logout_active, false

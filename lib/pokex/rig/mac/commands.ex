@@ -65,6 +65,23 @@ defmodule Pokex.Rig.Mac.Commands do
     build_key_script(key_lines(combo, opts), opts)
   end
 
+  @doc """
+  A combo for the native path: `{:ok, code, modifiers}` when the key is mapped
+  and every modifier is one the helper knows (`shift`, `ctrl`, `alt`, `cmd`);
+  `:error` sends it down the osascript road.
+  """
+  @spec native_combo(String.t()) :: {:ok, non_neg_integer, [String.t()]} | :error
+  def native_combo(combo) do
+    {mods, [key]} = combo |> String.split("+") |> Enum.split(-1)
+
+    with {:ok, code} <- keycode(key),
+         true <- Enum.all?(mods, &Map.has_key?(@modifiers, &1)) do
+      {:ok, code, mods}
+    else
+      _unmapped -> :error
+    end
+  end
+
   @doc "Virtual key code for a digit/named key — the native CGEvent path. :error = unmapped."
   @spec keycode(String.t()) :: {:ok, non_neg_integer} | :error
   def keycode(key) do

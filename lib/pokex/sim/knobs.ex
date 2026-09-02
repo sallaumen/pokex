@@ -36,6 +36,7 @@ defmodule Pokex.Sim.Knobs do
     shield_skill_enabled: :shield_skill_enabled,
     shield_pct: :pokemon_hp_shield_pct,
     shield_skill_cooldown_ms: :shield_skill_cooldown_ms,
+    shield_on_mob: :shield_on_mob_enabled,
     potion_enabled: :potion_enabled,
     potion_pct: :pokemon_hp_potion_pct,
     potion_cooldown_ms: :potion_cooldown_ms,

@@ -42,6 +42,30 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
 
   # "Quando o pokémon chega abaixo de 85% da HP quer dizer que já tem gente
   # batendo nele o suficiente e vale usar o buff de defesa" (02/09).
+  # A aura ANTES da corrente: só com a pilha fechando, ligada, e fora do cooldown.
+  describe "mob_shield_wanted?/1" do
+    @pilha %{
+      enabled?: true,
+      phase: :bunching,
+      cooldown_ms: 3_000,
+      last_shield_at: nil,
+      now: 10_000
+    }
+
+    test "com a pilha fechando e a aura fora do cooldown, quer" do
+      assert Logic.mob_shield_wanted?(@pilha)
+      assert Logic.mob_shield_wanted?(%{@pilha | last_shield_at: 6_000})
+    end
+
+    test "fora do bunching, desligada ou esfriando, não quer" do
+      refute Logic.mob_shield_wanted?(%{@pilha | phase: :travelling})
+      refute Logic.mob_shield_wanted?(%{@pilha | phase: :engaged})
+      refute Logic.mob_shield_wanted?(%{@pilha | phase: nil})
+      refute Logic.mob_shield_wanted?(%{@pilha | enabled?: false})
+      refute Logic.mob_shield_wanted?(%{@pilha | last_shield_at: 8_000})
+    end
+  end
+
   describe "shield_wanted?/1" do
     @escudo %{
       hp_pct: 80,

@@ -214,6 +214,16 @@ defmodule PokexWeb.ConfigLive do
           keywords: "defesa escudo aura buff shield automática"
         },
         %{
+          key: :shield_on_mob_enabled,
+          kind: :bool,
+          label: "Aura antes da corrente",
+          hint:
+            "Com a pilha fechando (o cérebro parado esperando o bolo pra estourar) e a aura " <>
+              "pronta, aperta ela mesmo com a vida cheia. O revive devolve 100% a cada corrente, " <>
+              "e a vida nunca chega aos 85% — a aura só saía pela sua mão.",
+          keywords: "defesa aura corrente pilha mobada antes"
+        },
+        %{
           key: :pokemon_hp_shield_pct,
           kind: :pct,
           label: "Defesa abaixo de",

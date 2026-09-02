@@ -778,15 +778,39 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # nesse segundo), e a barra dizendo que a aura esfria. Sem tecla classificada
   # como aura de defesa no /time, ela diz isso e não faz nada.
   defp maybe_shield_skill(state) do
-    if Logic.shield_wanted?(shield_input(state)),
-      do: shield(state, shield_keys()),
-      else: state
+    cond do
+      Logic.shield_wanted?(shield_input(state)) ->
+        shield(state, shield_keys(), "vida em #{state.hp_pct}%")
+
+      Logic.mob_shield_wanted?(mob_shield_input(state)) ->
+        shield(state, shield_keys(), "a pilha fechando, antes da corrente")
+
+      true ->
+        state
+    end
   end
 
-  defp shield(state, []),
+  defp mob_shield_input(state) do
+    %{
+      enabled?: Settings.get(:shield_on_mob_enabled) and Settings.get(:shield_skill_enabled),
+      phase: engine_phase(),
+      cooldown_ms: Settings.get(:shield_skill_cooldown_ms),
+      last_shield_at: state.last_shield_at,
+      now: now()
+    }
+  end
+
+  defp engine_phase do
+    case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now()) do
+      {:ok, %{phase: phase}} -> phase
+      _stale_or_missing -> nil
+    end
+  end
+
+  defp shield(state, [], _why),
     do: say_once(state, :no_key, "🛡️ sem aura de defesa classificada no /time — ela não sai")
 
-  defp shield(state, keys) do
+  defp shield(state, keys, why) do
     cond do
       Combo.running?(hunt_mode()) ->
         say_once(state, :chain, "🛡️ defesa: esperando a corrente do combo acabar")
@@ -796,14 +820,14 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
       true ->
         case ready_only(keys) do
-          [] -> say_once(state, :cooling, "🛡️ defesa: a aura esfria (vida em #{state.hp_pct}%)")
-          ready -> press_shield(state, ready)
+          [] -> say_once(state, :cooling, "🛡️ defesa: a aura esfria (#{why})")
+          ready -> press_shield(state, ready, why)
         end
     end
   end
 
-  defp press_shield(state, keys) do
-    broadcast_log(:macro, "🛡️ aura de defesa: #{Enum.join(keys, ", ")} (vida em #{state.hp_pct}%)")
+  defp press_shield(state, keys, why) do
+    broadcast_log(:macro, "🛡️ aura de defesa: #{Enum.join(keys, ", ")} (#{why})")
 
     case Body.perform(Enum.map(keys, &{:press, &1}), :high, state.body) do
       :ok -> :ok

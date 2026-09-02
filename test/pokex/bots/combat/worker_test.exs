@@ -999,8 +999,11 @@ defmodule Pokex.Bots.Combat.WorkerTest do
              "a corrente foi reiniciada dentro da própria janela: #{inspect(presses())}"
     end
 
+    # O CICLO INTEIRO, que é o que ele descreveu: corrente → barra vazia → revive
+    # devolve a barra → corrente de novo. O revive aqui é `SkillClock.reset/0`,
+    # que é literalmente o que o F4 faz com o relógio.
     @tag :tmp_dir
-    test "passada a janela, a corrente sai de novo sozinha", %{worker: worker} do
+    test "depois do revive devolver a barra, a corrente sai de novo", %{worker: worker} do
       SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 500)
       SkillClock.reset()
       :ok = Worker.run(worker, 5_000, :auto_combo)
@@ -1010,6 +1013,17 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       assert eventually(fn -> "r" in presses() end),
              "a corrente não saiu: #{inspect(presses())}"
 
+      refute eventually(
+               fn ->
+                 world!(worker, battle_obs(enemies: [0, 1, 2]))
+                 Enum.count(presses(), &(&1 == "r")) > 1
+               end,
+               800
+             ),
+             "reapertou com a barra que a própria corrente esvaziou"
+
+      SkillClock.reset()
+
       assert eventually(
                fn ->
                  world!(worker, battle_obs(enemies: [0, 1, 2]))
@@ -1017,7 +1031,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
                end,
                3_000
              ),
-             "a corrente não repetiu depois da janela: #{inspect(presses())}"
+             "a corrente não voltou com a barra cheia: #{inspect(presses())}"
     end
 
     # O DEFEITO DA NOITE DE 02/09, virado teste.
@@ -1045,6 +1059,39 @@ defmodule Pokex.Bots.Combat.WorkerTest do
                SkillClock.ready_by_clock(barra, %{}) == []
              end),
              "o relógio não aprendeu a corrente: #{inspect(SkillClock.ready_by_clock(barra, %{}))}"
+    end
+
+    # A CORRIDA QUE ELE VIU EM 02/09: 56 combos e 7 revives.
+    #
+    # Com a barra JÁ vazia a corrente não faz nada no jogo (as skills do bicho
+    # estão em cooldown) e faz uma coisa péssima no bot: reabre a janela de 4s,
+    # e o revive — que é o que devolveria a barra — perde a vez pra sempre. O
+    # cérebro decide a cada 200ms e a mão dispara no frame seguinte: a mão
+    # ganhava a corrida toda vez.
+    @tag :tmp_dir
+    test "com a barra vazia a corrente NÃO sai — o revive é que tem a vez",
+         %{worker: worker} do
+      SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 500)
+      SkillClock.reset()
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      # a barra diz: nenhuma tecla de dano pronta
+      WorldState.put(
+        :skill_bar,
+        %{states: [:cooldown, :cooldown, :cooldown, :cooldown], ready_keys: []},
+        System.monotonic_time(:millisecond)
+      )
+
+      abre_o_fogo(worker)
+
+      refute eventually(
+               fn ->
+                 world!(worker, battle_obs(enemies: [0, 1, 2]))
+                 Enum.count(presses(), &(&1 == "r")) > 1
+               end,
+               1_500
+             ),
+             "a corrente reapertou com a barra vazia: #{inspect(presses())}"
     end
 
     # E NENHUMA TECLA SOLTA: o modo administra o combo e o revive, e mais nada.

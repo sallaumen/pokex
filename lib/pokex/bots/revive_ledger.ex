@@ -127,10 +127,16 @@ defmodule Pokex.Bots.ReviveLedger do
 
   @doc "Esquece a conta — usado por teste e pela troca de personagem."
   @spec reset() :: :ok
+  # …e o POUSO também. Um reset que esquece o estoque mas lembra "o F4 acabou de
+  # aterrissar" deixa a janela cega armada pra quem vier depois — na suíte, o
+  # teste seguinte nascia dentro de um blackout de 2s (CI de 02/09, cinco
+  # "skill não saiu" que dependiam da ordem); no jogo, uma troca de personagem
+  # herdaria dois segundos de mudo.
   def reset do
     ensure_table()
     :ets.delete(@table, :ledger)
     :ets.delete(@table, :last_note_at)
+    :ets.delete(@table, :last_landed_at)
     :ok
   end
 

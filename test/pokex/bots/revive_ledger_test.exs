@@ -16,6 +16,16 @@ defmodule Pokex.Bots.ReviveLedgerTest do
     :ok
   end
 
+  # Um reset que lembra "o F4 acabou de pousar" deixa a janela cega armada pra
+  # quem vier depois — a suíte pagou isso em 02/09.
+  test "reset/0 forgets the landing too" do
+    ReviveLedger.landed()
+    assert ReviveLedger.landed_within?(60_000)
+
+    ReviveLedger.reset()
+    refute ReviveLedger.landed_within?(60_000)
+  end
+
   test "cada despacho desce a conta, nunca abaixo de zero" do
     assert ReviveLedger.remaining() == 20
 

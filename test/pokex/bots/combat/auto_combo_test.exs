@@ -14,8 +14,8 @@ defmodule Pokex.Bots.Combat.AutoComboTest do
 
   setup do
     SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 4_000)
-    SkillClock.reset()
-    on_exit(&SkillClock.reset/0)
+    SkillClock.wipe()
+    on_exit(&SkillClock.wipe/0)
     :ok
   end
 

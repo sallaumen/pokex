@@ -126,13 +126,13 @@ defmodule Pokex.Bots.HandWatchTest do
       if :ets.whereis(:hand_watch_test_script) == :undefined,
         do: :ets.new(:hand_watch_test_script, [:set, :public, :named_table])
 
-      SkillClock.reset()
+      SkillClock.wipe()
       ReviveLedger.reset()
 
       on_exit(fn ->
         Application.put_env(:pokex, :rig, previous_rig)
         Application.put_env(:pokex, :hand_watch_active, false)
-        SkillClock.reset()
+        SkillClock.wipe()
         ReviveLedger.reset()
       end)
 

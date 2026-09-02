@@ -36,6 +36,7 @@ defmodule Pokex.Sim.Hands do
   defstruct leg: 0,
             prev_hp: nil,
             last_heal_at: nil,
+            last_shield_at: nil,
             last_potion_at: nil,
             # o resgate em duas partes: o stun já saiu e o revive sai em
             # `revive_at` — ver `rescue/3`
@@ -415,8 +416,44 @@ defmodule Pokex.Sim.Hands do
   # THE LADDER, cheapest rung first. The revive is NOT here: the engine owns
   # when it happens (`orders.revive`), which is the whole reason it exists.
   defp support(world, hands, config) do
+    {world, hands} = shield_skill(world, hands, config)
     {world, hands} = heal_skill(world, hands, config)
     potion(world, hands, config)
+  end
+
+  # A AURA DE DEFESA, o espelho do degrau novo do suporte (02/09): abaixo do
+  # limiar, com a aura pronta, o pokémon em campo e a corrente do combo já
+  # fora. As chaves são lidas com `Map.get` porque um mundo antigo não as tem —
+  # e sem elas o degrau é como se não existisse.
+  defp shield_skill(world, hands, config) do
+    with true <- Support.shield_wanted?(shield_input(world, hands, config)),
+         true <- shield_allowed?(world, config),
+         [key | _] <- ready_shield_keys(world) do
+      {World.press(world, {:press, key}), %{hands | last_shield_at: world.clock}}
+    else
+      _nothing_to_press -> {world, hands}
+    end
+  end
+
+  defp shield_allowed?(world, config) do
+    janela = Map.get(config, :combo_window_ms) || 0
+    world.own.out? and World.combo_left_ms(world, janela) == 0
+  end
+
+  defp shield_input(world, hands, config) do
+    %{
+      hp_pct: hp(world),
+      prev_hp_pct: hands.prev_hp,
+      threshold_pct: Map.get(config, :shield_pct, 0),
+      enabled?: Map.get(config, :shield_skill_enabled, false),
+      cooldown_ms: Map.get(config, :shield_skill_cooldown_ms, 0),
+      last_shield_at: hands.last_shield_at,
+      now: world.clock
+    }
+  end
+
+  defp ready_shield_keys(world) do
+    for {key, %{kind: :shield, ready_at: at}} <- world.keys, at <= world.clock, do: key
   end
 
   defp heal_skill(world, hands, config) do

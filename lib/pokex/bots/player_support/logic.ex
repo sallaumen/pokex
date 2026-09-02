@@ -62,18 +62,38 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   `:cooldown_ms`, `:last_heal_at` and `:now`.
   """
   @spec heal_wanted?(map) :: boolean
-  def heal_wanted?(%{enabled?: false}), do: false
-  def heal_wanted?(%{hp_pct: nil}), do: false
-  def heal_wanted?(%{hp_pct: hp, threshold_pct: threshold}) when hp >= threshold, do: false
+  def heal_wanted?(input), do: rung_wanted?(input, :last_heal_at)
 
-  def heal_wanted?(%{prev_hp_pct: prev, threshold_pct: threshold})
-      when is_nil(prev) or prev >= threshold,
-      do: false
+  @doc """
+  A AURA DE DEFESA, o degrau acima da cura.
 
-  def heal_wanted?(%{last_heal_at: nil}), do: true
+  "Quando o pokémon chega abaixo de 85% da HP quer dizer que já tem gente
+  batendo nele o suficiente e vale usar o buff de defesa" (Lucas, 02/09). A
+  mesma escada da cura: duas leituras abaixo do limiar, e o cooldown aqui é só
+  anti-spam — se a aura está pronta é a BARRA que diz, e quem aperta pergunta.
 
-  def heal_wanted?(%{now: now, last_heal_at: last, cooldown_ms: cooldown}),
-    do: now - last >= cooldown
+  Expects `:hp_pct`, `:prev_hp_pct`, `:threshold_pct`, `:enabled?`,
+  `:cooldown_ms`, `:last_shield_at` and `:now`.
+  """
+  @spec shield_wanted?(map) :: boolean
+  def shield_wanted?(input), do: rung_wanted?(input, :last_shield_at)
+
+  defp rung_wanted?(%{enabled?: false}, _last), do: false
+  defp rung_wanted?(%{hp_pct: nil}, _last), do: false
+
+  defp rung_wanted?(%{hp_pct: hp, threshold_pct: threshold}, _last) when hp >= threshold,
+    do: false
+
+  defp rung_wanted?(%{prev_hp_pct: prev, threshold_pct: threshold}, _last)
+       when is_nil(prev) or prev >= threshold,
+       do: false
+
+  defp rung_wanted?(%{now: now, cooldown_ms: cooldown} = input, last) do
+    case Map.get(input, last) do
+      nil -> true
+      at -> now - at >= cooldown
+    end
+  end
 
   @doc """
   Everything he still has in hand when the stun did NOT go out — the last

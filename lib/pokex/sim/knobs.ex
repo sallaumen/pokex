@@ -32,6 +32,10 @@ defmodule Pokex.Sim.Knobs do
     heal_skill_enabled: :heal_skill_enabled,
     heal_pct: :pokemon_hp_heal_pct,
     heal_skill_cooldown_ms: :heal_skill_cooldown_ms,
+    # …e a aura de defesa, o degrau acima da cura (02/09)
+    shield_skill_enabled: :shield_skill_enabled,
+    shield_pct: :pokemon_hp_shield_pct,
+    shield_skill_cooldown_ms: :shield_skill_cooldown_ms,
     potion_enabled: :potion_enabled,
     potion_pct: :pokemon_hp_potion_pct,
     potion_cooldown_ms: :potion_cooldown_ms,

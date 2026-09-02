@@ -18,6 +18,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.Body
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.Worker
+  alias Pokex.Bots.Combat.Combo
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Combat.Plan
   alias Pokex.Bots.Focus
@@ -85,6 +86,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # the pokémon's OWN healing skill — the rung above the potion, and the only
       # one that works while it is being hit
       last_heal_at: nil,
+      # a aura de defesa (02/09): o degrau acima da cura, e a nota que evita
+      # repetir no feed por que ela não saiu
+      last_shield_at: nil,
+      shield_note: nil,
       # first monotonic ms of the CURRENT battle-free streak of potion-gate reads
       # (nil = last read saw combat, or the potion isn't due so nobody is watching)
       battle_clear_since: nil,
@@ -592,7 +597,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
       case rescue_decision(state) do
         :hold ->
-          %{state | gate: nil} |> warn_switch_off() |> maybe_heal_skill() |> maybe_potion(calib)
+          %{state | gate: nil}
+          |> warn_switch_off()
+          |> maybe_shield_skill()
+          |> maybe_heal_skill()
+          |> maybe_potion(calib)
 
         decision ->
           fire_rescue(%{state | gate: nil}, decision == :rescue)
@@ -757,6 +766,76 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     else
       _no_heal_or_all_cooling -> state
     end
+  end
+
+  # A AURA DE DEFESA, o degrau acima da cura. "Quando o pokémon chega abaixo de
+  # 85% já tem gente batendo nele o suficiente e vale usar o buff de defesa,
+  # se o cooldown estiver disponível, pra não ficar em loop" (02/09).
+  #
+  # Três cercas, ditas no feed uma vez cada: a corrente do combo (uma tecla no
+  # meio dela corta a corrente), o pokémon voltando do revive (a barra mente
+  # nesse segundo), e a barra dizendo que a aura esfria. Sem tecla classificada
+  # como aura de defesa no /time, ela diz isso e não faz nada.
+  defp maybe_shield_skill(state) do
+    if Logic.shield_wanted?(shield_input(state)),
+      do: shield(state, shield_keys()),
+      else: state
+  end
+
+  defp shield(state, []),
+    do: say_once(state, :no_key, "🛡️ sem aura de defesa classificada no /time — ela não sai")
+
+  defp shield(state, keys) do
+    cond do
+      Combo.running?(hunt_mode()) ->
+        say_once(state, :chain, "🛡️ defesa: esperando a corrente do combo acabar")
+
+      ReviveLedger.landed_within?(Settings.get(:rescue_blackout_ms)) ->
+        say_once(state, :blackout, "🛡️ defesa: o pokémon ainda está voltando do revive")
+
+      true ->
+        case ready_only(keys) do
+          [] -> say_once(state, :cooling, "🛡️ defesa: a aura esfria (vida em #{state.hp_pct}%)")
+          ready -> press_shield(state, ready)
+        end
+    end
+  end
+
+  defp press_shield(state, keys) do
+    broadcast_log(:macro, "🛡️ aura de defesa: #{Enum.join(keys, ", ")} (vida em #{state.hp_pct}%)")
+
+    case Body.perform(Enum.map(keys, &{:press, &1}), :high, state.body) do
+      :ok -> :ok
+      {:error, reason} -> broadcast_log(:macro, "🛡️ a defesa não saiu (#{refusal_text(reason)})")
+    end
+
+    %{state | last_shield_at: now(), shield_note: nil, counters: bump(state.counters, :shields)}
+  end
+
+  defp say_once(%{shield_note: note} = state, note, _text), do: state
+
+  defp say_once(state, note, text) do
+    broadcast_log(:macro, text)
+    %{state | shield_note: note}
+  end
+
+  defp shield_keys do
+    case Loadout.current() do
+      nil -> []
+      loadout -> loadout.shield
+    end
+  end
+
+  defp shield_input(state) do
+    %{
+      hp_pct: state.hp_pct,
+      prev_hp_pct: state.prev_hp_pct,
+      threshold_pct: Settings.get(:pokemon_hp_shield_pct),
+      enabled?: Settings.get(:shield_skill_enabled),
+      cooldown_ms: Settings.get(:shield_skill_cooldown_ms),
+      last_shield_at: state.last_shield_at,
+      now: now()
+    }
   end
 
   defp ready_heal_keys do

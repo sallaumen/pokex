@@ -201,8 +201,26 @@ defmodule PokexWeb.ConfigLive do
       id: "cura",
       icon: "hero-beaker",
       tint: :ok,
-      title: "Cura e poção",
+      title: "Cura, defesa e poção",
       rows: [
+        %{
+          key: :shield_skill_enabled,
+          kind: :bool,
+          label: "Aura de defesa automática",
+          hint:
+            "Vida do pokémon abaixo do número de baixo: aperta a aura de defesa do /time, se a " <>
+              "barra disser que está pronta. Não sai durante a corrente do combo nem enquanto o " <>
+              "pokémon volta do revive.",
+          keywords: "defesa escudo aura buff shield automática"
+        },
+        %{
+          key: :pokemon_hp_shield_pct,
+          kind: :pct,
+          label: "Defesa abaixo de",
+          hint:
+            "Abaixo disto já tem gente batendo nele o suficiente pra valer o buff. Deixe acima da cura.",
+          keywords: "defesa escudo vida limiar"
+        },
         %{
           key: :heal_skill_enabled,
           kind: :bool,
@@ -412,13 +430,6 @@ defmodule PokexWeb.ConfigLive do
           label: "Usar as skills de alvo único",
           hint: "Só vale no Econômico. O Auto Combo ignora: a corrente do jogo decide o que sai.",
           keywords: "alvo único single target rotação econômico"
-        },
-        %{
-          key: :combat_shield_from_enemies,
-          kind: :int,
-          label: "Escudo a partir de (bichos)",
-          hint: "Com este tanto de bicho em cima, a aura de defesa sai junto.",
-          keywords: "escudo shield defesa aura"
         },
         %{
           key: :fight_timeout_ms,

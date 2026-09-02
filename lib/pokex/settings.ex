@@ -337,6 +337,11 @@ defmodule Pokex.Settings do
     # Anti-spam only: whether the skill is UP is the skill bar's answer, not a
     # guess kept here.
     heal_skill_cooldown_ms: 3_000,
+    # A AURA DE DEFESA, um degrau acima da cura: abaixo disto "já tem gente batendo nele o
+    # suficiente e vale usar o buff de defesa" (02/09). Sai só com a barra dizendo pronta.
+    shield_skill_enabled: true,
+    pokemon_hp_shield_pct: 85,
+    shield_skill_cooldown_ms: 3_000,
     # How often the PlayerSupport samples the main Pokémon's HP bar.
     support_tick_ms: 120,
     # HP-bar fill detection is COLOUR-AGNOSTIC: a column counts as filled when it holds a
@@ -827,6 +832,8 @@ defmodule Pokex.Settings do
     pokemon_park_tolerance_px: 1..1200,
     pokemon_hp_heal_pct: 1..100,
     heal_skill_cooldown_ms: 0..600_000,
+    pokemon_hp_shield_pct: 1..100,
+    shield_skill_cooldown_ms: 0..600_000,
     dry_casts_alarm: 0..999,
     corpse_sprite_box_px: 8..512,
     corpse_scan_radius_tiles: 1..8,

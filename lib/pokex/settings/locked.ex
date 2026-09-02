@@ -111,6 +111,9 @@ defmodule Pokex.Settings.Locked do
     skill_burst_every_ms: {"Combate (ritmo)", "respiro entre duas decisões de ataque"},
     combat_aoe_from_enemies: {"Combate (ritmo)", "só o plano padrão lê; nenhum modo vivo usa"},
     combat_skill_tap_count: {"Combate (ritmo)", "toques por tecla numa rajada"},
+    combat_shield_from_enemies:
+      {"Combate (ritmo)",
+       "só o plano padrão lê; a defesa hoje sai pela vida ('Defesa abaixo de')"},
     combat_skill_jitter_ms:
       {"Combate (ritmo)", "tremor aleatório entre teclas; assume o SEU 100"},
     max_consecutive_failures: {"Combate (ritmo)", "falhas seguidas antes de o worker parar"},
@@ -272,6 +275,8 @@ defmodule Pokex.Settings.Locked do
       {"Revive (mecânica)",
        "medido: depois do revive o pokémon leva 2s pra voltar; nada é apertado"},
     fainted_revive_cooldown_ms: {"Revive (mecânica)", "piso entre dois revives de um caído"},
+    shield_skill_cooldown_ms:
+      {"Revive (mecânica)", "anti-spam da defesa; se está pronta é a barra que diz"},
     heal_skill_cooldown_ms:
       {"Revive (mecânica)", "anti-spam da cura; se está pronta é a barra que diz"},
     support_tick_ms: {"Revive (mecânica)", "a vida do pokémon é lida a cada 120ms"},

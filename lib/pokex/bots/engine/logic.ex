@@ -180,6 +180,11 @@ defmodule Pokex.Bots.Engine.Logic do
             # desde quando a barra do pokémon não é lida (fora do chão provado);
             # campo próprio porque `since` é zerado a cada rodada
             hp_blind_since: nil,
+            # desde quando a barra de SKILLS não é lida na tela. O reset do fim
+            # da corrente é cobrado por foto; cega desde ANTES do pedido, não
+            # há foto a esperar — só o relógio (18:37 de 02/09: 8s parado a
+            # cada revive, a caçada inteira, por um portão que recusava a barra)
+            bar_blind_since: nil,
             # A CORRENTE VISTA SAINDO no tique anterior — é o que permite ver a
             # borda em que ela ACABA, sem relógio próprio
             chain_seen?: false,
@@ -212,7 +217,11 @@ defmodule Pokex.Bots.Engine.Logic do
   defp tick(logic, world, config, now) do
     situation = world.situation
 
-    logic = logic |> track_hp_blind(situation, now) |> track_survivors(situation, now)
+    logic =
+      logic
+      |> track_hp_blind(situation, now)
+      |> track_bar_blind(situation, now)
+      |> track_survivors(situation, now)
 
     %{
       logic: logic,
@@ -312,6 +321,12 @@ defmodule Pokex.Bots.Engine.Logic do
   defp track_hp_blind(logic, %{own_hp: nil, own_out?: out}, _now) when out != false, do: logic
   defp track_hp_blind(logic, _lida_ou_chao, _now), do: %{logic | hp_blind_since: nil}
 
+  defp track_bar_blind(%{bar_blind_since: nil} = logic, %{bar_seen?: false}, now),
+    do: %{logic | bar_blind_since: now}
+
+  defp track_bar_blind(logic, %{bar_seen?: false}, _now), do: logic
+  defp track_bar_blind(logic, _vista, _now), do: %{logic | bar_blind_since: nil}
+
   @hp_blind_stop_ms 8_000
 
   defp hp_blind_out?(%{logic: %{hp_blind_since: since}, now: now}) when is_integer(since),
@@ -370,17 +385,33 @@ defmodule Pokex.Bots.Engine.Logic do
   end
 
   defp awaiting_why(t) do
-    segundos = div(t.now - Map.get(t.logic.since, :reset_pending, t.now), 1_000)
+    at = Map.get(t.logic.since, :reset_pending, t.now)
+    segundos = div(t.now - at, 1_000)
 
     tela =
-      if bar_seen?(t),
-        do: "a barra ainda não voltou na tela",
-        else: "a barra está ilegível"
+      cond do
+        bar_seen?(t) ->
+          "a barra ainda não voltou na tela; a rota só segue com os cooldowns de volta"
 
-    "revive pedido há #{segundos}s — #{tela}; a rota só segue com os cooldowns de volta"
+        blind_before_request?(t, at) ->
+          "a barra está ilegível desde antes do pedido — solto pelo relógio em " <>
+            "#{div(t.config.revive_confirm_ms, 1_000)}s; recalibre a barra de skills"
+
+        true ->
+          "a barra está ilegível: sumiu depois do pedido (o revive recolhe o pokémon) — " <>
+            "espero ela voltar"
+      end
+
+    "revive pedido há #{segundos}s — #{tela}"
   end
 
   defp bar_seen?(t), do: Map.get(t.s, :bar_seen?) == true
+
+  defp blind_before_request?(%{logic: %{bar_blind_since: since}} = t, at),
+    do: not bar_seen?(t) and is_integer(since) and since <= at
+
+  defp unverifiable_by_now?(t, at),
+    do: blind_before_request?(t, at) and t.now - at >= t.config.revive_confirm_ms
 
   # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defp choose(t) do
@@ -1862,6 +1893,13 @@ defmodule Pokex.Bots.Engine.Logic do
     cond do
       t.s.own_out? == true and t.s.spent? == false and bar_seen?(t) ->
         %{close_reset(t.logic) | reset_strikes: 0}
+
+      # Cega desde ANTES do pedido não é o revive recolhendo o pokémon — é a
+      # leitura que não existe. Esperar o prazo inteiro (8s) por ela era o
+      # bot parado com a pilha acordando; o relógio já disse que as teclas
+      # saíram, e a promessa fecha como inverificável em `revive_confirm_ms`.
+      unverifiable_by_now?(t, at) ->
+        close_reset(t.logic)
 
       t.now - at < t.config.revive_confirm_ms + reset_grace_ms(t) ->
         t.logic

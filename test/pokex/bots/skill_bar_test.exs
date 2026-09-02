@@ -13,17 +13,19 @@ defmodule Pokex.Bots.SkillBarTest do
     Pokex.Pokedex.Team.set_active("Bulbasaur")
   end
 
+  # 7 slots: os seis primeiros prontos, o sétimo frio — e em TODOS o rótulo da
+  # tecla, que é o que faz o quadro ser a barra (`Pokex.SkillBarFixtures`).
+  @bar_region Pokex.SkillBarFixtures.region(7)
+
   setup %{tmp_dir: tmp} do
-    # 7 slots × 2px: slots 1-6 bright (ready), slot 7 dark (cooldown).
-    row = List.duplicate({200, 200, 0, 255}, 12) ++ List.duplicate({20, 20, 20, 255}, 2)
-    bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), [row])
+    bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), Pokex.SkillBarFixtures.rows(7, 6))
     {:ok, _} = Fake.start_link(%{capture: [{:ok, bar}]})
     :ok
   end
 
   @tag :tmp_dir
   test "reads per-slot states and derives readiness" do
-    on_field({0, 0, 14, 1}, 7)
+    on_field(@bar_region, 7)
     slots = SkillBar.read(@settings)
 
     assert SkillBar.states(slots) ==
@@ -37,7 +39,7 @@ defmodule Pokex.Bots.SkillBarTest do
 
   @tag :tmp_dir
   test "an untrackable hook key (non-digit / out of range) can't softlock — fails open" do
-    on_field({0, 0, 14, 1}, 7)
+    on_field(@bar_region, 7)
     slots = SkillBar.read(@settings)
 
     # "9" is past the 7 slots and "e" isn't a digit → untrackable → ignored, NOT held
@@ -61,7 +63,7 @@ defmodule Pokex.Bots.SkillBarTest do
 
   @tag :tmp_dir
   test "any_ready?: the loosened gate pulls when AT LEAST ONE hook-skill is ready" do
-    on_field({0, 0, 14, 1}, 7)
+    on_field(@bar_region, 7)
     slots = SkillBar.read(@settings)
 
     # slots 1-6 ready, 7 on cooldown
@@ -74,7 +76,7 @@ defmodule Pokex.Bots.SkillBarTest do
 
   @tag :tmp_dir
   test "any_ready? fails OPEN too — an unreadable/untrackable bar never softlocks the hold" do
-    on_field({0, 0, 14, 1}, 7)
+    on_field(@bar_region, 7)
     slots = SkillBar.read(@settings)
 
     # no reading at all → don't hold
@@ -209,7 +211,7 @@ defmodule Pokex.Bots.SkillBarTest do
 
     @tag :tmp_dir
     test "ITS slot count slices the frame — not the calibration's, not the setting's" do
-      Team.set_bar("Vespiquen", %{region: {0, 0, 14, 1}, count: 2, refs: nil})
+      Team.set_bar("Vespiquen", %{region: @bar_region, count: 2, refs: nil})
       Team.set_active("Vespiquen")
 
       # the settings say 7 slots; the pokémon on the field says 2
@@ -220,13 +222,19 @@ defmodule Pokex.Bots.SkillBarTest do
 
     # The reason the bar had to move: the READY references ARE the skill icons.
     @tag :tmp_dir
-    test "ITS references decide readiness, so a swap cannot judge against old art" do
-      # slots 1-6 are bright yellow in the fixture; slot 7 is dark.
+    test "ITS references decide readiness, so a swap cannot judge against old art",
+         %{tmp_dir: tmp} do
+      # the reference of the bright half is what calibration would have taken
+      # from this very picture; the other one is nowhere near anything on it
+      {:ok, frame} = Frame.from_png_file(Path.join(tmp, "bar.png"))
+
+      [bright_ref, _dark_ref] =
+        frame |> Pokex.Vision.skill_slots(count: 2) |> SkillBar.slot_refs(@settings)
+
       Team.set_bar("Vespiquen", %{
-        region: {0, 0, 14, 1},
+        region: @bar_region,
         count: 2,
-        # one reference matching the bright half, one nowhere near it
-        refs: [{200, 200, 0}, {255, 0, 255}]
+        refs: [bright_ref, {255, 0, 255}]
       })
 
       Team.set_active("Vespiquen")
@@ -241,7 +249,7 @@ defmodule Pokex.Bots.SkillBarTest do
     # (2026-08-24). Nothing to read is the honest answer.
     @tag :tmp_dir
     test "nobody on the field means nothing to read" do
-      Team.set_bar("Vespiquen", %{region: {0, 0, 14, 1}, count: 2, refs: nil})
+      Team.set_bar("Vespiquen", %{region: @bar_region, count: 2, refs: nil})
       Team.set_active(nil)
 
       assert SkillBar.read(@settings) == nil

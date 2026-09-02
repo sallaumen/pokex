@@ -2,6 +2,7 @@ defmodule Pokex.Vision do
   @moduledoc "Pure pixel analysis over Frames. No I/O here, ever."
 
   alias Pokex.Vision.Frame
+  alias Pokex.Vision.SkillDigits
 
   def distance(%Frame{rgba: a}, %Frame{rgba: b}) when byte_size(a) == byte_size(b) do
     sum_abs_diff(a, b, 0, 0)
@@ -35,11 +36,26 @@ defmodule Pokex.Vision do
   @vivid_sat 60
   @vivid_bright 60
 
-  @doc "True when a frame has the dark chrome and icon/text content of the skill bar."
-  def skill_bar_frame?(%Frame{rgba: rgba}) do
-    {dark, content, total} = skill_bar_signature(rgba, 0, 0, 0)
+  @doc """
+  Whether a captured frame IS the skill bar: at least two thirds of its `count`
+  slots carry a glyph of the game's font — the hotkey label under every slot,
+  or the countdown over a cooling one (`Pokex.Vision.SkillDigits.labelled_slots/2`).
 
-    total > 0 and dark * 100 >= total * 10 and content * 100 >= total
+  It used to ask for 10% of near-black pixels plus 1% of vivid/white ones. The
+  "dark chrome" that share was counting is the dark PART OF THE ICONS, not a
+  frame around the bar: his three August bars measured 10.9-11.6%, and the
+  bar he calibrated on 2026-09-02 — a tight, correct crop of nine slots —
+  measured 9.6%. Giving the crop slack makes it worse (9.5%): the bar sits on
+  a light panel. So a perfect calibration read as "not the bar" on every tick
+  of every hunt that day (755 "a barra está ilegível" lines), and each revive
+  waited the full unverifiable deadline standing still. The label is what the
+  game always draws; the share of dark paint is whatever the icons happen to be.
+  """
+  @spec skill_bar_frame?(Frame.t(), pos_integer) :: boolean
+  def skill_bar_frame?(%Frame{} = frame, count) when is_integer(count) and count > 0 do
+    labelled = SkillDigits.labelled_slots(frame, count)
+
+    MapSet.size(labelled) * 3 >= count * 2
   end
 
   @doc """
@@ -980,20 +996,6 @@ defmodule Pokex.Vision do
   end
 
   defp column_scan(<<>>, _i, _w, _min_b, _min_s, filled, lettered), do: {filled, lettered}
-
-  defp skill_bar_signature(<<r, g, b, _a, rest::binary>>, dark, content, total) do
-    bright = max(r, max(g, b))
-    sat = bright - min(r, min(g, b))
-    dark = if bright <= 45, do: dark + 1, else: dark
-    white? = min(r, min(g, b)) >= 180 and sat <= 25
-
-    content =
-      if (sat >= @vivid_sat and bright >= @vivid_bright) or white?, do: content + 1, else: content
-
-    skill_bar_signature(rest, dark, content, total + 1)
-  end
-
-  defp skill_bar_signature(<<>>, dark, content, total), do: {dark, content, total}
 
   defp skill_slot_acc(<<r, g, b, _a, rest::binary>>, i, w, count, slot_w, acc) do
     slot = min(div(rem(i, w), slot_w), count - 1)

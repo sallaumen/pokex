@@ -146,8 +146,7 @@ defmodule Pokex.Diagnostics.ReportTest do
       end)
 
       # 7 slots × 2px: slots 1-6 bright, slot 7 dark — a frame SkillBar accepts.
-      row = List.duplicate({200, 200, 0, 255}, 12) ++ List.duplicate({20, 20, 20, 255}, 2)
-      bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), [row])
+      bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), Pokex.SkillBarFixtures.rows(7, 6))
 
       Agent.stop(Fake)
 
@@ -165,7 +164,11 @@ defmodule Pokex.Diagnostics.ReportTest do
         })
 
       %{
-        calib: %Calibration{@calib | skill_bar_region: {0, 0, 14, 1}, skill_bar_count: 7},
+        calib: %Calibration{
+          @calib
+          | skill_bar_region: Pokex.SkillBarFixtures.region(7),
+            skill_bar_count: 7
+        },
         exports: Path.join(tmp, "exports")
       }
     end
@@ -206,11 +209,11 @@ defmodule Pokex.Diagnostics.ReportTest do
       exports: exports
     } do
       Pokex.TeamFixtures.ready!("Vespiquen", count: 7)
-      Team.set_bar("Vespiquen", %{region: {0, 0, 14, 1}, count: 7, refs: nil})
+      Team.set_bar("Vespiquen", %{region: Pokex.SkillBarFixtures.region(7), count: 7, refs: nil})
 
       {report, path} = capture!(calib, exports)
 
-      assert report.regions.skill_bar.region == [0, 0, 14, 1]
+      assert report.regions.skill_bar.region == [0, 0, 210, 12]
       assert report.regions.skill_bar.pokemon == "Vespiquen"
       assert [signature | _] = Enum.map(report.regions.skill_bar.slots, & &1.signature)
       assert is_list(signature)
@@ -223,7 +226,7 @@ defmodule Pokex.Diagnostics.ReportTest do
       exports: exports
     } do
       {:ok, _} = Team.add("Vespiquen")
-      Team.set_bar("Vespiquen", %{region: {0, 0, 14, 1}, count: 2, refs: nil})
+      Team.set_bar("Vespiquen", %{region: Pokex.SkillBarFixtures.region(7), count: 2, refs: nil})
       Team.set_active("Vespiquen")
 
       {report, _path} = capture!(calib, exports)

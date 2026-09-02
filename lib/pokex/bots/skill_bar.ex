@@ -20,9 +20,9 @@ defmodule Pokex.Bots.SkillBar do
 
   @doc "Per-slot `%{brightness, saturation, state}` list, or `nil` (the pokémon on the field has no bar / capture failed)."
   def read(settings) do
-    with %{region: region} when is_tuple(region) <- ActiveBar.current(),
+    with %{region: region} = bar when is_tuple(region) <- ActiveBar.current(),
          {:ok, frame} <- Capture.frame(region, "skillbar.raw"),
-         true <- Vision.skill_bar_frame?(frame) do
+         true <- Vision.skill_bar_frame?(frame, calibrated_count(bar, settings)) do
       slots_from_frame(frame, settings)
     else
       _ -> nil
@@ -65,8 +65,12 @@ defmodule Pokex.Bots.SkillBar do
     end)
   end
 
-  @doc "Whether a captured frame still resembles the calibrated skill bar."
-  def valid_frame?(frame), do: Vision.skill_bar_frame?(frame)
+  @doc """
+  Whether a captured frame IS the active pokémon's bar — the hotkey label (or
+  a countdown) in at least two thirds of its slots. The count is the bar's own.
+  """
+  def valid_frame?(frame, settings),
+    do: Vision.skill_bar_frame?(frame, calibrated_count(ActiveBar.current(), settings))
 
   @doc """
   Per-slot READY references from a calibration-time read: each slot's non-white colour

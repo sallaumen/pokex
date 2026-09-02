@@ -235,21 +235,77 @@ defmodule Pokex.VisionSkillStatesTest do
     end
   end
 
-  describe "skill_bar_frame?/1" do
-    test "accepts dark hotbar chrome with vivid icons and rejects bright map texture" do
-      bar =
-        %Frame{
-          width: 10,
-          height: 1,
-          rgba:
-            :binary.copy(<<10, 10, 10, 255>>, 4) <>
-              :binary.copy(<<40, 180, 80, 255>>, 6)
-        }
+  # O PORTÃO É O RÓTULO DA TECLA. Em 02/09 a barra recém-calibrada do Venusaur
+  # (recorte justo e correto) foi recusada em TODO tique do dia porque o portão
+  # antigo pedia 10% de pixels quase-pretos e ela tinha 9,6% — o "escuro" era a
+  # parte escura dos ícones, não uma moldura. O jogo desenha o número da tecla
+  # embaixo de cada slot, pronta ou fria: é isso que diz "isto é a barra".
+  describe "skill_bar_frame?/2" do
+    @fixtures "test/fixtures/skill_bar"
 
-      floor = %Frame{width: 10, height: 1, rgba: :binary.copy(<<120, 210, 235, 255>>, 10)}
+    defp real(name) do
+      {:ok, frame} = Frame.from_file(Path.join(@fixtures, name))
+      frame
+    end
 
-      assert Vision.skill_bar_frame?(bar)
-      refute Vision.skill_bar_frame?(floor)
+    # `count` slots de `slot_w` px por `h` linhas; `paint.(slot, x, y)` dá a cor
+    # do pixel (x, y relativos ao slot).
+    defp bar_2d(count, slot_w, h, paint) do
+      rgba =
+        for y <- 0..(h - 1), slot <- 0..(count - 1), x <- 0..(slot_w - 1), into: <<>> do
+          {r, g, b} = paint.(slot, x, y)
+          <<r, g, b, 255>>
+        end
+
+      %Frame{width: count * slot_w, height: h, rgba: rgba}
+    end
+
+    # Um glifo da fonte do jogo: 2 px de largura por 6 de altura, branco, sobre
+    # o fundo escuro do slot — o rótulo "1".."9".
+    defp glyph?(x, y), do: x in 8..9 and y in 2..7
+    @dark {20, 20, 20}
+    @white {240, 240, 240}
+
+    test "o recorte justo do Venusaur (02/09) e as três barras de agosto passam" do
+      for name <-
+            ~w(venusaur_recorte_justo.raw manha.raw quatro_contando.raw tres_contando_ontem.raw) do
+        assert Vision.skill_bar_frame?(real(name), 9), name
+      end
+    end
+
+    test "um painel claro e um pedaço de mundo no lugar da barra não passam" do
+      refute Vision.skill_bar_frame?(real("nao_barra_painel_claro.raw"), 9)
+      refute Vision.skill_bar_frame?(real("nao_barra_mundo.raw"), 9)
+    end
+
+    test "o rótulo em todos os slots é a barra; em menos de dois terços deles, não é" do
+      todos = bar_2d(9, 20, 10, fn _slot, x, y -> if glyph?(x, y), do: @white, else: @dark end)
+
+      seis =
+        bar_2d(9, 20, 10, fn slot, x, y ->
+          if slot < 6 and glyph?(x, y), do: @white, else: @dark
+        end)
+
+      cinco =
+        bar_2d(9, 20, 10, fn slot, x, y ->
+          if slot < 5 and glyph?(x, y), do: @white, else: @dark
+        end)
+
+      assert Vision.skill_bar_frame?(todos, 9)
+      assert Vision.skill_bar_frame?(seis, 9)
+      refute Vision.skill_bar_frame?(cinco, 9)
+    end
+
+    test "cor escura e ícones vivos SEM rótulo não bastam — era o que o portão antigo aceitava" do
+      chrome =
+        bar_2d(9, 20, 10, fn _slot, x, _y -> if x < 4, do: {10, 10, 10}, else: {40, 180, 80} end)
+
+      branco = bar_2d(9, 20, 10, fn _slot, _x, _y -> @white end)
+      cinza = bar_2d(9, 20, 10, fn _slot, _x, _y -> {120, 120, 120} end)
+
+      refute Vision.skill_bar_frame?(chrome, 9)
+      refute Vision.skill_bar_frame?(branco, 9)
+      refute Vision.skill_bar_frame?(cinza, 9)
     end
   end
 

@@ -46,11 +46,24 @@ defmodule Pokex.Perception.InterpretTest do
   end
 
   describe "skills/3" do
+    # Dois slots de 50×8 com o rótulo da tecla (glifo branco 2×6 sobre fundo
+    # escuro) em cada um — é o que faz o quadro SER a barra. O primeiro tem
+    # duas linhas de amarelo vivo (pronta); o segundo é só o painel escuro (fria).
+    defp two_slot_bar do
+      rgba =
+        for y <- 0..7, x <- 0..99, into: <<>> do
+          cond do
+            rem(x, 50) in 10..11 and y in 2..7 -> <<240, 240, 240, 255>>
+            x < 50 and y < 2 -> <<200, 200, 0, 255>>
+            true -> <<20, 20, 20, 255>>
+          end
+        end
+
+      %Frame{width: 100, height: 8, rgba: rgba}
+    end
+
     test "a valid bar frame reads per-slot states and ready keys" do
-      # 2 slots: vivid yellow (ready) + dark cooldown panel (also the ≥10% dark share
-      # skill_bar_frame? wants)
-      rgba = :binary.copy(<<200, 200, 0, 255>>, 50) <> :binary.copy(<<20, 20, 20, 255>>, 50)
-      frame = %Frame{width: 100, height: 1, rgba: rgba}
+      frame = two_slot_bar()
       Pokex.TeamFixtures.ready!("Bulbasaur", count: 2)
 
       assert Interpret.skills(frame, calib(), settings()) ==
@@ -58,9 +71,9 @@ defmodule Pokex.Perception.InterpretTest do
     end
 
     test "a frame that no longer looks like the bar is UNKNOWN — nils, never a guess" do
-      # uniform mid-grey (window moved/covered): no dark ground, no vivid/white content
-      rgba = :binary.copy(<<120, 120, 120, 255>>, 100)
-      frame = %Frame{width: 100, height: 1, rgba: rgba}
+      # uniform mid-grey (window moved/covered): no hotkey label in any slot
+      rgba = :binary.copy(<<120, 120, 120, 255>>, 800)
+      frame = %Frame{width: 100, height: 8, rgba: rgba}
 
       assert Interpret.skills(frame, %{calib() | skill_bar_count: 2}, settings()) ==
                %{states: nil, ready_keys: nil}

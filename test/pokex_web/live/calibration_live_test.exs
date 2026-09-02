@@ -23,6 +23,23 @@ defmodule PokexWeb.CalibrationLiveTest do
 
   defp rows(w, h, color), do: List.duplicate(List.duplicate(color, w), h)
 
+  # A tela de 200×150 com uma barra de `count` slots no retângulo `region`
+  # (px da imagem): o número da tecla (glifo branco 2×6) na metade de baixo
+  # de cada slot, sobre o fundo escuro — o que o portão do leitor exige pra
+  # chamar o recorte de barra.
+  defp bar_screen({rx, ry, rw, rh}, count) do
+    slot_w = div(rw, count)
+    glyph_y = (ry + rh - 9)..(ry + rh - 4)
+
+    for y <- 0..149, do: for(x <- 0..199, do: screen_pixel(x, y, rx, rw, slot_w, glyph_y))
+  end
+
+  defp screen_pixel(x, y, rx, rw, slot_w, glyph_y) do
+    if x >= rx and x < rx + rw and y in glyph_y and rem(x - rx, slot_w) in 6..7,
+      do: {240, 240, 240, 255},
+      else: {9, 9, 9, 255}
+  end
+
   # Every mark the numbered run asks for, plus the ones it never asks about —
   # the shape of a screen that is already calibrated. 100x75 points is the
   # 200x150 fixture at scale 2.0, so the shot and the marks agree on the screen.
@@ -151,8 +168,10 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
 
+    # the skill bar the run marks at (5,30)-(29,35): 8 slots, each with its
+    # hotkey label — the reader's gate refuses a bar without them
     screen =
-      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), bar_screen({20, 120, 96, 20}, 8))
 
     glow = Pokex.PngFixtures.write!(Path.join(tmp, "glow.png"), rows(8, 8, {0, 60, 120, 255}))
 
@@ -234,7 +253,10 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert calib.pokemon_hp_region == {30, 40, 60, 20}
     assert calib.pokemon_photo_point == {40, 50}
     assert length(calib.skill_slot_refs) == 8
-    assert Enum.all?(calib.skill_slot_refs, &(&1 == {9, 9, 9}))
+    # the dark background is the reference — or nil where the hotkey label
+    # of this tiny 12×20 slot weighs over the countdown floor (real slots are
+    # ~1000 px; the label is 1-4% of them, never a countdown)
+    assert Enum.all?(calib.skill_slot_refs, &(&1 in [{9, 9, 9}, nil]))
     assert Settings.get(:skill_keys) == ["6", "5", "4", "3", "2", "1", "7", "8"]
   end
 
@@ -981,7 +1003,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
 
     screen =
-      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), bar_screen({40, 40, 120, 80}, 6))
 
     {:ok, _} =
       Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
@@ -1019,6 +1041,51 @@ defmodule PokexWeb.CalibrationLiveTest do
   # TUPLES, and storing them raised inside JSON.encode! — the page died on the
   # second click and nothing was ever saved.
   @tag :tmp_dir
+  # 02/09: a barra marcada certinha, "salva", e o leitor recusando o quadro a
+  # cada tique. O recorte que o leitor não reconhece não é salvo — e a tela
+  # diz o que faltou e volta pro primeiro clique.
+  @tag :tmp_dir
+  test "um recorte sem o número da tecla nos slots não é salvo", %{conn: conn, tmp_dir: tmp} do
+    Calibration.save(%Calibration{
+      scale: 2.0,
+      screen_w: 100,
+      screen_h: 75,
+      water_point: {50, 30},
+      glow_region: {18, -2, 64, 64},
+      battle_region: {70, 10, 20, 30},
+      neutral_point: {52, 36}
+    })
+
+    {:ok, _} = Pokex.Pokedex.Team.add("Vespiquen")
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+    lisa = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+    {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, lisa}]})
+
+    {:ok, view, _} = live(conn, ~p"/calibration?bar=Vespiquen")
+    view |> element("button", "Só as skills") |> render_click()
+
+    view
+    |> form("#skill-count-form-marking", skill_bar: %{count: "6"})
+    |> render_change()
+
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    click.(10.0, 10.0)
+    click.(40.0, 30.0)
+
+    html = render(view)
+    assert html =~ "não salvei a barra"
+    assert html =~ "0 de 6 slots"
+    refute html =~ "Barra de Vespiquen salva"
+    assert Pokex.Pokedex.Team.bar("Vespiquen") == nil
+  end
+
+  @tag :tmp_dir
   test "?bar=<pokémon> saves the bar to the POKÉMON, refs and all", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
 
@@ -1054,7 +1121,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
 
     screen =
-      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), bar_screen({40, 40, 120, 80}, 6))
 
     {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 
@@ -1112,7 +1179,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
 
     screen =
-      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), bar_screen({40, 40, 120, 80}, 6))
 
     {:ok, _} = Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]})
 

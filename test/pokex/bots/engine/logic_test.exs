@@ -637,6 +637,36 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert logic.reset_strikes == 1
     end
 
+    # 18:37 de 02/09: a barra ilegível a caçada INTEIRA (o portão do leitor
+    # recusava a barra recém-calibrada) e cada revive esperava os 8s do prazo
+    # parado, por uma foto que nunca viria. Cega desde ANTES do pedido não há
+    # o que esperar além do relógio: fecha em `revive_confirm_ms`, sem strike.
+    test "cega desde antes do pedido, a promessa fecha em revive_confirm_ms — sem strike" do
+      logic = %{pedido(sem_controle(%{own_hp: 100, bar_seen?: false})) | reset_strikes: 1}
+      cega = sem_controle(%{own_hp: 100, spent?: false, bar_seen?: false})
+
+      {logic, espera} = reset_step(logic, cega, 10_500 + 2_000)
+      assert espera.phase == :resetting
+      assert espera.why =~ "ilegível desde antes do pedido"
+
+      {logic, depois} = reset_step(logic, cega, 10_500 + @reset.revive_confirm_ms + 200)
+      refute depois.phase == :resetting
+      refute Map.has_key?(logic.since, :reset_pending)
+      assert logic.reset_strikes == 1
+    end
+
+    # Já a barra VISTA no pedido e sumida depois é o revive recolhendo o
+    # pokémon (a janela muda de forma): aí sim se espera o prazo inteiro.
+    test "a barra vista no pedido e sumida depois é o revive recolhendo: espera o prazo" do
+      logic = pedido(sem_controle(%{own_hp: 100, bar_seen?: true}))
+      sumiu = sem_controle(%{own_hp: 100, spent?: false, bar_seen?: false})
+
+      {logic, espera} = reset_step(logic, sumiu, 10_500 + @reset.revive_confirm_ms + 200)
+      assert espera.phase == :resetting
+      assert espera.why =~ "sumiu depois do pedido"
+      assert Map.has_key?(logic.since, :reset_pending)
+    end
+
     # O CHEFE NÃO ESPERA: o ciclo dele (stun na emenda, F4 a cada 5s) é mais
     # curto que o prazo da promessa, e segurá-lo era acordar o chefe com o
     # controle na mão.

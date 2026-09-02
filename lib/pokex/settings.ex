@@ -102,6 +102,14 @@ defmodule Pokex.Settings do
     # sai inteiro no cliente — ele mede, isto só assume.
     combat_skill_gap_ms: 300,
     combat_skill_jitter_ms: 20,
+    # QUANTO O MODIFICADOR SEGURA ANTES DA TECLA, nas combinações tipo
+    # `shift+1`. O jogo roda sob Wine, que traduz evento por evento: com a
+    # bandeira pendurada no próprio evento da tecla, ela pode chegar antes de o
+    # estado do shift virar — e aí sai a skill 1 sozinha e a postura não muda
+    # ("o pior dos dois mundos", 02/09). Segurando o shift de verdade, este é o
+    # respiro entre segurar e apertar. Ninguém mediu quanto o Wine precisa; 30ms
+    # é onde começar, e é barato porque só as posturas usam modificador.
+    key_modifier_settle_ms: 30,
     # --- Skill-bar cooldown tracking (SkillBar reads the hotbar per-process) ---
     # Legacy fallback when an old calibration has no explicit count. New calibrations
     # ask for 1..10 and persist that fixed geometry; cooldown frames never change it.
@@ -1791,6 +1799,7 @@ defmodule Pokex.Settings do
     engine_crowd_from: 1..20,
     engine_spent_keys_left: 0..9,
     auto_combo_window_ms: 500..30_000,
+    key_modifier_settle_ms: 0..1_000,
     engine_stun_window_ms: 500..60_000,
     engine_stun_hold_ms: 1_000..120_000,
     engine_boss_grit: 0..40,

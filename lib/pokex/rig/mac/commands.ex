@@ -62,7 +62,7 @@ defmodule Pokex.Rig.Mac.Commands do
   `keystroke`. Modifiers are applied via `using {...}`.
   """
   def press(combo, opts \\ []) do
-    build_key_script(["  #{key_action(combo)}"], opts)
+    build_key_script(key_lines(combo, opts), opts)
   end
 
   @doc "Virtual key code for a digit/named key — the native CGEvent path. :error = unmapped."
@@ -164,22 +164,54 @@ defmodule Pokex.Rig.Mac.Commands do
     ]
   end
 
-  defp key_action(combo) do
+  # O MODIFICADOR VAI SEGURADO, não pendurado na tecla.
+  #
+  # `key code 18 using {shift down}` marca a bandeira do shift no PRÓPRIO evento
+  # da tecla. É correto no macOS e é o que a maioria dos apps lê — mas o jogo
+  # dele roda sob Wine, que traduz evento por evento, e aí a tecla pode chegar
+  # antes de o estado do modificador virar. O resultado é o que ele viu em
+  # 02/09: "shift+1 e shift+3 às vezes saem separadas, daí a skill 1 ou 3 sai
+  # sozinha e o modo não muda — o pior dos dois mundos". Uma skill gasta sem
+  # querer E a postura errada.
+  #
+  # Segurando o shift de verdade (`key down` / `key up`), o modificador vira um
+  # evento próprio que chega ANTES: quando a tecla sai, o estado já mudou. O
+  # respiro entre os dois é o que dá tempo do jogo registrar, e é ajustável
+  # porque ninguém mediu quanto o Wine precisa.
+  #
+  # O `key up` fica FORA do `try`: se a prensa falhar no meio, o shift não pode
+  # ficar preso — um modificador segurado transforma toda tecla seguinte em
+  # outra coisa. É a mesma regra do `key_up` do rig, que é ungated pelo mesmo
+  # motivo: soltar só pode PARAR alguma coisa.
+  defp key_lines(combo, opts) do
     {mods, [key]} = combo |> String.split("+") |> Enum.split(-1)
 
-    action =
-      case Map.get(@digit_keycodes, key) || Map.get(@named_keycodes, String.downcase(key)) do
-        nil -> ~s(keystroke "#{key}")
-        code -> "key code #{code}"
-      end
+    case mods do
+      [] ->
+        ["  " <> tap_action(key)]
 
-    action <> using(mods)
+      mods ->
+        segurar = Enum.map(mods, &"  key down #{modifier_name(&1)}")
+        soltar = mods |> Enum.reverse() |> Enum.map(&"  key up #{modifier_name(&1)}")
+
+        segurar ++ ["  try", settle_line(opts), "    " <> tap_action(key), "  end try"] ++ soltar
+    end
   end
 
-  defp using([]), do: ""
+  defp tap_action(key) do
+    case Map.get(@digit_keycodes, key) || Map.get(@named_keycodes, String.downcase(key)) do
+      nil -> ~s(keystroke "#{key}")
+      code -> "key code #{code}"
+    end
+  end
 
-  defp using(mods),
-    do: " using {" <> Enum.map_join(mods, ", ", &Map.fetch!(@modifiers, &1)) <> "}"
+  defp modifier_name(mod), do: @modifiers |> Map.fetch!(mod) |> String.replace_suffix(" down", "")
+
+  defp settle_line(opts) do
+    ms = opts |> Keyword.get(:modifier_settle_ms, 30) |> max(0)
+
+    "    delay #{ms / 1000}"
+  end
 
   def click(:left, {x, y}), do: {"cliclick", ["c:#{x},#{y}"]}
   def click(:right, {x, y}), do: {"cliclick", ["rc:#{x},#{y}"]}

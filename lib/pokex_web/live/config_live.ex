@@ -464,6 +464,16 @@ defmodule PokexWeb.ConfigLive do
           keywords: "escudo shield defesa aura"
         },
         %{
+          key: :key_modifier_settle_ms,
+          kind: :ms,
+          label: "Respiro do shift",
+          hint:
+            "Quanto o modificador fica segurado antes da tecla, nas combinações tipo shift+1. " <>
+              "O jogo roda sob Wine e traduz evento por evento: curto demais e a tecla chega " <>
+              "antes do shift — sai a skill sozinha e a postura não muda. Suba se ainda vir isso.",
+          keywords: "shift modificador postura respiro wine"
+        },
+        %{
           key: :attack_mode_key,
           kind: :key,
           label: "Postura de ataque",

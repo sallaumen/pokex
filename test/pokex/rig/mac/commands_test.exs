@@ -2,10 +2,38 @@ defmodule Pokex.Rig.Mac.CommandsTest do
   use ExUnit.Case, async: true
   alias Pokex.Rig.Mac.Commands
 
-  test "press sends a letter as a keystroke with the modifier" do
-    assert Commands.press("shift+z") ==
-             {"osascript",
-              ["-e", ~s(tell application "System Events" to keystroke "z" using {shift down})]}
+  # O MODIFICADOR VAI SEGURADO, não pendurado na tecla. `using {shift down}`
+  # marca a bandeira no PRÓPRIO evento da tecla, e o jogo dele roda sob Wine,
+  # que traduz evento por evento: a tecla podia chegar antes de o estado do
+  # shift virar, e aí saía a skill sozinha e a postura não mudava ("o pior dos
+  # dois mundos", 02/09).
+  test "press holds the modifier as its own event, before the key" do
+    {"osascript", ["-e", script]} = Commands.press("shift+z")
+
+    assert script =~ "key down shift"
+    assert script =~ ~s(keystroke "z")
+    assert script =~ "key up shift"
+    refute script =~ "using {"
+
+    assert :binary.match(script, "key down shift") < :binary.match(script, ~s(keystroke "z"))
+    assert :binary.match(script, ~s(keystroke "z")) < :binary.match(script, "key up shift")
+  end
+
+  # Um modificador preso transforma TODA tecla seguinte em outra coisa, então
+  # soltar não pode depender da prensa ter dado certo — a mesma regra do
+  # `key_up` do rig, que é ungated pelo mesmo motivo.
+  test "press releases the modifier even when the key itself fails" do
+    {"osascript", ["-e", script]} = Commands.press("shift+z")
+
+    assert :binary.match(script, "end try") < :binary.match(script, "key up shift")
+  end
+
+  test "press waits between holding the modifier and the key, and the wait is his" do
+    {"osascript", ["-e", padrao]} = Commands.press("shift+z")
+    {"osascript", ["-e", devagar]} = Commands.press("shift+z", modifier_settle_ms: 120)
+
+    assert padrao =~ "delay 0.03"
+    assert devagar =~ "delay 0.12"
   end
 
   test "press sends a digit as the TOP-ROW key code (not the numpad, which walks)" do
@@ -14,9 +42,11 @@ defmodule Pokex.Rig.Mac.CommandsTest do
   end
 
   test "press keeps digits on the top row even with a modifier" do
-    assert Commands.press("ctrl+1") ==
-             {"osascript",
-              ["-e", ~s(tell application "System Events" to key code 18 using {control down})]}
+    {"osascript", ["-e", script]} = Commands.press("ctrl+1")
+
+    assert script =~ "key down control"
+    assert script =~ "key code 18"
+    assert script =~ "key up control"
   end
 
   test "press sends named keys (arrows/space) as key codes, not typed letters" do
@@ -67,9 +97,11 @@ defmodule Pokex.Rig.Mac.CommandsTest do
   end
 
   test "named keys compose with modifiers like digits do" do
-    assert Commands.press("shift+space") ==
-             {"osascript",
-              ["-e", ~s(tell application "System Events" to key code 49 using {shift down})]}
+    {"osascript", ["-e", script]} = Commands.press("shift+space")
+
+    assert script =~ "key down shift"
+    assert script =~ "key code 49"
+    assert script =~ "key up shift"
   end
 
   # O intervalo entre teclas NUNCA viaja dentro de um script do barramento: o
@@ -157,7 +189,12 @@ defmodule Pokex.Rig.Mac.CommandsTest do
                  "      delay 0.05",
                  "    end if",
                  "  end try",
-                 ~s(  keystroke "v" using {shift down}),
+                 "  key down shift",
+                 "  try",
+                 "    delay 0.03",
+                 ~s(    keystroke "v"),
+                 "  end try",
+                 "  key up shift",
                  "end tell"
                ],
                "\n"

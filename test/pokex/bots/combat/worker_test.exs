@@ -986,6 +986,28 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   # sempre e recusar por fora é o que faz a primeira prensa depois da janela
   # sair na hora, sem um relógio próprio dentro da máquina de luta.
   describe "a janela do Auto Combo" do
+    # "Ele continuou andando depois de fechar o grupo" (02/09): a rajada vai
+    # direto no rig e as setas são estado do Body — sem soltar antes, o `r`
+    # saía com o personagem andando até o tique seguinte do cavebot.
+    @tag :tmp_dir
+    test "a corrente solta as setas antes de sair", %{worker: worker} do
+      SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 5_000)
+      SkillClock.wipe()
+      :ok = Pokex.Bots.Body.hold(["up"])
+      on_exit(fn -> Pokex.Bots.Body.release() end)
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      abre_o_fogo(worker)
+      assert eventually(fn -> "r" in presses() end), "a corrente não saiu: #{inspect(presses())}"
+
+      calls = Fake.calls()
+      solta = Enum.find_index(calls, &(&1 == {:key_up, "up"}))
+      corrente = Enum.find_index(calls, &(&1 == {:press, "r"}))
+      assert solta != nil, "a seta nunca foi solta: #{inspect(calls)}"
+      assert solta < corrente, "o r saiu com a seta segurada: #{inspect(calls)}"
+      assert Pokex.Bots.Body.held() == []
+    end
+
     @tag :tmp_dir
     test "a corrente sai UMA vez e a janela recusa a segunda", %{worker: worker} do
       SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 5_000)

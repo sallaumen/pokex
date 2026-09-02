@@ -296,6 +296,43 @@ defmodule Pokex.Sim.HandsTest do
   # escorregão está bloqueado, `World.step/4` devolve a mesma posição, e não há
   # mais nada no mundo que mexa o personagem. Uma corrida de bancada parada num
   # canto ainda reporta mortos/min — só que de uma caçada que nunca andou.
+  # A TECLA QUE NÃO ANDA JUNTO, espelhada: no bot a corrente solta as setas
+  # antes de sair (`Combat.Worker` → `Body.release/0`) e o revive nasce com
+  # `:still`. O mundo tem o sensor (`chain_while_walking`) e a bancada a
+  # invariante — "sinto que essas coisas deveríamos pegar no simulador e não
+  # deixar ir pra gameplay real" (02/09).
+  describe "a tecla que não anda junto" do
+    @corrente %{combo_key: "r", combo_chain_ms: 3_500}
+
+    test "a corrente solta as setas antes de sair, e o sensor fica em zero" do
+      world = mundo(@barra, @corrente) |> World.press({:key_down, "up"})
+      config = Map.put(@stun, :combo_window_ms, 4_000)
+
+      {world, _hands} =
+        Hands.obey(world, ordens(%{fire: :free, opening: ["r"]}), Hands.new(), config)
+
+      assert world.chain != [], "a corrente não saiu"
+      assert world.held == []
+      assert world.stats.chain_while_walking == 0
+    end
+
+    test "o sensor do mundo acusa a corrente com seta segurada" do
+      world = mundo(@barra, @corrente) |> World.press({:key_down, "up"})
+
+      assert World.press(world, {:press, "r"}).stats.chain_while_walking == 1
+      assert World.press(mundo(@barra, @corrente), {:press, "r"}).stats.chain_while_walking == 0
+    end
+
+    test "o revive solta as setas antes de sair" do
+      world = mundo(@barra) |> World.press({:key_down, "left"})
+      config = %{@stun | rescue_stun_first: false}
+
+      {world, _hands} = Hands.obey(world, ordens(%{revive: :now}), Hands.new(), config)
+
+      assert world.held == []
+    end
+  end
+
   describe "andando" do
     defp rota_reta do
       %Pokex.Bots.Cavebot.Route{

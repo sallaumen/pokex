@@ -110,10 +110,17 @@ defmodule Pokex.Sim.Hands do
   # invariante "com stun na frente do revive, nada cai" na primeira rodada — e
   # esse invariante estava certo; o modelo é que estava errado.
   defp obeying(world, orders, hands, config) do
+    # O FOGO ANTES DO PASSO, de propósito: no bot de verdade a rajada sai no
+    # tique do combate e o cavebot só solta as setas no tique DELE — a tecla
+    # encontra as setas do tique anterior. É assim que o sensor do mundo
+    # (`chain_while_walking`) vê a corrida que o jogo vê.
     {world, hands} =
-      if busy?(hands),
-        do: {world, hands},
-        else: world |> walk(orders, hands) |> fire(orders, hands, config)
+      if busy?(hands) do
+        {world, hands}
+      else
+        {world, hands} = fire(world, orders, hands, config)
+        {walk(world, orders, hands), hands}
+      end
 
     {world, hands} = rescue_combo(world, orders, hands, config)
     {world, hands} = support(world, hands, config)
@@ -285,6 +292,12 @@ defmodule Pokex.Sim.Hands do
           |> Enum.with_index()
           |> Enum.map(fn {key, idx} -> {key, world.clock + idx * gap} end)
 
+        # O ESPELHO DO `let_go` DO COMBATE: a tecla do combo solta as setas
+        # antes de sair (`Body.release/0` no bot). Só ela — a rajada comum anda
+        # e bate de propósito.
+        world =
+          if Enum.any?(prontas, &World.combo_key?(world, &1)), do: release(world), else: world
+
         fire_due(world, %{hands | firing: plan})
     end
   end
@@ -335,6 +348,8 @@ defmodule Pokex.Sim.Hands do
   # drops `revive: :now` the moment it enters `:recovering`, and a rescue that
   # needed the order to still be there would be a rescue that never lands.
   defp rescue_combo(world, orders, hands, config) do
+    world = if rescue_leaving?(orders, hands, world), do: release(world), else: world
+
     cond do
       pending?(hands, world) -> {world, hands}
       due?(hands, world) -> {World.revive(world), %{hands | revive_at: nil}}
@@ -349,6 +364,13 @@ defmodule Pokex.Sim.Hands do
       stunned_recently?(world, config) -> {world, settle_from(world, hands, config)}
       true -> {World.revive(world), hands}
     end
+  end
+
+  # O ESPELHO DO `:still` DO REVIVE (`PlayerSupport.Logic.revive/1`): a
+  # sequência do resgate solta as setas antes de qualquer tecla dela sair —
+  # seja o revive que vence a espera agora, seja o que a ordem acaba de pedir.
+  defp rescue_leaving?(orders, hands, world) do
+    due?(hands, world) or (orders.revive in [:now, :prepare] and not pending?(hands, world))
   end
 
   defp settle_from(world, hands, config) do

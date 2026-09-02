@@ -348,6 +348,11 @@ defmodule Pokex.Sim.World do
               vanished: 0,
               casts: 0,
               reached: 0,
+              # A CORRENTE COM SETA SEGURADA: quantas vezes o combo saiu com o
+              # personagem andando. É o sensor do "continuou andando depois de
+              # fechar o grupo" (02/09) — o mundo sabe o que está segurado, e é
+              # ele quem acusa.
+              chain_while_walking: 0,
               # o placar do chefe: nascidos, mortos, e o MAIOR trecho contínuo
               # com um chefe ACORDADO em campo — a medida da frase "1 segundo
               # sem stun no campo quer dizer que eu morri"
@@ -1036,6 +1041,11 @@ defmodule Pokex.Sim.World do
   defp start_chain(%{chain: [_ | _]} = world), do: world
 
   defp start_chain(world) do
+    world =
+      if world.held == [],
+        do: world,
+        else: update_in(world.stats.chain_while_walking, &(&1 + 1))
+
     keys = combo_keys(world)
     corrente = world.knobs[:combo_chain_ms] || 0
     gap = div(corrente, max(length(keys), 1))

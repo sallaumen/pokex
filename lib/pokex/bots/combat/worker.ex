@@ -13,6 +13,7 @@ defmodule Pokex.Bots.Combat.Worker do
   use GenServer
   require Logger
 
+  alias Pokex.Bots.Body
   alias Pokex.Bots.AreaProbe
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Combat.{Combo, Loadout, Logic, Plan, Strategy}
@@ -667,10 +668,11 @@ defmodule Pokex.Bots.Combat.Worker do
         area? = AreaProbe.on?() and area_key?(state.loadout, keys)
 
         chain = combo_chain(state, keys)
+        special? = special_key?(state, keys)
 
         {%{
            state
-           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?, area?, chain) end),
+           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?, area?, chain, special?) end),
              last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
              retry_ok?: true
          }, :sent}
@@ -749,7 +751,23 @@ defmodule Pokex.Bots.Combat.Worker do
 
   defp combo_chain(_outro_modo, _keys), do: []
 
-  defp tap_keys(keys, parent, confirm?, area?, chain) do
+  # A TECLA QUE NÃO ANDA JUNTO: a corrente do Auto Combo. As setas são estado
+  # do `Body`, e a rajada não passa por ele — então, sem isto, o `r` saía com
+  # as setas ainda apertadas e o cavebot só as soltava no tique seguinte
+  # (200ms): "ele continuou andando depois de fechar o grupo" (02/09). Só o
+  # combo: no Econômico a rajada anda e bate de propósito (`:unaided`).
+  defp special_key?(%{mode: :auto_combo}, keys), do: Combo.key() in keys
+  defp special_key?(_outro_modo, _keys), do: false
+
+  defp let_go(false), do: :ok
+
+  defp let_go(true) do
+    Body.release()
+  catch
+    :exit, _sem_body -> :ok
+  end
+
+  defp tap_keys(keys, parent, confirm?, area?, chain, special?) do
     before = if confirm?, do: Perception.ready_skills()
     started_at = now()
 
@@ -760,6 +778,7 @@ defmodule Pokex.Bots.Combat.Worker do
     ]
 
     with :ok <- Perception.mini_game_gate(),
+         :ok <- let_go(special?),
          # O RELÓGIO DAS TECLAS, CARIMBADO ANTES DA RAJADA SAIR.
          #
          # A rajada não passa pelo `Body` (ela vai direto no rig pra sair

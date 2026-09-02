@@ -161,12 +161,19 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   still away for a moment (Lucas, 2026-08-24) — so the prefix stays available,
   off by default, for the hunt that turns out to need it.
   """
-  @spec revive(map) :: [tuple]
+  # E NASCE COM `:still` NA FRENTE: o Body solta as setas antes de qualquer
+  # coisa desta lista sair. Reviver andando era o que ele proibiu em 02/09
+  # ("pode ser mortal eu usar o revive enquanto ainda tem monstro na tela"), e
+  # o cavebot só solta no tique dele — o revive não pode depender desse tique.
+  @spec revive(map) :: [tuple | :still]
   def revive(%{rescue_key: rescue_key} = config) do
     stun = Map.get(config, :stun_steps, [])
     glue = if stun == [], do: [], else: [{:wait, Map.get(config, :step_ms, 40)}]
 
-    stun ++ glue ++ settle_wait(Map.get(config, :settle_ms, 0)) ++ [{:press, rescue_key}]
+    [
+      :still
+      | stun ++ glue ++ settle_wait(Map.get(config, :settle_ms, 0)) ++ [{:press, rescue_key}]
+    ]
   end
 
   defp settle_wait(ms) when is_integer(ms) and ms > 0, do: [{:wait, ms}]

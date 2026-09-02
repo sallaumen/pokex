@@ -42,7 +42,7 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
 
   describe "revive/1" do
     test "one press is the whole revive" do
-      assert Logic.revive(%{rescue_key: "f4", step_ms: 40}) == [{:press, "f4"}]
+      assert Logic.revive(%{rescue_key: "f4", step_ms: 40}) == [:still, {:press, "f4"}]
     end
 
     test "with stun_steps: the stun comes first, in the same atomic list" do
@@ -53,6 +53,7 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
       }
 
       assert Logic.revive(config) == [
+               :still,
                {:press, "1"},
                {:wait, 500},
                {:press, "2"},
@@ -70,6 +71,7 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
       }
 
       assert Logic.revive(config) == [
+               :still,
                {:press, "1"},
                {:wait, 40},
                {:wait, 800},
@@ -80,7 +82,7 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
     test "empty stun_steps adds no glue and no settle to wait for" do
       config = %{rescue_key: "f4", step_ms: 40, stun_steps: [], settle_ms: 0}
 
-      assert Logic.revive(config) == [{:press, "f4"}]
+      assert Logic.revive(config) == [:still, {:press, "f4"}]
     end
   end
 

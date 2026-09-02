@@ -1214,7 +1214,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
       assert_receive {:performed, :high, actions}, 1_000
       # one key, the same PlayerSupport presses — no portrait to be missing
-      assert actions == [{:press, "q"}]
+      assert actions == [:still, {:press, "q"}]
 
       # and the tick did NOT wait on it: the Body's call has an :infinity
       # timeout and may be seconds deep in a capture — a blocked tick would

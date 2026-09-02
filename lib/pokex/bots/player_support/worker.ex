@@ -1132,7 +1132,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     before = Pokex.Perception.ready_skills()
     at = now()
 
-    Body.perform(steps, :critical, body)
+    Body.perform([:still | steps], :critical, body)
 
     later = Pokex.Perception.ready_skills_after(at, Settings.get(:rescue_confirm_ms))
 

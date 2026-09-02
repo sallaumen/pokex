@@ -20,7 +20,12 @@ defmodule Pokex.Bots.Body do
     GenServer.start_link(__MODULE__, %{}, name: name)
   end
 
-  @spec perform([tuple], :critical | :high | :normal, GenServer.server()) :: :ok | {:error, term}
+  # `:still` como primeiro elemento: solta as setas seguradas antes da
+  # sequência sair (ver `run_next/2`). É a marca de uma tecla que não pode
+  # sair andando — o revive, hoje; a corrente do combo pede o mesmo por
+  # `release/1`, porque a rajada não passa por aqui.
+  @spec perform([tuple | :still], :critical | :high | :normal, GenServer.server()) ::
+          :ok | {:error, term}
   def perform(actions, priority \\ :normal, server \\ __MODULE__),
     do: GenServer.call(server, {:perform, actions, priority, now()}, :infinity)
 
@@ -372,6 +377,15 @@ defmodule Pokex.Bots.Body do
   defp run_next(state, item) do
     item = %{item | started_at: now()}
 
+    # A TECLA QUE NÃO ANDA JUNTO. `:still` na frente de uma sequência solta o
+    # que estiver segurado ANTES de ela sair — aqui, no laço do Body, onde o
+    # conjunto segurado é estado e a soltura é atômica com a prensa. "Ele
+    # continuou andando depois de fechar o grupo (…) o próprio teclado deveria
+    # saber que essa tecla é especial, e com ela não se pode andar junto"
+    # (02/09). O cavebot solta no tique DELE (200ms); o revive não espera esse
+    # tique.
+    state = if :still in item.actions, do: apply_hold(state, []), else: state
+
     state = %{
       state
       | lanes: Enum.reduce(item.lanes, state.lanes, &Map.put(&2, &1, item)),
@@ -534,6 +548,8 @@ defmodule Pokex.Bots.Body do
     end
   end
 
+  # Já cumprido em `run_next/2`, antes de a sequência ganhar o executor.
+  defp execute(:still), do: :ok
   defp execute({:click, button, point}), do: Rig.impl().click(button, point)
   defp execute({:move, point}), do: Rig.impl().move(point)
   defp execute({:tap, combo}), do: Rig.impl().tap(combo)

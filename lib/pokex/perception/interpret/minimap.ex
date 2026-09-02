@@ -23,12 +23,7 @@ defmodule Pokex.Perception.Interpret.Minimap do
   alias Pokex.Vision.Glyphs
 
   @max_floor 15
-  # A character walks; it does not teleport. 8 tiles per second is generous
-  # (haste, diagonals) and still an order of magnitude below the jumps a
-  # MISREAD produces: Lucas's hunt (2026-08-10) read an x that flipped ~24
-  # tiles between consecutive frames, and the hunt believed every one of them —
-  # counting waypoints as "reached" one second apart while the character stood
-  # against a wall.
+  # A character walks; it does not teleport.
   @tiles_per_second 8
   # The ceiling on that allowance, however long the feed was blind. A misread
   # digit in the tens place moves the character 10 to 90 tiles; walking moves
@@ -40,10 +35,8 @@ defmodule Pokex.Perception.Interpret.Minimap do
   # always fit, and a clock that reports no elapsed time must not freeze the
   # reader.
   @min_jump 3
-  # A failed read is usually just "label not on screen" (standing still, no
-  # hover) — scanning the whole crop on every 500ms tick would burn CPU for
-  # nothing. First miss hunts immediately (a walking bot must not stay blind),
-  # then every 6th.
+  # A failed read is usually just "label not on screen" (standing still, no hover) — scanning
+  # the whole crop on every 500ms tick would burn CPU for nothing.
   @search_every 6
   @fresh_state %{
     last: nil,
@@ -67,17 +60,8 @@ defmodule Pokex.Perception.Interpret.Minimap do
     {obs |> Map.put(:coord_gap, state.gap) |> Map.put(:coord_guessed, state[:chute]), state}
   end
 
-  # QUANTO DESTA COORDENADA É CHUTE — o aviso que faltava, e a razão de ele ter
-  # olhado a tela de glifos e lido "nenhum problema" enquanto o bot andava pra
-  # um lugar inventado.
-  #
-  # `coord_gap` responde "falta algum dígito no alfabeto desta altura?", e no
-  # render dele a resposta é não: os dez estão lá, a 8px. O que não estava lá
-  # era o dígito DELE — o atlas casava por semelhança, sete glifos de onze, e
-  # semelhança repete o mesmo erro em todo frame.
-  #
-  # Sticky pelo mesmo motivo que `gap`: um aviso que pisca com o feed é um
-  # aviso que ele aprende a ignorar.
+  # QUANTO DESTA COORDENADA É CHUTE — o aviso que faltava, e a razão de ele ter olhado a tela de
+  # glifos e lido "nenhum problema" enquanto o bot andava pra um lugar inventado.
   defp chute(%{guessed: guessed, glyphs: total})
        when is_integer(guessed) and is_integer(total) and total > 0 and guessed > 0,
        do: %{guessed: guessed, glyphs: total, pct: round(guessed * 100 / total)}
@@ -95,13 +79,8 @@ defmodule Pokex.Perception.Interpret.Minimap do
 
   defp gap(_no_read), do: nil
 
-  # The frame is the crop of minimap_capture_region — the SAME union the feed
-  # captures — so every band is relative to that origin. The label MOVES with
-  # the widget's visual state (measured 2026-08-10): walking draws it at the
-  # widget's top-left, a hovering mouse slides the control bar in and pushes it
-  # ~40pt down. A band marked in one state misses in the other, so a miss on
-  # the last-good and saved bands HUNTS for the band on the crop itself
-  # (throttled), and a find sticks in the state for the next read.
+  # The frame is the crop of minimap_capture_region — the SAME union the feed captures — so
+  # every band is relative to that origin.
   defp read_position(frame, %Calibration{} = calib, settings, state) do
     case Calibration.minimap_capture_region(calib) do
       {ox, oy, _w, _h} ->
@@ -213,31 +192,6 @@ defmodule Pokex.Perception.Interpret.Minimap do
   end
 
   # SEMELHANÇA NÃO TELEPORTA NINGUÉM.
-  #
-  # Confirmar uma leitura repetindo-a só prova alguma coisa quando o erro é
-  # ALEATÓRIO. O erro do atlas não é: um glifo que ele não conhece casa com o
-  # mesmo vizinho errado em todo frame, então duas leituras idênticas de um
-  # render que ele nunca viu se confirmam com a mesma confiança de duas
-  # leituras certas — e o mundo re-baseia num lugar onde ele não está.
-  #
-  # MEDIDO nas duas capturas dele de 29/08, mesma faixa e mesmo tamanho: a das
-  # 07:08 leu `1099, 1373, 5` com SETE dos onze glifos adivinhados, e a das
-  # 07:14 leu `1056, 1373, 5` com seis. Quarenta e três tiles de diferença em
-  # x, com y e andar idênticos — o "teleporte" que fez a rota ir e voltar. O
-  # atlas tem os dez dígitos na altura dele (8px), então `missing_digits/0`
-  # não tinha o que acusar: o buraco não é um dígito AUSENTE, é um dígito
-  # PARECIDO.
-  #
-  # A regra, então, separa as duas coisas que uma leitura pode afirmar: onde
-  # ele ESTÁ (um passo, e aí adivinhar é barato — o próximo frame corrige) e
-  # que ele SE MOVEU muito (um salto, e aí adivinhar custa a caçada inteira).
-  # Uma leitura em que a maior parte dos glifos é chute pode fazer a primeira e
-  # nunca a segunda.
-  #
-  # O preço de errar pra este lado é conhecido e pequeno: quem tem um render
-  # que o atlas nunca viu fica com a posição velha depois de uma escada até
-  # ensinar os glifos — e a tela DIZ isso agora (`coord_guessed`), em vez de
-  # andar pra um lugar inventado em silêncio.
   @mostly_guessed 0.5
 
   defp resemblance?(%{guessed: guessed, glyphs: total})
@@ -246,17 +200,8 @@ defmodule Pokex.Perception.Interpret.Minimap do
 
   defp resemblance?(_leitura_sem_detalhe), do: false
 
-  # A jump re-baselines only when the SAME reading comes back — and "the same"
-  # is measured against the PENDING read's clock, not the last accepted one.
-  # With the old code both used the allowance since the last good position, so
-  # after a few blind seconds two readings up to forty tiles apart confirmed
-  # each other: a coordinate flickering between two wrong values (Lucas's 1088
-  # read as 1066 and as 1099) re-baselined the world onto a misread.
-  #
-  # And a reading built from GUESSED glyphs has to come back twice. The atlas
-  # hit is knowledge; `nearest/1` is resemblance, and resemblance flickers with
-  # the anti-aliasing. Costs a real teleport one extra tick on a render the
-  # atlas has never seen, and nothing at all on one it knows.
+  # A jump re-baselines only when the SAME reading comes back — and "the same" is measured
+  # against the PENDING read's clock, not the last accepted one.
   defp confirmed?(pos, guessed, state, now) do
     pending = state[:pending]
 

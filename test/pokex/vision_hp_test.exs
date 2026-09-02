@@ -83,6 +83,33 @@ defmodule Pokex.VisionHpTest do
     assert Vision.hp_fill_pct(frame(rows)) == 50
   end
 
+  # O TRILHO NÃO É VIDA (02/09): o trilho vazio da Pokebar do Poké Alliance é um
+  # cinza-esverdeado (56,89,89) — saturação 33, azul EMPATADO com o verde. A
+  # regra de cor o tomava por vida (saturação acima do piso, azul não acima do
+  # canal máximo): toda coluna vazia contava como cheia e o pokémon leu 98-100%
+  # a noite inteira (339 leituras) com a barra visivelmente em 23%.
+  @teal_track {56, 89, 89}
+
+  defp on_teal(fill_cols) do
+    frame(for(_y <- 0..9, do: for(x <- 0..19, do: teal_pixel(x, fill_cols))))
+  end
+
+  defp teal_pixel(x, fill_cols), do: if(x < fill_cols, do: @green, else: @teal_track)
+
+  test "o trilho cinza-esverdeado da Pokebar não é vida, e a barra continua plausível" do
+    assert Vision.hp_fill_pct(on_teal(5)) == 25
+    assert Vision.hp_fill_pct(on_teal(0)) == 0
+    assert Vision.hp_fill_pct(on_teal(20)) == 100
+    assert Vision.hp_region_plausible?(on_teal(5))
+    assert Vision.hp_region_plausible?(on_teal(0), min_bright_pct: 0)
+  end
+
+  test "a Pokebar cheia de 02/09 lê cheia" do
+    {:ok, frame} = Pokex.Vision.Frame.from_file("test/fixtures/hp/pokebar_cheia.raw")
+    assert Vision.hp_fill_pct(frame) == 100
+    assert Vision.hp_region_plausible?(frame)
+  end
+
   test "the floor is measured, not guessed" do
     # his screen: real bar 68.5% bright, covered frame 0.1% — 10% sits between
     # them with room on both sides
@@ -108,7 +135,9 @@ defmodule Pokex.VisionHpTest do
 
     bar = frame(rows)
 
-    refute Vision.hp_region_plausible?(bar, max_track_brightness: 60)
+    # desde 02/09 o trilho é reconhecido pela COR (azul empatado com o verde),
+    # não só pelo brilho: o teto de brilho deixou de ser o que o segura
+    assert Vision.hp_region_plausible?(bar, max_track_brightness: 60)
     assert Vision.hp_region_plausible?(bar)
     assert Vision.hp_fill_pct(bar) == 30
   end

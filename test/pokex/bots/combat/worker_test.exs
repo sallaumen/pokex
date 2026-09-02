@@ -1020,6 +1020,33 @@ defmodule Pokex.Bots.Combat.WorkerTest do
              "a corrente não repetiu depois da janela: #{inspect(presses())}"
     end
 
+    # O DEFEITO DA NOITE DE 02/09, virado teste.
+    #
+    # No Auto Combo quem aperta as skills é o JOGO, então o relógio das teclas
+    # nunca ficava sabendo delas — e `ready_by_clock/3` devolve PRONTA toda
+    # tecla sem aperto registrado. O cérebro leu 8 de 8 prontas em 202 das 210
+    # amostras da noite dele, `spent?` foi falso nas 210, e as duas regras de
+    # revive exigem justamente ele: 21 combos, zero revives, a pilha subindo de
+    # 5 pra 9 e ficando lá.
+    @tag :tmp_dir
+    test "a corrente carimba o relógio — senão a barra parece cheia pra sempre",
+         %{worker: worker} do
+      SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 5_000)
+      SkillClock.reset()
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      barra = Pokex.Bots.SkillBar.keys(4)
+      assert SkillClock.ready_by_clock(barra, %{}) == barra, "o relógio já nasceu sujo"
+
+      abre_o_fogo(worker)
+
+      assert eventually(fn ->
+               world!(worker, battle_obs(enemies: [0, 1, 2]))
+               SkillClock.ready_by_clock(barra, %{}) == []
+             end),
+             "o relógio não aprendeu a corrente: #{inspect(SkillClock.ready_by_clock(barra, %{}))}"
+    end
+
     # E NENHUMA TECLA SOLTA: o modo administra o combo e o revive, e mais nada.
     @tag :tmp_dir
     test "nenhuma skill individual é apertada", %{worker: worker} do

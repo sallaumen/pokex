@@ -666,9 +666,11 @@ defmodule Pokex.Bots.Combat.Worker do
         # contained an area key can say how far an area key reaches.
         area? = AreaProbe.on?() and area_key?(state.loadout, keys)
 
+        chain = combo_chain(state, keys)
+
         {%{
            state
-           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?, area?) end),
+           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?, area?, chain) end),
              last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
              retry_ok?: true
          }, :sent}
@@ -738,7 +740,16 @@ defmodule Pokex.Bots.Combat.Worker do
   defp area_key?(%Loadout{aoe: aoe}, keys), do: Enum.any?(keys, &(&1 in aoe))
   defp area_key?(_no_loadout, _keys), do: false
 
-  defp tap_keys(keys, parent, confirm?, area?) do
+  # A CORRENTE QUE O JOGO VAI DISPARAR nesta prensa — vazia em toda prensa que
+  # não é a do combo. Calculada AQUI, onde o modo e o pokémon em campo existem;
+  # a prensa roda num processo que não tem nem um nem outro.
+  defp combo_chain(%{mode: :auto_combo, loadout: loadout}, keys) do
+    if keys == [Combo.key()], do: Combo.chain_keys(loadout), else: []
+  end
+
+  defp combo_chain(_outro_modo, _keys), do: []
+
+  defp tap_keys(keys, parent, confirm?, area?, chain) do
     before = if confirm?, do: Perception.ready_skills()
     started_at = now()
 
@@ -799,6 +810,22 @@ defmodule Pokex.Bots.Combat.Worker do
       # `elapsed_ms` is how long the keys took to LEAVE, and it is the number the
       # gap sweep is read against: the burst is also combat's only dispatch slot
       # (`burst_pid`), so every millisecond here is a decision not taken.
+      # O RELÓGIO APRENDE A CORRENTE. Este é o defeito da noite de 02/09: no Auto
+      # Combo o bot aperta UMA tecla e quem dispara as skills é o jogo, então o
+      # `SkillClock` — que é a memória do bot do que foi gasto, e a única fonte
+      # quando a barra não pode ser lida — nunca ficava sabendo delas.
+      # `ready_by_clock/3` devolve PRONTA toda tecla sem aperto registrado, então
+      # o cérebro leu 8 de 8 prontas em 202 das 210 amostras da noite, `spent?`
+      # foi falso nas 210, e as duas regras de revive (R3b e a de chegar
+      # preparado) exigem justamente ele. O revive nunca teve motivo de existir:
+      # 21 combos, zero revives, a pilha subindo de 5 pra 9 e ficando lá.
+      #
+      # DEPOIS da prensa sair, não antes: uma tecla engolida (o jogo come ~9%)
+      # carimbaria a barra inteira como gasta e compraria um revive à toa. E se
+      # o carimbo mentir mesmo assim, o `SkillTruth` o solta em ~1s assim que a
+      # tela mostrar a tecla pronta.
+      if sent != [], do: stamp_chain(chain, started_at)
+
       if sent != [] do
         Pokex.Engine.Events.record(:press, %{
           keys: sent,
@@ -822,6 +849,17 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   catch
     kind, reason -> Logger.debug("combat key burst crashed: #{inspect({kind, reason})}")
+  end
+
+  # Espalhadas pela janela, como o jogo as entrega — a última é o controle. O
+  # cooldown de cada uma vem do `/time`; sem número escrito o relógio assume o
+  # dele (45s), que é a resposta certa pra "não sei" e nunca "instantânea".
+  defp stamp_chain([], _started_at), do: :ok
+
+  defp stamp_chain(chain, started_at) do
+    gap = div(Combo.window_ms(), max(length(chain), 1))
+
+    stamp_clock(chain, started_at, gap)
   end
 
   # A cerca da cauda (ver `Pokex.Rig.Mac.walk_burst/3`): a MESMA janela que

@@ -27,6 +27,7 @@ defmodule Pokex.Bots.Combat.Combo do
   nunca existiu. Todo consumidor trata `nil` como "não se aplica".
   """
 
+  alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.HuntMode
   alias Pokex.Bots.SkillClock
   alias Pokex.Settings
@@ -38,6 +39,24 @@ defmodule Pokex.Bots.Combat.Combo do
   @doc "Quanto tempo a corrente ocupa as mãos."
   @spec window_ms() :: non_neg_integer
   def window_ms, do: Settings.get(:auto_combo_window_ms)
+
+  @doc """
+  AS TECLAS QUE O JOGO VAI DISPARAR quando a corrente sair — o dano primeiro e o
+  controle por último, na mesma ordem que o mundo simulado usa
+  (`Sim.World.combo_keys/1`).
+
+  Existe porque o relógio das teclas (`SkillClock`) é a MEMÓRIA DO BOT do que
+  foi gasto, e no Auto Combo o bot não aperta nenhuma delas: quem aperta é o
+  jogo. Sem carimbá-las, o relógio responde "todas prontas" pra sempre — e foi
+  exatamente isso que aconteceu na noite de 02/09 (21 combos, `spent?` falso nas
+  210 leituras, zero revives, a pilha crescendo de 5 pra 9 e ficando lá).
+
+  Auras e cura ficam de fora: elas respondem a momentos, não a uma corrente de
+  ataque.
+  """
+  @spec chain_keys(Loadout.t() | nil) :: [String.t()]
+  def chain_keys(%Loadout{} = loadout), do: loadout.aoe ++ loadout.single ++ loadout.crowd
+  def chain_keys(_no_loadout), do: []
 
   @doc """
   Quanto falta da corrente em `mode`, em ms — `nil` quando o modo não tem

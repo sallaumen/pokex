@@ -1728,6 +1728,32 @@ defmodule PokexWeb.CalibrationLive do
 
   defp skill_slot_refs(_screen, _region, _count), do: nil
 
+  # `:ok` quando o recorte passa no portão do leitor (ou quando não há foto pra
+  # julgar); `{:refused, motivo}` quando o número da tecla falta em mais de um
+  # terço dos slots — o mesmo veredito que a caçada daria a cada tique.
+  defp bar_recognized(%{scale: scale} = review, {x, y, w, h}, count) do
+    with {:ok, frame} <- review_frame(review),
+         crop = {round(x * scale), round(y * scale), round(w * scale), round(h * scale)},
+         %Frame{} = bar <- Frame.crop(frame, crop) do
+      if Vision.skill_bar_frame?(bar, count) do
+        :ok
+      else
+        found = bar |> Pokex.Vision.SkillDigits.labelled_slots(count) |> MapSet.size()
+
+        {:refused,
+         "não salvei a barra: nesse recorte o leitor só encontra o número da tecla em " <>
+           "#{found} de #{count} slots — marque do primeiro ao último slot, com os números " <>
+           "de baixo dentro do recorte, e clique de novo"}
+      end
+    else
+      _sem_foto -> :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp bar_recognized(_screen, _region, _count), do: :ok
+
   # The HP bars ARE the rows: the distance between two of them is the row
   # height. Read from the SAME picture the review is showing, in the battle
   # BODY (the pokeball strip is cropped off, exactly like the lock sensor).
@@ -1907,27 +1933,21 @@ defmodule PokexWeb.CalibrationLive do
     assign(socket, draft: draft, step: :skill_b)
   end
 
+  # O RECORTE É JULGADO PELO MESMO PORTÃO DA CAÇADA antes de ser salvo. Em
+  # 02/09 ele marcou a barra do Venusaur certinha, a tela disse "salva", e o
+  # leitor recusou o quadro em todo tique do dia — a calibração "perfeita" e
+  # 755 linhas de "a barra está ilegível". Se o leitor não acha o número da
+  # tecla nos slots deste recorte, ele não é salvo: volta pro primeiro clique.
   defp record_step(:skill_b, socket, point, draft) do
     region = region_from(draft.skill_a, point)
     count = draft.skill_bar_count
 
-    case socket.assigns.mode do
-      :full ->
-        assign(socket,
-          draft:
-            draft
-            |> Map.put(:skill_bar_region, region)
-            |> Map.put(:skill_bar_count, count),
-          step: :hp_a,
-          skillbar_msg: "Barra configurada com #{count} skills."
-        )
+    case bar_recognized(socket.assigns.screen, region, count) do
+      {:refused, why} ->
+        assign(socket, draft: Map.delete(draft, :skill_a), step: :skill_a, error: why)
 
-      :skillbar_only ->
-        persist_skill_settings(count)
-        save_skill_bar(socket, region, count)
-
-      _ ->
-        socket
+      :ok ->
+        accept_skill_bar(socket, region, count, draft)
     end
   end
 
@@ -2025,6 +2045,27 @@ defmodule PokexWeb.CalibrationLive do
   defp record_step(:escape_point, socket, point, _draft), do: save_escape_point(socket, point)
 
   defp record_step(_unknown_step, socket, _point, _draft), do: socket
+
+  defp accept_skill_bar(socket, region, count, draft) do
+    case socket.assigns.mode do
+      :full ->
+        assign(socket,
+          draft:
+            draft
+            |> Map.put(:skill_bar_region, region)
+            |> Map.put(:skill_bar_count, count),
+          step: :hp_a,
+          skillbar_msg: "Barra configurada com #{count} skills."
+        )
+
+      :skillbar_only ->
+        persist_skill_settings(count)
+        save_skill_bar(socket, region, count)
+
+      _ ->
+        socket
+    end
+  end
 
   defp region_from({x1, y1}, {x2, y2}), do: {min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)}
 

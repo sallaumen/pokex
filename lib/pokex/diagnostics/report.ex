@@ -207,7 +207,7 @@ defmodule Pokex.Diagnostics.Report do
   defp skill_bar_report(rig, _calib, settings, region, name) do
     case capture_frame(rig, region, "diag_skill_bar.png") do
       {:ok, frame, image} ->
-        if SkillBar.valid_frame?(frame) do
+        if SkillBar.valid_frame?(frame, settings) do
           slots = SkillBar.slots_from_frame(frame, settings)
 
           %{

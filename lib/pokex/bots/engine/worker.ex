@@ -71,6 +71,12 @@ defmodule Pokex.Bots.Engine.Worker do
       hp_blind_since: nil,
       hp_blind_said_at: nil,
       hp_blind_after_ms: Keyword.get(opts, :hp_blind_after_ms, 3_000),
+      # A BARRA DE SKILLS SEM LEITURA: 02/09 o portão do leitor recusou a barra
+      # recém-calibrada em todo tique do dia (755 "a barra está ilegível") e
+      # ele achou que a calibração estava perfeita — estava. Ninguém disse.
+      bar_blind_since: nil,
+      bar_blind_said_at: nil,
+      bar_blind_after_ms: Keyword.get(opts, :bar_blind_after_ms, 3_000),
       logic: Logic.new(),
       orders: nil,
       # the pokémon on the field: its name is how the own row is told from an
@@ -189,6 +195,7 @@ defmodule Pokex.Bots.Engine.Worker do
     state
     |> narrate(picture, orders)
     |> watch_hp_blindness(picture, now)
+    |> watch_bar_blindness(picture, now)
     |> sample_vitals(picture, orders, now, config, mode)
     |> Map.merge(%{picture: picture, orders: orders, logic: logic})
     |> tap(&broadcast({:engine, &1.picture, &1.orders}))
@@ -220,6 +227,35 @@ defmodule Pokex.Bots.Engine.Worker do
 
   defp watch_hp_blindness(state, _hp_lida_ou_chao, _now),
     do: %{state | hp_blind_since: nil, hp_blind_said_at: nil}
+
+  # A barra de skills sem leitura por `bar_blind_after_ms` fora do chão provado
+  # (na bola a barra some de verdade): o combo e o revive seguem pelo relógio,
+  # mas o reset não é conferido e o recibo de tecla nenhuma existe — e a
+  # calibração que ele vê "perfeita" é a que o leitor recusa. Mesma categoria
+  # do alarme de vida: é o setor que ele deixa tocando.
+  defp watch_bar_blindness(state, %{bar_seen?: false, own_out?: out}, now) when out != false do
+    since = state.bar_blind_since || now
+    said = state.bar_blind_said_at
+
+    if now - since >= state.bar_blind_after_ms and
+         (said == nil or now - said >= @hp_blind_repeat_ms) do
+      name = (state.loadout && state.loadout.name) || "pokémon"
+
+      text =
+        "🎛️ sem leitura da barra de skills há #{div(now - since, 1_000)}s — o recorte da " <>
+          "barra do #{name} não passa no reconhecimento (combo e revive seguem pelo relógio, " <>
+          "sem conferir o reset); recalibre a barra dele pelo /time"
+
+      log(:macro, text)
+      Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:rule_alarm, :hp, text})
+      %{state | bar_blind_since: since, bar_blind_said_at: now}
+    else
+      %{state | bar_blind_since: since}
+    end
+  end
+
+  defp watch_bar_blindness(state, _barra_lida_ou_chao, _now),
+    do: %{state | bar_blind_since: nil, bar_blind_said_at: nil}
 
   # --- VITALS: the four numbers the simulator is still guessing at -------------
   #

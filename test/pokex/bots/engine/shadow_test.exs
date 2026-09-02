@@ -122,6 +122,24 @@ defmodule Pokex.Bots.Engine.ShadowTest do
     assert_receive {:rule_alarm, :hp, "🩸 sem leitura da vida" <> _}
   end
 
+  # 18:37 de 02/09: a barra de skills sem leitura a caçada inteira, a calibração
+  # "perfeita" na tela dele — e nenhuma linha dizendo que o leitor a recusava.
+  test "a barra de skills sem leitura é dita em voz alta, com alarme", %{worker: _worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "game")
+
+    cego =
+      start_supervised!({Worker, name: nil, active: true, bar_blind_after_ms: 0}, id: :cego_barra)
+
+    :ok = Worker.run(cego)
+
+    see(~w(Venonat Paras))
+    hunting(%{state: :fighting})
+    tick(cego)
+
+    assert_receive {:engine_log, :macro, "quadro: 🎛️ sem leitura da barra de skills" <> _}
+    assert_receive {:rule_alarm, :hp, "🎛️ sem leitura da barra de skills" <> _}
+  end
+
   test "the orders reach the blackboard", %{worker: worker} do
     see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
     hunting(%{luring?: true})

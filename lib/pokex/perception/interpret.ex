@@ -93,12 +93,13 @@ defmodule Pokex.Perception.Interpret do
 
   @doc """
   The skill hotbar: per-slot readiness (`:ready | :cooldown`) plus the ready hotbar keys in
-  ascending slot order. Both are NIL when the frame stopped looking like the calibrated bar
-  (window moved/covered) — UNKNOWN, never a guess, so consumers fail open (combat: blind
-  rotation; fishing: the hold's own ceiling).
+  ascending slot order. Both are NIL when the frame is not the bar — the hotkey labels
+  the game draws under every slot are missing from most of them (window moved/covered) —
+  UNKNOWN, never a guess, so consumers fail open (combat: blind rotation; fishing: the
+  hold's own ceiling).
   """
   def skills(frame, _calib, settings) do
-    if SkillBar.valid_frame?(frame) do
+    if SkillBar.valid_frame?(frame, settings) do
       slots = SkillBar.slots_from_frame(frame, settings)
       %{states: SkillBar.states(slots), ready_keys: SkillBar.ready_keys(slots)}
     else

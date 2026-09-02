@@ -1445,8 +1445,7 @@ defmodule PokexWeb.PanelLiveTest do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Pokex.TestHome.restore() end)
 
-    row = List.duplicate({200, 200, 0, 255}, 12) ++ List.duplicate({20, 20, 20, 255}, 2)
-    bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), [row])
+    bar = Pokex.PngFixtures.write!(Path.join(tmp, "bar.png"), Pokex.SkillBarFixtures.rows(7, 6))
     Agent.stop(Fake)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, bar}]})
 
@@ -1462,7 +1461,12 @@ defmodule PokexWeb.PanelLiveTest do
 
     # the bar belongs to the pokémon on the field — there is no shared one
     Pokex.TeamFixtures.ready!("Bulbasaur", count: 7)
-    Pokex.Pokedex.Team.set_bar("Bulbasaur", %{region: {0, 0, 14, 1}, count: 7, refs: nil})
+
+    Pokex.Pokedex.Team.set_bar("Bulbasaur", %{
+      region: Pokex.SkillBarFixtures.region(7),
+      count: 7,
+      refs: nil
+    })
 
     {:ok, view, _} = live(conn, ~p"/")
     assert render(view) =~ "Clique em Ler"

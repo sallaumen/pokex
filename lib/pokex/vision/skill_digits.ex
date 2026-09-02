@@ -57,6 +57,30 @@ defmodule Pokex.Vision.SkillDigits do
     |> MapSet.new()
   end
 
+  @doc """
+  Os índices (0-based) dos slots em que há um GLIFO da fonte do jogo — o
+  rótulo da tecla (1-9, 0) que fica embaixo de todo slot, ou a contagem em
+  cima. É a assinatura de "isto É a barra": o jogo desenha o rótulo sempre,
+  com a skill pronta ou fria, e nada mais na tela põe um dígito branco com
+  contorno preto em cada um de nove retângulos iguais lado a lado.
+
+  Medido em 02/09 nas cinco barras reais que existem (as três fixtures de
+  agosto, a de 11:52 e o recorte justo do Venusaur de 18:37): 9 de 9 slots em
+  todas. Nos seis não-barras (painel claro, mundo, lista de batalha, chat):
+  no máximo 1.
+  """
+  @spec labelled_slots(Frame.t(), pos_integer) :: MapSet.t(non_neg_integer)
+  def labelled_slots(%Frame{} = frame, count) when is_integer(count) and count > 0 do
+    scale = max(frame.scale, 0.5)
+    slot_w = max(div(frame.width, count), 1)
+
+    frame
+    |> clusters()
+    |> Enum.filter(&label_glyph?(&1, frame, scale))
+    |> Enum.map(fn %{min_x: x} -> min(div(x, slot_w), count - 1) end)
+    |> MapSet.new()
+  end
+
   # --- aglomerados de branco --------------------------------------------------
 
   defp clusters(frame) do
@@ -113,13 +137,18 @@ defmodule Pokex.Vision.SkillDigits do
 
   # --- o teste de dígito ------------------------------------------------------
 
-  defp countdown_digit?(cluster, frame, scale) do
+  defp countdown_digit?(cluster, frame, scale),
+    do: upper_half?(cluster, frame) and label_glyph?(cluster, frame, scale)
+
+  # Um glifo da fonte do jogo, em qualquer altura do slot: tamanho de dígito e
+  # contorno preto. A contagem e o rótulo da tecla são a MESMA fonte.
+  defp label_glyph?(cluster, frame, scale) do
     height = cluster.max_y - cluster.min_y + 1
 
     cluster.size >= round(@min_cluster_px * scale * scale) and
       cluster.width in round(2 * scale)..round(10 * scale) and
       height in round(5 * scale)..round(11 * scale) and
-      upper_half?(cluster, frame) and outlined?(cluster, frame)
+      outlined?(cluster, frame)
   end
 
   # O centro do aglomerado acima da metade do frame: é o que separa a contagem

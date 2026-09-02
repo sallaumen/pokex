@@ -50,15 +50,15 @@ defmodule Pokex.SettingsTest do
   @tag :tmp_dir
   test "an override of false survives the reload", %{tmp_dir: tmp} do
     path = Path.join(tmp, "settings.json")
-    File.write!(path, ~s({"capture_enabled": false, "ensure_game_focus": false}))
+    File.write!(path, ~s({"capture_enabled": false, "heal_skill_enabled": false}))
 
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
     refute Settings.get(:capture_enabled, server)
-    refute Settings.get(:ensure_game_focus, server)
+    refute Settings.get(:heal_skill_enabled, server)
 
     assert gravado(path) ==
-             %{"capture_enabled" => false, "ensure_game_focus" => false}
+             %{"capture_enabled" => false, "heal_skill_enabled" => false}
   end
 
   # Values written in Portuguese by an older build must arrive as today's
@@ -168,14 +168,14 @@ defmodule Pokex.SettingsTest do
     path = Path.join(tmp, "settings.json")
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
-    :ok = Settings.put(:skill_ready_min_vivid_pct, 6, server)
+    :ok = Settings.put(:revive_stock, 6, server)
     :ok = Settings.put(:rod_key, "v", server)
 
-    assert Settings.get(:skill_ready_min_vivid_pct, server) == 6
+    assert Settings.get(:revive_stock, server) == 6
     assert Settings.get(:rod_key, server) == "v"
 
     {:ok, server2} = Settings.start_link(name: nil, path: path)
-    assert Settings.get(:skill_ready_min_vivid_pct, server2) == 6
+    assert Settings.get(:revive_stock, server2) == 6
     assert Settings.get(:rod_key, server2) == "v"
   end
 
@@ -790,5 +790,53 @@ defmodule Pokex.SettingsTest do
     assert settle > confirm,
            "a espera (#{settle}ms) cabe dentro da confirmação (#{confirm}ms): " <>
              "settle_remaining/1 vai dar zero e o revive sai colado no stun"
+  end
+
+  # "Constante" quer dizer: o número é o do código. O arquivo pode até ter um
+  # override antigo dela — ele não é lido e não é regravado.
+  describe "as constantes (Pokex.Settings.Locked)" do
+    @locked :rescue_blackout_ms
+
+    @tag :tmp_dir
+    test "uma travada no arquivo não é carregada", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      File.write!(path, JSON.encode!(%{Atom.to_string(@locked) => 1, "revive_stock" => 7}))
+
+      {:ok, pid} = Settings.start_link(path: path, name: nil)
+
+      assert Settings.get(@locked, pid) == Map.fetch!(Settings.defaults(), @locked)
+      assert Settings.get(:revive_stock, pid) == 7
+    end
+
+    @tag :tmp_dir
+    test "um put em memória vale na sessão e não vai pro disco", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      {:ok, pid} = Settings.start_link(path: path, name: nil)
+
+      assert :ok = Settings.put(@locked, 1, pid)
+      assert Settings.get(@locked, pid) == 1
+
+      Settings.put(:revive_stock, 9, pid)
+      refute Map.has_key?(read_json(path), Atom.to_string(@locked))
+      assert read_json(path)["revive_stock"] == 9
+    end
+
+    @tag :tmp_dir
+    test "o heal do boot deixa a travada fora do arquivo", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      File.write!(path, JSON.encode!(%{Atom.to_string(@locked) => 1, "revive_stock" => 7}))
+
+      {:ok, _pid} = Settings.start_link(path: path, name: nil)
+
+      refute Map.has_key?(read_json(path), Atom.to_string(@locked))
+      assert read_json(path)["revive_stock"] == 7
+    end
+
+    test "locked?/1 responde pela lista de verdade" do
+      assert Settings.locked?(@locked)
+      refute Settings.locked?(:revive_stock)
+    end
+
+    defp read_json(path), do: path |> File.read!() |> JSON.decode!()
   end
 end

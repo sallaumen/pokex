@@ -25,6 +25,21 @@ defmodule PokexWeb.ConfigLive do
   no overlay do painel, agora em `/config/editores` — eles são formulários de
   verdade, com estado próprio, e não cabem num schema de linhas.
 
+  ## Três destinos, e nenhuma chave escondida (02/09)
+
+  "Tudo muito grande, descrições não claras e desatualizadas." A auditoria
+  contou 290 chaves no `Settings`, 74 com campo, 216 escondidas. Cada chave
+  tem agora UM destino, e `known_keys/0` cobra em teste que nenhuma fique fora:
+
+    * **linha** — o que depende dele, do pokémon ou da hunt: editável aqui;
+    * **constante** (`Pokex.Settings.Locked`) — medido no jogo ou na máquina:
+      aparece travada, com o porquê, sem campo;
+    * **outra página** (`@elsewhere`) — já tem dono melhor (Editores,
+      Calibração, Cavebot, /time, cabeçalho): daqui só se aponta, nunca se
+      duplica.
+
+  O que o modo de caça força sai do campo e vira uma linha "o modo decide".
+
   Salvar é imediato (phx-change com debounce): não há botão "aplicar", e o ✓
   verde na linha diz que o número em vigor é o que está na tela.
   """
@@ -34,6 +49,7 @@ defmodule PokexWeb.ConfigLive do
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.HuntMode
   alias Pokex.Settings
+  alias Pokex.Settings.Locked
 
   # ---------------------------------------------------------------------------
   # O SCHEMA. `kind` decide o controle e a conversão:
@@ -50,96 +66,58 @@ defmodule PokexWeb.ConfigLive do
 
   @groups [
     %{
-      id: "estoque",
-      icon: "hero-archive-box",
-      tint: :ok,
-      title: "Estoque de revives",
+      id: "voce",
+      icon: "hero-user",
+      tint: :danger,
+      title: "Você e o estoque",
+      note: {"a barra vermelha se marca em", "Calibração → Vida do personagem", "/calibration"},
       rows: [
+        %{
+          key: :player_hp_floor_pct,
+          kind: :pct,
+          label: "Alarme da sua vida abaixo de",
+          hint:
+            "Duas leituras seguidas da SUA vida abaixo disto tocam o alarme. 0 desliga o alarme; a leitura continua.",
+          keywords: "vida personagem player você piso alarme"
+        },
+        %{
+          key: :player_hp_logout,
+          kind: :bool,
+          label: "Sair do jogo se a sua vida cair",
+          hint:
+            "Sangrando abaixo do alarme acima, sai do jogo (Ctrl+Q, conferido na tela). É a única fuga que existe quando não há pokémon em pé.",
+          keywords: "logout automático sair personagem auto"
+        },
         %{
           key: :revive_stock,
           kind: :int,
-          label: "Revives no bolso",
+          label: "Revives na bag",
           hint:
-            "Quantos revives você tem AGORA. Digitar aqui É o botão de repor: a conta de gastos " <>
-              "zera quando o número muda. 0 = não contei (orçamento desligado).",
-          keywords: "revive stock estoque bolso orçamento repor caderninho"
+            "Quantos revives você tem AGORA. Digitar aqui é repor: a conta de gastos zera quando o número muda. 0 = não contei, orçamento desligado.",
+          keywords: "revive stock estoque bolso orçamento repor"
         },
         %{
           key: :engine_revive_reserve,
           kind: :int,
           label: "Reserva de emergência",
           hint:
-            "Quando a conta chega aqui, o cérebro para de gastar revive com conveniência " <>
-              "(preparo, reset). Vermelho, amarelo e caído gastam até o fim.",
+            "Com a conta neste número, o bot para de gastar revive por conveniência (zerar cooldown, chegar preparado). Emergência e pokémon caído gastam até o fim.",
           keywords: "reserva emergência orçamento"
         }
       ]
     },
     %{
-      id: "voce",
-      icon: "hero-user",
-      tint: :danger,
-      title: "Você, o personagem",
-      note: {"marque a barra vermelha na", "Calibração → Vida do PERSONAGEM", "/calibration"},
-      rows: [
-        %{
-          key: :player_hp_floor_pct,
-          kind: :pct,
-          label: "Alarme abaixo de",
-          hint:
-            "Duas leituras seguidas da SUA vida (a barra vermelha do painel 'Pokémon') abaixo " <>
-              "disto disparam o alarme. 0 desliga o grito; a leitura continua.",
-          keywords: "vida personagem player você piso alarme"
-        },
-        %{
-          key: :player_hp_logout,
-          kind: :bool,
-          label: "Logout automático",
-          hint:
-            "Sangrando abaixo do piso, sair do jogo (Ctrl+Q com conferência de tela) — a única " <>
-              "fuga que existe pra quem está sem pokémon em pé.",
-          keywords: "logout automático sair personagem auto"
-        }
-      ]
-    },
-    %{
-      id: "sobrevivencia",
+      id: "revive",
       icon: "hero-heart",
       tint: :warn,
-      title: "Revive e cura do pokémon",
+      title: "Revive do pokémon",
       rows: [
         %{
           key: :rescue_enabled,
           kind: :bool,
           label: "Revive automático",
-          hint: "O socorro caro: recolhe e devolve o pokémon, zerando os cooldowns.",
+          hint: "Recolhe e devolve o pokémon, zerando os cooldowns dele.",
           keywords: "revive resgate rescue automático"
-        },
-        %{
-          key: :pokemon_hp_rescue_pct,
-          kind: :pct,
-          label: "Revive abaixo de",
-          hint:
-            "Deixe BEM abaixo da poção: a vida passa pelo número maior primeiro, e um revive " <>
-              "acima dela recolhe o pokémon em toda luta.",
-          keywords: "revive vida limiar pct"
-        },
-        %{
-          key: :rescue_cooldown_ms,
-          kind: :sec,
-          label: "Um revive a cada",
-          hint: "O piso entre dois revives de um pokémon vivo.",
-          keywords: "revive intervalo cooldown"
-        },
-        %{
-          key: :revive_dry_action,
-          kind: :select,
-          label: "Bag sem revive: fazer o quê",
-          hint:
-            "Três revives pagos sem a vida voltar = a bag secou (ou o jogo ficou surdo ao F4). " <>
-              "logout SAI do jogo (para a frota antes); stop só para a caçada; alarm só grita — " <>
-              "e gritar foi o que não bastou nas duas mortes de 01/09.",
-          keywords: "revive bag vazia estoque seca logout parar emergência"
         },
         %{
           key: :rescue_key,
@@ -149,58 +127,86 @@ defmodule PokexWeb.ConfigLive do
           keywords: "revive tecla key f4"
         },
         %{
-          key: :rescue_stun_first,
-          kind: :bool,
-          label: "Dormir a pilha antes",
+          key: :pokemon_hp_rescue_pct,
+          kind: :pct,
+          label: "Revive abaixo de",
           hint:
-            "Usa o controle do /time antes de reviver — reviver exposto no meio do bolo é como " <>
-              "o personagem apanha (medido: sem ele, 45 quedas por hora no circuito denso). " <>
-              "No Auto Combo ele NÃO sai: a corrente do jogo já termina em stun, e o revive cai " <>
-              "dentro desse sono.",
-          keywords: "stun controle dormir antes revive"
+            "Vida do pokémon abaixo disto pede revive. Deixe bem abaixo da poção: a vida passa pelo número maior primeiro.",
+          keywords: "revive vida limiar pct"
         },
         %{
-          key: :rescue_stun_settle_ms,
-          kind: :ms,
-          label: "…e espera dormirem",
-          hint:
-            "Quanto o pokémon FICA EM CAMPO depois do controle, tanqueando, antes de sair. " <>
-              "A tecla sair não é a pilha dormir: o recibo prova que o cooldown começou, e o " <>
-              "sono do jogo leva mais um tanto. Curto demais e o campo esvazia com o bolo " <>
-              "ainda acordado.",
-          keywords: "stun settle espera dormir sono revive controle"
-        },
-        %{
-          key: :rescue_blackout_ms,
-          kind: :ms,
-          label: "…e volta a atacar em",
-          hint:
-            "O pokémon SAI de campo no revive e volta. Enquanto está fora, a barra mostra tudo " <>
-              "pronto e nenhuma skill sai. Medido em 29/08: 91% das teclas ignoradas pelo jogo " <>
-              "estavam no primeiro segundo depois de um revive.",
-          keywords: "revive janela cega blackout volta atacar campo"
+          key: :rescue_cooldown_ms,
+          kind: :sec,
+          label: "Um revive a cada",
+          hint: "O mínimo entre dois revives de um pokémon vivo.",
+          keywords: "revive intervalo cooldown"
         },
         %{
           key: :pokemon_hp_fainted_below_pct,
           kind: :pct,
           label: "Caído abaixo de",
           hint:
-            "Abaixo disto a barra lida conta como pokémon no chão, e o revive entra no lugar da " <>
-              "cura. Acima, uma leitura ruim é só uma leitura ruim.",
+            "Abaixo disto a barra lida conta como pokémon no chão, e o revive entra no lugar da cura. Acima, uma leitura ruim é só uma leitura ruim.",
           keywords: "caído fainted desmaiou chão vida limiar"
         },
         %{
-          key: :fainted_revive_cooldown_ms,
-          kind: :sec,
-          label: "Caído: pedir a cada",
-          hint: "O piso entre dois revives de um pokémon JÁ no chão.",
-          keywords: "caído fainted revive chão"
+          key: :revive_dry_action,
+          kind: :select,
+          label: "Bag sem revive: fazer o quê",
+          hint:
+            "Três revives pagos sem a vida voltar = a bag secou. logout sai do jogo; stop só para a caçada; alarm só toca.",
+          keywords: "revive bag vazia estoque seca logout parar emergência"
         },
+        %{
+          key: :rescue_stun_first,
+          kind: :bool,
+          label: "Dormir a pilha antes do revive",
+          hint:
+            "Usa o controle do /time antes de reviver, pra não reviver exposto no meio do bolo. Só vale no Econômico: no Auto Combo a corrente já termina em stun.",
+          keywords: "stun controle dormir antes revive econômico"
+        },
+        %{
+          key: :engine_band_yellow_pct,
+          kind: :pct,
+          label: "Vida amarela abaixo de",
+          hint: "Vida do pokémon abaixo disto: para de juntar bicho e gasta o que tem pronto.",
+          keywords: "faixa amarela banda vida"
+        },
+        %{
+          key: :engine_band_red_pct,
+          kind: :pct,
+          label: "Vida vermelha abaixo de",
+          hint: "Abaixo disto é emergência: revive agora, no meio da luta.",
+          keywords: "faixa vermelha banda vida emergência"
+        },
+        %{
+          key: :engine_resume_pct,
+          kind: :pct,
+          label: "Rota volta acima de",
+          hint: "Depois de um revive, a rota só anda com a vida do pokémon acima disto.",
+          keywords: "voltar rota recuperar resume"
+        },
+        %{
+          key: :engine_downed_give_up_ms,
+          kind: :min,
+          label: "Desistir do chão após",
+          hint:
+            "Pokémon caído e o revive sem devolver ninguém por isto: a caçada para de vez, porque o estoque acabou. 0 desliga.",
+          keywords: "freio chão desistir caído give up"
+        }
+      ]
+    },
+    %{
+      id: "cura",
+      icon: "hero-beaker",
+      tint: :ok,
+      title: "Cura e poção",
+      rows: [
         %{
           key: :heal_skill_enabled,
           kind: :bool,
           label: "Skill de cura",
-          hint: "A tecla :heal do /time — o único socorro que funciona apanhando.",
+          hint: "A tecla de cura do /time. É o único socorro que funciona apanhando.",
           keywords: "cura heal skill"
         },
         %{
@@ -214,15 +220,8 @@ defmodule PokexWeb.ConfigLive do
           key: :potion_enabled,
           kind: :bool,
           label: "Poção automática",
-          hint: "Canal que o jogo cancela apanhando — só sai fora de luta.",
+          hint: "A poção é um canal que o jogo cancela apanhando, então só sai fora de luta.",
           keywords: "poção potion automática"
-        },
-        %{
-          key: :pokemon_hp_potion_pct,
-          kind: :pct,
-          label: "Poção abaixo de",
-          hint: "Vida do pokémon abaixo disto usa a poção (fora de luta).",
-          keywords: "poção vida limiar"
         },
         %{
           key: :potion_key,
@@ -230,6 +229,13 @@ defmodule PokexWeb.ConfigLive do
           label: "Tecla da poção",
           hint: "Onde a poção está no atalho (ex.: e).",
           keywords: "poção tecla key"
+        },
+        %{
+          key: :pokemon_hp_potion_pct,
+          kind: :pct,
+          label: "Poção abaixo de",
+          hint: "Vida do pokémon abaixo disto usa a poção, fora de luta.",
+          keywords: "poção vida limiar"
         }
       ]
     },
@@ -245,9 +251,7 @@ defmodule PokexWeb.ConfigLive do
           kind: :select,
           label: "Modo padrão das rotas",
           hint:
-            "Auto Combo: o jogo encadeia as skills atrás de UMA tecla — o bot aperta uma vez e " <>
-              "cuida só do revive. Econômico: Tab, alvo único e área só se precisar, pra rota " <>
-              "barata. A rota que escolher um modo manda mais que isto.",
+            "Auto Combo: o jogo encadeia as skills atrás de UMA tecla; o bot aperta uma vez e cuida do revive. Econômico: Tab, alvo único e área só se precisar, pra rota barata.",
           keywords: "modo caça auto combo econômico estratégia combate"
         },
         %{
@@ -255,9 +259,7 @@ defmodule PokexWeb.ConfigLive do
           kind: :key,
           label: "Tecla do combo",
           hint:
-            "A tecla que o JOGO usa pra encadear as skills ofensivas (ex.: r). É um atalho do " <>
-              "cliente, como as posturas — não um slot de pokémon. Em branco, o Auto Combo não " <>
-              "tem o que apertar.",
+            "A tecla que o JOGO usa pra encadear as skills ofensivas (ex.: r). Em branco, o Auto Combo não tem o que apertar.",
           keywords: "combo tecla r auto atalho"
         },
         %{
@@ -265,9 +267,7 @@ defmodule PokexWeb.ConfigLive do
           kind: :ms,
           label: "O combo ocupa por",
           hint:
-            "Quanto tempo a corrente do jogo leva pra sair. Nada ofensivo é apertado nessa " <>
-              "janela, e o revive do ciclo espera ela acabar — cortar a corrente joga fora o " <>
-              "dano que faltava. Cronometrado em 3,5s; o padrão de 4s é ele com meia folga.",
+            "Quanto a corrente do jogo leva pra sair. Nada é apertado nesse tempo, e o revive espera ela acabar. Cronometrado em 3,5s; 4s é isso com folga.",
           keywords: "combo janela tempo ms corrente"
         }
       ]
@@ -276,214 +276,109 @@ defmodule PokexWeb.ConfigLive do
       id: "cerebro",
       icon: "hero-cpu-chip",
       tint: :info,
-      title: "Cérebro da caçada",
+      title: "Cérebro: parar e abrir",
       rows: [
-        %{
-          key: :engine_boss_grit,
-          kind: :int,
-          label: "Chefe pelo tempo de matar",
-          hint:
-            "Quantas skills de dano o bicho engole (cooldown andou) sem NENHUM corpo cair " <>
-              "antes do cérebro declarar chefe e rodar o combo skills → stun → revive. " <>
-              "Uma pilha comum nunca passa de ~4; um chefe 10× engole 10 em dois giros da " <>
-              "barra. 0 desliga (só o nome declara). Vale pra chefe com o MESMO nome dos " <>
-              "outros pokémons.",
-          keywords: "chefe boss tempo grit postura combo stun revive dano"
-        },
-        %{
-          key: :engine_boss_names,
-          kind: :key,
-          label: "Nomes dos chefes",
-          hint:
-            "Separados por vírgula (ex.: chefe, boss x) — o jeito ANTIGO, pra chefe com " <>
-              "nome próprio na janela de batalha. Com um destes nomes na tela o cérebro " <>
-              "entra na postura de chefe na hora, sem esperar o tempo de matar. Vazio " <>
-              "desliga (o \"chefe pelo tempo de matar\" acima segue valendo).",
-          keywords: "chefe boss nome postura combo stun revive"
-        },
-        %{
-          key: :engine_stun_hold_ms,
-          kind: :sec,
-          label: "…quanto o teu stun segura",
-          hint:
-            "Do APERTO até o sono acabar: a pegada (~2s até o efeito cair — o mesmo tempo " <>
-              "do settle) + a duração do sono (~5s) = 7. O combo de chefe emenda o próximo " <>
-              "stun quando a cobertura restante chega na pegada.",
-          keywords: "stun sono duração segura chefe cronometro pegada"
-        },
-        %{
-          key: :engine_stun_reach_tiles,
-          kind: :int,
-          label: "…e até quantos tiles alcança",
-          hint:
-            "O raio útil do teu controle, em tiles (um a menos que o real, de folga). O stun " <>
-              "de chefe só sai com o alvo dentro disto — apertar com ele longe é dormir o " <>
-              "vento e chegar acordado.",
-          keywords: "stun raio alcance tiles chefe vento"
-        },
         %{
           key: :engine_engage_from,
           kind: :int,
           label: "Encara a partir de (bichos)",
           hint:
-            "Menos que isto na tela e o cérebro segue andando em vez de parar pra lutar. Num " <>
-              "mapa que lota, subir este número é o que impede a caçada de parar a cada bicho " <>
-              "solto; 1 é lutar com tudo.",
+            "Menos que isto na tela e o bot segue andando em vez de parar. 1 é lutar com tudo.",
           keywords: "encarar engajar engage lutar a partir bichos mínimo"
         },
         %{
           key: :engine_gather_target,
           kind: :int,
-          label: "Juntar até (bichos)",
-          hint: "A janela de mob fecha quando o bolo chega neste tamanho.",
-          keywords: "juntar mobar gather alvo pilha bolo"
-        },
-        %{
-          key: :engine_gather_piles,
-          kind: :bool,
-          label: "Juntar bolo andando",
+          label: "O bolo está cheio com (bichos)",
           hint:
-            "Ligado: ao ver bicho, anda puxando até o bolo fechar (a régua abaixo). Desligado: " <>
-              "bateu, luta. O modo Econômico desliga isto sozinho.",
-          keywords: "juntar mobar bolo pilha andar régua"
-        },
-        %{
-          key: :engine_gather_tiles,
-          kind: :int,
-          label: "Passos mínimos com o bolo cheio",
-          hint:
-            "Com \"juntar até\" batido, ainda anda isto antes de abrir — os passos são o que " <>
-              "traz quem ia se juntar.",
-          keywords: "passos juntar bolo cheio régua"
-        },
-        %{
-          key: :engine_pile_settle_ms,
-          kind: :ms,
-          label: "Pararam de chegar",
-          hint: "Bolo cheio e a contagem parada por isto: abre sem esperar mais.",
-          keywords: "pararam chegar contagem parada régua"
+            "Parado, contando quem chega: com este tanto na tela abre o fogo sem esperar mais.",
+          keywords: "juntar mobar gather alvo pilha bolo cheio"
         },
         %{
           key: :engine_patience_tiles,
           kind: :int,
           label: "Paciência (passos)",
           hint:
-            "Andou isto com bicho na tela e o bolo não encheu: mata o que tem. É o \"10 passos " <>
-              "e não veio mais ninguém\" do feed. Subindo, suba o teto abaixo junto (~0,8s por passo).",
-          keywords: "paciência passos não veio mais ninguém régua"
-        },
-        %{
-          key: :engine_size_ceiling_ms,
-          kind: :ms,
-          label: "Teto da juntada",
-          hint:
-            "Passou disto desde que viu a pilha: se ela vale a área, abre com o que veio; se " <>
-              "não vale, deixa pra trás. Tem que caber a paciência em passos.",
-          keywords: "teto juntada tempo pilha régua"
-        },
-        %{
-          key: :engine_skip_fire,
-          kind: :bool,
-          label: "Bater ao deixar a pilha",
-          hint:
-            "Ao pular uma pilha que não vale, ainda solta as teclas baratas em quem vier junto.",
-          keywords: "pular pilha bater alvo único"
-        },
-        %{
-          key: :cavebot_gather_wait_ms,
-          kind: :ms,
-          label: "Respiro ao chegar (antigo)",
-          hint:
-            "O respiro do \"até aqui\" antes do cérebro existir. Hoje só vale quando o cérebro " <>
-              "não está falando (fato velho); com ele falando, a régua acima manda. A rota e o " <>
-              "waypoint podem sobrescrever na página do Cavebot.",
-          keywords: "respiro chegar até aqui espera bolo rota waypoint"
-        },
-        %{
-          key: :engine_bunch_walk_tiles,
-          kind: :int,
-          label: "Puxar mais (passos)",
-          hint: "Fechada a janela, anda isto pra colar a pilha antes de parar.",
-          keywords: "puxar passos bunch andar"
+            "Com bicho na tela mas o bolo sem encher, depois deste tanto de passos mata o que tem.",
+          keywords: "paciência passos não veio mais ninguém"
         },
         %{
           key: :engine_bunch_ms,
           kind: :sec,
-          label: "Esperar a pilha fechar",
-          hint: "Parado, quanto esperar os bichos chegarem em cima antes de estourar a área.",
-          keywords: "esperar espera bunch janela fechar"
-        },
-        %{
-          key: :engine_prepare_revive,
-          kind: :bool,
-          label: "Chegar preparado (R11)",
-          hint:
-            "Entre grupos, com a barra pela metade, gasta um revive pra chegar inteiro no próximo.",
-          keywords: "preparado prepare revive entre grupos r11"
-        },
-        %{
-          key: :engine_prepare_max_enemies,
-          kind: :int,
-          label: "…mesmo com até (restos)",
-          hint:
-            "Na estrada, quantos restos na tela ainda contam como 'entre grupos'. A tela dessa " <>
-              "rota nunca zera — com isto em 0 o preparo nunca dispara.",
-          keywords: "preparo restos teto estrada"
+          label: "Esperar chegarem em cima",
+          hint: "Parado, quanto esperar os bichos colarem antes de estourar a área.",
+          keywords: "esperar espera bunch colar fechar"
         },
         %{
           key: :engine_reset_revive,
           kind: :bool,
-          label: "Revive como reset (R3b)",
-          hint: "Barra vazia na frente da pilha: compra a barra de volta com um revive.",
-          keywords: "reset revive barra r3b"
-        },
-        %{
-          key: :engine_downed_give_up_ms,
-          kind: :min,
-          label: "Desistir do chão após",
+          label: "Revive pra zerar os cooldowns",
           hint:
-            "Pokémon caído e o revive sem devolver ninguém por isto → a caçada PARA de vez " <>
-              "(estoque acabou). A noite de 27→28/08 moeu 4,9h sem este freio. 0 desliga.",
-          keywords: "freio chão desistir stranded caído give up"
+            "Com todas as skills de dano gastas e bicho na tela, usa um revive pra ter a barra cheia de novo. É o ciclo do Auto Combo: combo, revive, combo.",
+          keywords: "reset revive barra cooldown zerar"
         },
         %{
-          key: :engine_band_yellow_pct,
-          kind: :pct,
-          label: "Faixa amarela abaixo de",
-          hint: "Vida do pokémon abaixo disto: para de mobar, gasta os cooldowns.",
-          keywords: "faixa amarela banda vida"
-        },
-        %{
-          key: :engine_band_red_pct,
-          kind: :pct,
-          label: "Faixa vermelha abaixo de",
-          hint: "Abaixo disto é emergência: revive agora, no meio da luta.",
-          keywords: "faixa vermelha banda vida emergência"
-        },
-        %{
-          key: :engine_resume_pct,
-          kind: :pct,
-          label: "Rota volta acima de",
-          hint: "Depois de um revive, a rota só anda com a vida acima disto.",
-          keywords: "voltar rota recuperar resume"
-        },
-        %{
-          key: :fight_timeout_ms,
-          kind: :sec,
-          label: "Luta parada vira tropeço em",
+          key: :engine_prepare_revive,
+          kind: :bool,
+          label: "Chegar inteiro no próximo grupo",
           hint:
-            "Tela idêntica em luta por isto = tropeço. Esperar cooldown com a barra gasta NÃO " <>
-              "conta — o cérebro avisa a caçada.",
-          keywords: "luta timeout tropeço stalled"
+            "Entre um grupo e outro, se metade da barra está em cooldown, gasta um revive antes de encontrar a próxima pilha.",
+          keywords: "preparado prepare revive entre grupos"
         }
       ]
     },
     %{
-      id: "rajada",
+      id: "chefe",
+      icon: "hero-shield-exclamation",
+      tint: :danger,
+      title: "Chefe",
+      rows: [
+        %{
+          key: :engine_boss_grit,
+          kind: :int,
+          label: "Chefe pelo tempo de matar",
+          hint:
+            "Quantas skills de dano o bicho engole sem nenhum corpo cair antes de o bot declarar chefe e rodar skills, stun e revive em ciclo. Uma pilha comum não passa de 4. 0 desliga.",
+          keywords: "chefe boss tempo grit stun revive dano"
+        },
+        %{
+          key: :engine_boss_names,
+          kind: :key,
+          label: "Nomes dos chefes",
+          hint:
+            "Separados por vírgula. Com um destes nomes na janela de batalha o bot entra na postura de chefe na hora. Vazio desliga.",
+          keywords: "chefe boss nome postura"
+        },
+        %{
+          key: :engine_stun_hold_ms,
+          kind: :sec,
+          label: "Quanto o seu stun segura",
+          hint:
+            "Do aperto até o sono acabar. O ciclo de chefe emenda o próximo stun antes de este acabar.",
+          keywords: "stun sono duração segura chefe"
+        }
+      ]
+    },
+    %{
+      id: "teclas",
       icon: "hero-bolt",
       tint: :warn,
-      title: "Rajada e teclas",
+      title: "Teclas e rajada",
       rows: [
+        %{
+          key: :attack_mode_key,
+          kind: :key,
+          label: "Postura de ataque",
+          hint: "A tecla da postura ofensiva. Vai na frente de toda rajada.",
+          keywords: "postura ataque shift modo"
+        },
+        %{
+          key: :defense_mode_key,
+          kind: :key,
+          label: "Postura de defesa",
+          hint: "A tecla da postura defensiva, usada quando o fogo segura.",
+          keywords: "postura defesa shift modo"
+        },
         %{
           key: :combat_skill_burst_size,
           kind: :int,
@@ -492,62 +387,35 @@ defmodule PokexWeb.ConfigLive do
           keywords: "rajada burst teclas"
         },
         %{
-          key: :skill_burst_every_ms,
-          kind: :ms,
-          label: "Intervalo entre rajadas",
-          hint:
-            "O respiro entre duas decisões de ataque. No Econômico é ele que separa a tecla de " <>
-              "alvo único da de área: uma sai, ele espera, e a outra só sai se ainda precisar.",
-          keywords: "intervalo rajada respiro econômico cadência"
-        },
-        %{
           key: :combat_skill_gap_ms,
           kind: :int,
           unit: "ms",
           label: "Intervalo entre teclas",
           hint:
-            "O teto de dano da caçada inteira: 500ms com rajada de 2 é 1s por rajada. O padrão " <>
-              "é 300.",
+            "O intervalo entre duas teclas da mesma rajada. É o teto de dano da caçada: 500ms com rajada de 2 é 1s por rajada.",
           keywords: "intervalo gap rajada ms dano"
         },
         %{
           key: :combat_single_target,
           kind: :bool,
-          label: "Usar alvo único na rotação",
-          hint:
-            "Desligado (o padrão desde 27/08): as de alvo único mal arranham e atrasam a área.",
-          keywords: "alvo único single target rotação"
+          label: "Usar as skills de alvo único",
+          hint: "Só vale no Econômico. O Auto Combo ignora: a corrente do jogo decide o que sai.",
+          keywords: "alvo único single target rotação econômico"
         },
         %{
           key: :combat_shield_from_enemies,
           kind: :int,
-          label: "Escudo a partir de",
+          label: "Escudo a partir de (bichos)",
           hint: "Com este tanto de bicho em cima, a aura de defesa sai junto.",
           keywords: "escudo shield defesa aura"
         },
         %{
-          key: :key_modifier_settle_ms,
-          kind: :ms,
-          label: "Respiro do shift",
+          key: :fight_timeout_ms,
+          kind: :sec,
+          label: "Luta parada vira tropeço em",
           hint:
-            "Quanto o modificador fica segurado antes da tecla, nas combinações tipo shift+1. " <>
-              "O jogo roda sob Wine e traduz evento por evento: curto demais e a tecla chega " <>
-              "antes do shift — sai a skill sozinha e a postura não muda. Suba se ainda vir isso.",
-          keywords: "shift modificador postura respiro wine"
-        },
-        %{
-          key: :attack_mode_key,
-          kind: :key,
-          label: "Postura de ataque",
-          hint: "A tecla da postura ofensiva — vai na frente de toda rajada.",
-          keywords: "postura ataque shift modo"
-        },
-        %{
-          key: :defense_mode_key,
-          kind: :key,
-          label: "Postura de defesa",
-          hint: "A tecla da postura defensiva — usada segurando o fogo.",
-          keywords: "postura defesa shift modo"
+            "Tela idêntica em luta por isto conta como tropeço. Esperar cooldown com a barra gasta não conta.",
+          keywords: "luta timeout tropeço parada"
         }
       ]
     },
@@ -572,6 +440,13 @@ defmodule PokexWeb.ConfigLive do
           keywords: "fuga passos escape"
         },
         %{
+          key: :escape_walk_wait_ms,
+          kind: :sec,
+          label: "Fuga: esperar depois de andar",
+          hint: "Quanto esperar parado depois dos passos da fuga, antes de conferir a tela.",
+          keywords: "fuga espera andar escape"
+        },
+        %{
           key: :stagnation_minutes,
           kind: :int,
           unit: "min",
@@ -583,7 +458,7 @@ defmodule PokexWeb.ConfigLive do
           key: :stagnation_action,
           kind: :select,
           label: "Estagnado: fazer o quê",
-          hint: "alarm só grita; stop para os bots; logout sai do jogo.",
+          hint: "alarm só toca; stop para os bots; logout sai do jogo.",
           keywords: "estagnação ação logout stop"
         },
         %{
@@ -627,15 +502,15 @@ defmodule PokexWeb.ConfigLive do
           key: :require_cooldowns,
           kind: :bool,
           label: "Só fisgar podendo matar",
-          hint: "Segura a fisga até uma skill de matar estar pronta. (do personagem ativo)",
-          keywords: "pesca fisga cooldown gate"
+          hint: "Segura a fisga até uma skill de matar estar pronta. Do personagem ativo.",
+          keywords: "pesca fisga cooldown"
         },
         %{
           key: :require_pokemon_hp,
           kind: :bool,
           label: "Só fisgar com vida",
-          hint: "Segura a fisga com o pokémon fraco ou na bola. (do personagem ativo)",
-          keywords: "pesca fisga vida gate"
+          hint: "Segura a fisga com o pokémon fraco ou na bola. Do personagem ativo.",
+          keywords: "pesca fisga vida"
         },
         %{
           key: :pokemon_hp_fishing_pct,
@@ -650,57 +525,18 @@ defmodule PokexWeb.ConfigLive do
       id: "captura",
       icon: "hero-cube",
       tint: :ok,
-      title: "Captura e loot",
+      title: "Captura",
+      note:
+        {"bolas, regras por espécie, varredura e estoque ficam nos", "Editores",
+         "/config/editores"},
       rows: [
         %{
           key: :capture_enabled,
           kind: :bool,
           label: "Jogar bola nos corpos",
-          hint: "O catcher olha os corpos e joga a bola configurada.",
+          hint:
+            "O interruptor da captura. Qual bola, em quem e quantas vezes se ajusta nos Editores.",
           keywords: "captura bola corpos catcher"
-        },
-        %{
-          key: :ball_key,
-          kind: :key,
-          label: "Tecla da bola",
-          hint: "Onde a bola padrão está (regras por espécie: Editores).",
-          keywords: "bola tecla ball"
-        },
-        %{
-          key: :corpse_max_balls,
-          kind: :int,
-          label: "Bolas por corpo",
-          hint: "Quantas tentativas o mesmo corpo merece.",
-          keywords: "bolas corpo tentativas"
-        },
-        %{
-          key: :corpse_scan_radius_tiles,
-          kind: :int,
-          unit: "tiles",
-          label: "Raio de procura",
-          hint: "Até onde procurar corpos ao redor do personagem.",
-          keywords: "raio corpos procurar tiles"
-        },
-        %{
-          key: :dry_balls_alarm,
-          kind: :int,
-          label: "Alarme de bola seca após",
-          hint: "Bolas seguidas sem capturar nada disparam o alarme de estoque. 0 desliga.",
-          keywords: "bola seca alarme estoque"
-        },
-        %{
-          key: :sweep_enabled,
-          kind: :bool,
-          label: "Varredura de loot",
-          hint: "De tempos em tempos, varre o chão ao redor por loot esquecido.",
-          keywords: "varredura loot sweep"
-        },
-        %{
-          key: :sweep_interval_ms,
-          kind: :sec,
-          label: "Varrer a cada",
-          hint: "O intervalo entre duas varreduras.",
-          keywords: "varredura intervalo sweep"
         }
       ]
     },
@@ -709,14 +545,8 @@ defmodule PokexWeb.ConfigLive do
       icon: "hero-bell-alert",
       tint: :warn,
       title: "Alarmes",
+      note: {"o som liga e desliga no", "sino do cabeçalho", "/"},
       rows: [
-        %{
-          key: :alarm_sound,
-          kind: :bool,
-          label: "Som ligado",
-          hint: "O apito dos alarmes. Desligado, só o painel mostra.",
-          keywords: "som alarme apito áudio"
-        },
         %{
           key: :alarm_min_gap_ms,
           kind: :sec,
@@ -725,6 +555,92 @@ defmodule PokexWeb.ConfigLive do
           keywords: "apito intervalo gap alarme"
         }
       ]
+    }
+  ]
+
+  # O QUE MORA EM OUTRA PÁGINA. Cada chave do `Settings` que não é linha aqui
+  # nem constante tem um dono melhor — e a lista existe pra um teste cobrar que
+  # nenhuma chave fique escondida de novo.
+  @elsewhere [
+    %{
+      href: "/config/editores",
+      icon: "hero-squares-plus",
+      label: "Editores",
+      sub: "bolas, regras por espécie, varredura, estoque, reposição",
+      keys: [
+        :ball_key,
+        :ball_needs_click,
+        :ball_types,
+        :ball_rules,
+        :corpse_max_balls,
+        :corpse_scan_radius_tiles,
+        :corpse_match_min_similarity,
+        :dry_balls_alarm,
+        :sweep_enabled,
+        :sweep_interval_ms,
+        :sweep_radius_tiles,
+        :sweep_side,
+        :stock_alert_f1,
+        :stock_alert_f2,
+        :stock_alert_e,
+        :stock_alert_s_q,
+        :reposition_enabled,
+        :support_waits_capture
+      ]
+    },
+    %{
+      href: "/time",
+      icon: "hero-users",
+      label: "Time",
+      sub: "as skills do pokémon e os cooldowns",
+      keys: [:skill_keys]
+    },
+    %{
+      href: "/calibration",
+      icon: "hero-viewfinder-circle",
+      label: "Calibração",
+      sub: "barra de skills, janela de batalha, minimapa",
+      keys: [:skill_bar_count, :battle_row_height, :minimap_coord_ink]
+    },
+    %{
+      href: "/cavebot",
+      icon: "hero-map",
+      label: "Cavebot",
+      sub: "rotas, respiro das paradas, tropeço, estacionar",
+      keys: [
+        :cavebot_gather_wait_ms,
+        :cavebot_block_retries,
+        :cavebot_block_retry_ms,
+        :cavebot_park_tiles_x,
+        :cavebot_park_tiles_y,
+        :tile_px,
+        :area_probe_enabled,
+        :skill_meter_enabled
+      ]
+    },
+    %{
+      href: "/",
+      icon: "hero-home",
+      label: "Painel e cabeçalho",
+      sub: "personagem, modo de jogo, sino, shiny, pesca",
+      keys: [
+        :active_character,
+        :player_mode,
+        :alarm_sound,
+        :alarm_muted_categories,
+        :shiny_guard_enabled,
+        :mini_game_sound,
+        :cavebot_measure_walk,
+        :hook_skill_keys,
+        :glow_threshold
+      ]
+    },
+    %{
+      href: "/mini-game",
+      icon: "hero-play",
+      label: "Mini-game",
+      sub: "o que o bot faz quando o minigame da pesca abre",
+      keys: [:mini_game_mode]
     }
   ]
 
@@ -740,6 +656,18 @@ defmodule PokexWeb.ConfigLive do
              )
 
   @key_index Map.new(Enum.flat_map(@groups, & &1.rows), &{to_string(&1.key), &1.key})
+
+  # A busca também acha as constantes: chave, grupo e porquê.
+  @const_haystacks Map.new(Locked.all(), fn {key, {group, why}} ->
+                     {key, String.downcase("#{key} #{group} #{why}")}
+                   end)
+
+  @doc "Toda chave que esta página conhece: linha, constante ou de outra página."
+  def known_keys do
+    Enum.map(Enum.flat_map(@groups, & &1.rows), & &1.key) ++
+      Locked.keys() ++ Enum.flat_map(@elsewhere, & &1.keys)
+  end
+
   @kinds Map.new(Enum.flat_map(@groups, & &1.rows), &{&1.key, &1.kind})
 
   @impl true
@@ -949,11 +877,11 @@ defmodule PokexWeb.ConfigLive do
                       if(Settings.get(row.key), do: "left-4", else: "left-0.5")
                     ]}></span>
                   </span>
-                  <span class="min-w-0 flex-1 truncate text-pk-body text-pk-text">
-                    {row.label}
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-pk-body text-pk-text">{row.label}</span>
+                    <.mode_line key={row.key} />
                   </span>
                   <.hint text={row.hint} />
-                  <.mode_note key={row.key} />
                   <.saved_tick saved={@saved} key={row.key} />
                 </button>
 
@@ -964,14 +892,11 @@ defmodule PokexWeb.ConfigLive do
                   phx-change="save"
                   class="flex items-center gap-2.5 px-3 py-2"
                 >
-                  <label
-                    for={"cfg-input-#{row.key}"}
-                    class="min-w-0 flex-1 truncate text-pk-body text-pk-text"
-                  >
-                    {row.label}
+                  <label for={"cfg-input-#{row.key}"} class="min-w-0 flex-1">
+                    <span class="block truncate text-pk-body text-pk-text">{row.label}</span>
+                    <.mode_line key={row.key} />
                   </label>
                   <.hint text={row.hint} />
-                  <.mode_note key={row.key} />
                   <.saved_tick saved={@saved} key={row.key} />
 
                   <select
@@ -1028,6 +953,24 @@ defmodule PokexWeb.ConfigLive do
               </li>
             </ul>
 
+            <%!-- O QUE O MODO DECIDE: sem campo, com o valor em cada modo. --%>
+            <div
+              :if={group.id == "modo" and mode_decided(@query) != []}
+              class="border-t border-pk-line px-3 py-2.5"
+            >
+              <p class="mb-1.5 font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
+                o modo decide
+              </p>
+              <ul class="space-y-1.5">
+                <li :for={{key, why} <- mode_decided(@query)} id={"cfg-mode-#{key}"}>
+                  <span class="block truncate text-pk-body text-pk-text">{why}</span>
+                  <span class="block font-mono text-pk-meta text-pk-text-3">
+                    {mode_values(key)}
+                  </span>
+                </li>
+              </ul>
+            </div>
+
             <%!-- Os setores do alarme, como fichas: aceso = apita. --%>
             <div
               :if={
@@ -1060,46 +1003,78 @@ defmodule PokexWeb.ConfigLive do
             </div>
           </section>
 
-          <%!-- O que NÃO cabe em linhas: os editores compostos, cada um na
-                página que já sabe editá-lo. --%>
+          <%!-- O QUE MORA EM OUTRA PÁGINA: um ponteiro por dono, nunca uma cópia. --%>
           <section
-            :if={
-              @query == "" or
-                String.contains?("editores combos presets bolas shiny time calibração rotas", @query)
-            }
+            :if={elsewhere(@query) != []}
             id="cfg-editores"
             class="self-start overflow-hidden rounded-xl border border-pk-line bg-pk-surface"
           >
             <header class="flex items-center gap-2.5 border-b border-pk-line px-3 py-2.5">
               <span class="grid size-8 shrink-0 place-items-center rounded-lg bg-pk-raised text-pk-text-2">
-                <.icon name="hero-wrench-screwdriver" class="size-4" />
+                <.icon name="hero-arrow-top-right-on-square" class="size-4" />
               </span>
-              <h2 class="text-pk-body font-bold text-pk-text">Editores</h2>
+              <h2 class="text-pk-body font-bold text-pk-text">Em outra página</h2>
             </header>
             <ul class="divide-y divide-pk-line">
-              <li :for={
-                {href, icon, label, sub} <- [
-                  {"/config/editores", "hero-squares-plus", "Presets, bolas e shiny",
-                   "os formulários compostos, no painel"},
-                  {"/time", "hero-users", "Time: skills e cooldowns", "o que cada tecla faz"},
-                  {"/calibration", "hero-viewfinder-circle", "Calibração",
-                   "regiões e pontos da tela"},
-                  {"/cavebot", "hero-map", "Rotas da caçada", "waypoints e cantos"}
-                ]
-              }>
+              <li :for={place <- elsewhere(@query)}>
                 <.link
-                  navigate={href}
+                  navigate={place.href}
                   class="flex items-center gap-2.5 px-3 py-2.5 transition hover:bg-pk-raised"
                 >
-                  <.icon name={icon} class="size-4 shrink-0 text-pk-text-3" />
+                  <.icon name={place.icon} class="size-4 shrink-0 text-pk-text-3" />
                   <span class="min-w-0 flex-1">
-                    <span class="block truncate text-pk-body text-pk-text">{label}</span>
-                    <span class="block truncate text-pk-meta text-pk-text-3">{sub}</span>
+                    <span class="block truncate text-pk-body text-pk-text">{place.label}</span>
+                    <span class="block truncate text-pk-meta text-pk-text-3">{place.sub}</span>
                   </span>
                   <.icon name="hero-chevron-right" class="size-4 shrink-0 text-pk-text-3" />
                 </.link>
               </li>
             </ul>
+          </section>
+
+          <%!-- AS CONSTANTES: existem, aparecem, não se editam. Fechadas por
+                padrão; a busca abre o grupo que casou. --%>
+          <section
+            :if={constants(@query) != []}
+            id="cfg-constantes"
+            class="self-start overflow-hidden rounded-xl border border-pk-line bg-pk-surface md:col-span-2 xl:col-span-3"
+          >
+            <header class="flex items-center gap-2.5 border-b border-pk-line px-3 py-2.5">
+              <span class="grid size-8 shrink-0 place-items-center rounded-lg bg-pk-raised text-pk-text-2">
+                <.icon name="hero-lock-closed" class="size-4" />
+              </span>
+              <span class="min-w-0 flex-1">
+                <h2 class="text-pk-body font-bold text-pk-text">Constantes</h2>
+                <p class="truncate text-pk-meta text-pk-text-3">
+                  medidas no jogo ou na máquina; vivem no código e não têm campo
+                </p>
+              </span>
+            </header>
+            <div class="grid gap-x-4 md:grid-cols-2 xl:grid-cols-3">
+              <details
+                :for={{group, rows} <- constants(@query)}
+                open={@query != ""}
+                class="border-b border-pk-line px-3 py-2"
+              >
+                <summary class="flex cursor-pointer items-center gap-2 text-pk-body text-pk-text">
+                  <span class="min-w-0 flex-1 truncate">{group}</span>
+                  <span class="font-mono text-pk-meta text-pk-text-3">{length(rows)}</span>
+                </summary>
+                <ul class="mt-1.5 space-y-1.5">
+                  <li :for={{key, why} <- rows} id={"cfg-const-#{key}"} class="min-w-0">
+                    <span class="flex items-baseline gap-2">
+                      <code class="min-w-0 flex-1 truncate font-mono text-pk-meta text-pk-text-2">
+                        {key}
+                      </code>
+                      <span class="shrink-0 font-mono text-pk-meta font-semibold tabular-nums text-pk-text">
+                        {const_shown(key)}
+                      </span>
+                    </span>
+                    <span class="block text-pk-meta text-pk-text-3">{why}</span>
+                  </li>
+                </ul>
+              </details>
+            </div>
           </section>
         </div>
       </div>
@@ -1107,43 +1082,106 @@ defmodule PokexWeb.ConfigLive do
     """
   end
 
-  # O ? de cada linha: a explicação inteira, só quando perguntada.
-  # O MODO SOBREPÕE EM MEMÓRIA e a página mostra o global — então a linha diz
-  # quando o número dela pode não ser o que está valendo. A pergunta que a
-  # revisão de 02/09 fez: "a página deve marcar quando o modo sobrepõe?". Sim.
+  # O MODO SOBREPÕE EM MEMÓRIA e a página mostra o global — então a linha diz,
+  # embaixo do rótulo, o que vale no modo que a força. Lido de
+  # `HuntMode.engine_overrides/1`, a mesma lista que o cérebro obedece.
   attr :key, :atom, required: true
 
-  defp mode_note(assigns) do
+  defp mode_line(assigns) do
     assigns = assign(assigns, :forced, forced_by_modes(assigns.key))
 
     ~H"""
-    <span
-      :for={{modo, valor} <- @forced}
-      class="shrink-0 rounded border border-pk-line-strong bg-pk-sunken px-1.5 py-0.5 font-mono text-pk-meta uppercase tracking-[0.08em] text-pk-text-3"
-      title={"No modo #{modo} este ajuste é forçado em memória; o número acima vale nos outros modos"}
-    >
-      {String.downcase(modo)} força {valor}
+    <span :if={@forced != []} class="block truncate font-mono text-pk-meta text-pk-text-3">
+      {Enum.map_join(@forced, " · ", fn {modo, valor} -> "no #{modo}: #{valor}" end)}
     </span>
     """
   end
 
-  # Um chip por modo que força este ajuste — lido de `HuntMode.engine_overrides/1`,
-  # a mesma lista que o cérebro obedece, nunca uma cópia.
   defp forced_by_modes(key) do
-    case Enum.find(Config.knobs(), fn {_knob, setting} -> setting == key end) do
-      {knob, _setting} ->
+    case knob_of(key) do
+      nil ->
+        []
+
+      knob ->
         for mode <- HuntMode.all(),
             {:ok, value} <- [Map.fetch(HuntMode.engine_overrides(mode), knob)],
             do: {HuntMode.label(mode), forced_text(value)}
+    end
+  end
 
-      nil ->
-        []
+  # As travadas do grupo "O modo decide", com o valor em CADA modo: o que o
+  # modo força, ou, quando não força, o número do código.
+  defp mode_decided(query) do
+    Locked.groups()
+    |> Enum.filter(fn {group, _rows} -> group == "O modo decide" end)
+    |> Enum.flat_map(fn {_group, rows} -> rows end)
+    |> Enum.filter(fn {key, _why} -> matches?(@const_haystacks, key, query) end)
+  end
+
+  defp mode_values(key) do
+    knob = knob_of(key)
+
+    Enum.map_join(HuntMode.all(), " · ", fn mode ->
+      value = Map.get(HuntMode.engine_overrides(mode), knob, Settings.get(key))
+      "#{HuntMode.label(mode)}: #{forced_text(value)}"
+    end)
+  end
+
+  defp knob_of(key) do
+    case Enum.find(Config.knobs(), fn {_knob, setting} -> setting == key end) do
+      {knob, _setting} -> knob
+      nil -> nil
     end
   end
 
   defp forced_text(true), do: "ligado"
   defp forced_text(false), do: "desligado"
   defp forced_text(value), do: to_string(value)
+
+  # --- as constantes -----------------------------------------------------------
+
+  defp constants(query) do
+    Locked.groups()
+    |> Enum.reject(fn {group, _rows} -> group == "O modo decide" end)
+    |> Enum.map(fn {group, rows} ->
+      {group, Enum.filter(rows, fn {key, _why} -> matches?(@const_haystacks, key, query) end)}
+    end)
+    |> Enum.reject(fn {_group, rows} -> rows == [] end)
+  end
+
+  defp const_shown(key) do
+    case Settings.get(key) do
+      true -> "ligado"
+      false -> "desligado"
+      value when is_list(value) -> Enum.join(value, ", ")
+      value -> "#{value}#{const_unit(key)}"
+    end
+  end
+
+  defp const_unit(key) do
+    name = Atom.to_string(key)
+
+    cond do
+      String.ends_with?(name, "_ms") -> " ms"
+      String.ends_with?(name, "_pct") -> "%"
+      String.ends_with?(name, "_px") -> " px"
+      String.ends_with?(name, "_tiles") -> " tiles"
+      String.ends_with?(name, "_mb") -> " MB"
+      true -> ""
+    end
+  end
+
+  defp elsewhere(""), do: @elsewhere
+
+  defp elsewhere(query) do
+    Enum.filter(@elsewhere, fn place ->
+      haystack = String.downcase("#{place.label} #{place.sub} #{Enum.join(place.keys, " ")}")
+      String.contains?(haystack, query)
+    end)
+  end
+
+  defp matches?(_haystacks, _key, ""), do: true
+  defp matches?(haystacks, key, query), do: String.contains?(Map.fetch!(haystacks, key), query)
 
   defp hint(assigns) do
     ~H"""

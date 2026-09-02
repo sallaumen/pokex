@@ -790,7 +790,31 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp ruler(%{logic: %{state: :bunching}} = t), do: bunching(t)
   defp ruler(%{logic: %{state: :engaged}} = t), do: engaged(t)
-  defp ruler(%{logic: %{state: :skipping}} = t), do: skipping(t)
+  # A PILHA DEIXADA PRA TRÁS CONTINUA SENDO OLHADA. Este ramo era `skipping(t)`
+  # seco: uma vez decidido "não vale", o cérebro andava de mãos baixas SEM
+  # reler a lista — o estado só saía por chefe ou emergência. Diário de 02/09,
+  # 20:33: "só 2 inimigos em 8s: não vale a área", cinco waypoints andados sem
+  # uma contagem sequer, e dez bichos em cima dele quando ele puxou o pânico.
+  # "Ele checou que tinha dois, saiu correndo e do nada tinha uns 10."
+  #
+  # R1 continua valendo — um ou dois a gente ignora — mas a pergunta é feita a
+  # cada tique: encheu enquanto eu andava, é régua de novo (e com a juntada
+  # desligada a régua abre parada); esvaziou, a rota segue LIMPA, sem carregar
+  # o "não vale" pra próxima pilha.
+  defp ruler(%{logic: %{state: :skipping}} = t) do
+    cond do
+      t.s.enemies == 0 ->
+        {reset_fight(t.logic, :travelling),
+         Orders.walking(:travelling, t.band, "a pilha ficou pra trás — seguindo a rota")}
+
+      t.s.worth_fighting? ->
+        sizing(%{t | logic: enter(t.logic, :sizing, t.now)})
+
+      true ->
+        skipping(t)
+    end
+  end
+
   defp ruler(t), do: sizing(%{t | logic: enter_sizing(t.logic, t.now)})
 
   # Walking a pile together is still SIZING — it is the same question, asked

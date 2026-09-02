@@ -1543,6 +1543,64 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.route == :go
       assert orders.fire == :hold
     end
+
+    # 02/09, 20:33: "checou que tinha dois inimigos, saiu correndo e do nada
+    # tinha uns 10 ao meu redor". O "deixei pra trás" grudava: cinco waypoints
+    # sem reler a lista. Quem vem atrás e enche a tela é régua de novo.
+    test "a pilha deixada pra trás que ENCHE enquanto ando para e abre" do
+      {logic, deixada} = passando(@config)
+      assert deixada.phase == :skipping
+
+      cheia =
+        world(%{
+          situation: situation(%{enemies: 6, worth_fighting?: true}),
+          hunt: hunt(%{state: :walking})
+        })
+
+      {logic, orders} = Logic.step(logic, cheia, @config, @config.size_ceiling_ms + 400)
+
+      refute logic.state == :skipping
+      refute orders.phase == :skipping
+      assert orders.route == :hold
+      assert orders.fire == :free
+    end
+
+    # …e a tela vazia solta o estado: a PRÓXIMA pilha é contada do zero, em vez
+    # de herdar o "não vale" da anterior.
+    test "a tela vazia solta o 'deixei pra trás', e a próxima pilha é contada de novo" do
+      {logic, _deixada} = passando(@config)
+
+      vazia = world(%{situation: situation(%{enemies: 0}), hunt: hunt(%{state: :walking})})
+      {logic, sozinho} = Logic.step(logic, vazia, @config, @config.size_ceiling_ms + 400)
+      assert sozinho.phase == :travelling
+
+      proxima =
+        world(%{
+          situation: situation(%{enemies: 2, worth_fighting?: false, growing?: true}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {logic, contando} = Logic.step(logic, proxima, @config, @config.size_ceiling_ms + 600)
+
+      refute logic.state == :skipping
+      refute contando.phase == :skipping
+    end
+
+    # Um ou dois que seguem atrás continuam sendo um ou dois: R1 não mudou.
+    test "com a pilha ainda pequena, segue de mãos baixas" do
+      {logic, _deixada} = passando(@config)
+
+      ainda_pequena =
+        world(%{
+          situation: situation(%{enemies: 2, worth_fighting?: false}),
+          hunt: hunt(%{state: :walking})
+        })
+
+      {_logic, orders} = Logic.step(logic, ainda_pequena, @config, @config.size_ceiling_ms + 400)
+
+      assert orders.phase == :skipping
+      assert orders.route == :go
+    end
   end
 
   describe "hunting without gathering a pile" do

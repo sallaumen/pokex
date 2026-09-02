@@ -129,7 +129,7 @@ defmodule Pokex.Sim.ScoreTest do
       # sobre a pilha grande — a R10 tem o teste dela.
       # E O RENASCIMENTO FIXADO, porque a pergunta é sobre UMA pilha que fecha.
       # Este número era o padrão inventado do `hunt/2` (45s); agora que o padrão
-      # é o do dono (`sim_respawn_ms`, 20s) o cenário vira um fluxo contínuo e a
+      # é o do dono (`Sim.Knobs.respawn_ms/1`, 20s) o cenário vira um fluxo contínuo e a
       # pilha deixa de ser uma. Um teste que depende do mundo declara o mundo.
       # …e AS DE ALVO ÚNICO LIGADAS dos dois lados: desde 27/08 a caçada não as
       # usa por padrão (no jogo dele elas não machucam), mas neste MODELO elas
@@ -237,7 +237,7 @@ defmodule Pokex.Sim.ScoreTest do
   end
 
   # O RENASCIMENTO TEM DONO. `hunt/2` inventava 45s de padrão enquanto
-  # `sim_respawn_ms` — o número que o /sim mostra e que o `Sim.Runner` obedece —
+  # `Sim.Knobs.respawn_ms/1` — o número que o /sim mostra e que o `Sim.Runner` obedece —
   # é 20s. O placar é a coisa com que dois cérebros são comparados, e ele estava
   # comparando os dois num mundo mais vazio do que o simulado.
   test "a caçada do placar renasce no ritmo do dono do número, não num inventado" do

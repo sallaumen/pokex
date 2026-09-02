@@ -80,10 +80,14 @@ defmodule Pokex.Sim.Knobs do
   A map that empties once and stays empty is a single fight wearing a night's
   clothes, and it is what the live tab showed until 2026-08-25. Scenarios that
   need a frozen map still pin `respawn_ms: nil` themselves.
+
+  É do simulador, não do bot — por isso é um número daqui e não um ajuste
+  (era `sim_respawn_ms` no `Settings` até 02/09).
   """
+  @respawn_ms 20_000
+
   @spec respawn_ms(source) :: pos_integer
-  def respawn_ms(:seeds), do: Map.fetch!(Settings.defaults(), :sim_respawn_ms)
-  def respawn_ms(_live), do: Settings.get(:sim_respawn_ms)
+  def respawn_ms(_source), do: @respawn_ms
 
   defp read(knobs, :seeds) do
     seeds = Settings.defaults()

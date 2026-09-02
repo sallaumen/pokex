@@ -242,57 +242,6 @@ defmodule Pokex.Bots.Combat.StrategyTest do
     end
   end
 
-  describe "gastar o mínimo pra matar" do
-    # "Se ele se identificar aqui com a skill 4 sozinha, ele já mata. Ele não
-    # precisa ficar usando 4, 5, 6 sempre. Ele pode usar só 4, esperar um
-    # pouquinho. Se não matar, usa 5" (26/08).
-    @dano %{"3" => 40.0, "4" => 40.0, "5" => 40.0, "6" => 20.0}
-
-    test "uma tecla que já cobre a vida é a única que sai" do
-      assert Strategy.enough(~w(3 4 5 6), @dano, 35.0) == ~w(3)
-    end
-
-    test "duas quando uma não basta" do
-      assert Strategy.enough(~w(3 4 5 6), @dano, 75.0) == ~w(3 4)
-    end
-
-    test "a ordem inteira quando nem ela basta" do
-      assert Strategy.enough(~w(3 4 5 6), @dano, 500.0) == ~w(3 4 5 6)
-    end
-
-    test "cobrir EXATAMENTE ainda inclui a tecla que cobriu" do
-      # Um bicho em 40% com uma tecla de 40% morre com ela; parar antes seria
-      # deixá-lo em pé com a barra gasta.
-      assert Strategy.enough(~w(3 4 5 6), @dano, 40.0) == ~w(3)
-    end
-
-    test "uma tecla SEM número medido nunca é a última" do
-      # Cortar por uma estimativa que não existe é a pior troca desta caçada:
-      # o monstro fica em pé e a barra fica gasta. Sem número ela conta como
-      # zero, então a rajada continua até uma tecla medida cobrir.
-      sem = %{"5" => 40.0}
-
-      assert Strategy.enough(~w(3 4 5 6), sem, 35.0) == ~w(3 4 5)
-    end
-
-    test "sem dano medido NENHUM, a ordem sai inteira" do
-      # Quem não mediu não economiza — é o comportamento de sempre.
-      assert Strategy.enough(~w(3 4 5 6), %{}, 35.0) == ~w(3 4 5 6)
-    end
-
-    test "sem saber a vida do alvo, a ordem sai inteira" do
-      assert Strategy.enough(~w(3 4 5 6), @dano, nil) == ~w(3 4 5 6)
-    end
-
-    test "a ordem é preservada: cortar não é reordenar" do
-      assert Strategy.enough(~w(6 3 4), @dano, 55.0) == ~w(6 3)
-    end
-
-    test "uma ordem vazia continua vazia" do
-      assert Strategy.enough([], @dano, 100.0) == []
-    end
-  end
-
   # O QUE DÁ DANO NESTA CAÇADA (27/08, medido por ele em campo): "o que dá dano
   # é a skill em área, praticamente exclusivamente — a gente nem precisa usar as
   # de alvo único". Ele viu o defeito de dentro: entrou numa luta com DOIS

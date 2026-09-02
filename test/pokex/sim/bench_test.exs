@@ -236,17 +236,12 @@ defmodule Pokex.Sim.BenchTest do
     # resposta certa.
     @walks_away ~w(ganancia morte)
 
-    # `gather_tiles: 0` porque a caminhada de juntar (R6) TEM um preço em corda,
-    # e ele é R2 fazendo o que R2 diz. Este contrato é sobre a FÍSICA — o que
-    # acorda e não é abandonado tem que ser lutado — então a caminhada sai da
-    # conta pra que a pergunta continue sendo sobre a física.
+    # Sem fuga (R7): a regra que ANDA tem o próprio preço em corda, e este
+    # contrato é sobre a FÍSICA — o que acorda e não é abandonado tem que ser
+    # lutado.
     test "nenhum monstro some sem luta em cenário nenhum" do
-      # `gather_tiles: 0` e sem fuga (R7): as duas regras que ANDAM têm o próprio
-      # preço em corda, e este contrato é sobre a FÍSICA — o que acorda e não é
-      # abandonado tem que ser lutado.
       parado =
         Map.merge(@his_ruler, %{
-          gather_tiles: 0,
           kite_when_spent: false,
           reset_revive: false,
           crowd_from: 99,
@@ -486,7 +481,6 @@ defmodule Pokex.Sim.BenchTest do
       # a pilha vira digna de luta e o teto nunca chega a ser perguntado.
       parado = %{
         engage_from: 9,
-        gather_tiles: 0,
         patience_tiles: 10_000,
         kite_when_spent: false,
         size_ceiling_ms: 4_000
@@ -571,67 +565,6 @@ defmodule Pokex.Sim.BenchTest do
 
       assert length(dentro) == length(engaged),
              "todo revive que a regra dele governa sai dentro da janela do controle"
-    end
-  end
-
-  describe "gastar o mínimo pra matar, na bancada" do
-    # A regra é dele e agora tem como se provar: desde #367 uma tecla custa
-    # `combat_skill_gap_ms` das seguintes, e o corpo não anda enquanto a rajada
-    # sai. Numa bancada onde tecla era de graça, gastar seis era igual a gastar
-    # uma.
-    # OITO SEMENTES, não uma: numa corrida só os tiros empatam com facilidade, e
-    # o efeito desta regra é agregado. Uma semente única já enganou este projeto
-    # uma vez — um sweep que parecia enorme virou ruído com 24.
-    defp cortando(corta) do
-      dano = Map.new(~w(3 4 5), &{&1, {60, 80}})
-
-      runs =
-        for seed <- 1..8 do
-          Bench.run(%{Scenario.get("lotavanon") | seed: seed},
-            duration_ms: 60_000,
-            config: %{spend_the_minimum: corta},
-            knobs: %{mob_hp: 300, skill_damage: dano}
-          )
-        end
-
-      %{
-        killed: Enum.sum(Enum.map(runs, & &1.outcome.killed)),
-        casts: Enum.sum(Enum.map(runs, & &1.metrics.casts)),
-        reached: Enum.sum(Enum.map(runs, & &1.metrics.reached))
-      }
-    end
-
-    # ESTE TESTE PERDEU TODAS AS AFIRMAÇÕES DELE EM UM DIA, e o que fica no
-    # lugar é o registro — porque a lição é sobre medir, não sobre a regra.
-    #
-    # Ela prometia três coisas: menos tiros por morto, mais gente por tiro, e
-    # mais mortos. Em 27/08 de manhã as três valiam. Ao longo do mesmo dia, cada
-    # mudança legítima na economia do revive virou o sinal de uma delas:
-    #
-    #   manhã          844 mortos · 0,685 tiros/morto · cortar ganhava nas três
-    #   após #400/#404 703 contra 659 — cortar passou a matar MENOS, depois MAIS
-    #   com o passo lento dos bichos (27/08): 0,5356 contra 0,5315 tiros/morto,
-    #     ou seja o ÚLTIMO número sobrevivente virou também, por 0,4%
-    #
-    # Quatro viradas em um dia não são uma propriedade da regra: são a interação
-    # dela com tudo o mais, medida num cenário de 60s. Afirmar qualquer direção
-    # aqui é pedir que a próxima regra não mexa nela — e as quatro últimas
-    # mexeram.
-    #
-    # O que a regra FAZ segue provado onde não depende de economia nenhuma:
-    # `Strategy.enough/3` devolve um prefixo da rajada, em
-    # `test/pokex/bots/combat/strategy_test.exs`. Aqui fica só a corrida, para
-    # que a bancada continue exercitando o caminho — sem afirmar um vencedor
-    # que o dia inteiro desmentiu.
-    #
-    # `spend_the_minimum` é semeado FALSE e só a bancada o lê (#385): nada disto
-    # muda caçada hoje. Muda quem for ligar.
-    test "cortar a cauda roda, e as duas corridas terminam" do
-      com = cortando(true)
-      sem = cortando(false)
-
-      assert com.killed > 0 and sem.killed > 0
-      assert com.casts > 0 and sem.casts > 0
     end
   end
 

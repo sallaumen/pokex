@@ -159,7 +159,7 @@ defmodule Pokex.Sim.Score do
   @spec hunt(Scenario.t(), keyword) :: map
   def hunt(%Scenario{} = scenario, opts \\ []) do
     minutes = Keyword.get(opts, :minutes, 5)
-    # O RENASCIMENTO TEM DONO, e não é este arquivo: `sim_respawn_ms` é o número
+    # O RENASCIMENTO TEM DONO, e não é este arquivo: `Sim.Knobs.respawn_ms/1` é o número
     # que a tela mostra e que o `Sim.Runner` obedece. Inventados aqui, 45s
     # faziam o placar — a coisa com que dois cérebros são comparados — medir os
     # dois num mundo mais vazio do que o simulado. Só três dos doze cenários

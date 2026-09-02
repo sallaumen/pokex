@@ -219,10 +219,14 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # O TETO NUMA PILHA QUE VALE ABRE. Até 02/09 pulava com "não vale a área"
     # — mentindo, porque valia — e era o que fazia subir a paciência ser
     # perigoso: passos a mais que estourassem o teto viravam pilha deixada.
+    # Sem o piso de passos (02/09), quem segura a juntada é o alvo do bolo: a
+    # pilha abaixo dele junta, e o teto é quem a abre.
+    @juntando Config.merge(%{bunch_ms: 0, gather_target: 6})
+
     test "a pile worth fighting, past the ceiling, opens instead of being skipped" do
       worth =
         situation(%{
-          enemies: 6,
+          enemies: 5,
           worth_fighting?: true,
           growing?: true,
           stable_for_ms: 0,
@@ -231,8 +235,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       w = world(%{situation: worth, hunt: hunt(%{state: :fighting})})
 
-      {logic, _} = step(w, 1_000)
-      {logic, orders} = step(logic, w, 1_000 + @config.size_ceiling_ms)
+      {logic, _} = Logic.step(Logic.new(), w, @juntando, 1_000)
+      {logic, orders} = Logic.step(logic, w, @juntando, 1_000 + @juntando.size_ceiling_ms)
 
       refute logic.state == :skipping
       assert orders.fire == :free
@@ -243,37 +247,18 @@ defmodule Pokex.Bots.Engine.LogicTest do
       arriving = situation(%{enemies: 4, growing?: true, stable_for_ms: 0, walked: 0})
       w = world(%{situation: arriving, hunt: hunt(%{state: :fighting})})
 
-      {logic, orders} = step(w, 1_000)
+      {logic, orders} = Logic.step(Logic.new(), w, @juntando, 1_000)
 
       assert logic.state == :gathering
       assert orders.fire == :hold
       assert orders.why =~ "juntando"
     end
 
-    # R6, a frase dele inteira: "andei dois passos e achei três inimigos, só que
-    # eu só andei dois passos. Que que custa eu andar mais 5 passos?"
-    test "and the steps are what close it, not the clock" do
-      w = fn walked ->
-        world(%{
-          situation: situation(%{enemies: 3, growing?: true, stable_for_ms: 0, walked: walked}),
-          hunt: hunt(%{state: :fighting})
-        })
-      end
-
-      {logic, dois} = step(w.(2), 1_000)
-      assert dois.phase == :gathering
-      assert dois.why =~ "2 de #{@config.gather_tiles} passos"
-
-      {_logic, seis} = step(logic, w.(@config.gather_tiles), 1_200)
-      assert seis.phase == :engaged
-      assert seis.why =~ "passos juntando"
-    end
-
     test "a pile that stopped growing, but not for long enough, is still gathered" do
       settling = situation(%{stable_for_ms: 900, walked: 0})
       w = world(%{situation: settling, hunt: hunt(%{state: :fighting})})
 
-      {logic, orders} = step(w, 1_000)
+      {logic, orders} = Logic.step(Logic.new(), w, @juntando, 1_000)
 
       assert logic.state == :gathering
       assert orders.fire == :hold
@@ -1535,9 +1520,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # R1 manda ignorar um ou dois e seguir a vida. Só que quem vem atrás morde o
   # caminho inteiro, e a fase que anda BATENDO mata mais por minuto no bench.
   # A chave existe pra ele decidir, com o número na frente.
-  describe "bater em quem vem junto ao deixar a pilha" do
-    @batendo Config.merge(%{skip_fire: true})
-
+  describe "deixar a pilha pra trás" do
     defp passando(config) do
       pequena =
         world(%{
@@ -1551,20 +1534,14 @@ defmodule Pokex.Bots.Engine.LogicTest do
       end)
     end
 
-    test "por padrão passa de mãos baixas: a régua é dele" do
+    # "Bater em quem vem junto" existiu como régua e foi medido como nada
+    # (#489); saiu em 02/09. Passa de mãos baixas, sempre.
+    test "passa de mãos baixas: a régua é dele" do
       {_logic, orders} = passando(@config)
 
       assert orders.phase == :skipping
-      assert orders.fire == :hold
-    end
-
-    test "ligada, bate — e só com as teclas de alvo único" do
-      {_logic, orders} = passando(@batendo)
-
-      assert orders.phase == :skipping
       assert orders.route == :go
-      assert orders.fire == :free
-      assert orders.opening == ~w(7 8 9), "a área é o que a régua está guardando"
+      assert orders.fire == :hold
     end
   end
 
@@ -1596,7 +1573,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
           hunt: hunt(%{state: :fighting})
         })
 
-      {_logic, orders} = step(world, 1_000)
+      {_logic, orders} = Logic.step(Logic.new(), world, Config.merge(%{bunch_ms: 0}), 1_000)
 
       refute orders.fire == :free
     end
@@ -1881,7 +1858,6 @@ defmodule Pokex.Bots.Engine.LogicTest do
   describe "a espera antes de estourar a área" do
     @espera Config.merge(%{
               bunch_ms: 2_000,
-              bunch_walk_tiles: 0,
               gather_target: 1,
               gather_piles: false,
               engage_from: 2
@@ -1950,7 +1926,6 @@ defmodule Pokex.Bots.Engine.LogicTest do
             gather_target: 6,
             gather_piles: true,
             engage_from: 2,
-            bunch_walk_tiles: 5,
             bunch_ms: 6_000,
             patience_tiles: 50
           })
@@ -1992,22 +1967,17 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.phase in [:bunching, :engaged]
     end
 
-    # "Estranhamente, ele está parando de andar": parar no instante em que a
-    # janela fecha era o defeito.
-    test "a espera ANDA os primeiros passos, de fogo segurado" do
+    # Até 02/09 a espera ANDAVA cinco passos antes de parar; desde "não dar
+    # mais nenhum passo, deixar os bichos virem até mim" ela é parada do
+    # primeiro tique, e o relógio termina o serviço.
+    test "a espera é PARADA, de fogo segurado, e o relógio abre" do
       {logic, primeiro} = Logic.step(Logic.new(), juntando(6, 30), @bolo, 1_000)
 
-      assert primeiro.route == :go, "ainda tem passo pra arrastar o bolo"
+      assert primeiro.phase == :bunching
+      assert primeiro.route == :hold
       assert primeiro.fire == :hold
-      assert primeiro.why =~ "passo(s) pra puxar eles"
 
-      # cinco passos depois, ela para
-      {logic, parado} = Logic.step(logic, juntando(6, 35), @bolo, 2_000)
-      assert parado.route == :hold
-      assert parado.fire == :hold
-
-      # e o relógio termina o serviço
-      {_logic, fogo} = Logic.step(logic, juntando(6, 35), @bolo, 8_000)
+      {_logic, fogo} = Logic.step(logic, juntando(6, 30), @bolo, 8_000)
       assert fogo.phase == :engaged
       assert fogo.fire == :free
     end
@@ -2277,7 +2247,6 @@ defmodule Pokex.Bots.Engine.LogicTest do
     @mob Config.merge(%{
            gather_piles: true,
            gather_target: 4,
-           bunch_walk_tiles: 2,
            bunch_ms: 3_000,
            engage_from: 3,
            crowd_from: 99,
@@ -2300,23 +2269,21 @@ defmodule Pokex.Bots.Engine.LogicTest do
       })
     end
 
-    test "a régua fecha, os passos de arrasto CONTAM, e o fogo sai" do
+    test "a régua fecha, a espera é parada e não reinicia, e o fogo sai" do
       # mobando: a pilha chega no alvo com 10 passos andados
       {logic, _} = mob_step(Logic.new(), trecho(9, 3), 1_000)
       {logic, abriu} = mob_step(logic, trecho(10, 4), 1_200)
       assert abriu.phase in [:bunching, :engaged], "a régua fechou e nada abriu"
+      assert abriu.route == :hold
 
-      # os passos de arrasto descontam de verdade (2 configurados)
-      {logic, meio} = mob_step(logic, trecho(11, 4), 1_400)
-      refute meio.why =~ "mais 2 passo", "o arrasto recomeçou do zero — o flip voltou"
-
-      {logic, fim_arrasto} = mob_step(logic, trecho(12, 4), 1_600)
-      assert fim_arrasto.phase == :bunching
-      refute fim_arrasto.why =~ "passo(s) pra puxar", "andou 2 e ainda pede passo"
+      # o tique seguinte NÃO reabre a juntada por cima da espera (o flip de 30/08)
+      {logic, meio} = mob_step(logic, trecho(10, 4), 1_400)
+      assert meio.phase == :bunching
+      assert meio.route == :hold
 
       # vencida a espera do bolo, o fogo LIBERA — mesmo com o trecho de mob
       # ainda marcado na rota
-      {_logic, fogo} = mob_step(logic, trecho(12, 4), 6_000)
+      {_logic, fogo} = mob_step(logic, trecho(10, 4), 6_000)
       assert fogo.phase == :engaged
       assert fogo.fire == :free
     end

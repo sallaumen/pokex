@@ -35,21 +35,19 @@ defmodule PokexWeb.ConfigLiveTest do
     {:ok, _view, html} = live(conn, ~p"/config")
 
     assert html =~ "cfg-row-revive_stock"
-    assert html =~ "Revives no bolso"
-    assert html =~ "botão de repor"
+    assert html =~ "Revives na bag"
+    assert html =~ "é repor"
   end
 
   test "o logout automático do personagem tem a própria linha", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/config")
 
     assert html =~ "cfg-row-player_hp_logout"
-    # A RÉGUA INTEIRA na página (02/09): ele quis subir os "10 passos" e não
-    # tinha onde. E a linha diz quando o modo Econômico sobrepõe o número.
+    # A régua na página (02/09): ele quis subir os "10 passos" e não tinha
+    # onde. E a linha diz, embaixo do rótulo, o que o Econômico força.
     assert html =~ "cfg-row-engine_patience_tiles"
-    assert html =~ "cfg-row-engine_size_ceiling_ms"
-    assert html =~ "cfg-row-cavebot_gather_wait_ms"
-    assert html =~ "econômico força desligado"
-    assert html =~ "Logout automático"
+    assert html =~ "no Econômico: desligado"
+    assert html =~ "Sair do jogo se a sua vida cair"
   end
 
   describe "a busca" do
@@ -58,7 +56,7 @@ defmodule PokexWeb.ConfigLiveTest do
 
       html = view |> element("form[phx-change=search]") |> render_change(%{q: "revive_stock"})
 
-      assert html =~ "Revives no bolso"
+      assert html =~ "Revives na bag"
       refute html =~ "Tecla da vara"
     end
 
@@ -237,35 +235,90 @@ defmodule PokexWeb.ConfigLiveTest do
     end
   end
 
-  # "eu acredito que você pode encontrar e deixar isso configurável ali pra mim,
-  # porque hoje eu não consigo mudar até onde eu sei na parte de settings"
-  # (Lucas, 29/08). Ele estava certo: a espera existia no Settings desde o #429
-  # e nunca teve linha na tela.
-  describe "a espera entre o controle e o revive" do
-    test "tem linha, e o número salvo é o número em ms", %{conn: conn} do
-      {:ok, view, html} = live(conn, ~p"/config")
+  # AUDITORIA DE 02/09: "tudo muito grande, descrições não claras (…) se não
+  # faz sentido ser configurável, usa constante no código e mostra ali só pra
+  # eu saber que existe". Cada chave do Settings tem UM destino — linha,
+  # constante ou outra página — e nenhuma fica escondida.
+  describe "nenhuma chave escondida" do
+    test "toda chave do Settings é linha, constante ou de outra página" do
+      esperadas = Settings.defaults() |> Map.keys() |> MapSet.new()
+      conhecidas = MapSet.new(PokexWeb.ConfigLive.known_keys())
 
-      assert html =~ "cfg-row-rescue_stun_settle_ms"
-      assert html =~ "espera dormirem"
-
-      html =
-        view
-        |> element("#cfg-row-rescue_stun_settle_ms form")
-        |> render_change(%{"rescue_stun_settle_ms" => "1500"})
-
-      assert Settings.get(:rescue_stun_settle_ms) == 1_500
-      assert html =~ "hero-check-circle"
+      assert MapSet.difference(esperadas, conhecidas) |> MapSet.to_list() == []
+      assert MapSet.difference(conhecidas, esperadas) |> MapSet.to_list() == []
     end
 
-    # O `:sec` é inteiro: 1500ms apareceria como "1" e o primeiro toque na linha
-    # salvaria 1000 por cima do ajuste dele, sem avisar. É por isso que esta
-    # linha é `:ms` e não segundos.
-    test "e a tela mostra 1500, não 1", %{conn: conn} do
-      Settings.put(:rescue_stun_settle_ms, 1_500)
+    test "uma chave não tem dois destinos" do
+      chaves = PokexWeb.ConfigLive.known_keys()
+      assert chaves -- Enum.uniq(chaves) == []
+    end
 
+    test "uma linha editável nunca é uma constante", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/config")
 
-      assert html =~ ~s(value="1500")
+      for key <- Pokex.Settings.Locked.keys() do
+        refute html =~ "cfg-row-#{key}", "#{key} tem campo e está travada"
+      end
     end
+  end
+
+  describe "as constantes" do
+    # A espera do controle era uma linha (29/08) e virou constante: medida no
+    # jogo, não é dele decidir.
+    test "aparecem travadas, com valor e porquê, e sem campo", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/config")
+
+      assert html =~ "cfg-constantes"
+      assert html =~ "cfg-const-rescue_stun_settle_ms"
+      refute html =~ "cfg-row-rescue_stun_settle_ms"
+      refute html =~ ~s(name="rescue_stun_settle_ms")
+      assert html =~ "o sono leva"
+    end
+
+    test "a busca acha uma constante pelo nome", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/config")
+
+      html = view |> element("form[phx-change=search]") |> render_change(%{q: "blackout"})
+
+      assert html =~ "cfg-const-rescue_blackout_ms"
+      refute html =~ "cfg-row-revive_stock"
+    end
+  end
+
+  describe "o que o modo decide" do
+    test "juntar andando não tem campo: mostra o valor em cada modo", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/config")
+
+      refute html =~ "cfg-row-engine_gather_piles"
+      assert html =~ "cfg-mode-engine_gather_piles"
+      assert html =~ "Auto Combo: desligado"
+      assert html =~ "Econômico: desligado"
+    end
+  end
+
+  describe "o que mora em outra página" do
+    test "captura, bolas e varredura apontam pros Editores em vez de duplicar", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/config")
+
+      refute html =~ "cfg-row-ball_key"
+      refute html =~ "cfg-row-sweep_enabled"
+      assert html =~ "cfg-row-capture_enabled"
+      assert html =~ "/config/editores"
+      assert html =~ "/cavebot"
+    end
+  end
+
+  # ESCONDIDA E MEXIDA: ele tinha posto 5s no arquivo sem ter onde ver.
+  test "a espera da fuga ganhou linha", %{conn: conn} do
+    SettingsStash.stash_keys!([:escape_walk_wait_ms])
+    {:ok, view, html} = live(conn, ~p"/config")
+
+    assert html =~ "cfg-row-escape_walk_wait_ms"
+
+    view
+    |> element("#cfg-row-escape_walk_wait_ms form")
+    |> render_change(%{"escape_walk_wait_ms" => "5"})
+
+    assert Settings.get(:escape_walk_wait_ms) == 5_000
   end
 end

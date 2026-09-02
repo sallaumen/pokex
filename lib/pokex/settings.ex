@@ -26,6 +26,7 @@ defmodule Pokex.Settings do
   require Logger
 
   alias Pokex.Settings.Legacy
+  alias Pokex.Settings.Locked
 
   @seed_settings %{
     # Active character slug (see Pokex.Characters). "" = no character selected — per-character
@@ -60,7 +61,8 @@ defmodule Pokex.Settings do
     combat_skill_tap_count: 1,
     # ESCOLHA DELE (26/08): "usa um gap universal de uns 300ms acho que é suficiente".
     combat_skill_gap_ms: 300,
-    combat_skill_jitter_ms: 20,
+    # 20 → 100: o valor que ele roda desde a calibração (02/09).
+    combat_skill_jitter_ms: 100,
     # QUANTO O MODIFICADOR SEGURA ANTES DA TECLA, nas combinações tipo `shift+1`.
     key_modifier_settle_ms: 30,
     # --- Skill-bar cooldown tracking (SkillBar reads the hotbar per-process) ---
@@ -188,7 +190,8 @@ defmodule Pokex.Settings do
     target_locked_min_pixels: 120,
     # Consecutive ticks the enemy must be GONE from the Battle list before the fight is
     # declared over — filters a 1-frame HP-bar blink on a hit/death animation.
-    target_lost_streak: 2,
+    # 2 → 1: o valor que ele roda (02/09).
+    target_lost_streak: 1,
     # What the bot DOES when the overlay opens (see Pokex.Bots.MiniGame.Mode): "manual_assist"
     # (default, safe: detect + hold the other workers + alert, Lucas plays),
     mini_game_mode: "manual_assist",
@@ -759,6 +762,10 @@ defmodule Pokex.Settings do
 
   def defaults, do: @seed_settings
 
+  @doc "Esta chave é uma constante — existe, aparece, e o arquivo não manda nela?"
+  @spec locked?(atom) :: boolean
+  defdelegate locked?(key), to: Locked
+
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
       nil -> GenServer.start_link(__MODULE__, opts)
@@ -821,6 +828,7 @@ defmodule Pokex.Settings do
     after_kill_hold_ms: 0..600_000,
     scenery_ttl_ms: 1_000..3_600_000,
     target_lost_streak: 1..99,
+    escape_walk_wait_ms: 0..30_000,
     combat_aoe_from_enemies: 1..20,
     combat_shield_from_enemies: 1..20,
     timers_tick_ms: 100..60_000,
@@ -1223,6 +1231,10 @@ defmodule Pokex.Settings do
       for {key_string, value} <- json,
           key = known_key(key_string),
           key in keys,
+          # UMA CONSTANTE NÃO VEM DO ARQUIVO: o número é o do código
+          # (`Pokex.Settings.Locked`). Um override antigo dela fica no disco
+          # até a próxima escrita, que não o leva junto.
+          not Locked.locked?(key),
           # A JSON null is file corruption, never a legitimate override — keeping
           # it would make Settings.get return nil to code expecting a number.
           not is_nil(value),
@@ -1310,7 +1322,12 @@ defmodule Pokex.Settings do
 
     body =
       foreign
-      |> Map.merge(Map.new(data, fn {key, value} -> {Atom.to_string(key), value} end))
+      |> Map.merge(
+        for {key, value} <- data,
+            not Locked.locked?(key),
+            into: %{},
+            do: {Atom.to_string(key), value}
+      )
       # O CRACHÁ, em toda escrita: o alfabeto que ESTA build conhece.
       |> Map.put(@alphabet_key, Enum.map(@setting_keys, &Atom.to_string/1))
       |> JSON.encode!()

@@ -707,6 +707,81 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert espera.route == :hold
     end
 
+    # PASSO 3-4 DO CICLO DELE: enquanto a corrente sai, o cérebro inteiro para.
+    # "Ele não pode sair andando" — andar na janela chama bicho novo pra cima
+    # de um revive que vem em segundos. Na noite de 02/09 o "pilha limpa —
+    # seguindo a rota" saía DENTRO da janela, e o F4 caía já andando.
+    test "com a corrente saindo, a rota para — mesmo com a caçada andando ou juntando" do
+      for hunt <- [hunt(%{state: :walking}), hunt(%{state: :walking, luring?: true})] do
+        mundo =
+          world(%{
+            situation: situation(%{enemies: 0, combo_left_ms: 2_500, spent?: true, own_hp: 100}),
+            hunt: hunt,
+            hands: %{opening: ["r"], single: [], crowd: []}
+          })
+
+        {logic, ordens} = reset_step(Logic.new(), mundo, 10_000)
+
+        assert ordens.route == :hold
+        assert ordens.fire == :free
+        assert ordens.why =~ "corrente saindo"
+        assert logic.state == :engaged
+      end
+    end
+
+    # …abaixo do VERMELHO de propósito: o chão de segurança nunca espera a
+    # corrente.
+    test "vermelho no meio da corrente ainda revive" do
+      mundo =
+        world(%{
+          situation: situation(%{enemies: 3, combo_left_ms: 2_500, spent?: true, own_hp: 20}),
+          hunt: hunt(%{state: :fighting}),
+          hands: %{opening: ["r"], single: [], crowd: []}
+        })
+
+      {_logic, ordens} = reset_step(Logic.new(), mundo, 10_000)
+
+      assert ordens.revive == :now
+      assert ordens.phase == :emergency
+    end
+
+    # O CICLO INTEIRO, como ele descreveu: corrente → parado → acabou → revive →
+    # barra de volta na foto → sobrou bicho: corrente de novo; sobrou nada: anda.
+    test "o ciclo fecha: corrente, revive, foto, e a corrente de novo se sobrou bicho" do
+      mundo = fn overrides ->
+        world(%{
+          situation:
+            situation(Map.merge(%{combo_left_ms: 0, spent?: true, own_hp: 100}, overrides)),
+          hunt: hunt(%{state: :fighting}),
+          hands: %{opening: ["r"], single: [], crowd: []}
+        })
+      end
+
+      {logic, saindo} =
+        reset_step(Logic.new(), mundo.(%{enemies: 5, combo_left_ms: 2_000}), 10_000)
+
+      assert saindo.route == :hold
+
+      {logic, pedido} = reset_step(logic, mundo.(%{enemies: 2}), 12_100)
+      assert pedido.revive == :now
+
+      {logic, espera} = reset_step(logic, mundo.(%{enemies: 2, bar_seen?: true}), 12_500)
+      assert espera.phase == :resetting
+      assert espera.route == :hold
+
+      {logic, de_novo} =
+        reset_step(logic, mundo.(%{enemies: 2, spent?: false, bar_seen?: true}), 13_500)
+
+      assert de_novo.fire == :free
+      assert de_novo.route == :hold
+      assert "r" in de_novo.opening
+
+      {_logic, andando} =
+        reset_step(logic, mundo.(%{enemies: 0, spent?: false, bar_seen?: true}), 14_000)
+
+      assert andando.route == :go
+    end
+
     # Sem combo nenhum (todo modo que não é o Auto Combo) a regra não existe:
     # `nil` é ausência, não uma corrente de duração zero.
     test "sem corrente, nada muda" do

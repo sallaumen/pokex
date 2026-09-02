@@ -1671,6 +1671,76 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
   end
 
+  # 17:06 de 02/09: a vida do pokémon não foi lida a caçada inteira, o reset
+  # do fim da corrente foi recusado por isso e sobrou a retirada. "Ao fim do
+  # combo é o momento PERFEITO pra usar o revive — os monstros ao redor já
+  # ficam stunados."
+  describe "o fim da corrente sem leitura da vida" do
+    defp fim_da_corrente(own_out?, spent? \\ true) do
+      world(%{
+        situation:
+          situation(%{
+            enemies: 2,
+            spent?: spent?,
+            own_out?: own_out?,
+            own_hp: nil,
+            combo_left_ms: 0,
+            worth_fighting?: true
+          }),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    test "vida ilegível não bloqueia o revive: sai, parado, e diz por quê" do
+      {_logic, orders} = Logic.step(Logic.new(), fim_da_corrente(:unknown), @config, 1_000)
+
+      assert orders.revive == :now, orders.why
+      assert orders.route == :hold
+      assert orders.why =~ "sem leitura da vida"
+      refute orders.route == :back
+    end
+
+    test "o chão PROVADO continua sendo o caído, não o reset" do
+      {_logic, orders} = Logic.step(Logic.new(), fim_da_corrente(false), @config, 1_000)
+
+      assert orders.phase == :downed
+    end
+
+    test "com a barra ainda cheia, nada de revive" do
+      {_logic, orders} = Logic.step(Logic.new(), fim_da_corrente(:unknown, false), @config, 1_000)
+
+      assert orders.revive == :hold
+    end
+
+    # "É legal ter aviso disso pra evitar de eu fazer merda por não saber que ele
+    # não tá pegando dados corretos — não iniciar o cavebot e talz."
+    test "oito segundos sem leitura da vida param a caçada, e a leitura de volta solta" do
+      cego = fim_da_corrente(:unknown, false)
+
+      {logic, cedo} = Logic.step(Logic.new(), cego, @config, 1_000)
+      refute cedo.phase == :stranded
+
+      {logic, parou} = Logic.step(logic, cego, @config, 9_500)
+      assert parou.phase == :stranded
+      assert parou.route == :hold
+      assert parou.why =~ "recalibre"
+
+      lido = put_in(cego.situation.own_hp, 90) |> put_in([:situation, :own_out?], true)
+      {logic, voltou} = Logic.step(logic, lido, @config, 9_700)
+      refute voltou.phase == :stranded
+      assert logic.hp_blind_since == nil
+    end
+
+    test "o chão provado não conta como cegueira" do
+      caido = fim_da_corrente(false, false)
+
+      {logic, _} = Logic.step(Logic.new(), caido, @config, 1_000)
+      {_logic, orders} = Logic.step(logic, caido, @config, 9_500)
+
+      assert orders.phase == :downed
+    end
+  end
+
   describe "deixar a pilha pra trás" do
     defp passando(config) do
       pequena =

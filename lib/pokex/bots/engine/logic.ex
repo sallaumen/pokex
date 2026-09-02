@@ -176,7 +176,10 @@ defmodule Pokex.Bots.Engine.Logic do
             reset_strikes: 0,
             # quantos tiles já tinham sido andados quando a fuga da R7 começou —
             # é como se sabe se ela está andando de verdade
-            kite_from: nil
+            kite_from: nil,
+            # desde quando a barra do pokémon não é lida (fora do chão provado);
+            # campo próprio porque `since` é zerado a cada rodada
+            hp_blind_since: nil
 
   @type t :: %__MODULE__{}
   @type orders :: Orders.t()
@@ -203,7 +206,7 @@ defmodule Pokex.Bots.Engine.Logic do
     situation = world.situation
 
     %{
-      logic: logic,
+      logic: track_hp_blind(logic, situation, now),
       s: situation,
       hunt: Map.get(world, :hunt),
       hands: Map.get(world, :hands) || %{},
@@ -211,6 +214,35 @@ defmodule Pokex.Bots.Engine.Logic do
       now: now,
       band: band(situation, config)
     }
+  end
+
+  # A CEGUEIRA DA VIDA, cronometrada: desde quando a barra do pokémon não é
+  # lida, fora do chão provado (ali ela some porque o pokémon caiu). Some
+  # assim que uma leitura volta.
+  defp track_hp_blind(%{hp_blind_since: nil} = logic, %{own_hp: nil, own_out?: out}, now)
+       when out != false,
+       do: %{logic | hp_blind_since: now}
+
+  defp track_hp_blind(logic, %{own_hp: nil, own_out?: out}, _now) when out != false, do: logic
+  defp track_hp_blind(logic, _lida_ou_chao, _now), do: %{logic | hp_blind_since: nil}
+
+  @hp_blind_stop_ms 8_000
+
+  defp hp_blind_out?(%{logic: %{hp_blind_since: since}, now: now}) when is_integer(since),
+    do: now - since >= @hp_blind_stop_ms
+
+  defp hp_blind_out?(_lida), do: false
+
+  defp hp_blind_stop(t) do
+    segundos = div(t.now - t.logic.hp_blind_since, 1_000)
+
+    {%{t.logic | state: :stranded},
+     Orders.standing(
+       :stranded,
+       t.band,
+       "sem leitura da vida do pokémon há #{segundos}s — parando a caçada: a UI mudou? " <>
+         "recalibre o painel Pokémon antes de seguir"
+     )}
   end
 
   # THE PRIORITY, as one list. It used to be split across three function heads
@@ -279,6 +311,13 @@ defmodule Pokex.Bots.Engine.Logic do
       # does not mean no pokémon": while fishing, a fresh `revive: :hold` would
       # silently outrank the support's own ladder.
       is_nil(t.hunt) -> guarding(t)
+      # A CAÇADA NÃO CONTINUA CEGA. "É legal ter aviso disso pra evitar de eu
+      # fazer merda por não saber que ele não tá pegando dados corretos — não
+      # iniciar o cavebot e talz" (02/09, depois de mover a UI e caçar 30s com
+      # a vida sem leitura). Oito segundos sem a barra do pokémon e a mesma
+      # fase do freio do chão: a rota segura e a frota bloqueia até gente
+      # recalibrar. O alarme (3s, no worker) vem antes; isto é o que garante.
+      hp_blind_out?(t) -> hp_blind_stop(t)
       # O ESPECIAL ACORDADO NÃO ESPERA BANDA NENHUMA.
       #
       # Medido na bancada (01/09, shinies empilhando): das 29,3s às 34,9s o
@@ -1331,7 +1370,7 @@ defmodule Pokex.Bots.Engine.Logic do
     hp = Map.get(t.s, :player_hp)
     drop = Map.get(t.s, :player_drop, 0)
 
-    t.s.spent? == true and t.s.own_out? == true and is_integer(hp) and
+    t.s.spent? == true and t.s.own_out? != false and is_integer(hp) and
       (drop >= 10 or (hp <= t.config.player_floor_pct and drop > 0)) and
       not Map.has_key?(t.logic.since, :reset_pending)
   end
@@ -1548,8 +1587,13 @@ defmodule Pokex.Bots.Engine.Logic do
   # `combo_left_ms == 0` só existe no Auto Combo (fora dele é `nil`): a
   # corrente acabou ou nunca saiu — e com a barra gasta as duas pedem o mesmo.
   # O chefe tem o ciclo dele; o desarme e o orçamento continuam valendo.
+  # `own_out? != false`, não `== true`: a vida ILEGÍVEL não é um pokémon na
+  # bola. Às 17:06 de 02/09 a barra não foi lida a caçada inteira, o reset foi
+  # recusado por isso e sobrou a retirada — "ao fim do combo é o momento
+  # PERFEITO pra usar o revive, os monstros ao redor já ficam stunados". Só o
+  # chão PROVADO (`false`) recusa, e esse já tem o próprio caminho (`downed`).
   defp combo_reset_due?(t) do
-    Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? == true and
+    Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? != false and
       not heavy?(t) and t.logic.reset_broken_at == nil and
       elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and affordable?(t)
   end
@@ -1579,10 +1623,16 @@ defmodule Pokex.Bots.Engine.Logic do
      Orders.standing(
        :resetting,
        t.band,
-       "combo acabou com a barra gasta — revive agora, #{count(t.s)} ainda no sono",
+       "combo acabou com a barra gasta — revive agora, #{count(t.s)} ainda no sono" <>
+         sem_vida_note(t),
        revive: :now
      )}
   end
+
+  defp sem_vida_note(%{s: %{own_hp: nil}}),
+    do: " (sem leitura da vida — a corrente deixou todos no sono, revivo pelo relógio)"
+
+  defp sem_vida_note(_lida), do: ""
 
   # A ESPERA, parada. Até 02/09 ela tinha uma primeira metade que andava
   # ("mais uns 5 passos" pra arrastar o bolo, 27/08); com "não dar mais nenhum
@@ -1750,7 +1800,7 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp reset_revive?(t) do
     t.config.reset_revive and not mid_combo?(t) and t.s.spent? == true and
-      t.s.own_out? == true and
+      t.s.own_out? != false and
       is_integer(t.s.enemies) and t.s.enemies >= t.config.engage_from and
       healthy_enough?(t) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
       affordable?(t)

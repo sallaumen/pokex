@@ -65,6 +65,12 @@ defmodule Pokex.Bots.Engine.Worker do
       running?: false,
       timer: nil,
       picture: nil,
+      # A VIDA DO POKÉMON SEM LEITURA: desde quando, e quando foi dito. Às
+      # 17:06 de 02/09 a caçada inteira rodou com `hp=None` e ninguém avisou —
+      # revive, cura e defesa cegos, e o feed em silêncio.
+      hp_blind_since: nil,
+      hp_blind_said_at: nil,
+      hp_blind_after_ms: Keyword.get(opts, :hp_blind_after_ms, 3_000),
       logic: Logic.new(),
       orders: nil,
       # the pokémon on the field: its name is how the own row is told from an
@@ -182,10 +188,38 @@ defmodule Pokex.Bots.Engine.Worker do
 
     state
     |> narrate(picture, orders)
+    |> watch_hp_blindness(picture, now)
     |> sample_vitals(picture, orders, now, config, mode)
     |> Map.merge(%{picture: picture, orders: orders, logic: logic})
     |> tap(&broadcast({:engine, &1.picture, &1.orders}))
   end
+
+  # A CEGUEIRA DITA EM VOZ ALTA. A barra do pokémon sem leitura por mais que
+  # `hp_blind_after_ms` durante a caçada é o suporte inteiro fora do ar — e o
+  # chão PROVADO (`own_out? == false`) fica de fora: ali a barra some porque o
+  # pokémon caiu, e quem fala é o `downed`.
+  @hp_blind_repeat_ms 30_000
+
+  defp watch_hp_blindness(state, %{own_hp: nil, own_out?: out}, now) when out != false do
+    since = state.hp_blind_since || now
+    said = state.hp_blind_said_at
+
+    if now - since >= state.hp_blind_after_ms and
+         (said == nil or now - said >= @hp_blind_repeat_ms) do
+      text =
+        "🩸 sem leitura da vida do pokémon há #{div(now - since, 1_000)}s — revive, cura e " <>
+          "defesa estão cegos; confira o painel Pokémon e a calibração"
+
+      log(:macro, text)
+      Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:rule_alarm, :hp, text})
+      %{state | hp_blind_since: since, hp_blind_said_at: now}
+    else
+      %{state | hp_blind_since: since}
+    end
+  end
+
+  defp watch_hp_blindness(state, _hp_lida_ou_chao, _now),
+    do: %{state | hp_blind_since: nil, hp_blind_said_at: nil}
 
   # --- VITALS: the four numbers the simulator is still guessing at -------------
   #

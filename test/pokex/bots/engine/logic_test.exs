@@ -1624,6 +1624,36 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "sem esperar juntar"
     end
 
+    # "Ele vê 1 inimigo, fica parado uns segundos, diz que desistiu e volta a
+    # andar; segundo sem ação, só parado, é ruim" (02/09). Abaixo do "encara"
+    # a rota segue, contando; no tique em que enche, para e abre.
+    test "below the ruler the route keeps going, counting — and stops the tick it fills" do
+      contando =
+        Config.merge(%{gather_piles: false, engage_from: 3, bunch_ms: 0, gather_target: 3})
+
+      um =
+        world(%{
+          situation: situation(%{enemies: 1, worth_fighting?: false, growing?: true}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {logic, andando} = Logic.step(Logic.new(), um, contando, 1_000)
+      assert andando.phase == :sizing
+      assert andando.route == :go
+      assert andando.fire == :hold
+      assert andando.why =~ "seguindo a rota"
+
+      tres =
+        world(%{
+          situation: situation(%{enemies: 3, worth_fighting?: true}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {_logic, parou} = Logic.step(logic, tres, contando, 1_400)
+      assert parou.route == :hold
+      assert parou.fire == :free
+    end
+
     test "the same picture with gathering ON waits instead" do
       world =
         world(%{

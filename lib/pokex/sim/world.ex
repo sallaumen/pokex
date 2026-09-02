@@ -98,6 +98,13 @@ defmodule Pokex.Sim.World do
     # on the field the character cannot be hurt at all. The danger starts when
     # it falls — which is what finally puts a price on a slow revive.
     player_bite_dmg: 6,
+    # O MODO HARD, pedido em 02/09: "coloca meu personagem com tipo 1 de HP;
+    # se não fizer algo 100% seguro, ele morre no simulador (…) esse período
+    # de menos de 1s que o revive me deixa exposto, eu já tomo um jato de água
+    # na cara e morro". Com 1, a PRIMEIRA mordida que chegar nele durante o
+    # campo vazio é a morte — que é a régua que ele joga de verdade. 100 é o
+    # mundo de sempre.
+    player_hp: 100,
     # invented number, HIS rule (R2): "fazer eles andarem muito longe de onde eles
     # nasceram faz eles sumirem". The ceiling exists here as physics, not policy.
     leash_tiles: 12,
@@ -420,6 +427,7 @@ defmodule Pokex.Sim.World do
 
     world = %__MODULE__{
       route: route,
+      player: %{hp_pct: knobs.player_hp, alive?: knobs.player_hp > 0},
       blocked: Keyword.get(opts, :blocked, MapSet.new()),
       stairs: stairs,
       unsimulated_stairs: refused,

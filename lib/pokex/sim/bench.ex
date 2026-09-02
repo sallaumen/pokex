@@ -148,6 +148,10 @@ defmodule Pokex.Sim.Bench do
       asked_revive: nil,
       revived_at: nil,
       died_at: nil,
+      # A MORTE DELE — não a do pokémon. Até 02/09 a bancada só sabia contar o
+      # pokémon caindo; o personagem morria em silêncio e a corrida seguia
+      # medindo um fantasma. É o desfecho que encerra a noite de verdade.
+      player_died_at: nil,
       metrics: blank_metrics()
     }
 
@@ -173,9 +177,13 @@ defmodule Pokex.Sim.Bench do
     end)
   end
 
+  # …e o personagem morto encerra a corrida na hora: cada tique depois disso
+  # mediria uma caçada que não existe mais.
   defp loop(state, duration) do
     Enum.reduce_while(0..duration//@tick_ms, state, fn _tick, acc ->
-      if acc.world.clock >= duration, do: {:halt, acc}, else: {:cont, step(acc)}
+      if acc.world.clock >= duration or acc.player_died_at != nil,
+        do: {:halt, acc},
+        else: {:cont, step(acc)}
     end)
   end
 
@@ -765,10 +773,21 @@ defmodule Pokex.Sim.Bench do
 
   defp mark_revive(state, _orders, _world), do: state
 
-  defp mark_death(%{died_at: nil} = state, %{own: %{alive?: false}} = world),
+  defp mark_death(state, world) do
+    state
+    |> mark_pet_death(world)
+    |> mark_player_death(world)
+  end
+
+  defp mark_pet_death(%{died_at: nil} = state, %{own: %{alive?: false}} = world),
     do: %{state | died_at: world.clock}
 
-  defp mark_death(state, _world), do: state
+  defp mark_pet_death(state, _world), do: state
+
+  defp mark_player_death(%{player_died_at: nil} = state, %{player: %{alive?: false}} = world),
+    do: %{state | player_died_at: world.clock}
+
+  defp mark_player_death(state, _world), do: state
 
   defp report(state) do
     timeline = Enum.reverse(state.timeline)
@@ -787,6 +806,7 @@ defmodule Pokex.Sim.Bench do
         phases: timeline |> Enum.map(& &1.phase) |> Enum.dedup(),
         revived_at: state.revived_at,
         died_at: state.died_at,
+        player_died_at: state.player_died_at,
         killed: state.world.stats.killed,
         vanished: state.world.stats.vanished,
         left_alive: length(state.world.mobs),
@@ -797,6 +817,7 @@ defmodule Pokex.Sim.Bench do
     }
   end
 
+  defp ended(%{player_died_at: at}) when is_integer(at), do: :player_died
   defp ended(%{died_at: at}) when is_integer(at), do: :died
   defp ended(%{world: %{mobs: []}}), do: :clean
   defp ended(_still_going), do: :timeout

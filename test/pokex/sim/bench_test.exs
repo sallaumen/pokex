@@ -194,6 +194,37 @@ defmodule Pokex.Sim.BenchTest do
   # is ever abandoned) piles still ended half "vanished", every health scenario
   # ended at 100% health, and "Ele cai" never produced a fall. A monster that
   # woke and was never walked away from has to be FOUGHT.
+  # A morte DELE encerra a corrida e vira desfecho — até 02/09 a bancada só
+  # contava o pokémon caindo, e o personagem morria em silêncio enquanto a
+  # corrida seguia medindo um fantasma.
+  describe "o modo hard" do
+    test "com 1 de vida a corrida termina em :player_died, com o instante" do
+      cenario = Scenario.get("modo-hard")
+
+      hostil = %{
+        cenario
+        | knobs: Map.merge(cenario.knobs, %{aggro_tiles: 20, stray_chance_pct: 100})
+      }
+
+      resultado =
+        Enum.find_value(1..6, fn seed ->
+          r =
+            Bench.run(%{hostil | seed: seed},
+              duration_ms: 240_000,
+              config: %{rescue_stun_first: false}
+            )
+
+          if r.outcome.ended == :player_died, do: r
+        end)
+
+      assert resultado,
+             "em seis sementes sem stun na frente do revive, ele tinha que morrer ao menos uma vez"
+
+      assert is_integer(resultado.outcome.player_died_at)
+      assert resultado.outcome.ran_for_ms <= resultado.outcome.player_died_at + 200
+    end
+  end
+
   describe "com a régua dele (engaja a partir de 1), o que acorda é lutado" do
     @his_ruler %{engage_from: 1}
 

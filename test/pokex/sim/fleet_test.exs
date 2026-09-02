@@ -291,7 +291,7 @@ defmodule Pokex.Sim.FleetTest do
     test "o mundo vivo herda o respawn dos ajustes, não o nil do experimento" do
       runner = start_supervised!({Runner, name: nil, route: route()}, id: :respawn_runner)
 
-      assert Runner.world(runner).knobs.respawn_ms == Pokex.Settings.get(:sim_respawn_ms)
+      assert Runner.world(runner).knobs.respawn_ms == Pokex.Sim.Knobs.respawn_ms(:live)
     end
 
     test "e os pisos entre dois revives vêm dos ajustes dele" do

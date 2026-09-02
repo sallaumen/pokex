@@ -36,10 +36,8 @@ defmodule Pokex.Bots.Engine.Config do
     engage_from: :engine_engage_from,
     gather_piles: :engine_gather_piles,
     pile_settle_ms: :engine_pile_settle_ms,
-    gather_tiles: :engine_gather_tiles,
     patience_tiles: :engine_patience_tiles,
     size_ceiling_ms: :engine_size_ceiling_ms,
-    skip_fire: :engine_skip_fire,
     kite_when_spent: :engine_kite_when_spent,
     kite_max_ms: :engine_kite_max_ms,
     spent_keys_left: :engine_spent_keys_left,
@@ -48,9 +46,7 @@ defmodule Pokex.Bots.Engine.Config do
     shield_from: :combat_shield_from_enemies,
     single_target: :combat_single_target,
     bunch_ms: :engine_bunch_ms,
-    bunch_walk_tiles: :engine_bunch_walk_tiles,
     gather_target: :engine_gather_target,
-    spend_the_minimum: :engine_spend_the_minimum,
     stun_window_ms: :engine_stun_window_ms,
     stun_hold_ms: :engine_stun_hold_ms,
     stun_reach_tiles: :engine_stun_reach_tiles,
@@ -89,15 +85,9 @@ defmodule Pokex.Bots.Engine.Config do
   @spec knobs() :: %{atom => atom}
   # Knobs the DECISION declares but the brain does not read yet — see
   # `bench_only/0`.
-  @bench_only %{
-    # "Se ele se identificar aqui com a skill 4 sozinha, ele já mata" (26/08).
-    # `Strategy.enough/3` implements it and the bench can apply it because the
-    # simulated world already knows what each key takes. The brain cannot: the
-    # measured damage per key lives in the `SkillMeter` and never reaches
-    # `Engine.Inputs.hands/2`, which is where both the worker and the bench now
-    # compose the decision's hands. Landing it there is what retires this entry.
-    spend_the_minimum: "o dano medido por tecla (SkillMeter) não chega ao cérebro"
-  }
+  # Vazio desde 02/09: `spend_the_minimum`, o último órfão, saiu junto com a
+  # regra que só a bancada obedecia.
+  @bench_only %{}
 
   def knobs, do: @knobs
 

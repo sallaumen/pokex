@@ -632,7 +632,8 @@ defmodule PokexWeb.ConfigLive do
         :mini_game_sound,
         :cavebot_measure_walk,
         :hook_skill_keys,
-        :glow_threshold
+        :glow_threshold,
+        :after_kill_hold_ms
       ]
     },
     %{

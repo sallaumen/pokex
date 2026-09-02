@@ -37,7 +37,6 @@ defmodule Pokex.Sim.Bench do
 
   alias Pokex.Bots.Cavebot.Route
   alias Pokex.Bots.Combat.Loadout
-  alias Pokex.Bots.Combat.Strategy
   alias Pokex.Bots.Engine.Inputs
   alias Pokex.Pokedex.SkillProfile
   alias Pokex.Bots.Engine.Config
@@ -666,39 +665,8 @@ defmodule Pokex.Sim.Bench do
 
   defp combo_left_ms(_world, _config, _no_chain), do: nil
 
-  defp hands(world, picture, config, mode) do
-    hands = Inputs.hands(loadout_of(world), picture, config, mode)
-
-    if config[:spend_the_minimum],
-      do: %{
-        hands
-        | opening: Strategy.enough(hands.opening, dano_por_tecla(world), falta_no_alvo(world))
-      },
-      else: hands
-  end
-
-  # QUANTO CADA TECLA TIRA, na mesma unidade da vida que falta: porcentagem da
-  # vida do bicho. No bot de verdade quem responde isto é o `SkillMeter`, que
-  # mede olhando a barra do alvo antes e depois; aqui o mundo já sabe, e usar o
-  # que ele sabe é o que torna a regra mensurável antes de existir no jogo.
-  #
-  # O PISO da faixa, não o meio: cortar a rajada pelo dano MÉDIO deixa metade
-  # dos bichos vivos com a barra gasta, que é a pior troca desta caçada.
-  defp dano_por_tecla(world) do
-    for {key, _skill} <- world.keys,
-        {lo, _hi} <- [World.damage_band(world, key)],
-        into: %{},
-        do: {key, lo * 100 / max(world.knobs.mob_hp, 1)}
-  end
-
-  # A vida que falta no bicho MAIS GORDO ao alcance: uma rajada de área não mira
-  # um alvo, e cortar pelo mais fraco deixaria o resto em pé.
-  defp falta_no_alvo(world) do
-    world.mobs
-    |> Enum.filter(&World.reachable?(&1, world))
-    |> Enum.map(&World.hp_pct/1)
-    |> Enum.max(fn -> nil end)
-  end
+  defp hands(world, picture, config, mode),
+    do: Inputs.hands(loadout_of(world), picture, config, mode)
 
   @doc """
   O `%Loadout{}` que este mundo simulado representa — a barra na ordem do jogo.

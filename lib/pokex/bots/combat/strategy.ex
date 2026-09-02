@@ -169,45 +169,6 @@ defmodule Pokex.Bots.Combat.Strategy do
   def reserved(nil), do: []
   def reserved(%Loadout{} = loadout), do: loadout.crowd ++ loadout.shield
 
-  @doc """
-  A ordem cortada no ponto em que o dano já cobre o que o alvo ainda tem.
-
-  "Se ele se identificar aqui com a skill 4 sozinha, ele já mata. Ele não precisa
-  ficar usando 4, 5, 6 sempre. Ele pode usar só 4, esperar um pouquinho. Se não
-  matar, usa 5" (Lucas, 26/08).
-
-  `dano` é quanto cada tecla tira, na MESMA unidade de `falta` — o mais fácil é
-  ambos em porcentagem da vida do bicho, que é o que `Pokex.Bots.SkillMeter`
-  mede. Uma tecla sem número medido conta como ZERO e por isso nunca é a última:
-  cortar a rajada por uma estimativa que não existe é deixar o monstro vivo com
-  a barra gasta, e essa troca é a pior que existe nesta caçada.
-
-  ## Por que isto vale alguma coisa
-
-  Uma tecla custa `combat_skill_gap_ms` das seguintes, e o corpo não anda nem
-  foge enquanto a rajada sai — medido em #367. Cortar a cauda devolve esse tempo.
-  E devolve mais que tempo: a tecla não gasta o cooldown, então ela está lá pro
-  próximo bicho.
-
-  Sem número nenhum (`dano` vazio, ou `falta` desconhecido) devolve a ordem
-  inteira. É o comportamento de sempre, e é o certo: quem não mediu não pode
-  economizar.
-  """
-  @spec enough([String.t()], %{optional(String.t()) => number}, number | nil) :: [String.t()]
-  def enough(keys, _dano, nil), do: keys
-  def enough(keys, dano, _falta) when map_size(dano) == 0, do: keys
-
-  def enough(keys, dano, falta) do
-    {tomadas, _sobra} =
-      Enum.reduce_while(keys, {[], falta}, fn key, {tomadas, sobra} ->
-        if sobra <= 0,
-          do: {:halt, {tomadas, sobra}},
-          else: {:cont, {[key | tomadas], sobra - Map.get(dano, key, 0)}}
-      end)
-
-    Enum.reverse(tomadas)
-  end
-
   # A gathered pile is a crowd by definition — its size is the whole point of
   # having gathered it, and the battle list at that instant may still be
   # catching up with what is walking in.

@@ -298,14 +298,7 @@ defmodule Pokex.Settings.Locked do
     pokemon_hp_max_track_brightness:
       {"Vida do pokémon (visão)", "quão claro o trilho vazio pode ser"},
     pokemon_hp_min_bright_pct:
-      {"Vida do pokémon (visão)", "faixa toda escura é janela coberta, não barra vazia"},
-    # --- Vai sumir ---
-    engine_spend_the_minimum: {"Vai sumir", "só a bancada lê; some no próximo PR"},
-    sim_respawn_ms: {"Vai sumir", "é do simulador; vira knob do Sim no próximo PR"},
-    after_kill_hold_ms: {"Vai sumir", "sempre 0; a regra some no próximo PR"},
-    engine_gather_tiles: {"Vai sumir", "só valia juntando andando; some no próximo PR"},
-    engine_bunch_walk_tiles: {"Vai sumir", "idem; some no próximo PR"},
-    engine_skip_fire: {"Vai sumir", "medido: não muda nada; some no próximo PR"}
+      {"Vida do pokémon (visão)", "faixa toda escura é janela coberta, não barra vazia"}
   }
 
   @doc "Toda chave travada, com o grupo e o porquê."
@@ -320,7 +313,7 @@ defmodule Pokex.Settings.Locked do
   @spec locked?(atom) :: boolean
   def locked?(key), do: Map.has_key?(@locked, key)
 
-  @doc "As travadas por grupo, em ordem: `[{grupo, [{chave, porquê}]}]`."
+  @doc "As travadas por grupo, em ordem alfabética: `[{grupo, [{chave, porquê}]}]`."
   @spec groups() :: [{String.t(), [{atom, String.t()}]}]
   def groups do
     @locked
@@ -328,6 +321,6 @@ defmodule Pokex.Settings.Locked do
       {key, why}
     end)
     |> Enum.map(fn {group, rows} -> {group, Enum.sort(rows)} end)
-    |> Enum.sort_by(fn {group, _rows} -> {group == "Vai sumir", group} end)
+    |> Enum.sort_by(fn {group, _rows} -> group end)
   end
 end

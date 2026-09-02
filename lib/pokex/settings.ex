@@ -590,9 +590,6 @@ defmodule Pokex.Settings do
     #          tem 2 inimigos só (…) pra evitar de usar um monte de coisas em
     #          2 bixos só")
     #
-    # O número sozinho nunca foi a regra inteira — a outra metade é
-    # `engine_gather_tiles`.
-    #
     # A BANCADA NÃO SEPARA AS DUAS, e isso está dito porque importa: 20 min × 4
     # sementes na rota dele, régua de 1 a 8, tudo entre 16,9 e 18,3 mortos/min
     # com os monstros perdidos praticamente parados (138-150). O motivo é que
@@ -603,9 +600,6 @@ defmodule Pokex.Settings do
     engine_engage_from: 6,
     # Whether the hunt GATHERS a pile before hitting it.
     engine_gather_piles: true,
-    # R6, A SEGUNDA DIMENSÃO DA RÉGUA, e a que faltava: quantos PASSOS vale a pena andar puxando
-    # uma pilha que já vale a pena, antes de abrir.
-    engine_gather_tiles: 6,
     # …e a paciência do outro lado: andados estes passos sem ninguém novo chegando, vale mais
     # matar o que tem do que continuar procurando.
     engine_patience_tiles: 10,
@@ -615,8 +609,6 @@ defmodule Pokex.Settings do
     # R12 — QUANTO ESPERAR, DEPOIS DE FECHAR A JANELA, pros bichos chegarem perto do pokémon
     # antes de estourar a área.
     engine_bunch_ms: 6_000,
-    # …e os PASSOS que ela anda antes de parar.
-    engine_bunch_walk_tiles: 0,
     # QUANTOS BICHOS FAZEM UM BOLO — o alvo que a régua persegue antes de fechar a janela.
     engine_gather_target: 6,
     # …and a ceiling, because R2 says greed makes the pile VANISH: past this, the hunt decides
@@ -659,10 +651,6 @@ defmodule Pokex.Settings do
     # R5: how long a revive has to prove it landed before the engine calls it a refusal and
     # walks again.
     engine_revive_confirm_ms: 3_000,
-    # Quanto tempo um ninho limpo leva pra voltar, no mundo simulado.
-    sim_respawn_ms: 20_000,
-    # R1 diz pra IGNORAR um ou dois e seguir a vida, e é isso que o padrão faz.
-    engine_skip_fire: false,
     # R7: com TODAS as teclas de dano em cooldown e bicho em cima, ficar parado é uma troca em
     # que só um lado bate.
     engine_kite_when_spent: true,
@@ -676,8 +664,6 @@ defmodule Pokex.Settings do
     engine_prepare_revive: true,
     # R10 — O CONTROLE É UMA SKILL, NÃO UM AMULETO.
     engine_crowd_from: 1,
-    # GASTAR O MÍNIMO PRA MATAR.
-    engine_spend_the_minimum: false,
     # …e a segunda metade da regra dele, que é o que a torna barata: "SEMPRE usar o revive
     # dentro da range de 5 segundos no máximo depois de usar a skill de controle".
     engine_stun_window_ms: 5_000,
@@ -908,9 +894,7 @@ defmodule Pokex.Settings do
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_bunch_ms: 0..30_000,
-    engine_bunch_walk_tiles: 0..30,
     engine_gather_target: 1..20,
-    engine_gather_tiles: 0..60,
     engine_patience_tiles: 1..200,
     engine_size_ceiling_ms: 100..600_000,
     engine_band_yellow_pct: 0..100,
@@ -937,7 +921,6 @@ defmodule Pokex.Settings do
     stop_after_kills: 0..9_999,
     engine_closing_timeout_ms: 100..600_000,
     engine_revive_confirm_ms: 500..600_000,
-    sim_respawn_ms: 1_000..600_000,
     engine_hunt_max_age_ms: 200..60_000,
     engine_orders_max_age_ms: 200..60_000,
     posture_max_age_ms: 500..60_000,

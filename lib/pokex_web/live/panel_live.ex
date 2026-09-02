@@ -64,24 +64,14 @@ defmodule PokexWeb.PanelLive do
   @timing_fields [
     {:combat_skill_burst_size, "Skills por leitura",
      "quantas teclas de skill ele engatilha antes de olhar a luta de novo"},
-    {:combat_skill_tap_count, "Toques por skill",
-     "quantas vezes repetir cada tecla dentro da rajada"},
     {:combat_skill_gap_ms, "Intervalo entre skills (ms)",
      "pausa base entre teclas da rajada; 0 = sem pausa fixa"},
-    {:combat_skill_jitter_ms, "Variação aleatória pós-skill (ms)",
-     "sorteia +0..N ms depois de cada skill; 20 = intervalo base + 0 a 20ms"},
-    {:target_lost_streak, "Confirmações de morte",
-     "quantas leituras sem inimigo até considerar o alvo morto"},
     {:fight_timeout_ms, "Timeout de alvo (ms)", "desiste de um alvo que não morre nesse tempo"},
     {:after_kill_hold_ms, "Pausa depois de matar (ms)",
-     "0 = já caça o próximo; acima disso mata um por vez e deixa o resto no teu pokémon"},
-    {:hunt_probe_window_ms, "Sonda pós-kill (ms)",
-     "quanto tempo ele dá Tab às cegas depois de matar, caso a lista demore a aparecer"},
-    {:no_damage_ms, "Alvo que não sangra (ms)",
-     "sem tirar vida nesse tempo, larga o alvo (parede/fora de alcance); 0 desliga"}
+     "0 = já caça o próximo; acima disso mata um por vez e deixa o resto no teu pokémon"}
   ]
 
-  @positive_timing_keys [:combat_skill_burst_size, :combat_skill_tap_count]
+  @positive_timing_keys [:combat_skill_burst_size]
 
   @impl true
   def mount(_params, _session, socket) do

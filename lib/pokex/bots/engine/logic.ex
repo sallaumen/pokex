@@ -1319,22 +1319,8 @@ defmodule Pokex.Bots.Engine.Logic do
   # 30,95 e 8,92 → 8,75 mortos/min, tudo dentro do ruído.
   #
   # R1 says to IGNORE one or two and walk on ("eu às vezes até ignoro aquele mob
-  # e sigo a minha vida"), and that is what this does by default. The knob is
-  # here because the bench found the opposite worth measuring: the phase that
-  # walks while firing (`:unaided`) kills more per minute than this one, which
-  # walks with the hands down — and what follows a hunt out of a skipped pile
-  # bites it the whole way. Single-target only when it is on: the area is what
-  # the ruler is saving, not the cheap keys.
-  defp skipping(%{config: %{skip_fire: true}} = t) do
-    {t.logic,
-     Orders.walking_and_firing(
-       :skipping,
-       t.band,
-       singles(t),
-       "deixei essa pilha pra trás — seguindo a rota, batendo em quem vier junto"
-     )}
-  end
-
+  # e sigo a minha vida"), hands down. Bater em quem vem junto foi medido
+  # (#489) e não mudava nada; a régua saiu em 02/09.
   defp skipping(t),
     do:
       {t.logic, Orders.walking(:skipping, t.band, "deixei essa pilha pra trás — seguindo a rota")}
@@ -1444,13 +1430,8 @@ defmodule Pokex.Bots.Engine.Logic do
   # o que a mão dele faz. Passado o relógio, abre com tudo.
   defp open(t, why) do
     if t.config.bunch_ms > 0 do
-      # O MESMO TIQUE já decide a primeira metade: entrar na espera e mandar
-      # PARAR era o que ele via como "estranhamente ele está parando de andar" —
-      # os passos que faltavam eram os que arrastam o bolo pra cima do pokémon.
-      # O carimbo vem ANTES de entrar na fase: `mark_bunch_from/2` se protege de
-      # re-marcar quem já está esperando, e depois do `enter/3` essa guarda
-      # casaria sempre — os passos ficariam eternamente faltando cinco.
-      logic = t.logic |> mark_bunch_from(t) |> enter(:bunching, t.now)
+      # O MESMO TIQUE já entra na espera e decide: parado, contando.
+      logic = enter(t.logic, :bunching, t.now)
 
       %{t | logic: logic} |> bunching() |> narrate_open(why)
     else
@@ -1465,8 +1446,6 @@ defmodule Pokex.Bots.Engine.Logic do
 
   # De onde contar os passos da primeira metade da espera. Vai no mesmo mapa dos
   # relógios porque tem a mesma vida: nasce com a fase e morre com ela.
-  defp mark_bunch_from(%{state: :bunching} = logic, _t), do: logic
-  defp mark_bunch_from(logic, t), do: put_in(logic.since[:bunch_from], walked(t))
 
   # A RAJADA DO TAMANHO DA PILHA. A abertura inteira (escudo, aura, todas as
   # áreas) é da pilha que vale a área; a que a régua já chamou de "não vale"
@@ -1528,30 +1507,16 @@ defmodule Pokex.Bots.Engine.Logic do
      )}
   end
 
-  # A ESPERA, em duas metades, e a primeira ANDA.
-  #
-  # "Ele não precisa parar na hora que identificou isso. Ele pode andar um
-  # pouquinho até na rota, mais uns 5 passos, e parar, porque aí os monstros que
-  # ele encontrou lá na frente já vão ter se enfiado um pouco mais no meio
-  # deles" (27/08). Parar no instante em que a janela fecha é o "estranhamente
-  # ele está parando de andar" que ele viu: os passos que faltavam eram os que
-  # arrastavam o bolo pra cima do pokémon.
-  #
-  # Fogo segurado nas duas metades — é o que a espera compra —, e as saídas de
-  # sempre: o relógio, e a pilha sumindo.
+  # A ESPERA, parada. Até 02/09 ela tinha uma primeira metade que andava
+  # ("mais uns 5 passos" pra arrastar o bolo, 27/08); com "não dar mais nenhum
+  # passo, deixar os bichos virem até mim" (02/09) o arrasto saiu. Fogo
+  # segurado enquanto ela dura, e as saídas de sempre: o relógio, e a pilha
+  # sumindo.
   defp bunching(t) do
     cond do
       t.s.enemies == 0 ->
         {reset_fight(t.logic, :travelling),
          Orders.walking(:travelling, t.band, "sumiram enquanto eu esperava — seguindo a rota")}
-
-      arrastando?(t) ->
-        {t.logic,
-         Orders.walking(
-           :bunching,
-           t.band,
-           "#{count(t.s)}: mais #{passos_que_faltam(t)} passo(s) pra puxar eles antes de parar"
-         )}
 
       within?(t, :bunching, t.config.bunch_ms) ->
         {t.logic,
@@ -1566,26 +1531,13 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
-  # Os passos que a espera ainda tem pra andar. `walked` é medido desde o
-  # primeiro avistamento desta pilha, então o marco é onde ela estava quando a
-  # janela fechou — guardado em `since`, que é o relógio desta fase.
-  defp arrastando?(t), do: passos_que_faltam(t) > 0
-
-  defp passos_que_faltam(t) do
-    andados = walked(t) - Map.get(t.logic.since, :bunch_from, walked(t))
-
-    max(t.config.bunch_walk_tiles - andados, 0)
-  end
-
   defp gathering_why(t) do
-    "juntando: #{count(t.s)} até agora, #{walked(t)} de #{t.config.gather_tiles} passos"
+    "juntando: #{count(t.s)} até agora, #{walked(t)} passos"
   end
 
   defp ceiling_out?(t), do: not within?(t, :sizing, t.config.size_ceiling_ms)
 
   defp walked(t), do: Map.get(t.s, :walked, 0)
-
-  defp walked_enough?(t), do: walked(t) >= t.config.gather_tiles
 
   defp rushing_in?(t), do: t.s.worth_fighting? and not t.config.gather_piles
 
@@ -1597,7 +1549,7 @@ defmodule Pokex.Bots.Engine.Logic do
   #
   # A paciência (`patience_tiles`) continua sendo o teto: um bolo que nunca
   # chega no alvo não pode segurar a caçada pra sempre.
-  defp gathered_enough?(t), do: bolo_cheio?(t) and walked_enough?(t)
+  defp gathered_enough?(t), do: bolo_cheio?(t)
 
   defp stopped_arriving?(t), do: bolo_cheio?(t) and settled?(t)
 
@@ -1775,9 +1727,6 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp opening(%{hands: %{opening: keys}}), do: keys
   defp opening(_no_hands), do: []
-
-  defp singles(%{hands: %{single: keys}}) when keys != [], do: keys
-  defp singles(t), do: opening(t)
 
   # A RULE THAT WAS TRIED AND REFUTED, written down so it is not tried again:
   # "a pile under the ruler that has stopped arriving has nothing left to wait

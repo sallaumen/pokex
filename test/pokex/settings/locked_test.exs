@@ -34,11 +34,11 @@ defmodule Pokex.Settings.LockedTest do
     end
   end
 
-  test "groups/0 agrupa, ordena e deixa 'Vai sumir' por último" do
+  test "groups/0 agrupa e ordena" do
     groups = Locked.groups()
 
     assert Enum.map(groups, &elem(&1, 0)) |> Enum.uniq() |> length() == length(groups)
-    assert {"Vai sumir", _rows} = List.last(groups)
+    assert Enum.map(groups, &elem(&1, 0)) == Enum.sort(Enum.map(groups, &elem(&1, 0)))
 
     for {_group, rows} <- groups, {key, why} <- rows do
       assert Locked.locked?(key)

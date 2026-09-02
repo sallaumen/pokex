@@ -1430,14 +1430,17 @@ defmodule Pokex.Bots.Engine.Logic do
            "sem barra e sem revive pra comprá-la — deixando essa pilha: seguindo a rota"
          )}
 
-      # …unless gathering is off, and then there is nothing to walk FOR: the
-      # count is the whole ruler and the wait is just a wait.
+      # …e sem juntada, uma pilha que NÃO vale não segura a rota: "um ou dois
+      # eu ignoro e sigo a vida" (R1). Isto contava PARADO até o teto (8s) —
+      # "ele vê 1 inimigo, fica parado uns segundos, diz que desistiu e volta
+      # a andar; segundo sem ação, só parado, é ruim" (02/09). A contagem
+      # continua a cada tique, andando: encheu, a régua para e abre.
       true ->
         {t.logic,
-         Orders.standing(
+         Orders.walking(
            :sizing,
            t.band,
-           "contando quem chega: #{count(t.s)} até agora, ainda chegando"
+           "só #{count(t.s)} à vista — seguindo a rota, contando quem vem"
          )}
     end
   end

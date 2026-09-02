@@ -160,13 +160,13 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   # ainda mais bicho"). O que resta é contar parado e, se ninguém mais vier, o
   # teto da juntada passa reto. Isto cobra o PARADO: nem um passo com a pilha
   # atrás.
-  test "it counts a lone monster standing still instead of carrying it along", %{worker: worker} do
+  test "it walks past a lone monster, counting, instead of standing for it", %{worker: worker} do
     see(~w(Venonat))
     hunting(%{state: :fighting})
 
     tick(worker)
     assert orders().phase == :sizing
-    assert orders().route == :hold
+    assert orders().route == :go
     assert orders().fire == :hold
     assert_receive {:engine_log, :macro, "quadro: 🧠" <> contando}
     assert contando =~ "contando"

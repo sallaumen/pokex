@@ -11,18 +11,26 @@ defmodule Pokex.Rig.Mac do
   def press(combo), do: gated(fn -> do_press(combo) end)
 
   # Native CGEvent press first (~2ms, serialized inside KeyEvents, same focus guard) for
-  # modifier-free mapped keys — the hot paths: combat digits, Tab, Space, potion. Fallback:
-  # osascript through the OsaBus (see its moduledoc — System Events is one queue; concurrent
-  # key scripts pile up and desync keys from the mouse moves they belong with).
+  # every mapped key — the hot paths: combat digits, Tab, Space, potion — AND the stance
+  # keys with their modifier, as one sequence out of the same process (02/09: through
+  # System Events the shift and the digit were separate events with a native arrow free to
+  # land between them; under Wine that read as the digit alone — a skill spent by accident
+  # and the posture unchanged). Fallback: osascript through the OsaBus (see its moduledoc —
+  # System Events is one queue; concurrent key scripts pile up and desync keys from the
+  # mouse moves they belong with).
   defp do_press(combo) do
-    with false <- String.contains?(combo, "+"),
-         {:ok, code} <- Commands.keycode(combo),
-         :ok <- KeyEvents.key(:press, code, focus_app()) do
+    with {:ok, code, mods} <- Commands.native_combo(combo),
+         :ok <- native_press(code, mods) do
       :ok
     else
       _fallback -> run_key(Commands.press(combo, key_opts()))
     end
   end
+
+  defp native_press(code, []), do: KeyEvents.key(:press, code, focus_app())
+
+  defp native_press(code, mods),
+    do: KeyEvents.press(code, mods, focus_app(), key_opts()[:modifier_settle_ms] || 30)
 
   @impl true
   def key_down(key), do: gated(fn -> hold(key, :down) end)

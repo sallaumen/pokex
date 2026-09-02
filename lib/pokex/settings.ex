@@ -342,6 +342,11 @@ defmodule Pokex.Settings do
     shield_skill_enabled: true,
     pokemon_hp_shield_pct: 85,
     shield_skill_cooldown_ms: 3_000,
+    # …E ANTES DA CORRENTE. Medido em 02/09 (feraligatr, 19 revives em 4min): o revive
+    # devolve 100% a cada corrente e a vida do pokémon nunca chegou aos 85% — a aura só
+    # saía pela mão dele. Com a pilha fechando (o cérebro em `:bunching`, parado esperando
+    # o bolo pra estourar) e a aura pronta, ela sai, vida cheia ou não.
+    shield_on_mob_enabled: true,
     # How often the PlayerSupport samples the main Pokémon's HP bar.
     support_tick_ms: 120,
     # HP-bar fill detection is COLOUR-AGNOSTIC: a column counts as filled when it holds a

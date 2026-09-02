@@ -124,7 +124,7 @@ defmodule Pokex.Sim.Hands do
       end
 
     {world, hands} = rescue_combo(world, orders, hands, config)
-    {world, hands} = support(world, hands, config)
+    {world, hands} = support(world, orders, hands, config)
 
     {world, %{advance(hands, world, orders, config) | prev_hp: world.own.hp_pct}}
   end
@@ -415,8 +415,8 @@ defmodule Pokex.Sim.Hands do
 
   # THE LADDER, cheapest rung first. The revive is NOT here: the engine owns
   # when it happens (`orders.revive`), which is the whole reason it exists.
-  defp support(world, hands, config) do
-    {world, hands} = shield_skill(world, hands, config)
+  defp support(world, orders, hands, config) do
+    {world, hands} = shield_skill(world, orders, hands, config)
     {world, hands} = heal_skill(world, hands, config)
     potion(world, hands, config)
   end
@@ -425,8 +425,8 @@ defmodule Pokex.Sim.Hands do
   # limiar, com a aura pronta, o pokémon em campo e a corrente do combo já
   # fora. As chaves são lidas com `Map.get` porque um mundo antigo não as tem —
   # e sem elas o degrau é como se não existisse.
-  defp shield_skill(world, hands, config) do
-    with true <- Support.shield_wanted?(shield_input(world, hands, config)),
+  defp shield_skill(world, orders, hands, config) do
+    with true <- shield_wanted?(world, orders, hands, config),
          true <- shield_allowed?(world, config),
          [key | _] <- ready_shield_keys(world) do
       {World.press(world, {:press, key}), %{hands | last_shield_at: world.clock}}
@@ -438,6 +438,20 @@ defmodule Pokex.Sim.Hands do
   defp shield_allowed?(world, config) do
     janela = Map.get(config, :combo_window_ms) || 0
     world.own.out? and World.combo_left_ms(world, janela) == 0
+  end
+
+  # Pela vida (abaixo do limiar) OU pela pilha fechando (`:bunching`, antes da
+  # corrente) — a mesma dupla do suporte de verdade.
+  defp shield_wanted?(world, orders, hands, config) do
+    Support.shield_wanted?(shield_input(world, hands, config)) or
+      Support.mob_shield_wanted?(%{
+        enabled?:
+          Map.get(config, :shield_on_mob, false) and Map.get(config, :shield_skill_enabled, false),
+        phase: Map.get(orders, :phase),
+        cooldown_ms: Map.get(config, :shield_skill_cooldown_ms, 0),
+        last_shield_at: hands.last_shield_at,
+        now: world.clock
+      })
   end
 
   defp shield_input(world, hands, config) do

@@ -6,6 +6,8 @@
 //   <- {"ok":true}
 //   -> {"op":"key","action":"down"|"up"|"press","code":49,"app":"wine"}
 //   <- {"ok":true}
+//   -> {"op":"key","action":"press","code":20,"modifiers":["shift"],"settle_ms":30,"app":"wine"}
+//   <- {"ok":true}
 //   -> {"op":"middle_click","x":1200,"y":640,"app":"wine"}
 //   <- {"ok":true}
 //
@@ -220,16 +222,24 @@ struct KeyEventsHelper {
     }
 
     let key = CGKeyCode(code)
+    let modifiers = (json["modifiers"] as? [String]) ?? []
+    let settleMs = (json["settle_ms"] as? Int) ?? 30
 
     switch action {
     case "down":
       post(key: key, down: true)
     case "up":
       post(key: key, down: false)
-    case "press":
+    case "press" where modifiers.isEmpty:
       post(key: key, down: true)
       usleep(12_000)
       post(key: key, down: false)
+    case "press":
+      guard let mods = modifierKeys(modifiers) else {
+        emit(["ok": false, "error": "unknown_modifier"])
+        return
+      }
+      pressWithModifiers(key: key, mods: mods, settleMs: settleMs)
     default:
       emit(["ok": false, "error": "unknown_action:\(action)"])
       return
@@ -238,12 +248,63 @@ struct KeyEventsHelper {
     emit(["ok": true])
   }
 
-  static func post(key: CGKeyCode, down: Bool) {
+  static func post(key: CGKeyCode, down: Bool, flags: CGEventFlags = []) {
     guard let event = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: down) else {
       return
     }
 
+    if !flags.isEmpty {
+      event.flags = flags
+    }
+
     event.post(tap: .cghidEventTap)
+  }
+
+  // A STANCE KEY IS ONE SEQUENCE, like a hand on the keyboard: the modifier
+  // goes DOWN as its own event, the key goes down and up carrying the
+  // modifier's flag, and the modifier comes up last. All four events leave
+  // this one process, in order, with nothing from anyone else in between —
+  // the Body's arrows and the combat digits travel through this same helper
+  // and wait their turn.
+  //
+  // "shift+1 e shift+3 às vezes saem separadas, daí a skill 1 ou 3 sai
+  // sozinha e o modo não muda" (Lucas, 02/09). Through System Events the
+  // shift and the digit were TWO scripts' worth of events with a native arrow
+  // free to land between them; under Wine that read as a digit without its
+  // modifier — a skill spent by accident and the posture unchanged.
+  static func pressWithModifiers(key: CGKeyCode, mods: [(code: CGKeyCode, flag: CGEventFlags)],
+    settleMs: Int) {
+    var flags: CGEventFlags = []
+    for mod in mods {
+      flags.insert(mod.flag)
+      post(key: mod.code, down: true, flags: flags)
+    }
+
+    usleep(UInt32(max(settleMs, 0)) * 1_000)
+    post(key: key, down: true, flags: flags)
+    usleep(12_000)
+    post(key: key, down: false, flags: flags)
+
+    for mod in mods.reversed() {
+      flags.remove(mod.flag)
+      post(key: mod.code, down: false, flags: flags)
+    }
+  }
+
+  static func modifierKeys(_ names: [String]) -> [(code: CGKeyCode, flag: CGEventFlags)]? {
+    var out: [(code: CGKeyCode, flag: CGEventFlags)] = []
+
+    for name in names {
+      switch name {
+      case "shift": out.append((code: 56, flag: .maskShift))
+      case "ctrl", "control": out.append((code: 59, flag: .maskControl))
+      case "alt", "option": out.append((code: 58, flag: .maskAlternate))
+      case "cmd", "command": out.append((code: 55, flag: .maskCommand))
+      default: return nil
+      }
+    }
+
+    return out
   }
 
   // CGEvents posted to the HID tap land in the FRONTMOST app, exactly like

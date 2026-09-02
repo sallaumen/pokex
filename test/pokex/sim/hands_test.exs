@@ -325,6 +325,30 @@ defmodule Pokex.Sim.HandsTest do
       assert hands.last_shield_at == world.clock
     end
 
+    # 02/09, feraligatr: o revive devolve 100% a cada corrente e a vida nunca
+    # chega aos 85% — a aura só saía pela mão dele. Com a pilha fechando
+    # (`:bunching`) e a aura pronta, ela sai antes da corrente, vida cheia ou não.
+    test "com a pilha fechando, a aura sai antes da corrente mesmo com a vida cheia" do
+      world = mundo(@com_escudo)
+      hands = %{Hands.new() | prev_hp: 100}
+      knobs = Map.put(@defesa, :shield_on_mob, true)
+
+      {world, hands} = Hands.obey(world, ordens(%{phase: :bunching}), hands, knobs)
+
+      assert world.own.shield_until > world.clock
+      assert hands.last_shield_at == world.clock
+    end
+
+    test "andando com a vida cheia, a aura fica guardada" do
+      world = mundo(@com_escudo)
+      hands = %{Hands.new() | prev_hp: 100}
+      knobs = Map.put(@defesa, :shield_on_mob, true)
+
+      {world, _hands} = Hands.obey(world, ordens(%{phase: :travelling, route: :go}), hands, knobs)
+
+      assert world.own.shield_until == 0
+    end
+
     test "sem aura na barra, nada sai" do
       world = machucado(@barra)
       hands = %{Hands.new() | prev_hp: 82}

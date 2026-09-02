@@ -78,6 +78,21 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   @spec shield_wanted?(map) :: boolean
   def shield_wanted?(input), do: rung_wanted?(input, :last_shield_at)
 
+  @doc """
+  A aura ANTES da corrente: o cérebro parado com a pilha fechando (`:bunching`)
+  é o momento em que os monstros já estão em cima e a corrente ainda não saiu.
+  Medido em 02/09: o revive devolve 100% a cada corrente, a vida nunca chegou
+  aos 85% e a aura só saía pela mão dele. O cooldown aqui é o mesmo anti-spam
+  da escada; se a aura está pronta é a barra que diz.
+
+  Expects `:enabled?`, `:phase`, `:cooldown_ms`, `:last_shield_at` and `:now`.
+  """
+  @spec mob_shield_wanted?(map) :: boolean
+  def mob_shield_wanted?(%{enabled?: true, phase: :bunching} = input),
+    do: cooled?(input, :last_shield_at)
+
+  def mob_shield_wanted?(_fora_da_pilha), do: false
+
   defp rung_wanted?(%{enabled?: false}, _last), do: false
   defp rung_wanted?(%{hp_pct: nil}, _last), do: false
 
@@ -88,7 +103,9 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
        when is_nil(prev) or prev >= threshold,
        do: false
 
-  defp rung_wanted?(%{now: now, cooldown_ms: cooldown} = input, last) do
+  defp rung_wanted?(input, last), do: cooled?(input, last)
+
+  defp cooled?(%{now: now, cooldown_ms: cooldown} = input, last) do
     case Map.get(input, last) do
       nil -> true
       at -> now - at >= cooldown

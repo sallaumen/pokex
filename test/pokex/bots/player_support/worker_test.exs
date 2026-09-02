@@ -86,7 +86,13 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # A aura de defesa (02/09) fica fora dos testes que não são dela: ligada por
     # padrão, ela falaria no feed antes da linha que eles leem.
     SettingsStash.stash!(shield_skill_enabled: false)
-    SettingsStash.stash_keys!([:pokemon_hp_shield_pct, :shield_skill_cooldown_ms])
+
+    SettingsStash.stash_keys!([
+      :pokemon_hp_shield_pct,
+      :shield_skill_cooldown_ms,
+      :shield_on_mob_enabled
+    ])
+
     # one shared blackboard: start from an empty world, never from the last test's
     WorldState.clear()
 
@@ -323,6 +329,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       Settings.put(:potion_enabled, false)
       Settings.put(:heal_skill_enabled, false)
       Settings.put(:shield_skill_enabled, true)
+      Settings.put(:shield_on_mob_enabled, true)
       Settings.put(:pokemon_hp_shield_pct, 85)
       Settings.put(:shield_skill_cooldown_ms, 60_000)
       # as cercas da aura leem o caderninho do revive e o relógio da corrente —
@@ -330,6 +337,23 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       Pokex.Bots.ReviveLedger.reset()
       Pokex.Bots.SkillClock.wipe()
       :ok
+    end
+
+    # O QUADRO DE VERDADE republica as ordens a cada tique; um `put` único some
+    # no primeiro `halt` que outro teste deixa agendado (o quadro esquece
+    # `:orders` ao parar). Republicar a cada 20ms é o mundo como ele é.
+    defp keep_orders!(orders) do
+      pid =
+        spawn_link(fn ->
+          Stream.repeatedly(fn ->
+            WorldState.put(:orders, orders, System.monotonic_time(:millisecond))
+            Process.sleep(20)
+          end)
+          |> Stream.run()
+        end)
+
+      on_exit(fn -> Process.exit(pid, :kill) end)
+      pid
     end
 
     # `hp_png` pinta COLUNAS de 20: 12 é 60%, 19 é 95%.
@@ -350,6 +374,56 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
       ok = hp_png(tmp, "ok_shield.png", 19)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, ok}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, :high, _}, 400
+    end
+
+    # 02/09, feraligatr: 19 revives em 4min, o revive devolvendo 100% a cada
+    # corrente, a vida nunca abaixo de 98% — e a aura só saindo pela mão dele.
+    # Com a pilha fechando (o cérebro em `:bunching`) e a aura pronta, ela sai
+    # antes da corrente, vida cheia ou não.
+    @tag :tmp_dir
+    test "com a pilha fechando, a aura sai antes da corrente mesmo com a vida cheia", %{
+      tmp: tmp,
+      body: body
+    } do
+      classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
+      ok = hp_png(tmp, "full_mob.png", 19)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, ok}]})
+
+      keep_orders!(%{phase: :bunching, revive: :hold})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :high, [{:press, "2"}]}, 800
+    end
+
+    @tag :tmp_dir
+    test "andando com a vida cheia, a aura fica guardada", %{tmp: tmp, body: body} do
+      classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
+      ok = hp_png(tmp, "full_walk.png", 19)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, ok}]})
+
+      keep_orders!(%{phase: :travelling, revive: :hold})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, :high, _}, 400
+    end
+
+    @tag :tmp_dir
+    test "com o knob da pilha desligado, só a vida manda", %{tmp: tmp, body: body} do
+      Settings.put(:shield_on_mob_enabled, false)
+      classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
+      ok = hp_png(tmp, "full_mob_off.png", 19)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, ok}]})
+
+      keep_orders!(%{phase: :bunching, revive: :hold})
 
       worker = start_worker(body)
       assert :ok = Worker.run(worker)

@@ -41,6 +41,26 @@ defmodule Pokex.Rig.Mac.KeyEvents do
     :exit, _reason -> {:error, :unavailable}
   end
 
+  @doc """
+  A key pressed WITH modifiers as one native sequence (modifier down, key
+  down/up carrying its flag, modifier up), `settle_ms` between the modifier and
+  the key. `{:error, _}` means: use the fallback.
+  """
+  @spec press(
+          non_neg_integer,
+          [String.t()],
+          String.t() | nil,
+          non_neg_integer,
+          GenServer.server()
+        ) ::
+          :ok | {:error, term}
+  def press(code, modifiers, app, settle_ms, server \\ __MODULE__)
+      when is_integer(code) and is_list(modifiers) and is_integer(settle_ms) do
+    GenServer.call(server, {:press, code, modifiers, app, settle_ms}, @command_timeout_ms + 500)
+  catch
+    :exit, _reason -> {:error, :unavailable}
+  end
+
   @spec status(GenServer.server()) :: status
   def status(server \\ __MODULE__) do
     GenServer.call(server, :status, 500)
@@ -145,6 +165,20 @@ defmodule Pokex.Rig.Mac.KeyEvents do
   def handle_call({:key, action, code, app}, _from, state) do
     request =
       %{op: "key", action: to_string(action), code: code}
+      |> maybe_put_app(app)
+      |> JSON.encode!()
+
+    send_command(request, state)
+  end
+
+  def handle_call({:press, _code, _mods, _app, _settle}, _from, %{status: status} = state)
+      when status != :ready do
+    {:reply, {:error, status}, state}
+  end
+
+  def handle_call({:press, code, modifiers, app, settle_ms}, _from, state) do
+    request =
+      %{op: "key", action: "press", code: code, modifiers: modifiers, settle_ms: settle_ms}
       |> maybe_put_app(app)
       |> JSON.encode!()
 

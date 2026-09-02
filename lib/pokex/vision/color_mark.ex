@@ -56,6 +56,16 @@ defmodule Pokex.Vision.ColorMark do
 
   `:none` quando não há cor nenhuma ali (ele clicou na pedra do chão) — quem
   ensina precisa ouvir isso em vez de receber um cinza silencioso.
+
+  ## O pixel clicado manda (02/09)
+
+  A votação do patch inteiro perdia o DETALHE: a crista azul-escura do Shiny
+  Feraligatr tem uns poucos pixels, e num patch de 5×5 o corpo ciano em volta
+  ganhava a votação — o clique em cima da crista devolvia o tom do corpo, e a
+  regra nunca separava o shiny do comum ("não consigo clicar no ponto de cor
+  dele"). Então, quando o pixel clicado É uma cor (tem matiz), a faixa DELE é
+  a que vale, e o patch só corrige o anti-aliasing dentro dessa faixa. A
+  votação inteira fica pro clique que cai numa borda sem cor.
   """
   @pick_min_delta 25
   @pick_min_value 30
@@ -64,20 +74,37 @@ defmodule Pokex.Vision.ColorMark do
   @spec dominant(Frame.t(), {integer, integer}, pos_integer) ::
           {:ok, {0..255, 0..255, 0..255}} | :none
   def dominant(%Frame{} = frame, {x, y}, raio \\ 2) do
-    frame
-    |> patch(x, y, raio)
-    |> Enum.reject(fn {r, g, b} ->
-      mx = max(r, max(g, b))
-      mx - min(r, min(g, b)) < @pick_min_delta or mx < @pick_min_value
-    end)
-    |> Enum.group_by(fn {r, g, b} ->
-      mx = max(r, max(g, b))
-      div(hue(r, g, b, mx, mx - min(r, min(g, b))), @pick_hue_bin)
-    end)
-    |> Enum.max_by(fn {_bin, pixels} -> length(pixels) end, fn -> nil end)
-    |> case do
+    bins =
+      frame
+      |> patch(x, y, raio)
+      |> Enum.reject(&sem_matiz?/1)
+      |> Enum.group_by(&faixa/1)
+
+    clicado = Frame.at(frame, x, y)
+
+    faixa_do_clique =
+      if sem_matiz?(clicado), do: nil, else: Map.get(bins, faixa(clicado))
+
+    case faixa_do_clique || maior_faixa(bins) do
       nil -> :none
-      {_bin, pixels} -> {:ok, mediana(pixels)}
+      pixels -> {:ok, mediana(pixels)}
+    end
+  end
+
+  defp sem_matiz?({r, g, b}) do
+    mx = max(r, max(g, b))
+    mx - min(r, min(g, b)) < @pick_min_delta or mx < @pick_min_value
+  end
+
+  defp faixa({r, g, b}) do
+    mx = max(r, max(g, b))
+    div(hue(r, g, b, mx, mx - min(r, min(g, b))), @pick_hue_bin)
+  end
+
+  defp maior_faixa(bins) do
+    case Enum.max_by(bins, fn {_bin, pixels} -> length(pixels) end, fn -> nil end) do
+      nil -> nil
+      {_bin, pixels} -> pixels
     end
   end
 

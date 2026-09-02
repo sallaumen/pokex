@@ -114,6 +114,36 @@ defmodule Pokex.Vision.ColorMarkTest do
       assert {r, g, b} == @verde
     end
 
+    # A CRISTA DO SHINY FERALIGATR: uns poucos pixels azul-escuros num corpo
+    # ciano. A votação do patch dava o corpo; o clique em cima da crista tem
+    # que devolver a crista — é ela que separa o shiny do comum.
+    test "o pixel clicado manda: o detalhe escuro vence o corpo em volta" do
+      corpo = {70, 190, 230}
+      crista = {20, 40, 110}
+
+      # a crista vem primeiro: `cor_em/4` pinta o primeiro retalho que casar
+      f =
+        frame(12, 12, {200, 180, 120}, [
+          {{5, 5, 2, 2}, crista},
+          {{1, 1, 10, 10}, corpo}
+        ])
+
+      assert {:ok, ^crista} = ColorMark.dominant(f, {5, 5})
+      assert {:ok, ^corpo} = ColorMark.dominant(f, {2, 2})
+    end
+
+    # …e o clique que cai numa borda sem cor continua sendo a votação de sempre.
+    test "clicando no cinza entre duas cores, o patch inteiro vota" do
+      f =
+        frame(12, 12, {90, 90, 92}, [
+          {{0, 0, 12, 5}, @verde},
+          {{0, 7, 12, 5}, {60, 90, 200}}
+        ])
+
+      assert {:ok, {r, g, b}} = ColorMark.dominant(f, {6, 6})
+      assert {r, g, b} in [@verde, {60, 90, 200}]
+    end
+
     test "clicar no cinza não ensina nada — e diz isso" do
       f = frame(8, 8, {90, 90, 92}, [])
       assert :none = ColorMark.dominant(f, {4, 4})

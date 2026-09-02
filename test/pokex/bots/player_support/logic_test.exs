@@ -40,6 +40,38 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
     end
   end
 
+  # "Quando o pokémon chega abaixo de 85% da HP quer dizer que já tem gente
+  # batendo nele o suficiente e vale usar o buff de defesa" (02/09).
+  describe "shield_wanted?/1" do
+    @escudo %{
+      hp_pct: 80,
+      prev_hp_pct: 82,
+      threshold_pct: 85,
+      enabled?: true,
+      cooldown_ms: 3_000,
+      last_shield_at: nil,
+      now: 10_000
+    }
+
+    test "duas leituras abaixo de 85 pedem a aura" do
+      assert Logic.shield_wanted?(@escudo)
+    end
+
+    test "uma leitura só não pede — um quadro ruim não gasta cooldown" do
+      refute Logic.shield_wanted?(%{@escudo | prev_hp_pct: 95})
+    end
+
+    test "acima do limiar, ou desligada, não pede" do
+      refute Logic.shield_wanted?(%{@escudo | hp_pct: 90})
+      refute Logic.shield_wanted?(%{@escudo | enabled?: false})
+    end
+
+    test "o anti-spam segura a segunda dentro do cooldown" do
+      refute Logic.shield_wanted?(%{@escudo | last_shield_at: 8_500})
+      assert Logic.shield_wanted?(%{@escudo | last_shield_at: 6_000})
+    end
+  end
+
   describe "revive/1" do
     test "one press is the whole revive" do
       assert Logic.revive(%{rescue_key: "f4", step_ms: 40}) == [:still, {:press, "f4"}]

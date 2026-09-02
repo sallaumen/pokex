@@ -83,6 +83,10 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   alias Pokex.SettingsStash
 
   setup %{tmp_dir: tmp} do
+    # A aura de defesa (02/09) fica fora dos testes que não são dela: ligada por
+    # padrão, ela falaria no feed antes da linha que eles leem.
+    SettingsStash.stash!(shield_skill_enabled: false)
+    SettingsStash.stash_keys!([:pokemon_hp_shield_pct, :shield_skill_cooldown_ms])
     # one shared blackboard: start from an empty world, never from the last test's
     WorldState.clear()
 
@@ -310,6 +314,62 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # The pokémon's OWN healing skill: the rung above the potion, and the only one
   # that works while it is being hit — a potion is a channel and combat cancels
   # it, so HP falling mid-fight used to have nothing before the revive.
+  # A AURA DE DEFESA, o degrau acima da cura: "abaixo de 85% já tem gente
+  # batendo nele o suficiente e vale usar o buff de defesa, se o cooldown
+  # estiver disponível" (02/09).
+  describe "a aura de defesa" do
+    setup do
+      Settings.put(:rescue_enabled, false)
+      Settings.put(:potion_enabled, false)
+      Settings.put(:heal_skill_enabled, false)
+      Settings.put(:shield_skill_enabled, true)
+      Settings.put(:pokemon_hp_shield_pct, 85)
+      Settings.put(:shield_skill_cooldown_ms, 60_000)
+      # as cercas da aura leem o caderninho do revive e o relógio da corrente —
+      # um teste anterior pode ter deixado os dois carimbados
+      Pokex.Bots.ReviveLedger.reset()
+      Pokex.Bots.SkillClock.wipe()
+      :ok
+    end
+
+    # `hp_png` pinta COLUNAS de 20: 12 é 60%, 19 é 95%.
+    @tag :tmp_dir
+    test "abaixo de 85%, aperta a aura de defesa do /time", %{tmp: tmp, body: body} do
+      classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
+      low = hp_png(tmp, "low_shield.png", 12)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :high, [{:press, "2"}]}, 800
+    end
+
+    @tag :tmp_dir
+    test "acima de 85% não aperta nada", %{tmp: tmp, body: body} do
+      classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
+      ok = hp_png(tmp, "ok_shield.png", 19)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, ok}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, :high, _}, 400
+    end
+
+    @tag :tmp_dir
+    test "sem aura classificada, nada sai", %{tmp: tmp, body: body} do
+      classify!("Venusaur", %{"3" => :aoe})
+      low = hp_png(tmp, "low_noshield.png", 12)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute_receive {:performed, :high, _}, 400
+    end
+  end
+
   describe "the pokémon's healing skill" do
     setup do
       Settings.put(:rescue_enabled, false)

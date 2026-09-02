@@ -301,6 +301,53 @@ defmodule Pokex.Sim.HandsTest do
   # `:still`. O mundo tem o sensor (`chain_while_walking`) e a bancada a
   # invariante — "sinto que essas coisas deveríamos pegar no simulador e não
   # deixar ir pra gameplay real" (02/09).
+  # A AURA DE DEFESA no simulador, espelho do degrau novo do suporte (02/09).
+  describe "a aura de defesa" do
+    @com_escudo %Loadout{name: "Barra", aoe: ["3", "4"], single: [], crowd: [], shield: ["5"]}
+    @defesa Map.merge(@stun, %{
+              shield_skill_enabled: true,
+              shield_pct: 85,
+              shield_skill_cooldown_ms: 3_000
+            })
+
+    defp machucado(loadout, knobs \\ %{}) do
+      world = mundo(loadout, knobs)
+      %{world | own: %{world.own | hp_pct: 80}}
+    end
+
+    test "abaixo de 85%, duas leituras, a aura sai e a mordida para de encostar" do
+      world = machucado(@com_escudo)
+      hands = %{Hands.new() | prev_hp: 82}
+
+      {world, hands} = Hands.obey(world, ordens(), hands, @defesa)
+
+      assert world.own.shield_until > world.clock
+      assert hands.last_shield_at == world.clock
+    end
+
+    test "sem aura na barra, nada sai" do
+      world = machucado(@barra)
+      hands = %{Hands.new() | prev_hp: 82}
+
+      {world, _hands} = Hands.obey(world, ordens(), hands, @defesa)
+
+      assert world.own.shield_until == 0
+    end
+
+    test "com a corrente do combo saindo, espera" do
+      world =
+        machucado(@com_escudo, %{combo_key: "r", combo_chain_ms: 3_500})
+        |> World.press({:press, "r"})
+
+      hands = %{Hands.new() | prev_hp: 82}
+      config = Map.put(@defesa, :combo_window_ms, 4_000)
+
+      {world, _hands} = Hands.obey(world, ordens(), hands, config)
+
+      assert world.own.shield_until == 0
+    end
+  end
+
   describe "a tecla que não anda junto" do
     @corrente %{combo_key: "r", combo_chain_ms: 3_500}
 

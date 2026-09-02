@@ -522,7 +522,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert :ok = Worker.run(worker)
 
     assert_receive {:performed, :critical, actions}, 1_000
-    assert actions == [{:press, "q"}]
+    assert actions == [:still, {:press, "q"}]
 
     assert Worker.status(worker).counters.rescues >= 1
   end
@@ -602,9 +602,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert :ok = Worker.run(worker)
 
     # the stun goes out FIRST and alone — the recall waits for its receipt
-    assert_receive {:performed, :critical, [{:press, "1"}]}, 1_500
+    assert_receive {:performed, :critical, [:still, {:press, "1"}]}, 1_500
     assert_receive {:performed, :critical, revive}, 1_500
-    assert revive == [{:press, "q"}]
+    assert revive == [:still, {:press, "q"}]
 
     assert await_log("stun do resgate") =~ "guardado no /time"
   end
@@ -622,7 +622,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
 
-    assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_500
+    assert_receive {:performed, :critical, [:still, {:press, "q"} | _]}, 1_500
     assert await_log("sem controle pronto") =~ "revivendo direto"
   end
 
@@ -646,8 +646,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
 
-    assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_500
-    refute_receive {:performed, :critical, [{:press, "1"}]}, 500
+    assert_receive {:performed, :critical, [:still, {:press, "q"} | _]}, 1_500
+    refute_receive {:performed, :critical, [:still, {:press, "1"}]}, 500
 
     assert await_log("última parte do combo") =~ "dentro do sono"
   end
@@ -673,7 +673,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
 
-    assert_receive {:performed, :critical, [{:press, "f4"}]}, 1_500
+    assert_receive {:performed, :critical, [:still, {:press, "f4"}]}, 1_500
     refute_receive {:performed, :critical, _anything_else}, 500
   end
 
@@ -699,11 +699,11 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # first sequence: the crowd control, and nothing else — no recall rides
     # along, because it must not happen until this one is confirmed
     assert_receive {:performed, :critical, stun}, 1_000
-    assert stun == [{:press, "1"}, {:press, "2"}]
+    assert stun == [:still, {:press, "1"}, {:press, "2"}]
 
     # second: the revive itself
     assert_receive {:performed, :critical, revive}, 1_000
-    assert revive == [{:press, "q"}]
+    assert revive == [:still, {:press, "q"}]
   end
 
   # 2026-08-14, live: the recall followed the confirmation by ~100ms and the
@@ -729,8 +729,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
 
-    assert_receive {:performed, :critical, [{:press, "1"}]}, 1_000
-    assert_receive {:performed, :critical, [{:wait, settle} | rest]}, 1_000
+    assert_receive {:performed, :critical, [:still, {:press, "1"}]}, 1_000
+    assert_receive {:performed, :critical, [:still, {:wait, settle} | rest]}, 1_000
 
     assert settle > 0 and settle <= 500
     assert [{:press, "q"} | _] = rest
@@ -751,7 +751,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert :ok = Worker.run(worker)
 
     assert_receive {:performed, :critical, revive}, 1_000
-    assert [{:press, "q"} | _] = revive
+    assert [:still, {:press, "q"} | _] = revive
   end
 
   @tag :tmp_dir
@@ -772,9 +772,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     worker = start_worker(body)
     assert :ok = Worker.run(worker)
 
-    assert_receive {:performed, :critical, [{:press, "1"}]}, 1_000
+    assert_receive {:performed, :critical, [:still, {:press, "1"}]}, 1_000
     assert_receive {:performed, :critical, revive}, 1_500
-    assert [{:press, "q"} | _] = revive
+    assert [:still, {:press, "q"} | _] = revive
   end
 
   @tag :tmp_dir
@@ -794,8 +794,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     assert :ok = Worker.run(worker)
 
-    assert_receive {:performed, :critical, [{:press, "1"}]}, 1_000
-    assert_receive {:performed, :critical, [{:press, "q"} | _]}, 1_000
+    assert_receive {:performed, :critical, [:still, {:press, "1"}]}, 1_000
+    assert_receive {:performed, :critical, [:still, {:press, "q"} | _]}, 1_000
 
     # a pokémon left dead is worse than a pokémon revived in the open — but
     # the doubt is SAID, never assumed away (after the dispatch line: the
@@ -1097,11 +1097,11 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert :ok = Worker.run(worker)
 
       # the stun that refused — both control keys, the ones /time reserves…
-      assert_receive {:performed, :critical, [{:press, "1"}, {:press, "2"}]}, 2_000
+      assert_receive {:performed, :critical, [:still, {:press, "1"}, {:press, "2"}]}, 2_000
 
       # …then the rest of the hand, never a key already spent
       assert_receive {:performed, :critical, last_card}, 2_000
-      assert last_card == [{:press, "3"}]
+      assert last_card == [:still, {:press, "3"}]
 
       # and only THEN does the field empty
       assert_receive {:performed, :critical, revive}, 2_000
@@ -1122,7 +1122,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
 
-      assert_receive {:performed, :critical, [{:press, "1"}]}, 2_000
+      assert_receive {:performed, :critical, [:still, {:press, "1"}]}, 2_000
       assert_receive {:performed, :critical, revive}, 2_000
       assert List.last(revive) == {:press, "q"}
 
@@ -1224,7 +1224,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert :ok = Worker.run(worker)
 
       assert await_log("caiu") =~ "revive na hora"
-      assert_receive {:performed, :critical, [{:press, "f4"}]}, 2_000
+      assert_receive {:performed, :critical, [:still, {:press, "f4"}]}, 2_000
       refute_receive {:performed, :critical, [{:move, _} | _]}, 500
     end
 
@@ -2009,8 +2009,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
       # o controle está PRONTO — e mesmo assim não sai: a tela está limpa e
       # gastá-lo aqui é deixá-lo gelado pra quando a pilha estiver acordada
-      assert_receive {:performed, :critical, [{:press, "q"}]}, 1_500
-      refute_receive {:performed, :critical, [{:press, "1"} | _]}, 400
+      assert_receive {:performed, :critical, [:still, {:press, "q"}]}, 1_500
+      refute_receive {:performed, :critical, [:still, {:press, "1"} | _]}, 400
     end
 
     @tag :tmp_dir
@@ -2030,9 +2030,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
       # a última cartada sai primeiro (a decisão dele de 14/08: "pra tentar dar
       # aquele último dano, daí recolhe")…
-      assert_receive {:performed, :critical, [{:press, "3"}]}, 2_000
+      assert_receive {:performed, :critical, [:still, {:press, "3"}]}, 2_000
       # …e o revive vem DEPOIS dela — nunca um F4 nu na frente da pilha
-      assert_receive {:performed, :critical, [{:press, "q"}]}, 2_000
+      assert_receive {:performed, :critical, [:still, {:press, "q"}]}, 2_000
 
       assert_receive {:rule_alarm, :hp, aviso}, 2_000
       assert aviso =~ "controle em cooldown"
@@ -2069,9 +2069,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
       # o revive sai — e NENHUMA outra tecla na frente dele: nada de última
       # cartada, nada de re-stun
-      assert_receive {:performed, :critical, [{:press, "q"}]}, 2_500
-      refute_received {:performed, :critical, [{:press, "3"}]}
-      refute_received {:performed, :critical, [{:press, "1"} | _]}
+      assert_receive {:performed, :critical, [:still, {:press, "q"}]}, 2_500
+      refute_received {:performed, :critical, [:still, {:press, "3"}]}
+      refute_received {:performed, :critical, [:still, {:press, "1"} | _]}
     end
   end
 

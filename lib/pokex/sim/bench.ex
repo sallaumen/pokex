@@ -365,6 +365,13 @@ defmodule Pokex.Sim.Bench do
   end
 
   defp tally_bodies(metrics, before, world) do
+    # A INVARIANTE DA TECLA ESPECIAL: a corrente nunca sai com seta segurada.
+    # O mundo conta (`chain_while_walking`); aqui vira violação por tique.
+    metrics =
+      if world.stats.chain_while_walking > before.stats.chain_while_walking,
+        do: Map.update!(metrics, :violations, &[:chain_while_walking | &1]),
+        else: metrics
+
     %{
       metrics
       | kills: metrics.kills + (world.stats.killed - before.stats.killed),

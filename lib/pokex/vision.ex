@@ -914,9 +914,8 @@ defmodule Pokex.Vision do
 
   defp hp_known_px(<<r, g, b, _a, rest::binary>>, min_b, min_s, max_track, known, lit, total) do
     bright = max(r, max(g, b))
-    sat = bright - min(r, min(g, b))
-    fill? = bright >= min_b and sat >= min_s and b <= max(r, g)
-    track? = bright <= max_track
+    fill? = hp_fill_pixel?(r, g, b, min_b, min_s)
+    track? = hp_track_pixel?(r, g, b, max_track)
 
     hp_known_px(
       rest,
@@ -935,6 +934,14 @@ defmodule Pokex.Vision do
   @doc """
   Fill percentage (0..100) of a horizontal HP bar frame — the fraction of COLUMNS that hold a
   COLOURED pixel, so an emptying bar reads lower.
+
+  THE TRACK IS NOT FILL (2026-09-02): the Poké Alliance Pokebar's empty track is a grey-teal
+  (56,89,89) — saturation 33, blue TIED with green. The colour rule below took it for fill
+  (saturation over the floor, blue not above the max channel), so every empty column
+  counted as filled and the pokémon read 98-100% through a whole night of fights (339
+  readings, his bar visibly at 23%); the aura and the bleeding rule never fired, and the
+  frame passed every plausibility check because it IS the bar. Every HP tone has blue as
+  its LOW channel — strictly below the max — so a pixel with blue tied to the max is track.
 
   COLOUR-AGNOSTIC by design: the fill changes hue as HP drops (green → olive → brown → red), so we
   can't key on "green". A column counts as filled when it holds a WARM, COLOURED pixel:
@@ -980,7 +987,7 @@ defmodule Pokex.Vision do
     sat = bright - min(r, min(g, b))
     column = rem(i, w)
 
-    warm? = bright >= min_b and sat >= min_s and b <= max(r, g)
+    warm? = hp_fill_pixel?(r, g, b, min_b, min_s)
     # the digits: bright and washed out, whatever the bar's colour underneath
     text? = bright >= @hp_text_bright and sat <= @hp_text_sat
 
@@ -996,6 +1003,25 @@ defmodule Pokex.Vision do
   end
 
   defp column_scan(<<>>, _i, _w, _min_b, _min_s, filled, lettered), do: {filled, lettered}
+
+  # A pixel of HP FILL: bright enough, coloured enough, and blue STRICTLY under the max
+  # channel — green, olive, brown, red all have blue as their low channel; the grey-teal
+  # track ties blue with green and is not fill.
+  defp hp_fill_pixel?(r, g, b, min_b, min_s) do
+    bright = max(r, max(g, b))
+    sat = bright - min(r, min(g, b))
+    bright >= min_b and sat >= min_s and b < max(r, g)
+  end
+
+  # A pixel of the empty TRACK: near-black (the old client), or the Poké Alliance's
+  # grey-teal — blue at or above the max channel and not a vivid blue (the game world
+  # leaking into a loose box stays unknown).
+  @track_max_sat 60
+  defp hp_track_pixel?(r, g, b, max_track) do
+    bright = max(r, max(g, b))
+    sat = bright - min(r, min(g, b))
+    bright <= max_track or (b >= max(r, g) and sat <= @track_max_sat)
+  end
 
   defp skill_slot_acc(<<r, g, b, _a, rest::binary>>, i, w, count, slot_w, acc) do
     slot = min(div(rem(i, w), slot_w), count - 1)

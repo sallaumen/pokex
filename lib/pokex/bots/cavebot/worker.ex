@@ -134,12 +134,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
       # gives them all back (see note_arrival/3)
       block_retries: 0,
       counters: @zero_counters,
-      # O RELÓGIO DA NOITE, em hora de parede (`system_time`), não monotônica:
-      # quem lê isto é uma tela que quer dizer "desde 22:14" além de "há 6h12",
-      # e a monotônica não sabe que horas são. Um par: `started_at` marca o
-      # `run`, `ended_at` marca o `halt` — e um reentro (`resume_hunt`) não
-      # toca em nenhum dos dois, porque é a MESMA noite, pela mesma razão dos
-      # contadores.
+      # O RELÓGIO DA NOITE, em hora de parede (`system_time`), não monotônica: quem lê isto é
+      # uma tela que quer dizer "desde 22:14" além de "há 6h12", e a monotônica não sabe que
+      # horas são.
       started_at: nil,
       ended_at: nil,
       last_action: nil,
@@ -193,10 +190,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
   @impl true
   def init(state) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Combat.Worker.topic())
-    # The Catcher's queue decides when the route may resume — heard, never
-    # asked: a `call` to the Catcher parks behind its multi-second captures
-    # (the 2026-07-30 timeout that killed a page), and this worker ticks 5x a
-    # second.
+    # The Catcher's queue decides when the route may resume — heard, never asked: a `call` to
+    # the Catcher parks behind its multi-second captures (the 2026-07-30
     Phoenix.PubSub.subscribe(Pokex.PubSub, Catcher.Worker.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Team.topic())
     {:ok, state}
@@ -251,12 +246,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     if InputGate.allowed?() do
       run_cavebot_tick(state, now)
     else
-      # Gate closed = no step goes out (the Body refuses), but the Logic's
-      # patience clocks kept running — 3s without "progress" became :stuck and
-      # the hunt died BEFORE the game could be refocused after clicking Iniciar
-      # in the browser (the real fail-closed regression, 2026-07-29). Freeze
-      # the clocks: pin every `since` stamp to `now`, record the visible
-      # reason, and wait for the gate to reopen.
+      # Gate closed = no step goes out (the Body refuses), but the Logic's patience clocks kept
+      # running — 3s without "progress" became :stuck and the hunt died BEFORE
       frozen = %{
         state.logic
         | since: Map.new(state.logic.since, fn {k, _at} -> {k, now} end)
@@ -279,10 +270,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   def handle_info(:comeback, state) do
     cond do
-      # "panic/Stop nunca são revertidos automaticamente": the Guardian may
-      # have latched while this hunt was waiting, and a timer fired from before
-      # must never be what undoes it. Said out loud, because a silent refusal
-      # is indistinguishable from a broken comeback.
+      # "panic/Stop nunca são revertidos automaticamente": the Guardian may have latched while
+      # this hunt was waiting, and a timer fired from before must never be what undoes it.
       InputGate.panic_latched?() ->
         log(:macro, "não retomo: o pânico está travado — solte pelo painel")
         {:noreply, %{state | timer: nil}}
@@ -301,11 +290,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
      %{state | combat_state: combat_state, combat_scenery: Map.get(snapshot, :scenery, 0)}}
   end
 
-  # Corpses queued for capture — and ONLY those. The blind sweep's own queue is
-  # deferred by design outside the standing mode ("varredura adiada — a
-  # varredura é do modo Parado", all over Lucas's log), so counting it made the
-  # hunt wait on work nobody was going to do: after every kill it sat until the
-  # cap, then again, and again.
+  # Corpses queued for capture — and ONLY those.
   def handle_info({:catcher, snapshot}, state) do
     {:noreply, note_capture(state, Map.get(snapshot, :pending_corpses, 0))}
   end
@@ -337,10 +322,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # The read position is KEPT with its read time: during a blind spell the
-  # world the Logic gets has `pos: nil` (it must not walk on a guess), but the
-  # screen keeps showing the last known coordinate WITH its age — "was at
-  # 100,100 4s ago" is diagnosis, "no position" is not.
+  # The read position is KEPT with its read time: during a blind spell the world the Logic gets
+  # has `pos: nil` (it must not walk on a guess), but the screen keeps
   defp run_cavebot_tick(state, now) do
     {world, state} = observe(state, now)
     before = broadcast_key(state, now)
@@ -406,19 +389,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
-  # WHERE the hunt is, as a fact, for whoever needs to reason about the leg
-  # rather than about the screen. The posture above says what Combat must DO;
-  # this says what the hunt IS — which leg it walks and whether that leg is a
-  # gathering.
-  #
-  # Published beside the posture and never instead of it: the posture is a
-  # command with a heartbeat, this is a description. A consumer that misses it
-  # loses context, never safety.
-  #
-  # It carried a `gathering?` too — whether the huddle clock still considered
-  # the pile to be arriving — and nobody ever read it: the engine matches on
-  # `state` and `luring?`, and the one consumer of the huddle window (Timers)
-  # reads the `:posture` fact raw. Dropped 2026-08-28.
+  # WHERE the hunt is, as a fact, for whoever needs to reason about the leg rather than about
+  # the screen.
   defp publish_hunt(state, now) do
     logic = state.logic
 
@@ -511,22 +483,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
-  # A revive does two jobs — it heals AND it clears every cooldown — so it is
-  # worth spending when either one is actually needed. Full bar and full health
-  # is the case he named: "você reseta só porque é um local da rota que parece
-  # que faz sentido" (2026-08-17).
-  #
-  # A PERGUNTA MUDOU EM 27/08: era `spent?` — "acabou TUDO?" — e ele explicou
-  # que caça de outro jeito: "é raro quando uso todas minhas skills realmente
-  # esperar cooldown, eu sempre uso um revive antes de matar o próximo grupo (…)
-  # mesmo que nem tenha acabado todos os cooldowns, pra já deixar preparado".
-  # Uma esquina marcada acontece com a tela limpa, entre dois grupos, que é
-  # exatamente o momento da regra dele — então o que vale aqui é `prepared?`, a
-  # outra ponta: "a barra está INTEIRA?". Barra inteira e vida cheia segue sendo
-  # a única recusa.
-  #
-  # Unknown is never a refusal: a reading we could not take must not be the
-  # reason a corner he marked stops working.
+  # A revive does two jobs — it heals AND it clears every cooldown — so it is worth spending
+  # when either one is actually needed.
   defp reset_worth?(picture) do
     # O ORÇAMENTO NA ESQUINA: uma esquina de reset é conveniência, e com a
     # conta na reserva os últimos revives pertencem à emergência e ao caído.
@@ -558,11 +516,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp reset_note(%{own_hp: hp}) when is_integer(hp), do: "vida #{hp}%"
   defp reset_note(_no_reading), do: nil
 
-  # The :pokemon fact PlayerSupport already publishes 8x a second — read, never
-  # asked. Absent, stale and unreadable all come out nil: without a running
-  # health monitor the HP guard is inert (fail-open, like every fact), and
-  # inside a recovery the Logic reads nil as "still down" — a recalled pokémon
-  # has no bar, and the revive is exactly the wait.
+  # The :pokemon fact PlayerSupport already publishes 8x a second — read, never asked.
   defp own_hp(now) do
     case Perception.pokemon(now) do
       {:ok, %{hp_pct: pct}} when is_integer(pct) -> pct
@@ -582,14 +536,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
-  # Fail-safe 0: a missing/stale :battle fact reads as "screen clear" — the
-  # cavebot keeps the route; a real enemy is still fought by Combat (always
-  # running) and the next fresh fact corrects the count.
-  # What the hunt YIELDS the road to: rows Combat might still fight, never the
-  # ones it has given up on. Lucas's own pokémon shows in the battle list
-  # (2026-08-10): Combat tabbed at it, failed three times, called it scenery
-  # and moved on — while the hunt, counting raw rows, stood still forever
-  # waiting for a fight that could never start.
+  # Fail-safe 0: a missing/stale :battle fact reads as "screen clear" — the cavebot keeps the
+  # route; a real enemy is still fought by Combat (always running) and the next fresh fact
+  # corrects the count.
   defp fightable(state, now) do
     max(enemy_count(now) - state.combat_scenery, 0)
   end
@@ -612,15 +561,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # explaining a stop that already has another reason.
   def translate(state, :none), do: %{release_walk(state) | last_step: nil}
 
-  # Walking HOLDS the direction — both axes at once when the waypoint is
-  # diagonal — and keeps holding while the intent is unchanged. Tapping one
-  # arrow per tile was the client's slowest gear (Lucas, 2026-08-10: "está
-  # dando pequenos cliques, o personagem tá andando muito lento").
-  #
-  # Measured AFTER the choice, never before: "how many tiles did that decision
-  # actually buy" is the number the instrument exists for, and `{:walk, 4, -3}`
-  # reads identically whether it then held two keys, held one, tapped one or
-  # pressed nothing. What went out is the half that differs.
+  # Walking HOLDS the direction — both axes at once when the waypoint is diagonal — and keeps
+  # holding while the intent is unchanged.
   def translate(state, {:walk, dx, dy}) do
     {stepped, went_out} =
       if precise?(dx, dy),
@@ -679,11 +621,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
-  # "Cooldown Ressurect" (Lucas, 2026-08-10): reviving resets every skill
-  # cooldown, so the next fight starts with a full bar instead of a wait — and
-  # it still does in this client (confirmed 2026-08-24). The sequence is
-  # PlayerSupport's, proven there; this only borrows it, at :high so it lands
-  # ahead of ordinary walking.
+  # "Cooldown Ressurect" (Lucas, 2026-08-10): reviving resets every skill cooldown, so the next
+  # fight starts with a full bar instead of a wait — and it still does in this client (confirmed
+  # 2026-08-24).
   def translate(state, :cooldown_revive) do
     state = release_walk(state)
     fire_revive(state.body, revive_combo())
@@ -709,25 +649,13 @@ defmodule Pokex.Bots.Cavebot.Worker do
         log(:debug, "combate ligado")
         state
 
-      # NOT a block, and deliberately not the dangerous one. The preflight runs
-      # inline inside that call and queues behind the capture broker, so "it did
-      # not answer in time" means the machine is congested — not that the world
-      # stopped matching the route. Blocking here would latch the panic and stop
-      # the whole fleet over a slow screenshot; dying (which is what the default
-      # 5s timeout did, from inside the tick) restarted this worker as `:idle`
-      # with no alarm and no reason, while the stale `:posture` fact read as
-      # free fight and combat spent the night fighting off-route. So: say it out
-      # loud and let the next tick ask again.
+      # NOT a block, and deliberately not the dangerous one.
       :timeout ->
         log(:macro, "⏳ o combate está demorando pra arrancar — tento de novo")
         state
 
       {:error, messages} ->
-        # O MOTIVO VAI JUNTO. Ele ficava só no Logger, e a tela dizia "o combate
-        # recusou o arranque" e mais nada — que é uma frase que não conserta
-        # nada. O preflight SABE o que falta ("Dugtrio está sem barra", "falta
-        # dizer o que faz a tecla 0"), e é isso que ele precisa ler pra
-        # resolver (26/08).
+        # O MOTIVO VAI JUNTO.
         Logger.warning("Cavebot: combate recusou o arranque (#{inspect(messages)})")
         translate(state, {:block, {:combat_preflight_failed, messages}})
     end
@@ -738,18 +666,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     release_walk(state)
   end
 
-  # DANGEROUS BLOCK vs LOCAL BLOCK — the split exists because treating both as
-  # emergencies is what erased the whole hunt in silence: a wall (:stuck) took
-  # the ENTIRE fleet down and set the panic latch, which vetoes even Focus's
-  # auto-resume — capture and support only came back with a human "Iniciar",
-  # over a one-tile obstacle.
-  #
-  # DANGEROUS (@dangerous_blocks) is when the world stopped matching the route:
-  # the character changed floors (the route describes ANOTHER map) or combat
-  # refused to start (following the route would collect enemies nobody kills).
-  # Then the full handbrake applies, in emergency_escape order: latch FIRST
-  # (nothing may auto-resume over it), then the combat this worker drives, then
-  # the whole fleet.
+  # DANGEROUS BLOCK vs LOCAL BLOCK — the split exists because treating both as emergencies is
+  # what erased the whole hunt in silence: a wall (:stuck) took the
   def translate(state, {:block, reason}) do
     if dangerous?(reason),
       do: dangerous_block(state, reason),
@@ -800,18 +718,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     |> schedule_comeback()
   end
 
-  # The night is the product ("ele vai estar lá a madrugada inteira farmando"),
-  # and a one-tile obstacle used to end it: the hunt stopped and waited for a
-  # human until morning. A LOCAL block now stands down and comes back — a fresh
-  # Logic re-enters at the nearest corner, which is exactly what unsticks a
-  # knockback, a closed door, or a player who has since walked off.
-  #
-  # Everything stays as it was WHILE it waits (blocked, alarmed, reason on
-  # screen): the comeback is an extra, never a reason to be quieter about the
-  # stop. Two things it never does — retry a dangerous block (that one latched
-  # the panic, and auto-resuming over a latch is the one thing this codebase
-  # refuses), and retry without a budget: `cavebot_block_retries` bounds the
-  # loop, and reaching a waypoint refills it.
+  # The night is the product ("ele vai estar lá a madrugada inteira farmando"), and a one-tile
+  # obstacle used to end it: the hunt stopped and waited for a human until morning.
   defp schedule_comeback(state) do
     budget = Settings.get(:cavebot_block_retries)
 
@@ -836,11 +744,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
-  # Re-entering, not resuming: a brand-new Logic homes in at the nearest corner
-  # on the current floor, which is the whole point — wherever the character
-  # ended up, the route restarts from there instead of from where it gave up.
-  # The session COUNTERS survive: it is the same night, and "12 waypoints" that
-  # resets to zero on every hiccup answers nothing in the morning.
+  # Re-entering, not resuming: a brand-new Logic homes in at the nearest corner on the current
+  # floor, which is the whole point — wherever the character ended up,
   defp resume_hunt(state, route) do
     log(:macro, "🔁 retomando a caçada: reentro pela rota \"#{route.name}\"")
     counters = bump(state.counters, :comebacks)
@@ -903,24 +808,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp block_text(:fight_stalled), do: "parei: a luta não termina"
   defp block_text(reason), do: "parei: #{inspect(reason)}"
 
-  # A step failure (e.g. {:error, :no_layout} with no HUD located) takes
-  # nothing down: the next tick rereads the world and retries. But it is
-  # RECORDED — a step that never left counting as taken is exactly what killed
-  # the fleet silently on 2026-07-23 (gate closed → click swallowed → Logic
-  # believed the step → frozen position → :stuck → panic). A Logger.debug is
-  # not visibility: nobody reads the log when the bot stops.
-  # The keys a direction asks for: one per non-zero axis, so a diagonal
-  # waypoint is walked diagonally instead of in two straight legs. The game's
-  # y grows SOUTH.
-  # WHEN the queue last changed, not just how big it is: a queue that shrinks is
-  # the capture working, and one frozen at 2 is work that will never happen.
-  # OFF the tick, on purpose. `Body.perform/2` is a call with an :infinity
-  # timeout, and the Body may be several seconds deep in a capture when this
-  # goes out — blocking the tick would freeze the hunt AND time out the page's
-  # own `status` call, which is how a LiveView died once before (2026-07-30).
-  # The Body's queue keeps the ordering; the answer is only worth a log line,
-  # and a refusal must SAY so instead of narrating a revive that never
-  # happened.
+  # A step failure (e.g.
   defp fire_revive(body, actions) do
     spawn(fn ->
       case body.perform(actions, :high) do
@@ -959,14 +847,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end)
   end
 
-  # The categories in their canonical order, deduplicated by KEY: two
-  # categories can land on the same key, and pressing it twice is not what he
-  # asked for.
-  #
-  # …E A CATEGORIA `:single` CAI FORA quando ele diz que ela não machuca
-  # (29/08). Uma esquina gravada é uma ordem antiga: ela guarda o que ele
-  # apertava naquele dia, e o jogo mudou desde então. Nenhuma rota dele carrega
-  # `:single` hoje — esta linha fecha a porta, não conserta um estrago.
+  # The categories in their canonical order, deduplicated by KEY: two categories can land on the
+  # same key, and pressing it twice is not what he asked for.
   defp skill_keys(loadout, categories) do
     categories
     |> Enum.reject(&(&1 == :single and not Settings.get(:combat_single_target)))
@@ -981,14 +863,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     times = Settings.get(:cavebot_park_clicks)
     gap = Settings.get(:cavebot_park_gap_ms)
 
-    # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que
-    # mandar algumas vezes, umas 4x, pra ter certeza" (Lucas, 2026-08-11). The
-    # client drops the order when it is busy; the click is idempotent (the
-    # pokémon walks to the same tile) so repeating it costs nothing and is the
-    # difference between "andou" and "às vezes andou".
-    #
-    # Off the tick, like every other Body.perform here: it is a call with an
-    # :infinity timeout and the Body may be seconds deep in a capture.
+    # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que mandar algumas
+    # vezes, umas 4x, pra ter certeza" (Lucas, 2026-08-11).
     clicks = List.duplicate({:click, :middle, point}, times)
     actions = Enum.intersperse(clicks, {:wait, gap})
     body = state.body
@@ -1025,20 +901,16 @@ defmodule Pokex.Bots.Cavebot.Worker do
       else: %{state | capture_pending: pending, capture_changed_at: now()}
   end
 
-  # Close in, precision beats speed: a held arrow keeps walking between
-  # readings and always overshoots the last tile, which is fine on a wide
-  # corner and fatal on a staircase one tile wide (Lucas, 2026-08-11). One tap
-  # per tick lands exactly on it.
+  # Close in, precision beats speed: a held arrow keeps walking between readings and always
+  # overshoots the last tile, which is fine on a wide corner and fatal on a
   defp precise?(dx, dy) do
     range = Settings.get(:cavebot_precise_tiles)
     range > 0 and abs(dx) <= range and abs(dy) <= range
   end
 
   defp hold_walk(state, dx, dy) do
-    # An axis already inside the arrival tolerance is NOT held: with a key held
-    # down the character keeps walking between readings, so correcting a
-    # one-tile error overshoots it the other way — the zig-zag Lucas saw
-    # (left+down → down → right+down → down, around the same corner).
+    # An axis already inside the arrival tolerance is NOT held: with a key held down the
+    # character keeps walking between readings, so correcting a one-tile error
     tol = Settings.get(:cavebot_arrival_tolerance_tiles)
     keys = Enum.reject([horizontal(dx, tol), vertical(dy, tol)], &is_nil/1)
 
@@ -1138,10 +1010,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end)
   end
 
-  # Two shapes, on purpose: the scalar knobs come straight from Settings, and
-  # the hunt's DEFAULT park spot is a pair — where the pokémon goes at a kill
-  # spot he never marked one for. {0, 0} is "on top of me", which means don't
-  # send it anywhere.
+  # Two shapes, on purpose: the scalar knobs come straight from Settings, and the hunt's DEFAULT
+  # park spot is a pair — where the pokémon goes at a kill spot he never marked one for.
   defp config do
     @config_keys
     |> Map.new(fn {key, setting} -> {key, Settings.get(setting)} end)
@@ -1323,15 +1193,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp action_text(%{last_action: %{text: text}}), do: text
   defp action_text(_state), do: nil
 
-  # "Why isn't he walking", in the other workers' mold (fishing,
-  # player_support): the out-of-tick reason first (lost feed, block) as the most
-  # serious; the refused step next, the tick's concrete obstacle; blindness
-  # last, explaining ticks where walking isn't even attempted. All together
-  # when all apply. nil = nothing holding.
-  #
-  # Each reason carries a TYPE, and the type decides whether it was already
-  # counted in the feed: the blindness text changes every second (the counter
-  # advances) with no new fact, and comparing text would log a line per second.
+  # "Why isn't he walking", in the other workers' mold (fishing, player_support): the out-of-
+  # tick reason first (lost feed, block) as the most serious; the refused
   defp holds(%{logic: nil}, _now), do: []
 
   defp holds(state, now) do
@@ -1393,37 +1256,18 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # a human recognizes in the route list.
   defp note_arrival(%{logic: %Logic{wp_index: same}} = state, same, _now), do: state
 
-  # ENTERING the route is not walking it. `home_in/2` jumps the index to the
-  # nearest corner on the first sighting, and the old reading — "the index
-  # moved, so a corner was reached" — logged that jump as an arrival and
-  # counted it: his 2026-08-15 journal opens with "waypoint 1/70" and
-  # "waypoint 58/70" in the same second, neither of them walked.
-  #
-  # It does NOT hand the comeback budget back either: every comeback re-enters
-  # by homing, so a reset here made the budget refill itself on each attempt —
-  # "tentativa 1 de 3" forever, never the final stop (28/08).
+  # ENTERING the route is not walking it.
   defp note_arrival(%{logic: %Logic{advance: :homed} = logic} = state, _before, now) do
     text = "🏁 entrei na rota pelo canto #{logic.wp_index + 1}/#{wp_total(state)}"
     log(:macro, text)
     %{state | last_action: %{text: text, at: now}}
   end
 
-  # Reaching a corner is the proof the hunt is HEALTHY, so it hands every
-  # comeback back: a ten-hour night with three unrelated hiccups must not run
-  # out of budget over hiccups that were hours apart.
-  #
-  # REACHING, and nothing else: a skip advances the index without the
-  # character moving a tile, and it used to pass through here and refill the
-  # budget too. A character pinned against a wall skips corner after corner —
-  # each one refilling the comeback — so the one mechanism meant to bound the
-  # carousel was being rewound by the carousel itself (28/08).
+  # Reaching a corner is the proof the hunt is HEALTHY, so it hands every comeback back: a ten-
+  # hour night with three unrelated hiccups must not run out of budget over hiccups that were
+  # hours apart.
   defp note_arrival(state, wp_before, now) do
-    # WHY it moved on, and from WHERE. "ele já sai usando todas as esquinas
-    # antes da hora" (Lucas, 2026-08-15) is a claim about the SEQUENCE of
-    # corners, and the old line ("waypoint 12/45") could not tell an arrival
-    # from a corner the hunt gave up on — nor say whether the character was
-    # actually standing there. Both go in at :macro on purpose: :debug never
-    # reaches the journal, and the journal is where a night gets read.
+    # WHY it moved on, and from WHERE.
     text =
       "waypoint #{wp_before + 1}/#{wp_total(state)}#{advance_mark(state.logic)}#{where(state.pos)}"
 
@@ -1444,17 +1288,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp where({x, y, z}), do: " · #{x},#{y} andar #{z}"
   defp where(_blind), do: " · sem coordenada"
 
-  # The staircase that WORKED. A leg taken by tap never enters `:stairs`, so
-  # the success this whole mechanism exists to create was silent while the
-  # failure ("🪜 procurando a escada") was loud — and in the journal, where he
-  # judges whether the tap helped, a staircase taken in one key and one nobody
-  # ever found looked exactly the same.
-  #
-  # Once per staircase, because one arrival ends one leg. The three conditions
-  # are what make it that leg: the index moved, the state before was `:walking`
-  # (a skip moves the index from `:stuck`, and the ring's own find moves it from
-  # `:stairs` — `note_search/3` already narrates that one), and taps had been
-  # spent on the leg being finished.
+  # The staircase that WORKED.
   defp note_stair_taken(%{logic: %Logic{wp_index: same}} = state, same, _before, _taps, _now),
     do: state
 
@@ -1465,10 +1299,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   defp note_stair_taken(state, _wp_before, _before, _taps, _now), do: state
 
-  # Looking for the step, and finding it. A hunt standing on the right tile
-  # with the floor unchanged is doing something specific and invisible — the
-  # only thing on screen used to be the waypoint number, which is exactly what
-  # made "ele continua avançando nos waypoints" so hard to see (2026-08-11).
+  # Looking for the step, and finding it.
   defp note_search(%{logic: %Logic{state: :stairs}} = state, before, now)
        when before != :stairs do
     case wp_target(state) do
@@ -1610,13 +1441,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   defp bump(counters, key), do: Map.update(counters, key, 1, &(&1 + 1))
 
-  # Halting keeps only the COUNTERS: "the hunt did 12 waypoints and 340 steps"
-  # is the summary that matters after halt. Reason, last action and position
-  # belong to the tick — and a tick that no longer exists must not keep
-  # explaining the screen.
-  # The line he reads in the morning. Counters alone need arithmetic; this is
-  # the night in one sentence, and it goes through the journal like everything
-  # else that matters.
+  # Halting keeps only the COUNTERS: "the hunt did 12 waypoints and 340 steps" is the summary
+  # that matters after halt.
   defp end_session(state) do
     log(:macro, "📋 a caçada deu: " <> tally(state.counters))
 

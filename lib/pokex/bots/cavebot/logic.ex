@@ -44,13 +44,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # the route is ENTERED at the nearest waypoint, once per run
             homed?: false,
             skips: 0,
-            # the tile the last skip happened FROM. A skip means "this corner is
-            # unreachable, the next one is usually reachable from here" — a rule
-            # about corners. Stuck again on the SAME tile refutes it: the corner
-            # was never the problem, the character cannot move at all, and
-            # walking the index around the loop just draws a route abandoning
-            # him on the map (28/08, 1109,1383: waypoints 5, 6, 7 "pulei" from
-            # one tile, ~5s apart). Any actual movement clears this.
+            # the tile the last skip happened FROM.
             skip_pos: nil,
             # which of this stop's actions already ran — one each, not one per tick
             stops_done: [],
@@ -67,13 +61,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # reads, same rule PlayerSupport uses — one garbage frame must not
             # abort a gathering
             last_hp: nil,
-            # o pokémon está NO CHÃO (fainted): a rota espera o revive de
-            # chão levantar ele. A metade PERCENTUAL desta trava (abandonar a
-            # mobada abaixo de X% e voltar em Y%) morreu em 28/08: ela prendia
-            # a rota num limbo sem caminho de recuperação — cura e poção
-            # desligadas, revive proibido até o resgate a 40% — "parado que
-            # nem um idiota". Vida agora é assunto das FAIXAS do cérebro
-            # (amarelo fecha a rodada e revive; vermelho revive já).
+            # o pokémon está NO CHÃO (fainted): a rota espera o revive de chão levantar ele.
             recovering?: false,
             # WHY the last waypoint changed — the Worker turns it into the line
             # that makes a route readable after the fact
@@ -112,10 +100,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           # the ball, covered) or the :pokemon fact is stale/absent
           :hp_pct => integer | nil,
           :fainted? => boolean,
-          # What the engine asks of the road. Absent as a block when no orders
-          # fact is fresh — `engine?` is what separates "asks nothing" from
-          # "asks to walk", so every reader goes through Map.get/3 with a
-          # default rather than assuming the key is there.
+          # What the engine asks of the road.
           optional(:engine?) => boolean,
           optional(:route_hold?) => boolean,
           optional(:bar_spent?) => boolean,
@@ -215,18 +200,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
   @spec step(t, world, integer) :: {t, action}
   def step(%__MODULE__{state: :blocked} = logic, _world, _now), do: {logic, :none}
 
-  # O CÉREBRO DESISTIU DO REVIVE. Guarda de segurança, como a do andar: vale em
-  # QUALQUER estado, porque andar a rota com o pokémon morto e o estoque vazio
-  # não é caçar — é passear entre mobs (4,9h medidas na noite de 27→28/08). O
-  # bloqueio é perigoso (para a frota, não volta sozinho): o que falta é
-  # estoque, e estoque quem repõe é ele.
+  # O CÉREBRO DESISTIU DO REVIVE.
   def step(%__MODULE__{} = logic, %{stranded?: true} = world, _now),
     do: {%{track_hp(logic, world) | state: :blocked}, {:block, :revive_dead}}
 
-  # A floor the route KNOWS is a floor it meant to reach — a hunt with stairs
-  # is an ordinary hunt (2026-08-10). Any OTHER floor is what this guard was
-  # always really about: a hole, a teleport, a character somewhere the route
-  # cannot describe.
+  # A floor the route KNOWS is a floor it meant to reach — a hunt with stairs is an ordinary
+  # hunt (2026-08-10).
   def step(%__MODULE__{} = logic, %{pos: pos} = world, now) when is_tuple(pos) do
     logic = track_hp(logic, world)
 
@@ -240,15 +219,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
   def step(%__MODULE__{} = logic, world, now), do: dispatch(track_hp(logic, world), world, now)
 
   # Combat starts only once the hunt knows WHERE IT IS.
-  #
-  # Starting it on the first tick starts it with no leg and therefore no
-  # posture — free fire, the default — and his journal says what that costs:
-  # from 15:27:02 (Iniciar) to 15:27:57 (waypoint 1) combat killed SIX pokémon
-  # one by one while the hunt stood still, and only then did the first
-  # "🕊️ mobando" appear. "Eu acho que o modo de ataque começa primeiro e depois
-  # muda para mobado; ele já deveria iniciar o processo sabendo disso"
-  # (2026-08-11). The position is what tells the machine which leg it is on,
-  # and the leg is what the posture is made of.
   defp dispatch(%__MODULE__{combat_running?: false} = logic, world, now) do
     logic = home_if_sighted(logic, world)
 
@@ -320,9 +290,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
   @spec hold_fire?(t, integer) :: boolean
   def hold_fire?(%__MODULE__{} = logic, now) do
     cond do
-      # Survival outranks the huddle: with the pokémon this low, waiting the
-      # gather_wait out is exactly the wait that kills it. "Já, clicando em
-      # dois botões, já poderia ter matado o mob todo" (Lucas, 2026-08-14).
+      # Survival outranks the huddle: with the pokémon this low, waiting the gather_wait out is
+      # exactly the wait that kills it.
       logic.recovering? -> false
       gathering?(logic, now) -> true
       not Map.get(logic.config, :fight_only_at_stops, true) -> luring?(logic)
@@ -416,12 +385,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
     Route.skills_at(waypoints, Integer.mod(logic.wp_index - 1, length(waypoints)))
   end
 
-  # His ruler, resolved on arrival: the corner, else the route, else the global
-  # number (`Route.gather_wait/3`). The MEASURED `gather_ms` left this sum on
-  # 2026-08-12 — the eight measurements of Meganium 1 run from 569ms to 4534ms,
-  # and half of them were not even on the right waypoint. The measurement
-  # became a screen suggestion; what the hunt obeys is a number written by
-  # hand, with no clamp in the middle.
+  # His ruler, resolved on arrival: the corner, else the route, else the global number
+  # (`Route.gather_wait/3`).
   defp gather_wait(%__MODULE__{gather_wait: ms}) when is_integer(ms), do: ms
   defp gather_wait(%__MODULE__{} = logic), do: config_gather_wait(logic)
 
@@ -453,14 +418,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   defp default_park(%__MODULE__{config: config}), do: Map.get(config, :park_tiles)
 
-  # Arriving at "até aqui" starts the huddle clock; arriving anywhere else
-  # clears it, so a stale stamp can never hold fire on a plain corner. The
-  # ruler for THIS spot is resolved on arrival, by hand and never by
-  # measurement — see `gather_wait/1`.
-  # Arriving is what ARMS the stops: a corner's round of actions belongs to
-  # that corner, and it is reaching a new one that starts a new round.
-  # The taps go out with it: they belong to the staircase that was just taken,
-  # and the next one of the lap must not start with them already spent.
+  # Arriving at "até aqui" starts the huddle clock; arriving anywhere else clears it, so a stale
+  # stamp can never hold fire on a plain corner.
   defp arrived(logic, wp, now) when is_map(wp) do
     logic = arrived_at(logic, wp, now)
 
@@ -493,12 +452,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
   def recovery(%__MODULE__{recovering?: true} = logic), do: %{hp_pct: logic.last_hp}
   def recovery(%__MODULE__{}), do: nil
 
-  # ONLY the floor holds the route now: there is nothing on the field, so
-  # walking on would drag the character alone into the next pile. The support's
-  # floor revive is what ends the wait. Health PERCENTAGES stopped holding the
-  # route in 28/08 — that is the engine's job (yellow closes the round and
-  # revives, red revives mid-fight), and the old percentage latch just parked
-  # the hunt in a limbo nothing was going to fix.
+  # ONLY the floor holds the route now: there is nothing on the field, so walking on would drag
+  # the character alone into the next pile.
   defp track_hp(%__MODULE__{} = logic, world) do
     %{logic | last_hp: Map.get(world, :hp_pct), recovering?: Map.get(world, :fainted?, false)}
   end
@@ -528,32 +483,17 @@ defmodule Pokex.Bots.Cavebot.Logic do
     logic = home_if_sighted(logic, world)
 
     cond do
-      # A mob a bit bigger than the stretch expected: the pokémon is dying
-      # UNDER the pile being gathered, and finishing the leg finishes it. So
-      # the gather is ABANDONED — the fight starts here, on whatever already
-      # came, and the freed fire opens with the kill spot's combo ("desiste do
-      # mob, e continua depois que ele tiver revivido", Lucas, 2026-08-14).
+      # A mob a bit bigger than the stretch expected: the pokémon is dying UNDER the pile being
+      # gathered, and finishing the leg finishes it.
       luring?(logic) and logic.recovering? -> enter_fight(logic, now)
       luring?(logic) -> follow_route(logic, world, now)
       world.enemies > 0 -> enter_fight(logic, now)
-      # The COUNT can lie — `enemies` is rows minus presumed scenery, and a
-      # stale presumption once swallowed the only real enemy (2026-08-10:
-      # fightable read 0 over a live lock, and the hunt strolled off
-      # mid-fight) — but an engaged Combat cannot: :tabbing/:fighting hold the
-      # road, whatever the subtraction says.
+      # The COUNT can lie — `enemies` is rows minus presumed scenery, and a stale presumption
+      # once swallowed the only real enemy (2026-08-10: fightable read 0 over a
       engaged?(world) -> enter_fight(logic, now)
-      # The pokémon is on the FLOOR: walking on drags the character alone
-      # into the next pile. Stand still and let the floor revive lift him.
-      # Standing still is the ORDER here, so the walk's patience is held with
-      # it — otherwise the wait itself (every revive outlasts walk_timeout_ms)
-      # made the FIRST step after recovering read as "não saiu do lugar", and
-      # the hunt came back from a revive already declared stuck.
+      # The pokémon is on the FLOOR: walking on drags the character alone into the next pile.
       logic.recovering? -> {hold_patience(logic, now), :none}
-      # The ENGINE asking the road to wait. Same shape and the same reason as
-      # the line above — it is the one deciding to close a round instead of
-      # dragging the pile further ("se você for muito ganancioso (…) faz eles
-      # sumirem"). A hold nobody is refreshing ages out of the fact and the
-      # route walks again on its own.
+      # The ENGINE asking the road to wait.
       Map.get(world, :route_hold?, false) -> {hold_patience(logic, now), :none}
       true -> follow_route(logic, world, now)
     end
@@ -569,9 +509,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       logic.since
       |> Map.delete(:clear)
       |> Map.put(:fight, now)
-      # O RELÓGIO QUE NÃO REINICIA. `:fight` volta a zero a cada sinal de
-      # progresso; este marca quando a luta COMEÇOU, e é o teto duro que impede
-      # que "esperando cooldown" vire espera eterna.
+      # O RELÓGIO QUE NÃO REINICIA.
       |> Map.put_new(:fight_from, now)
 
     {%{logic | state: :fighting, since: since}, :none}
@@ -584,10 +522,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp home_if_sighted(logic, %{pos: pos}) when is_tuple(pos), do: home_in(logic, pos)
   defp home_if_sighted(logic, _blind), do: logic
 
-  # …but never pacifist FOREVER: a hunt that cannot read its coordinate at all
-  # still gets its combat, just late. Same tolerance the walking blindness
-  # already uses — "how long we accept not knowing where we are before acting
-  # anyway" is one question, not two.
+  # …but never pacifist FOREVER: a hunt that cannot read its coordinate at all still gets its
+  # combat, just late.
   defp waited_for_sight?(%__MODULE__{since: since, config: config}, now) do
     case Map.get(since, :blind) do
       nil -> false
@@ -613,13 +549,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
     tap = stair_step_due(logic, stair, now)
 
     cond do
-      # ARRIVING means standing there, floor included: the tile at the top of
-      # the stairs has the same x/y as the one at their foot, and "arriving"
-      # from below would tick the waypoint off without ever climbing.
-      #
-      # On the corner a STAIRCASE leaves from, the tolerance does not apply: the
-      # tap that takes the step only works from the exact tile, and one tile off
-      # presses an arrow into whatever is beside the staircase.
+      # ARRIVING means standing there, floor included: the tile at the top of the stairs has the
+      # same x/y as the one at their foot, and "arriving" from below would tick the waypoint off
+      # without ever climbing.
       arrived_here?(logic, dx, dy, z, wp, tol) ->
         next =
           chain_past_plain(logic, pos, rem(logic.wp_index + 1, length(logic.route.waypoints)))
@@ -662,29 +594,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # How long standing still means "stuck". The full timeout is for ordinary
-  # walking; still ON the tile of the last skip, the question is different —
-  # "did skipping free him?" — and every unstick nudge already failed from this
-  # exact tile, so ~1s of walking is all the evidence the answer needs. This is
-  # what turns "preso numa parede" from a 3-minute lap of skipped corners into
-  # a block in about five seconds: timeout (3s) + nudges (~1s) + skip + this
-  # probe (1s).
+  # How long standing still means "stuck".
   defp walk_timeout(%__MODULE__{skip_pos: pos, config: config}, pos) when pos != nil,
     do: min(config.walk_timeout_ms, Map.get(config, :pinned_probe_ms, 1_000))
 
   defp walk_timeout(%__MODULE__{config: config}, _pos), do: config.walk_timeout_ms
 
-  # The staircase is only still AHEAD of the character while the floor
-  # disagrees with the corner he is heading to. Once it matches, the step is
-  # behind him and what is left of the leg is ordinary walking.
-  #
-  # And "one key, two tiles" is true from ONE tile: the corner the staircase
-  # leaves from. The arrival path supplies that by itself (a stair-departure
-  # corner is reached EXACTLY — see `arrived_here?/6`), but the SKIP path does
-  # not: `skip_waypoint/3` advances `wp_index` without arriving anywhere, so a
-  # tap fired from wherever the character was walled would press an arrow into
-  # whatever is beside the staircase. Off the corner the leg goes to the ring,
-  # which is what the ring is for.
+  # The staircase is only still AHEAD of the character while the floor disagrees with the corner
+  # he is heading to.
   defp stair_ahead(_logic, {_x, _y, z}, %{z: z}), do: nil
 
   defp stair_ahead(logic, {x, y, _z}, _wp) do
@@ -757,20 +674,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
     abs(dx) <= reach and abs(dy) <= reach and wp.z == z
   end
 
-  # Corners the character is ALREADY standing on, taken in one tick instead of
-  # one each.
-  #
-  # His real route (2026-08-15) has 16 pairs one tile apart, and the tolerance
-  # is one tile: arriving at 60 meant 61, 62 and 63 were also "arrived", so
-  # they ticked off in consecutive ticks without a single step — the journal
-  # shows three corners in the same second, which is exactly what he saw as
-  # "ele já sai usando todas as esquinas antes da hora".
-  #
-  # Only PLAIN corners are chained: a mark (`:lure_start`/`:lure_end`) or a
-  # stop carries side effects — the huddle clock, the revive, the wait — and
-  # skipping those would trade a cosmetic problem for a real one. The chain
-  # stops at the first corner that is either marked or genuinely away from
-  # here, which is the first one that needs walking.
+  # Corners the character is ALREADY standing on, taken in one tick instead of one each.
   defp chain_past_plain(logic, pos, index), do: chain_past_plain(logic, pos, index, 0)
 
   defp chain_past_plain(logic, _pos, index, hops)
@@ -789,20 +693,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # `park_tiles` conta como marca pelo mesmo motivo do `park_point`: os dois
-  # são "o pokémon fica AQUI", só ditos em línguas diferentes — e uma esquina
-  # com a distância marcada era encadeável, engolindo exatamente o canto onde
-  # ele mandou o pokémon parar (achado na auditoria de 28/08).
+  # `park_tiles` conta como marca pelo mesmo motivo do `park_point`: os dois são "o pokémon fica
+  # AQUI", só ditos em línguas diferentes — e uma esquina com a
   defp plain?(%{action: :walk} = wp),
     do: Map.get(wp, :stops, []) == [] and wp[:park_point] == nil and wp[:park_tiles] == nil
 
   defp plain?(_marked), do: false
 
-  # A hunt does not begin at waypoint 1: it begins at the CLOSEST corner of the
-  # route. Restarting mid-route used to send the character back to the first
-  # waypoint — across the map, through walls it cannot path around with arrow
-  # keys (Lucas, 2026-08-10: "voltou pro começo e travou numa parede"). Done
-  # once per run, on the first sighting.
+  # A hunt does not begin at waypoint 1: it begins at the CLOSEST corner of the route.
   defp home_in(%__MODULE__{homed?: true} = logic, _pos), do: logic
 
   defp home_in(logic, {x, y, z}) do
@@ -840,14 +738,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
     }
   end
 
-  # A staircase is taken by STEPPING on it, and the corner the recording left
-  # behind is where he LANDED — which on the floor above may be the step, or
-  # beside it, or one tile past it ("ela é fininha, e ele não conseguiu achar o
-  # spot exato", Lucas, 2026-08-11). So the search walks the ring around that
-  # corner, one tile per probe, and the floor changing is the answer.
-  #
-  # Nothing here may advance `wp_index`: walking the next corners of a floor
-  # the character never reached is the wall-pushing he watched.
+  # A staircase is taken by STEPPING on it, and the corner the recording left behind is where he
+  # LANDED — which on the floor above may be the step, or beside it,
   defp stairs(logic, %{pos: nil}, now), do: {blind(logic, now), :none}
 
   defp stairs(logic, %{pos: {_x, _y, z} = pos} = world, now) do
@@ -939,12 +831,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
       retries = logic.retries + 1
 
       cond do
-        # Stuck on the very tile the last skip gave up FROM: the corner was
-        # never the problem, the CHARACTER cannot move — the full round of
-        # nudges already ran from this exact tile and moved nothing. Skipping
-        # on would walk the index around the whole loop, one corner per ~5s,
-        # while he stands against the wall (28/08). Block now; the comeback is
-        # the recovery, and each attempt re-runs the nudges from scratch.
+        # Stuck on the very tile the last skip gave up FROM: the corner was never the problem,
+        # the CHARACTER cannot move — the full round of nudges already ran from this exact tile
+        # and moved nothing.
         logic.skip_pos == pos ->
           {%{logic | state: :blocked}, {:block, :pinned}}
 
@@ -952,11 +841,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           {dx, dy} = unstick(logic, pos, retries)
           {%{logic | retries: retries}, {:walk, dx, dy}}
 
-        # A corner on ANOTHER floor is never skipped. Skipping it moves the
-        # hunt on to corners that describe a map the character is not standing
-        # on — his 2026-08-11 run walked waypoints 15 and 16 (floor 2) while he
-        # was still on floor 1, pushing against the scenery beside the stairs.
-        # Stopping with a name is the honest end of a staircase nobody found.
+        # A corner on ANOTHER floor is never skipped.
         crossing_floor?(logic, pos) ->
           {%{logic | state: :blocked}, {:block, :stairs}}
 
@@ -980,27 +865,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # Giving up on a corner is LEAVING it, so everything that belongs to it goes
-  # out with it — the same thing `arrived_at/3` does on a plain corner. A skip
-  # never passes through `arrived/3`, so per-waypoint state used to survive it
-  # and got read off the corner the hunt COULD NOT REACH. TWICE now:
-  #
-  #   * the huddle stamp and its ruler, which `combo/1` and `orders/1` turned
-  #     into the burst of a kill spot nobody arrived at, or the aura of a
-  #     walking corner he never marked as an order;
-  #   * the taps, which belong to the staircase being walked away from — the
-  #     next leg of the lap is often a staircase too, and starting it with its
-  #     taps already spent sends it straight to the ring search, which is the
-  #     NET and not the road;
-  #   * the probe budget, which is per-STAIRCASE: carried into the next one, the
-  #     32 probes `cavebot_stair_max_probes` promises were already half spent on
-  #     a staircase nobody is looking for any more;
-  #   * the round of stops, which `next_stop/1` reads off "the waypoint the
-  #     hunt last REACHED" — the corner behind the index, which after a skip is
-  #     the one it gave up on. The first fight after a skip ran that corner's
-  #     round: a revive spent on nothing, seconds standing still where no pile
-  #     died. The round is marked SPENT instead of
-  #     empty, because arriving somewhere new is what arms it again.
+  # Giving up on a corner is LEAVING it, so everything that belongs to it goes out with it — the
+  # same thing `arrived_at/3` does on a plain corner.
   defp skip_waypoint(logic, pos, now) do
     next = rem(logic.wp_index + 1, length(logic.route.waypoints))
 
@@ -1021,35 +887,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
     }
   end
 
-  # Screen clear AND Combat disengaged: sustain the debounce before declaring
-  # the fight over. Clear rows alone are not enough — see `engaged?/1`: a held
-  # lock is a live fight the count cannot see, and the debounce must not even
-  # start under one.
-  # O CÉREBRO MANDA NA ESTRADA, inclusive no meio de uma luta.
-  #
-  # Até 26/08 este estado simplesmente não andava: o combate travava um alvo, a
-  # caçada parava, e ficava parada até a tela limpar. Isso apagava, no jogo, a
-  # metade da régua que o simulador acabou de ganhar — "andei dois passos e
-  # achei três inimigos; que que custa andar mais 5 passos, juntar mais
-  # monstros e aí matar todo mundo já ao redor?". O cérebro dizia `route: :go`
-  # e a estrada não ouvia.
-  #
-  # Agora ouve. Enquanto existe uma ordem fresca, quem decide se o pé anda é
-  # ela — parada pra estourar a área, andando pra juntar, andando pra não
-  # apanhar com a barra vazia. Sem ordem nenhuma, o comportamento é o de sempre:
-  # parar e lutar.
-  #
-  # MAS QUEM DECLARA O FIM DA LUTA É A TELA, NUNCA A ORDEM. Com o cérebro ligado
-  # — que é o padrão de produção — toda tela limpa responde `route: :go`, e a
-  # luta ia direto pro `follow_route` sem NUNCA passar pelo `fight_clear/2`, que
-  # é a única porta do `:post_fight`. A caçada latchava em `:fighting` para
-  # sempre: sumia a rodada da esquina (o revive de cooldown, a espera) e,
-  # caro, o `post_kill_dwell_ms` nunca segurava o pé — o
-  # personagem anda debaixo da bola enquanto o Catcher mira num ponto de TELA.
-  #
-  # Limpa é `enemies == 0` com nada engajado, e `nil` NÃO é limpo: "não consigo
-  # ver" e "não tem nada" têm respostas opostas em toda parte deste repo, e aqui
-  # também.
+  # Screen clear AND Combat disengaged: sustain the debounce before declaring the fight over.
   defp fight(logic, world, now) do
     cond do
       clear?(world) -> stand_and_fight(logic, world, now)
@@ -1063,32 +901,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
     do: Map.get(world, :engine?, false) and Map.get(world, :route_back?, false)
 
   # A RETIRADA: UM waypoint pra trás, e o índice da rota NÃO se mexe.
-  #
-  # O chão de onde a caçada veio acabou de ser limpo — recuar por ele mantém o
-  # trem colado sem acordar spawn novo. Mas recuar é um passo tático, não uma
-  # volta desfeita: a rota segue tendo um só sentido.
-  #
-  # ATÉ 29/08 ELA REBOBINAVA. Ao chegar no waypoint anterior, o alvo virava o
-  # anterior DELE e `wp_index` recuava junto — "o índice recuado é o que faz a
-  # volta recomeçar daqui", dizia o comentário. Encadeado, isso desfazia a
-  # caçada: no journal dele de 29/08 (9,8h) são 771 waypoints andados de
-  # costas, um deles a volta inteira — 40 cantos em 92 segundos.
-  #
-  # E o preço é DUPLO, que é o que ele descreveu: anda pra trás sobre o chão
-  # limpo e depois anda de novo pra frente sobre o MESMO chão, porque o índice
-  # rebobinado faz a rota recomeçar dali. "Ele vai para locais onde não tem
-  # muito monstro, porque ele já matou, e vários locais do mapa ficam sem
-  # monstro sendo morto" (29/08). O bot oscilava dentro de um bolso já limpo
-  # enquanto o resto do circuito nunca era visitado.
-  #
-  # Agora: enquanto a ordem `route: :back` está de pé, ele anda até o waypoint
-  # anterior e PARA ali. Quando a ordem cai, o alvo ainda é o que era — a
-  # caçada retoma o caminho natural pra frente, atravessando de volta o trecho
-  # do recuo uma vez só, matando o trem que veio atrás.
-  #
-  # SEM escada: recuar só mira o waypoint anterior do MESMO andar. Uma escada
-  # atravessada de costas no meio de uma luta é um andar errado com um trem
-  # atrás — parado no lugar já é a fuga que dava pra ter.
   defp retreat(logic, %{pos: nil}, _now), do: {logic, :none}
 
   defp retreat(logic, %{pos: {x, y, z}}, now) do
@@ -1169,14 +981,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # Enemy still alive: reset the clear and watch the fight timeout — but the
-  # timeout measures a fight going NOWHERE, not a fight taking long. Lucas's
-  # first real hunt (2026-08-10) died right here: combat killed its target and
-  # said "caçando o próximo", the spot had more pokémon, and 20 seconds of
-  # honest work were declared "a luta não termina" — the hunt blocked while
-  # everything else was working. A changing enemy count IS progress (one died,
-  # or one arrived), so it restarts the clock; only a screen that stays
-  # identical for the whole timeout is a stall.
+  # Enemy still alive: reset the clear and watch the fight timeout — but the timeout measures a
+  # fight going NOWHERE, not a fight taking long.
   defp fight_on(logic, enemies, world, now) do
     since = Map.delete(logic.since, :clear)
     progress? = logic.last_enemies != nil and logic.last_enemies != enemies
@@ -1191,14 +997,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # ESPERAR COOLDOWN NÃO É TRAVAR. Com quatro Magnetons e a barra gasta, a tela
-  # fica idêntica por dezenas de segundos porque o bot está esperando as skills
-  # voltarem — e o `fight_timeout_ms` dele são 15s, um terço de UM ciclo da
-  # barra (40-50s). Toda luta difícil virava `:fight_stalled` e, esgotadas as
-  # tentativas, `:blocked`: "ele para em vez de tentar se recuperar" (27/08).
-  #
-  # Então a barra gasta segura o relógio do empate — mas só até o teto duro
-  # contado do início da luta, senão uma tecla morta viraria espera eterna.
+  # ESPERAR COOLDOWN NÃO É TRAVAR.
   defp stall_or_wait(logic, since, fight_since, world, now) do
     cond do
       now - fight_since < logic.config.fight_timeout_ms ->
@@ -1238,9 +1037,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
       rem(retries, 2) == 0 -> {dx, dy}
       abs(dx) >= abs(dy) and dy != 0 -> {0, dy}
       abs(dy) > abs(dx) and dx != 0 -> {dx, 0}
-      # Single-axis leg: the wall is ON the axis, and "keep pushing" was four
-      # presses into the same bricks. Sidestep PERPENDICULAR instead, one side
-      # then the other — one tile off the wall is a new line to the corner.
+      # Single-axis leg: the wall is ON the axis, and "keep pushing" was four presses into the
+      # same bricks.
       dx == 0 -> {sidestep(retries), 0}
       true -> {0, sidestep(retries)}
     end
@@ -1331,9 +1129,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
       capturing?(world, now, logic.config.capture_wait_ms) -> {logic, :none}
       standing_by?(logic, now) -> {logic, :none}
       next_stop(logic) -> run_stop(logic, next_stop(logic), world, now)
-      # The stops above still ran — a :cooldown_revive IS the recovery — but
-      # the route does not resume until the pokémon is back on its feet: the
-      # next leg is the next pile ("continua depois que ele tiver revivido").
+      # The stops above still ran — a :cooldown_revive IS the recovery — but the route does not
+      # resume until the pokémon is back on its feet: the next leg is the next
       logic.recovering? -> {logic, :none}
       true -> resume_after_dwell(logic, dwell_since, now)
     end
@@ -1351,18 +1148,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
     Enum.find(Route.stops(), &(&1 in wanted and &1 not in logic.stops_done))
   end
 
-  # Reviving resets every cooldown: the fastest way back to a full bar is to
-  # recall the pokémon and bring it back, not to stand still waiting.
-  #
-  # But the MARK is a hint, not an order. He recorded it in a moment where it
-  # made sense — hurt, and with the bar spent — and the bot repeated it every
-  # lap regardless: "às vezes você reseta os cooldowns quando não precisa, que o
-  # meu pokémon tá cheio de vida lá e cheio de cooldown também. Você reseta só
-  # porque é um local da rota que parece que faz sentido" (2026-08-17). So the
-  # corner still ASKS, and the engine's reading of the moment answers.
-  #
-  # It is marked done either way: a reset refused is a decision that was made,
-  # and re-asking it every tick at the same corner is the loop this replaces.
+  # Reviving resets every cooldown: the fastest way back to a full bar is to recall the pokémon
+  # and bring it back, not to stand still waiting.
   defp run_stop(logic, :cooldown_revive, world, now) do
     done = mark_done(logic, :cooldown_revive, nil, now)
 
@@ -1408,12 +1195,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
         |> Map.drop([:dwell, :stop_wait])
         |> Map.put(:walk_progress, now)
 
-      # `stops_done` is NOT cleared here: it belongs to the WAYPOINT, not to
-      # this episode. Clearing it on the way out meant a new enemy arriving
-      # before he left the corner sent the whole round again — his journal,
-      # 2026-08-11, waypoint 33: the whole round at 232370, a fresh mob, and
-      # the same round again at 244000. Arriving somewhere new arms them again
-      # (see `arrived/3`).
+      # `stops_done` is NOT cleared here: it belongs to the WAYPOINT, not to this episode.
       {%{logic | state: :walking, since: since, last_pos: nil}, :none}
     else
       {logic, :none}

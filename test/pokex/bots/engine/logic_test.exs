@@ -2868,7 +2868,15 @@ defmodule Pokex.Bots.Engine.LogicTest do
             )
           ),
         hunt: hunt(%{state: :fighting}),
-        hands: %{opening: ~w(3 4), single: ~w(7 8), crowd: ["2"], reserve: ~w(7 8 2)}
+        hands: %{
+          opening: ~w(3 4),
+          single: ~w(7 8),
+          # no Auto Combo a rotação não gasta o controle (`crowd: []`), mas a
+          # tecla EXISTE (`stun`) e é ela que abre o revive
+          crowd: [],
+          reserve: ~w(7 8 2),
+          stun: ["2"]
+        }
       })
     end
 
@@ -2876,14 +2884,16 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert cerca_orders(mobada(%{})).revive == :hold
     end
 
-    # E A LUTA NÃO CONGELA: sem barra e sem revive, recua com o que tem — a R7
-    # de sempre, agora dizendo o motivo em voz alta.
-    test "segurado, o cérebro recua e diz por quê" do
+    # E A LUTA NÃO CONGELA NEM RECUA: fica PARADA, matando com o que sobrou.
+    # A bancada mostrou por que não pode recuar — no enxame a caçada parava de
+    # fechar volta — e parar é a regra dele: "não dar mais nenhum passo, deixar
+    # os bichos virem até mim" (02/09).
+    test "segurado, o cérebro para de recuar e luta parado, dizendo por quê" do
       orders = cerca_segundo(mobada(%{}))
 
       assert orders.revive == :hold
-      assert orders.route == :back
-      assert orders.why =~ "segurando o revive"
+      assert orders.route == :hold
+      assert orders.why =~ "parado, matando o que dá"
       assert orders.why =~ "sem sono fresco"
     end
 
@@ -2919,6 +2929,40 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # propósito: aqui o erro custa o personagem.
     test "sem leitura da lista, sem sono não recolhe" do
       assert cerca_orders(mobada(%{enemies: nil})).revive == :hold
+    end
+
+    # O CONTROLE ABRE A PORTA. "Sempre terei revives em mãos pra resetar os
+    # cooldowns, só temos que ficar vivos tempo suficiente para usar a skill de
+    # stun antes disso" (03/09). Sem isto a cerca do sono era uma porta sem
+    # chave no Auto Combo: a corrente é quem dorme a pilha, e quando o sono dela
+    # vence com bicho ainda na tela o cérebro não tinha como FAZER sono nenhum.
+    test "segurado, o controle sai e abre o revive no tique seguinte" do
+      mundo = mobada(%{})
+
+      {logic, primeiro} = cerca_step(Logic.new(), mundo, 10_000)
+      {logic, segundo} = cerca_step(logic, mundo, 10_500)
+
+      assert primeiro.revive == :hold
+      assert segundo.revive == :hold
+      assert "2" in segundo.opening, "o controle do pokémon tem que sair"
+      assert segundo.why =~ "controle na frente pra abrir o revive"
+
+      # …e com o sono carimbado, o tique seguinte já pode recolher.
+      {_logic, terceiro} = cerca_step(logic, mundo, 11_000)
+      assert terceiro.revive == :now
+    end
+
+    # UMA TECLA FRIA NÃO É SONO: carimbar sem o controle pronto seria dar
+    # licença falsa ao revive, que é o lado perigoso do desarme falso de 28/08.
+    test "com o controle frio, nada é carimbado e o revive segue preso" do
+      frio = mobada(%{ready_keys: ~w(3 4)})
+
+      {logic, _} = cerca_step(Logic.new(), frio, 10_000)
+      {logic, segundo} = cerca_step(logic, frio, 10_500)
+      {_logic, terceiro} = cerca_step(logic, frio, 11_000)
+
+      refute segundo.why =~ "controle na frente"
+      assert terceiro.revive == :hold
     end
 
     # O RESGATE NÃO É CONVENIÊNCIA: com o pokémon caindo, quem está indo embora

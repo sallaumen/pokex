@@ -310,33 +310,28 @@ defmodule PokexWeb.ConfigLive do
         %{
           key: :engine_engage_from,
           kind: :int,
-          label: "Encara a partir de (bichos)",
+          label: "Para e luta a partir de (bichos)",
           hint:
-            "Menos que isto na tela e o bot segue andando em vez de parar. 1 é lutar com tudo.",
-          keywords: "encarar engajar engage lutar a partir bichos mínimo"
-        },
-        %{
-          key: :engine_gather_target,
-          kind: :int,
-          label: "O bolo está cheio com (bichos)",
-          hint:
-            "Parado, contando quem chega: com este tanto na tela abre o fogo sem esperar mais. " <>
-              "No máximo 8: só 8 cabem ao redor do pokémon; o resto fica longe e bate em você.",
-          keywords: "juntar mobar gather alvo pilha bolo cheio"
+            "O número que manda. Com este tanto na lista o cavebot PARA e o cérebro estoura a área. " <>
+              "Com menos, segue andando e contando quem aparece. No Econômico é sempre 1.",
+          keywords: "encarar engajar engage lutar a partir bichos mínimo parar bolo"
         },
         %{
           key: :engine_patience_tiles,
           kind: :int,
-          label: "Paciência (passos)",
+          label: "Andando com pouco bicho: mata depois de (passos)",
           hint:
-            "Com bicho na tela mas o bolo sem encher, depois deste tanto de passos mata o que tem.",
-          keywords: "paciência passos não veio mais ninguém"
+            "Só vale com MENOS bicho que o número de cima: depois deste tanto de passos andando " <>
+              "com eles atrás, para e mata o que tem em vez de seguir arrastando.",
+          keywords: "paciência passos não veio mais ninguém arrastar"
         },
         %{
           key: :engine_bunch_ms,
           kind: :sec,
-          label: "Esperar chegarem em cima",
-          hint: "Parado, quanto esperar os bichos colarem antes de estourar a área.",
+          label: "Parado, esperar colarem por até",
+          hint:
+            "Já parado com o número de cima na lista: quanto esperar os bichos chegarem em cima " <>
+              "do pokémon antes de estourar. Fecha antes se a contagem parar de mudar.",
           keywords: "esperar espera bunch colar fechar"
         },
         %{
@@ -710,8 +705,27 @@ defmodule PokexWeb.ConfigLive do
        page_title: "Config",
        query: "",
        saved: nil,
-       errors: %{}
+       errors: %{},
+       read_only?: Settings.read_only?()
      )}
+  end
+
+  # A SESSÃO QUE NÃO GRAVA, dita na cara. De 02/09 a 03/09 a build se achou
+  # mais velha que o arquivo por chaves aposentadas e cada ajuste daqui valeu
+  # só até o restart — e o único aviso era uma linha no log do servidor.
+  def read_only_banner(assigns) do
+    ~H"""
+    <p
+      id="config-read-only"
+      role="alert"
+      class="rounded-lg border border-pk-warn/60 bg-pk-warn/10 px-3 py-2 text-pk-body text-pk-text"
+    >
+      ⚠️ <strong>Esta sessão NÃO está gravando o arquivo:</strong>
+      o settings.json foi escrito por uma versão mais nova do que a que está rodando.
+      Tudo que você mudar aqui vale só até o próximo restart. Suba o checkout novo
+      (~/projects/pokex na main) pra voltar a salvar.
+    </p>
+    """
   end
 
   @impl true
@@ -843,6 +857,8 @@ defmodule PokexWeb.ConfigLive do
               muda → salva na hora · <span class="text-pk-ok">✓</span> = em vigor
             </p>
           </div>
+
+          <.read_only_banner :if={@read_only?} />
 
           <%!-- A BUSCA É A PORTA. "Não achei o revive_stock" nunca mais: digitar
                 qualquer pedaço do nome, do rótulo ou da dica acha a linha. --%>

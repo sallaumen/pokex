@@ -1119,6 +1119,9 @@ defmodule Pokex.Settings do
   # Three layers, always in this order: character ⊕ base ⊕ seed.
   def handle_call({:get, key}, _from, state), do: {:reply, resolve(state, key), state}
 
+  def handle_call(:read_only?, _from, state),
+    do: {:reply, Map.get(state, :read_only?, false), state}
+
   def handle_call(:all, _from, state),
     do: {:reply, Map.merge(@seed_settings, effective(state)), state}
 
@@ -1271,9 +1274,19 @@ defmodule Pokex.Settings do
   @doc """
   Esta build é mais VELHA que o arquivo que ela acabou de ler?
 
-  Verdadeiro quando o arquivo declara uma chave que esta build não conhece — o
-  que só acontece se quem escreveu por último sabia mais. Nesse caso ela lê e
-  não escreve: quem não conhece o alfabeto não pode decidir o que é lixo.
+  Verdadeiro quando o arquivo declara chave que esta build não conhece E
+  conhece todas as desta — quem escreveu por último sabia tudo que esta sabe e
+  mais. Nesse caso ela lê e não escreve: quem não conhece o alfabeto não pode
+  decidir o que é lixo.
+
+  Chave desconhecida SOZINHA não acusa: chaves se aposentam (#485 e #492
+  tiraram doze do código em 02/09), e o arquivo escrito antes disso as declara
+  para sempre. Com a regra antiga, a build NOVA se achou velha por causa delas
+  e parou de gravar em silêncio — tudo que ele mudou no /config de 02/09 a
+  03/09 valeu só até o restart seguinte ("minha config é 4", e o arquivo dizia
+  6). Uma build que conhece chaves que o arquivo não tem é, por definição,
+  mais nova em alguma coisa — e as chaves que ela não conhece viajam intactas
+  na escrita (`foreign_keys/1`), que é a rede de verdade.
 
   Um arquivo sem crachá (o primeiro boot depois desta mudança, ou um escrito à
   mão) responde FALSO: ninguém é velho por falta de prova, e a preservação de
@@ -1282,10 +1295,18 @@ defmodule Pokex.Settings do
   @spec older_build?(String.t()) :: boolean
   def older_build?(path) do
     case Map.get(read_json(path), @alphabet_key) do
-      alfabeto when is_list(alfabeto) -> Enum.any?(alfabeto, &(known_key(&1) == nil))
-      _sem_cracha -> false
+      alfabeto when is_list(alfabeto) ->
+        Enum.any?(alfabeto, &(known_key(&1) == nil)) and
+          Enum.all?(@setting_keys, &(Atom.to_string(&1) in alfabeto))
+
+      _sem_cracha ->
+        false
     end
   end
+
+  @doc "Esta sessão está gravando no arquivo? Falso quando a build se declarou mais velha que ele."
+  @spec read_only?(GenServer.server()) :: boolean
+  def read_only?(server \\ __MODULE__), do: GenServer.call(server, :read_only?)
 
   defp read_json(path) do
     with {:ok, bin} <- File.read(path),

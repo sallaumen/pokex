@@ -222,6 +222,9 @@ defmodule Pokex.Settings.Locked do
     minimap_px_per_tile: {"Minimapa (visão)", "medido: 2px por tile"},
     # --- O modo decide ---
     engine_gather_piles: {"O modo decide", "juntar bicho andando: nenhum modo faz"},
+    engine_gather_target:
+      {"O modo decide",
+       "o 'para e luta' já decide o tamanho do bolo: sem juntar andando, este número nunca é olhado"},
     engine_kite_when_spent: {"O modo decide", "recuar com a barra vazia"},
     # --- Onde estão os monstros (visão) ---
     crowd_scan_radius_tiles: {"Onde estão os monstros (visão)", "a foto ao redor cobre 6 tiles"},

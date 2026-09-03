@@ -67,6 +67,15 @@ defmodule Pokex.JournalTest do
     refute Enum.any?(events, &(&1.text == "evento 1"))
   end
 
+  # 03/09: dois dias de ajustes perdidos num restart, sem rastro. A mudança de
+  # um ajuste é história como qualquer outra, com fonte própria.
+  test "a settings change is history, under its own source", %{journal: journal} do
+    emit("settings", {:settings_log, :macro, "⚙️ tile_px: 48 → 64"})
+
+    assert [%{source: :config, text: "⚙️ tile_px: 48 → 64", severity: :macro}] =
+             Journal.recent([sources: [:config]], journal)
+  end
+
   test "filters by source", %{journal: journal} do
     emit("fishing", {:fishing_log, :macro, "da pesca"})
     emit("combat", {:combat_log, :macro, "do combate"})

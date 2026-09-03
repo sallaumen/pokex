@@ -892,6 +892,23 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       %{Logic.new(lure_route(), @cfg) | combat_running?: true, wp_index: index, homed?: true}
     end
 
+    # 03/09, 05:34: oito monstros atrás, o cérebro mandando segurar por nove
+    # segundos ("N inimigos vindo — esperando eles fecharem") e o trecho de mob
+    # andando sete waypoints por cima da ordem. "Vários monstros na tela e ele
+    # não parar de andar (…) muito perigoso." No trecho o pé anda enquanto o
+    # cérebro conta; quando ele diz que a pilha fechou, o pé para.
+    test "no trecho de mob, o cérebro pedindo pra segurar ganha do 'andar através'" do
+      mundo = %{pos: {5, 0, 7}, enemies: 5, combat_state: :idle, engine?: true}
+
+      {_logic, andando} = Logic.step(walking_toward(2), Map.put(mundo, :route_hold?, false), 100)
+      assert {:walk, _x, _y} = andando
+
+      {logic, parado} = Logic.step(walking_toward(2), Map.put(mundo, :route_hold?, true), 100)
+      assert parado == :none
+      assert logic.state == :walking, "segurar não é entrar na luta — o cérebro estoura a área"
+      assert Logic.luring?(logic)
+    end
+
     test "the leg the hunt is ON is what counts, not the waypoint it left" do
       # heading to index 1 = the leg 0 → 1, before the mark: a normal leg
       refute Logic.luring?(walking_toward(1))

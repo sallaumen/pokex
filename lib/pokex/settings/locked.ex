@@ -70,6 +70,8 @@ defmodule Pokex.Settings.Locked do
     cavebot_arrival_tolerance_tiles:
       {"Cavebot (andar)", "a 1 tile do waypoint conta como chegou"},
     cavebot_walk_timeout_ms: {"Cavebot (andar)", "3s sem chegar = tropeço"},
+    cavebot_brain_gone_ms:
+      {"Cavebot (andar)", "silêncio do cérebro que trava a caçada — sem ele não há revive"},
     cavebot_blind_kick_ms:
       {"Cavebot (andar)", "parado e cego, dá um passo pra tela desenhar a coordenada"},
     cavebot_minimap_fact_max_age_ms: {"Cavebot (andar)", "posição mais velha que 0,8s é cega"},

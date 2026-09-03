@@ -72,7 +72,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   # Blocks where the character may be somewhere the route does not describe, or
   # fighting with nobody to fight — see `translate/2`.
-  @dangerous_blocks [:floor_changed, :combat_preflight_failed, :revive_dead]
+  @dangerous_blocks [:floor_changed, :combat_preflight_failed, :revive_dead, :brain_gone]
 
   # The night's tally: corners and steps are progress, the other three are the
   # INCIDENTS — "o que ocorreu" is unanswerable in the morning without them.
@@ -112,6 +112,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
       logic: nil,
       timer: nil,
       attached?: false,
+      # quando este worker viu o cérebro publicando pela última vez (ver
+      # `brain_gone?/3`) — nil enquanto ele nunca apareceu
+      brain_seen_at: nil,
       feed_ref: nil,
       reattach_attempts: 0,
       combat_state: :idle,
@@ -448,10 +451,35 @@ defmodule Pokex.Bots.Cavebot.Worker do
       fainted?: own_fainted?(now)
     }
 
-    world = Map.merge(world, engine_asks(now))
+    asks = engine_asks(now)
+    state = remember_brain(state, asks, now)
+    world = Map.merge(world, Map.put(asks, :brain_gone?, brain_gone?(state, asks, now)))
 
     if pos, do: {world, %{state | pos: pos, pos_at: now}}, else: {world, state}
   end
+
+  # O CÉREBRO MUDO, e por que isto virou freio.
+  #
+  # 03/09, 14:17:01: o `Engine.Worker` publicou o último quadro e parou. A
+  # caçada seguiu OITO MINUTOS sem ele — sem segurar a estrada na mobada, sem
+  # pedir revive, sem o freio do `:stranded` — até o pokémon cair às 14:19:52 e
+  # o personagem morrer sozinho na frente da pilha. Nada avisou: o comentário
+  # aqui embaixo dizia que "um cérebro que morre atrasa a caçada em no máximo um
+  # tique", e isso era verdade quando ninguém obedecia as ordens dele. Hoje ele
+  # é quem manda o revive.
+  #
+  # A memória é do WORKER e não do fato: o que assina a morte é a TRANSIÇÃO —
+  # eu vi o cérebro nesta caçada e ele calou. Caçada que nunca teve cérebro
+  # (engine desligado) segue como sempre.
+  # `engine_asks/1` responde um mapa VAZIO quando não há cérebro publicando —
+  # por isso a pergunta é pela ausência da chave, e não por `engine?: false`.
+  defp remember_brain(state, %{engine?: true}, now), do: %{state | brain_seen_at: now}
+  defp remember_brain(state, _sem_cerebro, _now), do: state
+
+  defp brain_gone?(%{brain_seen_at: at}, asks, now) when is_integer(at),
+    do: Map.get(asks, :engine?) != true and now - at >= Settings.get(:cavebot_brain_gone_ms)
+
+  defp brain_gone?(_nunca_visto, _asks, _now), do: false
 
   # What the ENGINE asks of the road, read as a fact with an age like everything
   # else here. Missing or stale means it asks nothing: the route walks, and the
@@ -789,6 +817,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
     do:
       "BLOQUEADO: o revive não devolve o pokémon há minutos — estoque no fim? " <>
         "Repõe os revives e solta a caçada de novo"
+
+  defp block_text(:brain_gone),
+    do:
+      "BLOQUEADO: o cérebro parou de decidir — sem ele não há revive nem freio na mobada. " <>
+        "Pare e inicie a caçada de novo (e me mande o log do servidor)"
 
   defp block_text({:combat_preflight_failed, messages}) when is_list(messages) and messages != [],
     do: "BLOQUEADO: o combate recusou o arranque — " <> Enum.join(messages, " · ")

@@ -103,6 +103,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
           # What the engine asks of the road.
           optional(:engine?) => boolean,
           optional(:route_hold?) => boolean,
+          optional(:route_back?) => boolean,
+          optional(:stranded?) => boolean,
+          # o cérebro CALOU numa caçada que já o tinha (ver
+          # `Cavebot.Worker.brain_gone?/3`): freio perigoso, não espera
+          optional(:brain_gone?) => boolean,
           optional(:bar_spent?) => boolean,
           optional(:reset_worth?) => boolean | :unknown,
           optional(:reset_note) => String.t() | nil
@@ -203,6 +208,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # O CÉREBRO DESISTIU DO REVIVE.
   def step(%__MODULE__{} = logic, %{stranded?: true} = world, _now),
     do: {%{track_hp(logic, world) | state: :blocked}, {:block, :revive_dead}}
+
+  # O CÉREBRO SUMIU — pior que desistir, porque não há ninguém pra dizer que
+  # desistiu. Caçar sem ele é caçar sem revive, sem segurar a estrada na mobada
+  # e sem o freio do chão: foi assim que o personagem morreu em 03/09 às 14:19,
+  # oito minutos depois de o `Engine.Worker` parar em silêncio. Freio perigoso:
+  # não volta sozinho, porque ninguém sabe POR QUE ele calou.
+  def step(%__MODULE__{} = logic, %{brain_gone?: true} = world, _now),
+    do: {%{track_hp(logic, world) | state: :blocked}, {:block, :brain_gone}}
 
   # A floor the route KNOWS is a floor it meant to reach — a hunt with stairs is an ordinary
   # hunt (2026-08-10).

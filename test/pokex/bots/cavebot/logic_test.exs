@@ -129,6 +129,21 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
              Logic.step(lutando, Map.put(world({10, 10, 7}, 5), :stranded?, true), 0)
   end
 
+  # O CÉREBRO SUMIU. Pior que desistir: caçar sem ele é caçar sem revive, sem
+  # segurar a estrada na mobada e sem o freio do chão. Em 03/09 o cérebro parou
+  # às 14:17:01 e a caçada seguiu oito minutos sozinha até o personagem morrer.
+  test "o cérebro mudo bloqueia a caçada, andando ou lutando" do
+    andando = Logic.new(route(), @cfg)
+
+    assert {%{state: :blocked}, {:block, :brain_gone}} =
+             Logic.step(andando, Map.put(world({10, 10, 7}), :brain_gone?, true), 0)
+
+    lutando = %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true}
+
+    assert {%{state: :blocked}, {:block, :brain_gone}} =
+             Logic.step(lutando, Map.put(world({10, 10, 7}, 5), :brain_gone?, true), 0)
+  end
+
   test "a z change to a floor the route never visits blocks" do
     l = Logic.new(route(), @cfg)
     assert {_l, {:block, :floor_changed}} = Logic.step(l, world({10, 10, 6}), 0)

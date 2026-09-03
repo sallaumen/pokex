@@ -358,6 +358,30 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     # `hp_png` pinta COLUNAS de 20: 12 é 60%, 19 é 95%.
     @tag :tmp_dir
+    # O TIQUE TEM QUE SOBREVIVER À AURA, e este teste existe porque ele não
+    # sobrevivia. Desde o #498 o `press_shield/3` fechava com
+    # `bump(state.counters, :shields)` numa conta que não tinha essa chave: o
+    # `catch` do tique engolia o `{:badkey, :shields}` (o painel dele mostrava
+    # essa linha em vermelho) e TODO O TRABALHO DAQUELE TIQUE ia embora — a
+    # leitura da vida, o `prev_hp_pct`, o passo do juiz do revive e o
+    # `player_low_streak` que o alarme do personagem precisa ver duas vezes.
+    # Em 03/09 foram 272 auras numa caçada de 25 minutos.
+    @tag :tmp_dir
+    test "a aura não derruba o tique: sem erro, e o contador anda", %{tmp: tmp, body: body} do
+      classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
+      low = hp_png(tmp, "low_shield_ok.png", 12)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+      assert_receive {:performed, :high, [{:press, "2"}]}, 800
+
+      status = Worker.status(worker)
+      assert status.error == nil
+      assert status.counters.shields >= 1
+    end
+
+    @tag :tmp_dir
     test "abaixo de 85%, aperta a aura de defesa do /time", %{tmp: tmp, body: body} do
       classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
       low = hp_png(tmp, "low_shield.png", 12)

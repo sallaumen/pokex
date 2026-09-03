@@ -5,6 +5,8 @@ defmodule Pokex.Application do
 
   @impl true
   def start(_type, _args) do
+    attach_file_log()
+
     children = [
       PokexWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:pokex, :dns_cluster_query) || :ignore},
@@ -89,5 +91,34 @@ defmodule Pokex.Application do
   def config_change(changed, _new, removed) do
     PokexWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  # O LOG DO SERVIDOR EM ARQUIVO — porque a próxima morte não pode virar
+  # mistério. Em 03/09 o `Engine.Worker` parou às 14:17:01 e a caçada seguiu
+  # oito minutos sem cérebro até o personagem morrer; a razão do crash foi
+  # embora com o terminal, que é o único lugar onde este log existia. Agora ele
+  # também cai em ~/.pokex/log/server.log (5 arquivos de 5MB, rotativos), que é
+  # o mesmo lugar de onde saem os registros de decisão e o diário.
+  #
+  # Nunca no teste: a suíte tem o home dela e não precisa de arquivo nenhum.
+  defp attach_file_log do
+    if Application.get_env(:pokex, :file_log, true) do
+      path = Path.join([Pokex.Home.dir(), "log", "server.log"])
+      File.mkdir_p!(Path.dirname(path))
+
+      :logger.add_handler(:pokex_file, :logger_std_h, %{
+        config: %{
+          file: String.to_charlist(path),
+          max_no_bytes: 5_000_000,
+          max_no_files: 5
+        },
+        formatter: Logger.default_formatter(colors: [enabled: false])
+      })
+    end
+
+    :ok
+  catch
+    # Um log que não sobe não pode impedir o bot de subir.
+    _kind, _reason -> :ok
   end
 end

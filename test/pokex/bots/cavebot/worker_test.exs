@@ -174,6 +174,17 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   defp minimap!(pos),
     do: WorldState.put(:minimap, %{pos: pos}, System.monotonic_time(:millisecond))
 
+  # O CÉREBRO FALANDO: as duas metades que `engine_asks/1` exige, com a idade
+  # de agora. Esquecê-las é o cérebro calando.
+  defp brain!(
+         orders \\ %{route: :go, phase: :travelling},
+         picture \\ %{spent?: false, own_hp: 100}
+       ) do
+    now = System.monotonic_time(:millisecond)
+    WorldState.put(:orders, orders, now)
+    WorldState.put(:situation, picture, now)
+  end
+
   defp battle!(enemies) do
     WorldState.put(
       :battle,
@@ -193,6 +204,32 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   # arrival from a corner the hunt gave up on — nor say where the character
   # actually was. Both are :macro because :debug never reaches the journal.
   # "waypoint 1/70" and "waypoint 58/70" in the same second, neither walked:
+  # O CÉREBRO QUE CALA TRAVA A CAÇADA. Em 03/09 o `Engine.Worker` parou de
+  # publicar às 14:17:01 e a caçada seguiu OITO MINUTOS sem ele — sem revive,
+  # sem segurar a estrada na mobada, sem o freio do chão — até o personagem
+  # morrer. O que assina é a TRANSIÇÃO: vi o cérebro nesta caçada, e ele sumiu.
+  @tag :capture_log
+  test "o cérebro que cala trava a caçada", %{worker: worker} do
+    SettingsStash.stash!(cavebot_brain_gone_ms: 1_000)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+    two_waypoint_route!()
+    :ok = Worker.run(worker)
+
+    minimap!({100, 100, 7})
+    brain!()
+    tick!(worker)
+
+    WorldState.forget(:orders)
+    WorldState.forget(:situation)
+    # o silêncio tem que DURAR: o piso é um segundo, e um tique perdido não é
+    # um cérebro morto (o worker republica a cada 200ms).
+    Process.sleep(1_100)
+    minimap!({100, 100, 7})
+    tick!(worker)
+
+    assert await_log("o cérebro parou") =~ "BLOQUEADO"
+  end
+
   # entering the route is a JUMP to the nearest corner, and reading it as an
   # arrival inflated both the log and the night's tally.
   test "entering the route is announced as an entrance, not as a corner reached", %{

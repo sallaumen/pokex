@@ -528,6 +528,10 @@ defmodule Pokex.Settings do
     defense_mode_key: "shift+3",
     attack_mode_key: "shift+1",
     cavebot_arrival_tolerance_tiles: 1,
+    # QUANTO TEMPO SEM O CÉREBRO até a caçada parar. Ele republica as ordens a
+    # cada tique (200ms); cinco segundos de silêncio não é atraso, é morte —
+    # e caçar sem ele é caçar sem revive (03/09, a segunda morte).
+    cavebot_brain_gone_ms: 5_000,
     cavebot_walk_timeout_ms: 3000,
     # Standing still and blind, the client renders no coordinate (it only draws the label while
     # the position CHANGES, or under a hovering mouse) — so a blind cavebot
@@ -873,6 +877,7 @@ defmodule Pokex.Settings do
     fainted_revive_cooldown_ms: 0..600_000,
     combat_confirm_ms: 0..10_000,
     cavebot_precise_tiles: 0..10,
+    cavebot_brain_gone_ms: 1_000..60_000,
     cavebot_stair_probe_ms: 100..5_000,
     cavebot_stair_max_probes: 0..200,
     cavebot_block_retries: 0..50,

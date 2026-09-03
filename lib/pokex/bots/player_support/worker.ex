@@ -35,7 +35,23 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Vision
 
   @topic "game"
-  @default_counters %{rescues: 0, potions: 0, heals: 0, reads: 0, failures: 0, repositions: 0}
+  # A CHAVE QUE FALTAVA CUSTOU DUAS MORTES. Desde o #498 o `press_shield/3`
+  # fecha com `bump(state.counters, :shields)`, e `:shields` não existia aqui:
+  # toda aura que saía estourava o tique, o `catch` engolia o erro
+  # (`{:badkey, :shields}`, visível no painel) e o TRABALHO DAQUELE TIQUE IA
+  # EMBORA — a leitura da vida, o `prev_hp_pct`, o passo do juiz do revive e o
+  # `player_low_streak` que o alarme do personagem precisa ver duas vezes. Em
+  # 03/09 foram 272 auras numa caçada de 25 minutos, ou seja 272 tiques do
+  # guardião jogados fora, e o alarme da vida dele só saiu com 4%.
+  @default_counters %{
+    rescues: 0,
+    potions: 0,
+    heals: 0,
+    reads: 0,
+    failures: 0,
+    repositions: 0,
+    shields: 0
+  }
 
   @sentinel_ms 1_500
 

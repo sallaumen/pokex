@@ -107,11 +107,12 @@ defmodule Pokex.World do
 
   def pokemon_hp_pct(_snapshot), do: nil
 
-  # hp_pct arrives as an integer percentage (0..100) or nil when the party
-  # window is minimized / no pokémon is out.
+  # A vida do PERSONAGEM é `player_hp` — `hp_pct`, no mesmo fato, é a do
+  # POKÉMON. Este cartão mostrava a segunda com o rótulo da primeira (mesmo
+  # engano do cérebro, consertado junto em 03/09).
   defp player_fact_pct(now) do
     case WorldState.get(:player, 5_000, now) do
-      {:ok, %{hp_pct: pct}} -> pct
+      {:ok, %{player_hp: pct}} -> pct
       _unknown -> nil
     end
   end

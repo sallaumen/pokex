@@ -1644,8 +1644,15 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
   # A VIDA DELE. "Esse período de menos de 1s que o revive me deixa exposto eu
   # já tomo um jato de água na cara e morro" — e quem está fora do alcance do
-  # pokémon bate nele o tempo todo. Com a barra gasta, revive na hora, antes
-  # até de a corrente acabar.
+  # pokémon bate nele o tempo todo.
+  #
+  # A REGRA VIROU DE LADO EM 03/09, e a inversão tem data porque tem morte. Até
+  # ali este bloco dizia "com a barra gasta, revive na hora, antes até de a
+  # corrente acabar" — a aposta de 02/09, "arriscar o quanto antes". Ela nunca
+  # rodou uma vez: o cérebro lia a vida do POKÉMON no lugar da dele. Quando o
+  # campo certo chegou, a aposta se mostrou do lado errado — o revive RECOLHE o
+  # pokémon, e o pokémon de pé é a única coisa entre ele e a mobada. "Um revive
+  # desesperado faz ele morrer, se tá no meio de um monte de monstro" (03/09).
   describe "o personagem apanhando" do
     defp sangrando(player_hp, extra) do
       world(%{
@@ -1660,11 +1667,26 @@ defmodule Pokex.Bots.Engine.LogicTest do
       })
     end
 
-    test "abaixo do piso, com a barra gasta: revive agora, mesmo com a corrente saindo" do
+    # NOVE BICHOS NA TELA: recolher o pokémon aqui é a morte de 12:32 outra vez.
+    test "abaixo do piso e com a mobada em cima, o revive NÃO sai" do
       {_logic, orders} =
         Logic.step(
           Logic.new(),
           sangrando(40, %{player_drop: 3, combo_left_ms: 2_000}),
+          @config,
+          1_000
+        )
+
+      assert orders.revive == :hold, orders.why
+    end
+
+    # …e com a tela limpa a aposta dele continua inteira: não há de quem
+    # apanhar durante a recolhida, então a barra cheia é pura vantagem.
+    test "abaixo do piso com a tela limpa, revive agora como sempre" do
+      {_logic, orders} =
+        Logic.step(
+          Logic.new(),
+          sangrando(40, %{player_drop: 3, enemies: 0, combo_left_ms: 2_000}),
           @config,
           1_000
         )
@@ -1677,7 +1699,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {_logic, orders} =
         Logic.step(
           Logic.new(),
-          sangrando(80, %{player_drop: 12, combo_left_ms: 2_000}),
+          sangrando(80, %{player_drop: 12, enemies: 0, combo_left_ms: 2_000}),
           @config,
           1_000
         )
@@ -2710,6 +2732,120 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert orders.phase == :gathering
       assert orders.fire == :hold
+    end
+  end
+
+  # A MORTE DE 03/09, 12:32, virada em regra.
+  #
+  # Doze revives em dois minutos, os últimos de seis em seis segundos, com 3 a 7
+  # bichos na tela. Cada revive RECOLHE o pokémon, e nesses segundos o
+  # personagem fica de peito aberto: às 12:31:56 a vida DELE era 4%, um segundo
+  # depois de mais um revive de reset. Ele morreu dentro da janela — e o pokémon
+  # nunca voltou porque não havia mais quem o chamasse.
+  #
+  # A regra: revive de CONVENIÊNCIA (resetar a barra) espera ele parar de
+  # apanhar. O resgate não passa por aqui.
+  describe "o revive de conveniência não recolhe o pokémon com ELE apanhando" do
+    @cerca Config.merge(%{
+             reset_revive: false,
+             prepare_revive: false,
+             engage_from: 3,
+             crowd_from: 99,
+             bunch_ms: 0,
+             gather_target: 1
+           })
+
+    defp cerca_step(logic, world, now), do: Logic.step(logic, world, @cerca, now)
+
+    # O reset do Auto Combo decide no PRIMEIRO tique (`combo_reset_due?` está
+    # acima da régua na fila); o segundo é onde a luta já aberta mostra o que
+    # faz com o revive segurado.
+    defp cerca_orders(world) do
+      {_logic, orders} = cerca_step(Logic.new(), world, 10_000)
+      orders
+    end
+
+    defp cerca_segundo(world) do
+      {logic, _abertura} = cerca_step(Logic.new(), world, 10_000)
+      {_logic, orders} = cerca_step(logic, world, 10_500)
+      orders
+    end
+
+    defp mobada(overrides) do
+      world(%{
+        situation:
+          situation(
+            Map.merge(
+              %{enemies: 4, spent?: true, own_hp: 100, combo_left_ms: 0, player_drop: 6},
+              overrides
+            )
+          ),
+        hunt: hunt(%{state: :fighting}),
+        hands: %{opening: ~w(3 4), single: ~w(7 8), crowd: ["2"], reserve: ~w(7 8 2)}
+      })
+    end
+
+    test "com ele abaixo do piso e bicho na tela, o reset espera" do
+      assert cerca_orders(mobada(%{player_hp: 40})).revive == :hold
+    end
+
+    # E A LUTA NÃO CONGELA: sem barra e sem revive, recua com o que tem — a R7
+    # de sempre, agora dizendo o motivo em voz alta.
+    test "segurado, o cérebro recua e diz por quê" do
+      orders = cerca_segundo(mobada(%{player_hp: 40}))
+
+      assert orders.revive == :hold
+      assert orders.route == :back
+      assert orders.why =~ "segurando o revive"
+      assert orders.why =~ "40%"
+    end
+
+    # O BOLSO ABRE JUNTO: sem a área, o alvo único e o controle são o que
+    # sobrou pra matar sem recolher ninguém.
+    test "com o revive segurado, a reserva do modo entra na mão" do
+      orders = cerca_segundo(mobada(%{player_hp: 40}))
+
+      assert "7" in orders.opening
+      assert "2" in orders.opening
+    end
+
+    # …e com ele inteiro a reserva CONTINUA no bolso: a emergência não vira
+    # rotina por acidente.
+    test "com ele inteiro, a reserva fica guardada" do
+      refute "7" in cerca_segundo(mobada(%{player_hp: 100})).opening
+    end
+
+    test "com ele inteiro, o reset sai como sempre" do
+      orders = cerca_orders(mobada(%{player_hp: 100}))
+
+      assert orders.revive == :now
+      refute orders.why =~ "segurando"
+    end
+
+    # Sem bicho na tela não há de quem apanhar: recolher é seguro.
+    test "com a tela limpa, apanhar não segura nada" do
+      assert cerca_orders(mobada(%{player_hp: 40, enemies: 0})).revive == :now
+    end
+
+    # VIDA BAIXA E PARADA É A CAÇADA DELE. "O modo hard vive com 1 de vida a
+    # noite inteira": travar o revive nisso trocaria uma morte por uma noite
+    # inteira recuando. O que segura é a vida CAINDO.
+    test "baixa e parada não segura nada — só caindo" do
+      assert cerca_orders(mobada(%{player_hp: 4, player_drop: 0})).revive == :now
+    end
+
+    # Cega, a regra some — a mesma disciplina do resto do módulo.
+    test "sem leitura da vida dele, a cerca não existe" do
+      assert cerca_orders(mobada(%{player_hp: nil})).revive == :now
+    end
+
+    # O RESGATE NÃO É CONVENIÊNCIA: com o pokémon caindo, quem está indo embora
+    # é ele, e a decisão de arriscar cedo é dele (02/09).
+    test "no vermelho o resgate sai mesmo com ele apanhando" do
+      orders = cerca_orders(mobada(%{player_hp: 40, own_hp: 10}))
+
+      assert orders.revive == :now
+      assert orders.band == :red
     end
   end
 end

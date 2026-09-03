@@ -41,6 +41,8 @@ defmodule Pokex.Bots.Combat.Plan.AutoCombo do
 
   @behaviour Pokex.Bots.Combat.Plan
 
+  alias Pokex.Bots.Combat.Loadout
+
   alias Pokex.Bots.Combat.Combo
 
   @impl true
@@ -95,6 +97,22 @@ defmodule Pokex.Bots.Combat.Plan.AutoCombo do
   # O stun é a última metade da corrente, não uma tecla que o cérebro gasta.
   @impl true
   def crowd(_loadout, _ctx), do: []
+
+  # O BOLSO DESTE MODO — e por que ele existe.
+  #
+  # A corrente aperta uma tecla só e gasta a ÁREA do pokémon; o alvo único e o
+  # controle ficam de fora da rotação por regra dele ("não pressionar skills
+  # ofensivas individualmente", 27/08). O preço disso apareceu em 03/09: com a
+  # área em cooldown o cérebro não tinha NADA pra apertar, e a única saída que
+  # sobrava era o revive — que recolhe o pokémon e deixa o personagem sozinho
+  # na frente da mobada. Foi assim que ele morreu, às 12:32.
+  #
+  # A reserva não muda a rotação: ela só existe pro cérebro abrir quando ele
+  # está apanhando e o revive está segurado. E vale a pena porque estas voltam
+  # antes — 10-20s contra 35-60s da área.
+  @impl true
+  def reserve(%Loadout{single: single, crowd: crowd}, _ctx), do: single ++ crowd
+  def reserve(_no_loadout, _ctx), do: []
 
   @impl true
   def damage_keys(%{aoe: aoe}, _ctx), do: aoe

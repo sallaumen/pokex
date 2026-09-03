@@ -49,6 +49,19 @@ defmodule Pokex.Bots.Combat.AutoComboTest do
       refute Plan.AutoCombo.tab?(ctx())
     end
 
+    # O BOLSO. A corrente gasta a ÁREA; o alvo único e o controle ficam de fora
+    # da rotação por regra dele — e por isso são exatamente o que sobra quando a
+    # área acabou. Sem eles, com a barra gasta, a única saída do cérebro era o
+    # revive: recolher o pokémon no meio da mobada. Foi assim que o personagem
+    # morreu em 03/09.
+    test "o alvo único e o controle ficam guardados pra emergência" do
+      assert Plan.AutoCombo.reserve(loadout(), ctx()) == ~w(7 1)
+    end
+
+    test "sem pokémon não há bolso" do
+      assert Plan.AutoCombo.reserve(nil, ctx()) == []
+    end
+
     # `spent?` mede contra a BARRA, porque é a barra que a corrente gasta — e é
     # ela que o revive devolve. Reportar a tecla do combo aqui faria a pergunta
     # ser sobre uma tecla que a barra não mostra.

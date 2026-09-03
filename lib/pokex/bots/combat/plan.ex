@@ -54,6 +54,17 @@ defmodule Pokex.Bots.Combat.Plan do
   @callback small(Loadout.t() | nil, ctx) :: [String.t()]
   @callback single(Loadout.t() | nil, ctx) :: [String.t()]
   @callback crowd(Loadout.t() | nil, ctx) :: [String.t()]
+  @doc """
+  A RESERVA: o que este modo guarda no bolso e não gasta na rotação — a mão que
+  o cérebro só abre em emergência, quando a barra de dano acabou e recolher o
+  pokémon (o revive) sairia caro demais.
+
+  No Auto Combo é onde moram o alvo único e o controle: a corrente não os
+  aperta, e as de alvo único dele voltam em 10-20s contra 35-60s da área, então
+  há de fato o que gastar enquanto a área não volta. Nos outros modos é `[]` —
+  quem já aperta tudo não tem bolso.
+  """
+  @callback reserve(Loadout.t() | nil, ctx) :: [String.t()]
   @callback damage_keys(Loadout.t() | nil, ctx) :: [String.t()]
   @callback tab?(ctx) :: boolean
 

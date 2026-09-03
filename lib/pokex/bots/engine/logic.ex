@@ -460,7 +460,19 @@ defmodule Pokex.Bots.Engine.Logic do
       # o revive (…) nessas horas o ideal é arriscar o quanto antes" (02/09).
       # Com a barra gasta, a barra cheia é a única resposta, e ela vem ANTES da
       # corrente acabar: cortar a cauda custa dano; esperar custa ele.
-      bleeding?(t) -> bleeding(t)
+      #
+      # …COM A TELA LIMPA. A metade "arriscar o quanto antes" nunca chegou a
+      # rodar: até 03/09 esta regra lia a vida do POKÉMON no lugar da dele
+      # (`Worker.player_hp/1`), e disparou zero vezes no dia em que ele morreu.
+      # Quando finalmente enxergou, a aposta se mostrou do lado errado — porque
+      # o revive RECOLHE o pokémon, e é justamente com ele apanhando que o
+      # pokémon de pé é a única coisa entre ele e a mobada. "Um revive
+      # desesperado faz ele morrer, se tá no meio de um monte de monstro"
+      # (03/09, depois da morte das 12:32). Então: com bicho na tela a regra
+      # cai pro recuo com a reserva na mão (`recall_safe?`); sem bicho, e com o
+      # pokémon caindo (vermelho/caído, mais acima nesta fila), o revive é dele
+      # como sempre foi.
+      bleeding?(t) and recall_safe?(t) -> bleeding(t)
       # O CICLO DO AUTO COMBO, nos passos que ele numerou — e ABAIXO do vermelho
       # de propósito: o chão de segurança nunca espera a corrente.
       #
@@ -689,7 +701,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # revives por hora e custa 7% dos monstros, nos três pisos. Uma chave cuja
   # posição desligada nunca é a certa não é uma escolha, é entulho.
   defp revive_now?(t) do
-    not mid_combo?(t) and
+    not mid_combo?(t) and recall_safe?(t) and
       (t.s.enemies == 0 or not within?(t, :closing, t.config.closing_timeout_ms))
   end
 
@@ -932,7 +944,7 @@ defmodule Pokex.Bots.Engine.Logic do
     t.config.prepare_revive and not mid_combo?(t) and
       Map.get(t.s, :prepared?) == false and t.s.own_out? == true and
       quiet?(t, ceiling) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
-      t.logic.reset_broken_at == nil and affordable?(t)
+      t.logic.reset_broken_at == nil and affordable?(t) and recall_safe?(t)
   end
 
   defp quiet?(%{s: %{enemies: enemies}}, ceiling) when is_integer(enemies),
@@ -1185,8 +1197,8 @@ defmodule Pokex.Bots.Engine.Logic do
          Orders.retreating_and_firing(
            :engaged,
            t.band,
-           opening(t),
-           "sem cooldown com #{count(t.s)} em cima — recuando#{kite_reason(t)}"
+           with_reserve(t),
+           "sem cooldown com #{count(t.s)} em cima — recuando#{kite_reason(t)}#{held_note(t)}"
          )}
 
       true ->
@@ -1198,8 +1210,8 @@ defmodule Pokex.Bots.Engine.Logic do
          Orders.standing_and_firing(
            :engaged,
            t.band,
-           opening(t),
-           "matando o que já abriu#{disarmed_note(t)}"
+           with_reserve(t),
+           "matando o que já abriu#{disarmed_note(t)}#{held_note(t)}"
          )}
     end
   end
@@ -1434,6 +1446,17 @@ defmodule Pokex.Bots.Engine.Logic do
   defp crowd(%{hands: %{crowd: keys}}), do: keys
   defp crowd(_no_hands), do: []
 
+  # O BOLSO, aberto SÓ com o revive segurado (`recall_safe?` falso): no Auto
+  # Combo são o alvo único e o controle, que a corrente não aperta e que voltam
+  # antes da área. Com o revive liberado a mão é a de sempre — a reserva não
+  # vira rotação por acidente.
+  defp with_reserve(t) do
+    if recall_safe?(t), do: opening(t), else: reserve(t) ++ opening(t)
+  end
+
+  defp reserve(%{hands: %{reserve: keys}}), do: keys
+  defp reserve(_no_hands), do: []
+
   defp forget_stun(logic), do: %{logic | since: Map.delete(logic.since, :stunned)}
 
   # O recuo diz POR QUE está recuando em vez de resetar: o desarme era mudo, e
@@ -1443,6 +1466,16 @@ defmodule Pokex.Bots.Engine.Logic do
        do: kite_reason(t)
 
   defp disarmed_note(_armed_or_not_spent), do: ""
+
+  # A CERCA DO RECOLHIMENTO, dita em voz alta: o revive que não sai tem que
+  # aparecer no diário dele, senão vira a mesma trava muda de 28/08 — 39
+  # minutos de recuo que pareciam covardia e eram uma regra sem voz.
+  defp held_note(t) do
+    if recall_safe?(t),
+      do: "",
+      else:
+        " — segurando o revive: VOCÊ está com #{Map.get(t.s, :player_hp)}% e o pokémon de pé é o seu escudo"
+  end
 
   defp kite_reason(%{logic: %{reset_broken_at: at}} = t) when is_integer(at) do
     left = div(max(t.config.reset_rearm_ms - (t.now - at), 0), 1_000)
@@ -1724,7 +1757,7 @@ defmodule Pokex.Bots.Engine.Logic do
   defp combo_reset_due?(t) do
     Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? != false and
       not (heavy?(t) and crowd(t) != []) and t.logic.reset_broken_at == nil and
-      elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and affordable?(t)
+      reset_allowed?(t)
   end
 
   # PARADO ENQUANTO A CORRENTE SAI. A rota segura; o fogo fica livre de
@@ -1945,10 +1978,18 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp reset_revive?(t) do
     t.config.reset_revive and not mid_combo?(t) and t.s.spent? == true and
-      t.s.own_out? != false and
-      is_integer(t.s.enemies) and t.s.enemies >= t.config.engage_from and
-      healthy_enough?(t) and elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and
-      affordable?(t)
+      t.s.own_out? != false and pile_worth_reset?(t) and healthy_enough?(t) and
+      reset_allowed?(t)
+  end
+
+  defp pile_worth_reset?(t),
+    do: is_integer(t.s.enemies) and t.s.enemies >= t.config.engage_from
+
+  # As três portas que TODO revive de conveniência atravessa: o relógio, o
+  # orçamento e a segurança de recolher o pokémon agora.
+  defp reset_allowed?(t) do
+    elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and affordable?(t) and
+      recall_safe?(t)
   end
 
   # O ORÇAMENTO: as regras que COMPRAM conveniência com revive (chegar
@@ -1960,6 +2001,48 @@ defmodule Pokex.Bots.Engine.Logic do
     case Map.get(t.s, :revive_left) do
       nil -> true
       left -> left > t.config.revive_reserve
+    end
+  end
+
+  # O REVIVE RECOLHE O POKÉMON, e sem pokémon na frente quem apanha é ELE.
+  #
+  # 03/09, 12:32, rota Hard: Feraligator. Doze revives em dois minutos — os
+  # últimos de seis em seis segundos, o ciclo do Auto Combo rodando — com 3 a 7
+  # bichos na tela. Cada um recolheu o pokémon por alguns segundos, e nesses
+  # segundos o personagem ficou de peito aberto. Às 12:31:56 a vida DELE era 4%;
+  # um segundo antes tinha saído mais um revive de reset. Ele morreu dentro da
+  # janela, e por isso o pokémon nunca mais voltou — a leitura congelou em 58%
+  # por 23 segundos com o cérebro achando que tinha um pokémon de pé.
+  #
+  # A regra dele, de 02/09, já dizia por quê: "só 8 conseguem ficar ao redor do
+  # meu pokémon — os outros podem ficar longe e com isso fazer eu morrer durante
+  # o revive". O sono da corrente cobre quem está colado, não quem está longe.
+  #
+  # Então o REVIVE DE CONVENIÊNCIA — resetar a barra, chegar preparado — espera
+  # ele parar de apanhar. Enquanto isso o pokémon fica DE PÉ, que é o escudo que
+  # ele tem, e a caçada cai pro recuo com o que sobrou na mão (R7). O resgate
+  # (vermelho, caído) e o `bleeding?` NÃO passam por aqui: lá o pokémon é que
+  # está indo embora, e a decisão de arriscar cedo é dele.
+  #
+  # Sem leitura da vida dele isto não segura nada: cega, a regra some — a mesma
+  # disciplina do resto do módulo.
+  defp recall_safe?(t) do
+    not (player_hurt?(t) and is_integer(t.s.enemies) and t.s.enemies > 0)
+  end
+
+  # CAINDO, não baixa — a mesma distinção que o `bleeding?` faz, e pelo mesmo
+  # motivo: "o modo hard vive com 1 de vida a noite inteira". Vida baixa e
+  # PARADA é a caçada normal dele; travar o revive nela seria trocar uma morte
+  # por uma noite inteira recuando. O que assina a morte de 03/09 é a vida dele
+  # ABAIXO DO PISO e caindo no mesmo tique — aí o pokémon recolhido é o que
+  # falta entre ele e a mobada.
+  defp player_hurt?(t) do
+    case Map.get(t.s, :player_hp) do
+      hp when is_integer(hp) ->
+        hp <= t.config.player_floor_pct and Map.get(t.s, :player_drop, 0) > 0
+
+      _sem_leitura ->
+        false
     end
   end
 

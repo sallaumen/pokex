@@ -850,7 +850,10 @@ defmodule PokexWeb.CavebotLiveTest do
     defp see_world(pokemon_hp, player_hp, rows) do
       now = System.monotonic_time(:millisecond)
       WorldState.put(:pokemon, %{hp_pct: pokemon_hp, readable?: true, fainted?: false}, now)
-      WorldState.put(:player, %{hp_pct: player_hp, readable?: true}, now)
+      # O FATO `:player` CARREGA AS DUAS VIDAS: `hp_pct` é a do POKÉMON (a
+      # Pokebar que o suporte lê) e `player_hp` é a DELE. Esta fixture dizia o
+      # contrário e por isso o cartão passava lendo o campo errado (03/09).
+      WorldState.put(:player, %{hp_pct: pokemon_hp, player_hp: player_hp, readable?: true}, now)
 
       WorldState.put(
         :battle,

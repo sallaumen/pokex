@@ -64,6 +64,11 @@ defmodule Pokex.Bots.Combat.Plan.Economy do
   def crowd(%Loadout{crowd: crowd}, _ctx), do: crowd
   def crowd(_no_loadout, _ctx), do: []
 
+  # Sem bolso: este modo já gasta o alvo único e o controle na rotação, então
+  # não há tecla guardada pra emergência abrir.
+  @impl true
+  def reserve(_loadout, _ctx), do: []
+
   # `spent?` mede contra as duas: o modo gasta as duas.
   @impl true
   def damage_keys(%Loadout{aoe: aoe, single: single}, _ctx), do: aoe ++ single

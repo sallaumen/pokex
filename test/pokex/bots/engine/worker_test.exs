@@ -68,6 +68,20 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert picture.worth_fighting? == true
     end
 
+    # A VIDA DO PERSONAGEM, E NÃO A DO POKÉMON. O fato `:player` carrega as duas
+    # — `hp_pct` é a criatura, `player_hp` é ele — e o cérebro lia a primeira.
+    # Por isso a regra "VOCÊ está apanhando" julgou o pokémon desde que nasceu e
+    # nunca disparou: no dia em que o personagem morreu foram 0 tiques dela
+    # contra 26 alarmes do suporte (03/09).
+    test "a vida do quadro é a DELE, não a do pokémon", %{worker: worker} do
+      WorldState.put(:player, %{hp_pct: 100, player_hp: 20}, now())
+      send(worker, :tick)
+      settle(worker)
+
+      assert {:ok, picture} = WorldState.get(:situation, 5_000, now())
+      assert picture.player_hp == 20
+    end
+
     test "an unread battle panel publishes an unknown, never a zero", %{worker: worker} do
       send(worker, :tick)
       settle(worker)

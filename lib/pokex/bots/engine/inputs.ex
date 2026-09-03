@@ -23,7 +23,8 @@ defmodule Pokex.Bots.Engine.Inputs do
           opening: [String.t()],
           small: [String.t()],
           single: [String.t()],
-          crowd: [String.t()]
+          crowd: [String.t()],
+          reserve: [String.t()]
         }
 
   @doc """
@@ -73,7 +74,11 @@ defmodule Pokex.Bots.Engine.Inputs do
       single: plan.single(loadout, ctx),
       # …e o CONTROLE é do modo também: no Auto Combo o stun é a última metade
       # do combo do jogo, e não uma tecla que o cérebro gasta.
-      crowd: plan.crowd(loadout, ctx)
+      crowd: plan.crowd(loadout, ctx),
+      # O BOLSO: o que o modo NÃO gasta na rotação e o cérebro só abre quando o
+      # revive está segurado por ele estar apanhando. Vazio nos modos que já
+      # apertam tudo.
+      reserve: plan.reserve(loadout, ctx)
     }
   end
 end

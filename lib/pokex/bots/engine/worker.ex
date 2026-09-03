@@ -382,9 +382,17 @@ defmodule Pokex.Bots.Engine.Worker do
 
   # A vida DELE, publicada pelo suporte (`PlayerSupport.Worker`) a cada leitura
   # da barra vermelha. Velha ou ilegível é `nil`, que aqui é "não sei".
+  #
+  # O CAMPO É `player_hp`, NUNCA `hp_pct`. O fato `:player` carrega os dois — o
+  # `hp_pct` é a vida do POKÉMON (a Pokebar que o suporte lê pra poção e
+  # revive) e a `player_hp` é a do personagem (a barra vermelha do painel).
+  # Lendo o primeiro, tudo que este módulo chama de "vida dele" era a do
+  # pokémon: a regra `bleeding?` julgou a criatura errada desde que nasceu e
+  # NUNCA disparou uma vez sequer — 0 tiques com "apanhando" contra 26 alarmes
+  # do suporte no dia em que ele morreu (03/09).
   defp player_hp(now) do
     case WorldState.get(:player, Settings.get(:engine_hunt_max_age_ms), now) do
-      {:ok, %{hp_pct: hp}} when is_integer(hp) -> hp
+      {:ok, %{player_hp: hp}} when is_integer(hp) -> hp
       _sem_leitura -> nil
     end
   end

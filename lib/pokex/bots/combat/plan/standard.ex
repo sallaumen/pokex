@@ -56,6 +56,11 @@ defmodule Pokex.Bots.Combat.Plan.Standard do
   def crowd(%Loadout{crowd: crowd}, _ctx), do: crowd
   def crowd(_no_loadout, _ctx), do: []
 
+  # Sem bolso: este modo já gasta o alvo único e o controle na rotação, então
+  # não há tecla guardada pra emergência abrir.
+  @impl true
+  def reserve(_loadout, _ctx), do: []
+
   # O QUE ESTA CAÇADA GASTA PRA MATAR — e é sobre estas teclas que `spent?`
   # pergunta "acabou?". Uma tecla que o jogo ignora aqui dentro nunca esfria, e
   # `spent?` nunca fica verdadeiro: todo revive que depende dele morre calado.

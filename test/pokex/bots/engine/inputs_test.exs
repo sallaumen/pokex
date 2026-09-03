@@ -42,7 +42,14 @@ defmodule Pokex.Bots.Engine.InputsTest do
   end
 
   test "sem pokémon em campo não há mão nenhuma" do
-    assert Inputs.hands(nil, picture()) == %{opening: [], small: [], single: [], crowd: []}
+    assert Inputs.hands(nil, picture()) ==
+             %{opening: [], small: [], single: [], crowd: [], reserve: []}
+  end
+
+  # O BOLSO É DO MODO: fora do Auto Combo não existe tecla guardada, porque
+  # esses modos já apertam o alvo único e o controle na rotação.
+  test "o modo padrão não guarda nada no bolso" do
+    assert Inputs.hands(loadout(), picture()).reserve == []
   end
 
   # `single` É O QUE A FASE `:skipping` GASTA nas teclas baratas — e desde 27/08

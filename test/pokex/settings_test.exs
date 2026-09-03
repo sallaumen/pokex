@@ -670,6 +670,26 @@ defmodule Pokex.SettingsTest do
   #
   # A preservação de chave desconhecida protege o VALOR; esta trava protege o
   # ARQUIVO, e é a que faz o acidente ser impossível em vez de reversível.
+  # 03/09: o arquivo passou dois dias sem gravar e o restart apagou tudo que
+  # ele tinha mudado — sem rastro nenhum. Cada mudança agora é uma linha do
+  # diário (fonte `config`), pra ser relida quando algo se perde.
+  describe "cada mudança vai pro diário" do
+    @tag :tmp_dir
+    test "a chave, o valor de antes e o de depois; o mesmo valor não é mudança", %{
+      tmp_dir: tmp
+    } do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "settings")
+      {:ok, server} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
+
+      :ok = Settings.put(:tile_px, 48, server)
+      :ok = Settings.put(:tile_px, 64, server)
+      assert_receive {:settings_log, :macro, "⚙️ tile_px: 48 → 64"}
+
+      :ok = Settings.put(:tile_px, 64, server)
+      refute_receive {:settings_log, :macro, "⚙️ tile_px: 64 → 64"}, 100
+    end
+  end
+
   describe "o crachá do arquivo" do
     @tag :tmp_dir
     test "toda escrita carimba o alfabeto que a build conhecia", %{tmp_dir: tmp} do

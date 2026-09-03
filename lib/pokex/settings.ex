@@ -1137,6 +1137,8 @@ defmodule Pokex.Settings do
   end
 
   def handle_call({:put, key, value}, _from, state) when key in @character_keys do
+    note_change(key, resolve(state, key), value)
+
     if state.char == "" do
       # With no character selected the panel edits the BASE — exactly the behaviour from before
       # this layer existed, and what every new character inherits.
@@ -1146,8 +1148,26 @@ defmodule Pokex.Settings do
     end
   end
 
-  def handle_call({:put, key, value}, _from, state),
-    do: {:reply, :ok, state |> put_global(key, value) |> mirror_sync([key])}
+  def handle_call({:put, key, value}, _from, state) do
+    note_change(key, resolve(state, key), value)
+    {:reply, :ok, state |> put_global(key, value) |> mirror_sync([key])}
+  end
+
+  # CADA MUDANÇA VAI PRO DIÁRIO. De 02/09 a 03/09 o arquivo não gravava e, no
+  # restart, tudo que ele tinha mudado sumiu sem deixar rastro — "já perdi
+  # tudo, saco!". Com a linha no diário (`~/.pokex/journal/`, fonte `config`),
+  # o que se perde se relê. A mesma chave com o mesmo valor não é mudança.
+  defp note_change(_key, before, value) when before == value, do: :ok
+
+  defp note_change(key, before, value) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "settings",
+      {:settings_log, :macro, "⚙️ #{key}: #{inspect(before)} → #{inspect(value)}"}
+    )
+  catch
+    :exit, _sem_pubsub -> :ok
+  end
 
   # Setting a value back to the current default is NOT an override — drop it so the key keeps
   # tracking the code default afterwards.

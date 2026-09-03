@@ -24,7 +24,8 @@ defmodule Pokex.Bots.Engine.Inputs do
           small: [String.t()],
           single: [String.t()],
           crowd: [String.t()],
-          reserve: [String.t()]
+          reserve: [String.t()],
+          stun: [String.t()]
         }
 
   @doc """
@@ -78,7 +79,17 @@ defmodule Pokex.Bots.Engine.Inputs do
       # O BOLSO: o que o modo NÃO gasta na rotação e o cérebro só abre quando o
       # revive está segurado por ele estar apanhando. Vazio nos modos que já
       # apertam tudo.
-      reserve: plan.reserve(loadout, ctx)
+      reserve: plan.reserve(loadout, ctx),
+      # O CONTROLE QUE O POKÉMON TEM, e não o que a rotação gasta. São coisas
+      # diferentes desde o Auto Combo: lá `crowd` é `[]` de propósito (o stun é
+      # a última metade da corrente do jogo), mas a tecla EXISTE — e é ela que
+      # o cérebro usa pra ABRIR o revive quando o sono da corrente venceu e
+      # ainda há bicho na tela. Sem este campo a cerca do sono era uma porta
+      # sem chave (03/09).
+      stun: stun_keys(loadout)
     }
   end
+
+  defp stun_keys(%Loadout{crowd: crowd}) when is_list(crowd), do: crowd
+  defp stun_keys(_no_loadout), do: []
 end

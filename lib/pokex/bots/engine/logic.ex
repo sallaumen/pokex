@@ -1194,13 +1194,17 @@ defmodule Pokex.Bots.Engine.Logic do
       # mão, ele mata o que dá enquanto a corrente não volta — sem recolher
       # ninguém e sem andar de costas pela rota.
       held_by_recall?(t) ->
-        {t.logic,
-         Orders.standing_and_firing(
-           :engaged,
-           t.band,
-           with_reserve(t),
-           "sem cooldown com #{count(t.s)} em cima — parado, matando o que dá#{held_note(t)}"
-         )}
+        # E O CONTROLE SAI PRA ABRIR O REVIVE. "Sempre terei revives em mãos pra
+        # resetar os cooldowns, só temos que ficar vivos tempo suficiente para
+        # usar a skill de stun antes disso" (03/09). Sem isto a cerca do sono
+        # era uma porta sem chave no Auto Combo: a corrente é quem dorme a
+        # pilha, e quando o sono dela vence com bicho ainda na tela, o cérebro
+        # não tinha como FAZER sono nenhum — o revive ficava preso até a tela
+        # limpar. A reserva já mandava o controle junto; o que faltava era o
+        # cérebro CARIMBAR que dormiu, que é o que abre a janela no tique
+        # seguinte.
+        {stamp_stun(t),
+         Orders.standing_and_firing(:engaged, t.band, with_reserve(t), held_why(t))}
 
       # Com o especial na tela não se recua: a barra volta em 40s, o shiny não
       # volta nunca. Não precisa de guarda própria — `heavy?` já é ele.
@@ -1770,11 +1774,13 @@ defmodule Pokex.Bots.Engine.Logic do
   # …e o CHEFE só fura este reset quando o cérebro tem controle pra dar (o
   # ciclo stun → revive do Econômico); no Auto Combo a corrente já termina em
   # stun, e o reset depois dela É o ciclo de chefe.
-  defp combo_reset_due?(t) do
+  defp combo_reset_ready?(t) do
     Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? != false and
       not (heavy?(t) and crowd(t) != []) and t.logic.reset_broken_at == nil and
-      reset_allowed?(t) and recall_safe?(t)
+      reset_allowed?(t)
   end
+
+  defp combo_reset_due?(t), do: combo_reset_ready?(t) and recall_safe?(t)
 
   # PARADO ENQUANTO A CORRENTE SAI. A rota segura; o fogo fica livre de
   # propósito — a cerca do combate já recusa qualquer tecla na janela, e
@@ -2061,10 +2067,34 @@ defmodule Pokex.Bots.Engine.Logic do
   # "1 segundo sem stun no campo quer dizer que eu morri" (29/08).
   defp recall_safe?(t), do: heavy?(t) or screen_clear?(t) or fresh_stun?(t)
 
+  # O CARIMBO DO SONO, e só quando há sono a carimbar: o controle tem que estar
+  # na reserva E pronto. Uma tecla fria carimbada seria uma licença falsa pro
+  # revive — exatamente o "desarme falso" que custou 39 minutos de kite em
+  # 28/08, mas do lado perigoso.
+  defp stamp_stun(t) do
+    if stun_in_reserve(t) == [], do: t.logic, else: mark(t.logic, :stunned, t.now)
+  end
+
+  # O controle DO POKÉMON (não o da rotação, que no Auto Combo é vazio), e só
+  # o que a reserva realmente manda e a barra diz estar pronto.
+  defp stun_in_reserve(t), do: Enum.filter(stun(t), &(&1 in reserve(t) and ready?(t, &1)))
+
+  defp stun(%{hands: %{stun: keys}}), do: keys
+  defp stun(_no_hands), do: []
+
+  defp held_why(t) do
+    aviso =
+      if stun_in_reserve(t) == [],
+        do: "",
+        else: " — controle na frente pra abrir o revive"
+
+    "sem cooldown com #{count(t.s)} em cima — parado, matando o que dá#{aviso}#{held_note(t)}"
+  end
+
   # O revive seria devido AGORA e a cerca do sono é que o está segurando —
   # diferente do reset DESARMADO (aquele é um julgamento que venceu) e de não
   # haver reset nenhum a pedir.
-  defp held_by_recall?(t), do: reset_due?(t) and not recall_safe?(t)
+  defp held_by_recall?(t), do: (reset_due?(t) or combo_reset_ready?(t)) and not recall_safe?(t)
 
   defp screen_clear?(t), do: t.s.enemies == 0
 

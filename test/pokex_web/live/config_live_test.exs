@@ -175,7 +175,7 @@ defmodule PokexWeb.ConfigLiveTest do
       {:ok, view, html} = live(conn, ~p"/config")
 
       assert html =~ "cfg-row-engine_engage_from"
-      assert html =~ "Encara a partir de"
+      assert html =~ "Para e luta a partir de"
 
       html =
         view

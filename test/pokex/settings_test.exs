@@ -684,16 +684,39 @@ defmodule Pokex.SettingsTest do
       refute Settings.older_build?(path), "a build que acabou de escrever não é velha"
     end
 
-    @tag :tmp_dir
-    test "um arquivo que declara chave desconhecida denuncia a build velha", %{tmp_dir: tmp} do
-      path = Path.join(tmp, "settings.json")
+    # O alfabeto de uma build MAIS NOVA: tudo que esta conhece, e mais.
+    defp alfabeto_do_futuro,
+      do: Enum.map(Map.keys(Settings.defaults()), &Atom.to_string/1) ++ ["ajuste_do_futuro"]
 
-      File.write!(
-        path,
-        JSON.encode!(%{"tile_px" => 48, "__keys__" => ["tile_px", "ajuste_do_futuro"]})
-      )
+    @tag :tmp_dir
+    test "um arquivo que conhece tudo desta build e mais denuncia a build velha", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      File.write!(path, JSON.encode!(%{"tile_px" => 48, "__keys__" => alfabeto_do_futuro()}))
 
       assert Settings.older_build?(path)
+    end
+
+    # 02/09→03/09: #485 e #492 aposentaram doze chaves; o arquivo escrito antes
+    # as declarava, a build NOVA se achou velha e parou de gravar em silêncio —
+    # "minha config é 4" na tela, 6 no arquivo, e cada restart apagando tudo.
+    @tag :tmp_dir
+    test "chave aposentada no crachá não acusa: a build que sabe algo a mais grava", %{
+      tmp_dir: tmp
+    } do
+      path = Path.join(tmp, "settings.json")
+      conhecidas = Enum.map(Map.keys(Settings.defaults()), &Atom.to_string/1)
+      [uma_que_esta_conhece | _] = conhecidas -- ["tile_px"]
+      alfabeto_antigo = (conhecidas -- [uma_que_esta_conhece]) ++ ["ajuste_aposentado"]
+
+      File.write!(path, JSON.encode!(%{"tile_px" => 48, "__keys__" => alfabeto_antigo}))
+
+      refute Settings.older_build?(path)
+
+      {:ok, server} = Settings.start_link(name: nil, path: path)
+      refute Settings.read_only?(server)
+      :ok = Settings.put(:tile_px, 64, server)
+
+      assert (path |> File.read!() |> JSON.decode!())["tile_px"] == 64, "a build nova não gravou"
     end
 
     @tag :tmp_dir
@@ -714,12 +737,13 @@ defmodule Pokex.SettingsTest do
         JSON.encode!(%{
           "tile_px" => 48,
           "ajuste_do_futuro" => 700,
-          "__keys__" => ["tile_px", "ajuste_do_futuro"]
+          "__keys__" => alfabeto_do_futuro()
         })
 
       File.write!(path, original)
 
       {:ok, server} = Settings.start_link(name: nil, path: path)
+      assert Settings.read_only?(server)
 
       # lê normalmente…
       assert Settings.get(:tile_px, server) == 48

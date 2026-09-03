@@ -1046,6 +1046,12 @@ defmodule PokexWeb.CalibrationLiveTest do
   # diz o que faltou e volta pro primeiro clique.
   @tag :tmp_dir
   test "um recorte sem o número da tecla nos slots não é salvo", %{conn: conn, tmp_dir: tmp} do
+    # No home da SUÍTE, não no compartilhado: esta calibração ficava lá pra
+    # sempre e todo teste "não calibrado" que rodasse depois (o /diagnostics,
+    # 4 de 6 rodadas da CI em 03/09) via um instalação calibrada.
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
     Calibration.save(%Calibration{
       scale: 2.0,
       screen_w: 100,

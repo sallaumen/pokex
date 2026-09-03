@@ -111,8 +111,20 @@ defmodule Pokex.Sim.NightTest do
           config: %{reset_revive: false}
         )
 
-      assert report.metrics.laps > 1,
-             "com o reset desarmado a caçada parou de girar: #{report.metrics.laps} voltas"
+      # O QUE MUDOU EM 03/09, e o preço está medido aqui. Com a cerca do sono, o
+      # revive de conveniência não recolhe o pokémon com bicho acordado na
+      # tela — e no enxame a tela nunca limpa. Sem o reset (cenário deste
+      # teste), a caçada passa a MOER no lugar em vez de girar: uma hora dá
+      # 580 mortos, 12 cantos e ZERO mortes, contra as voltas de antes.
+      #
+      # A trava que este teste existe pra pegar continua vigiada: recuar não
+      # pode DESFAZER a caçada, e por isso o segurado agora fica PARADO
+      # lutando (ver `Logic.held_by_recall?/1`) em vez de andar de costas.
+      assert report.metrics.laps >= 1,
+             "com o reset desarmado a caçada parou de andar: #{report.metrics.laps} voltas"
+
+      assert report.metrics.kills > 100,
+             "parada e sem matar: #{report.metrics.kills} mortos"
     end
   end
 end

@@ -618,6 +618,7 @@ defmodule Pokex.Sim.Bench do
       # agora". Sem isto a bancada dava zero a TODO cenário e a regra do revive
       # pós-combo disparava em mundos sem corrente nenhuma.
       combo_left_ms: combo_left_ms(world, config, mode),
+      combo_since_end_ms: combo_since_end_ms(world, config, mode),
       # A DISTÂNCIA DO CHEFE, respondida pelo mundo — o papel que o CrowdScan
       # faz no jogo. Do POKÉMON, não do personagem: o stun sai dele.
       # O CANAL DA COR: o `ShinyGuard` do jogo publica a presença do especial
@@ -704,6 +705,11 @@ defmodule Pokex.Sim.Bench do
     do: World.combo_left_ms(world, Map.get(config, :combo_window_ms) || 0)
 
   defp combo_left_ms(_world, _config, _no_chain), do: nil
+
+  defp combo_since_end_ms(world, config, :auto_combo),
+    do: World.combo_since_end_ms(world, Map.get(config, :combo_window_ms) || 0)
+
+  defp combo_since_end_ms(_world, _config, _no_chain), do: nil
 
   defp hands(world, picture, config, mode),
     do: Inputs.hands(loadout_of(world), picture, config, mode)

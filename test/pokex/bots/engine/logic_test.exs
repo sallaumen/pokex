@@ -306,9 +306,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
   end
 
   describe "the yellow band: fecha a rodada (R3)" do
+    # 47% de vida e a corrente recém-acabada: é o mundo do amarelo, e o sono
+    # dela é o que deixa a rodada fechar com o revive (03/09).
     defp yellow(overrides \\ %{}) do
       world(%{
-        situation: situation(Map.merge(%{own_hp: 47}, overrides)),
+        situation: situation(Map.merge(%{own_hp: 47, combo_since_end_ms: 500}, overrides)),
         hunt: hunt(%{state: :fighting, luring?: true})
       })
     end
@@ -687,7 +689,14 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "corrente acabada e barra gasta reviveM mesmo com a caçada juntando o próximo grupo" do
       juntando =
         world(%{
-          situation: situation(%{enemies: 1, combo_left_ms: 0, spent?: true, own_hp: 100}),
+          situation:
+            situation(%{
+              enemies: 1,
+              combo_left_ms: 0,
+              combo_since_end_ms: 500,
+              spent?: true,
+              own_hp: 100
+            }),
           hunt: hunt(%{state: :walking, luring?: true}),
           hands: %{opening: ["r"], single: [], crowd: []}
         })
@@ -731,7 +740,14 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "o pedido segura a rota, e o tique seguinte espera a barra na tela" do
       juntando =
         world(%{
-          situation: situation(%{enemies: 1, combo_left_ms: 0, spent?: true, own_hp: 100}),
+          situation:
+            situation(%{
+              enemies: 1,
+              combo_left_ms: 0,
+              combo_since_end_ms: 500,
+              spent?: true,
+              own_hp: 100
+            }),
           hunt: hunt(%{state: :walking, luring?: true}),
           hands: %{opening: ["r"], single: [], crowd: []}
         })
@@ -789,7 +805,12 @@ defmodule Pokex.Bots.Engine.LogicTest do
       mundo = fn overrides ->
         world(%{
           situation:
-            situation(Map.merge(%{combo_left_ms: 0, spent?: true, own_hp: 100}, overrides)),
+            situation(
+              Map.merge(
+                %{combo_left_ms: 0, combo_since_end_ms: 500, spent?: true, own_hp: 100},
+                overrides
+              )
+            ),
           hunt: hunt(%{state: :fighting}),
           hands: %{opening: ["r"], single: [], crowd: []}
         })
@@ -826,9 +847,19 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert lutando(sem_controle(%{combo_left_ms: nil, own_hp: 100})).revive == :now
     end
 
+    # A BARRA GASTA É O MUNDO LOGO DEPOIS DA CORRENTE — é ela que gasta a barra,
+    # e é ela que termina em controle. Por isso o mundo padrão daqui carrega o
+    # sono fresco (`combo_since_end_ms`): sem ele, desde 03/09, o revive de
+    # conveniência não recolhe o pokémon com bicho acordado na tela.
     defp spent_fight(overrides \\ %{}) do
       world(%{
-        situation: situation(Map.merge(%{enemies: 4, spent?: true, own_hp: 100}, overrides)),
+        situation:
+          situation(
+            Map.merge(
+              %{enemies: 4, spent?: true, own_hp: 100, combo_since_end_ms: 500},
+              overrides
+            )
+          ),
         hunt: hunt(%{state: :fighting})
       })
     end
@@ -1048,10 +1079,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # A JANELA DELE, provada nos dois sentidos.
     test "sem controle pronto, a R3b ainda dispara — atrasado vale mais que nunca" do
       # Esperar o cooldown do controle seria trocar a barra inteira por um
-      # prefixo. Sem `crowd` nas mãos não há prefixo a esperar.
+      # prefixo. Sem `crowd` nas mãos não há prefixo a esperar — e quem dá a
+      # licença de recolher é o sono que a corrente acabou de deixar (03/09).
       sem_controle =
         world(%{
-          situation: situation(%{enemies: 4, spent?: true, own_hp: 100}),
+          situation: situation(%{enemies: 4, spent?: true, own_hp: 100, combo_since_end_ms: 500}),
           hunt: hunt(%{state: :fighting}),
           hands: %{opening: ["3"], single: [], crowd: []}
         })
@@ -1733,7 +1765,13 @@ defmodule Pokex.Bots.Engine.LogicTest do
         situation:
           situation(
             Map.merge(
-              %{enemies: enemies, worth_fighting?: false, combo_left_ms: left_ms, spent?: false},
+              %{
+                enemies: enemies,
+                worth_fighting?: false,
+                combo_left_ms: left_ms,
+                combo_since_end_ms: if(left_ms > 0, do: 0, else: 500),
+                spent?: false
+              },
               extra
             )
           ),
@@ -1814,6 +1852,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
             own_out?: own_out?,
             own_hp: nil,
             combo_left_ms: 0,
+            # a corrente ACABOU de sair: é o sono dela que cobre a recolhida
+            combo_since_end_ms: 500,
             worth_fighting?: true
           }),
         hunt: hunt(%{state: :fighting})
@@ -2215,8 +2255,23 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # 18 vezes contra 171 revives no meio do bolo. Na ESTRADA, um ou dois restos
     # perseguindo de longe são a tela limpa que existe — o teto é
     # `prepare_max_enemies`. Acima dele a regra volta a ser a do controle.
-    test "na estrada, até dois restos na tela ainda é 'entre grupos'" do
+    # …E A MORTE DE 03/09 ÀS 16:20 DESMENTIU A METADE DO "de longe". Foi
+    # exatamente esta regra que matou: `travelling`, UM bicho na tela, pokémon a
+    # 100%, corrente acabada havia sete segundos — "revive agora pra chegar
+    # inteiro". O bicho chegou dentro da janela em que o pokémon estava na bola
+    # e matou de um golpe; um segundo depois a vida DELE era 4%.
+    #
+    # O teto continua respondendo "isto ainda é entre grupos?"; quem responde
+    # "posso recolher AGORA?" é a cerca do sono (`recall_safe?`). Com resto na
+    # tela e sem sono fresco, o preparo espera — a tela limpa ou a corrente.
+    test "na estrada, com resto na tela e sem sono, o preparo NÃO recolhe" do
       {_logic, orders} = Logic.step(Logic.new(), limpo(%{enemies: 2}), @preparo, 5_000)
+
+      refute orders.revive == :prepare
+    end
+
+    test "na estrada, com a tela limpa o preparo sai como sempre" do
+      {_logic, orders} = Logic.step(Logic.new(), limpo(%{enemies: 0}), @preparo, 5_000)
 
       assert orders.revive == :prepare
       assert orders.why =~ "chegar inteiro"
@@ -2450,23 +2505,41 @@ defmodule Pokex.Bots.Engine.LogicTest do
             prepared?: false,
             ready_keys: [],
             own_hp: 95,
-            control_back_in_ms: volta_em
+            control_back_in_ms: volta_em,
+            # nil = nenhuma corrente saiu: é o mundo SEM sono
+            combo_since_end_ms: nil
           }),
         hunt: hunt(%{state: :fighting}),
         hands: %{opening: ~w(3 4), small: [], single: [], crowd: ["1"]}
       })
     end
 
-    test "com o controle voltando logo, o revive NÃO espera — sai já" do
+    # "NÃO PERDE TEMPO FUGINDO, usa o que tem e usa o revive" (28/08) valia
+    # enquanto o preço do recolhimento era desconhecido. Depois de 03/09 ele
+    # tem preço medido: três mortes, a última com um bicho só. Sem controle e
+    # sem sono da corrente, o revive espera; o que sai é o recuo com a reserva
+    # na mão — que é o "usa o que tem" da mesma frase.
+    test "sem controle e sem sono, o revive espera e a caçada recua" do
       {logic, _} = Logic.step(Logic.new(), barra_vazia_sem_controle(), @sem_stun, 1_000)
       {_logic, orders} = Logic.step(logic, barra_vazia_sem_controle(), @sem_stun, 2_000)
 
-      assert orders.revive == :now
-      assert orders.route == :hold
+      assert orders.revive == :hold
+      assert orders.why =~ "segurando o revive"
     end
 
-    test "com o controle longe, idem — parado esperando é o que ele proibiu" do
-      longe = barra_vazia_sem_controle(38_000)
+    test "com o sono fresco da corrente, ele sai na hora" do
+      mundo = put_in(barra_vazia_sem_controle().situation.combo_since_end_ms, 500)
+      {logic, _} = Logic.step(Logic.new(), mundo, @sem_stun, 1_000)
+      {_logic, orders} = Logic.step(logic, mundo, @sem_stun, 2_000)
+
+      assert orders.revive == :now
+    end
+
+    # O QUE NÃO MUDOU: a espera pelo CONTROLE continua proibida — não é o
+    # relógio do controle que decide, é o sono. Com o sono na mesa, o quanto
+    # falta pro controle voltar segue sendo irrelevante, perto ou longe.
+    test "com o controle longe, o sono fresco basta" do
+      longe = put_in(barra_vazia_sem_controle(38_000).situation.combo_since_end_ms, 500)
 
       {logic, _} = Logic.step(Logic.new(), longe, @sem_stun, 1_000)
       {_logic, orders} = Logic.step(logic, longe, @sem_stun, 2_000)
@@ -2475,7 +2548,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
 
     test "sem relógio nenhum, idem" do
-      sem_relogio = barra_vazia_sem_controle(nil)
+      sem_relogio = put_in(barra_vazia_sem_controle(nil).situation.combo_since_end_ms, 500)
 
       {logic, _} = Logic.step(Logic.new(), sem_relogio, @sem_stun, 1_000)
       {_logic, orders} = Logic.step(logic, sem_relogio, @sem_stun, 2_000)
@@ -2745,7 +2818,17 @@ defmodule Pokex.Bots.Engine.LogicTest do
   #
   # A regra: revive de CONVENIÊNCIA (resetar a barra) espera ele parar de
   # apanhar. O resgate não passa por aqui.
-  describe "o revive de conveniência não recolhe o pokémon com ELE apanhando" do
+  # A REGRA DELE, escrita depois da TERCEIRA morte do dia (03/09, 16:20):
+  #
+  #   "não usar revive se tiver alguém perto a não ser que tenha [saído] o stun
+  #    (…) quando usamos o R, depois dele é o momento seguro pra usar revive, ou
+  #    se não tiver nenhum monstro inimigo mais na tela"
+  #
+  # A versão anterior desta cerca perguntava se ELE estava machucado, e não
+  # alcançou o golpe que o matou: ele estava com a vida CHEIA, um bicho só na
+  # tela, e morreu de um hit dentro da janela em que o revive recolheu o
+  # pokémon. Agora recolher exige tela limpa OU sono fresco.
+  describe "o revive de conveniência só recolhe com sono ou tela limpa" do
     @cerca Config.merge(%{
              reset_revive: false,
              prepare_revive: false,
@@ -2757,9 +2840,6 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     defp cerca_step(logic, world, now), do: Logic.step(logic, world, @cerca, now)
 
-    # O reset do Auto Combo decide no PRIMEIRO tique (`combo_reset_due?` está
-    # acima da régua na fila); o segundo é onde a luta já aberta mostra o que
-    # faz com o revive segurado.
     defp cerca_orders(world) do
       {_logic, orders} = cerca_step(Logic.new(), world, 10_000)
       orders
@@ -2771,12 +2851,19 @@ defmodule Pokex.Bots.Engine.LogicTest do
       orders
     end
 
+    # 4 bichos na tela e a corrente acabada há muito: sem sono.
     defp mobada(overrides) do
       world(%{
         situation:
           situation(
             Map.merge(
-              %{enemies: 4, spent?: true, own_hp: 100, combo_left_ms: 0, player_drop: 6},
+              %{
+                enemies: 4,
+                spent?: true,
+                own_hp: 100,
+                combo_left_ms: 0,
+                combo_since_end_ms: 30_000
+              },
               overrides
             )
           ),
@@ -2785,64 +2872,59 @@ defmodule Pokex.Bots.Engine.LogicTest do
       })
     end
 
-    test "com ele abaixo do piso e bicho na tela, o reset espera" do
-      assert cerca_orders(mobada(%{player_hp: 40})).revive == :hold
+    test "com bicho na tela e sem sono, o reset espera" do
+      assert cerca_orders(mobada(%{})).revive == :hold
     end
 
     # E A LUTA NÃO CONGELA: sem barra e sem revive, recua com o que tem — a R7
     # de sempre, agora dizendo o motivo em voz alta.
     test "segurado, o cérebro recua e diz por quê" do
-      orders = cerca_segundo(mobada(%{player_hp: 40}))
+      orders = cerca_segundo(mobada(%{}))
 
       assert orders.revive == :hold
       assert orders.route == :back
       assert orders.why =~ "segurando o revive"
-      assert orders.why =~ "40%"
+      assert orders.why =~ "sem sono fresco"
     end
 
     # O BOLSO ABRE JUNTO: sem a área, o alvo único e o controle são o que
     # sobrou pra matar sem recolher ninguém.
     test "com o revive segurado, a reserva do modo entra na mão" do
-      orders = cerca_segundo(mobada(%{player_hp: 40}))
+      orders = cerca_segundo(mobada(%{}))
 
       assert "7" in orders.opening
       assert "2" in orders.opening
     end
 
-    # …e com ele inteiro a reserva CONTINUA no bolso: a emergência não vira
-    # rotina por acidente.
-    test "com ele inteiro, a reserva fica guardada" do
-      refute "7" in cerca_segundo(mobada(%{player_hp: 100})).opening
-    end
-
-    test "com ele inteiro, o reset sai como sempre" do
-      orders = cerca_orders(mobada(%{player_hp: 100}))
+    # A CORRENTE ACABOU DE SAIR: é o sono dela que cobre a recolhida, e o ciclo
+    # dele segue igual.
+    test "com o sono fresco da corrente, o reset sai como sempre" do
+      orders = cerca_orders(mobada(%{combo_since_end_ms: 500}))
 
       assert orders.revive == :now
       refute orders.why =~ "segurando"
     end
 
-    # Sem bicho na tela não há de quem apanhar: recolher é seguro.
-    test "com a tela limpa, apanhar não segura nada" do
-      assert cerca_orders(mobada(%{player_hp: 40, enemies: 0})).revive == :now
+    test "com sono fresco a reserva fica guardada" do
+      refute "7" in cerca_segundo(mobada(%{combo_since_end_ms: 500})).opening
     end
 
-    # VIDA BAIXA E PARADA É A CAÇADA DELE. "O modo hard vive com 1 de vida a
-    # noite inteira": travar o revive nisso trocaria uma morte por uma noite
-    # inteira recuando. O que segura é a vida CAINDO.
-    test "baixa e parada não segura nada — só caindo" do
-      assert cerca_orders(mobada(%{player_hp: 4, player_drop: 0})).revive == :now
+    # Sem bicho na tela não há de quem apanhar: recolher é seguro mesmo sem sono.
+    test "com a tela limpa, recolher é sempre seguro" do
+      assert cerca_orders(mobada(%{enemies: 0})).revive == :now
     end
 
-    # Cega, a regra some — a mesma disciplina do resto do módulo.
-    test "sem leitura da vida dele, a cerca não existe" do
-      assert cerca_orders(mobada(%{player_hp: nil})).revive == :now
+    # TELA ILEGÍVEL NÃO É TELA LIMPA. Sem saber quem está lá, o sono é a única
+    # licença — o oposto da disciplina "cego aperta" do resto do módulo, e de
+    # propósito: aqui o erro custa o personagem.
+    test "sem leitura da lista, sem sono não recolhe" do
+      assert cerca_orders(mobada(%{enemies: nil})).revive == :hold
     end
 
     # O RESGATE NÃO É CONVENIÊNCIA: com o pokémon caindo, quem está indo embora
     # é ele, e a decisão de arriscar cedo é dele (02/09).
-    test "no vermelho o resgate sai mesmo com ele apanhando" do
-      orders = cerca_orders(mobada(%{player_hp: 40, own_hp: 10}))
+    test "no vermelho o resgate sai mesmo sem sono" do
+      orders = cerca_orders(mobada(%{own_hp: 10}))
 
       assert orders.revive == :now
       assert orders.band == :red

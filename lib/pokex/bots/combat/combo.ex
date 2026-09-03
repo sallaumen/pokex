@@ -77,6 +77,30 @@ defmodule Pokex.Bots.Combat.Combo do
   def left_ms(_no_combo, _now), do: nil
 
   @doc """
+  Há quanto tempo a corrente ACABOU, em ms — `nil` quando o modo não tem
+  corrente ou quando nenhuma saiu ainda, e `0` enquanto ela está saindo.
+
+  É o relógio do SONO. No Auto Combo a corrente termina em controle, então
+  "acabou agorinha" é a licença que o revive precisa pra recolher o pokémon sem
+  deixar o personagem na frente de bicho acordado (a morte de 03/09, 16:20).
+  Sai do carimbo da tecla e não de uma borda observada: assim um cérebro que
+  reiniciou no meio da caçada continua sabendo do sono.
+  """
+  @spec since_end_ms(HuntMode.t() | nil, integer) :: non_neg_integer | nil
+  def since_end_ms(mode, now \\ now())
+
+  def since_end_ms(:auto_combo, now) do
+    janela = window_ms()
+    tecla = key()
+
+    if tecla == "" or not is_integer(janela) or janela <= 0,
+      do: nil,
+      else: desde(SkillClock.pressed_at(tecla), janela, now)
+  end
+
+  def since_end_ms(_no_combo, _now), do: nil
+
+  @doc """
   A corrente ainda está saindo? Só o Auto Combo pode responder que sim.
 
   É o veredito que a mão consulta antes de cada prensa — no molde do
@@ -89,6 +113,9 @@ defmodule Pokex.Bots.Combat.Combo do
       _sem_combo -> false
     end
   end
+
+  defp desde(at, janela, now) when is_integer(at), do: max(now - (at + janela), 0)
+  defp desde(_nunca_saiu, _janela, _now), do: nil
 
   defp restante(at, janela, now) when is_integer(at), do: max(at + janela - now, 0)
   defp restante(_nunca_saiu, _janela, _now), do: 0

@@ -1186,6 +1186,22 @@ defmodule Pokex.Bots.Engine.Logic do
            revive: :now
          )}
 
+      # SEGURADO PELO SONO, FICA PARADO — não recua. Recuar aqui desfazia a
+      # caçada: a bancada mediu o enxame com o reset desligado e a volta parou
+      # de fechar (1 volta em uma hora), que é a trava de 28/08 de novo. E
+      # parar é a regra DELE: "não dar mais nenhum passo, deixar os bichos
+      # virem até mim" (02/09). Com o pokémon de pé na frente e a reserva na
+      # mão, ele mata o que dá enquanto a corrente não volta — sem recolher
+      # ninguém e sem andar de costas pela rota.
+      held_by_recall?(t) ->
+        {t.logic,
+         Orders.standing_and_firing(
+           :engaged,
+           t.band,
+           with_reserve(t),
+           "sem cooldown com #{count(t.s)} em cima — parado, matando o que dá#{held_note(t)}"
+         )}
+
       # Com o especial na tela não se recua: a barra volta em 40s, o shiny não
       # volta nunca. Não precisa de guarda própria — `heavy?` já é ele.
       kiting?(t) and not Map.get(t.s, :heavy?, false) ->
@@ -1409,7 +1425,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # justificar o controle aqui, porque quem está sendo comprado é a barra, não a
   # pilha. `crowd_from` continua sendo o dono do controle OFENSIVO.
   defp stun_before_reset?(t) do
-    reset_revive?(t) and control_ready?(t) and
+    reset_due?(t) and control_ready?(t) and
       elapsed?(t, :stunned, t.config.stun_window_ms)
   end
 
@@ -1474,7 +1490,7 @@ defmodule Pokex.Bots.Engine.Logic do
     if recall_safe?(t),
       do: "",
       else:
-        " — segurando o revive: VOCÊ está com #{Map.get(t.s, :player_hp)}% e o pokémon de pé é o seu escudo"
+        " — segurando o revive: #{count(t.s)} na tela sem sono fresco, e o pokémon de pé é o seu escudo"
   end
 
   defp kite_reason(%{logic: %{reset_broken_at: at}} = t) when is_integer(at) do
@@ -1757,7 +1773,7 @@ defmodule Pokex.Bots.Engine.Logic do
   defp combo_reset_due?(t) do
     Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? != false and
       not (heavy?(t) and crowd(t) != []) and t.logic.reset_broken_at == nil and
-      reset_allowed?(t)
+      reset_allowed?(t) and recall_safe?(t)
   end
 
   # PARADO ENQUANTO A CORRENTE SAI. A rota segura; o fogo fica livre de
@@ -1974,22 +1990,31 @@ defmodule Pokex.Bots.Engine.Logic do
   # por causa de um tique, e desarmar é definitivo.
   defp reset_grace_ms(t), do: max(t.config.rescue_cooldown_ms, 5_000)
 
-  defp reset_revive?(%{logic: %{reset_broken_at: at}}) when is_integer(at), do: false
+  # DUAS PERGUNTAS, e elas precisam ser duas. "O reset é devido?" decide se a
+  # barra vazia merece um revive; "posso recolher agora?" decide se ESTE
+  # instante é seguro. Juntá-las numa só criou um impasse na primeira versão
+  # desta regra: o prefixo do controle (`stun_before_reset?`) pergunta se o
+  # reset é devido, e com a cerca lá dentro ele nunca era — então o stun que
+  # compra a licença do revive nunca saía, e o revive nunca podia sair. O
+  # cérebro ficava recuando pra sempre com o controle pronto na mão.
+  defp reset_due?(%{logic: %{reset_broken_at: at}}) when is_integer(at), do: false
 
-  defp reset_revive?(t) do
+  defp reset_due?(t) do
     t.config.reset_revive and not mid_combo?(t) and t.s.spent? == true and
       t.s.own_out? != false and pile_worth_reset?(t) and healthy_enough?(t) and
       reset_allowed?(t)
   end
 
+  defp reset_revive?(t), do: reset_due?(t) and recall_safe?(t)
+
   defp pile_worth_reset?(t),
     do: is_integer(t.s.enemies) and t.s.enemies >= t.config.engage_from
 
-  # As três portas que TODO revive de conveniência atravessa: o relógio, o
-  # orçamento e a segurança de recolher o pokémon agora.
+  # As duas portas que TODO revive de conveniência atravessa: o relógio e o
+  # orçamento. A terceira — a segurança de recolher agora — mora em
+  # `reset_revive?/1`, DEPOIS do "é devido", pelo motivo explicado lá.
   defp reset_allowed?(t) do
-    elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and affordable?(t) and
-      recall_safe?(t)
+    elapsed?(t, :reset_revive, t.config.reset_revive_cooldown_ms) and affordable?(t)
   end
 
   # O ORÇAMENTO: as regras que COMPRAM conveniência com revive (chegar
@@ -2006,45 +2031,68 @@ defmodule Pokex.Bots.Engine.Logic do
 
   # O REVIVE RECOLHE O POKÉMON, e sem pokémon na frente quem apanha é ELE.
   #
-  # 03/09, 12:32, rota Hard: Feraligator. Doze revives em dois minutos — os
-  # últimos de seis em seis segundos, o ciclo do Auto Combo rodando — com 3 a 7
-  # bichos na tela. Cada um recolheu o pokémon por alguns segundos, e nesses
-  # segundos o personagem ficou de peito aberto. Às 12:31:56 a vida DELE era 4%;
-  # um segundo antes tinha saído mais um revive de reset. Ele morreu dentro da
-  # janela, e por isso o pokémon nunca mais voltou — a leitura congelou em 58%
-  # por 23 segundos com o cérebro achando que tinha um pokémon de pé.
+  # TRÊS MORTES EM UM DIA ensinaram a regra, e a terceira ensinou a versão
+  # certa. Em 03/09 às 16:20:04 o cérebro pediu "revive agora pra chegar
+  # inteiro" (R11) andando, com UM bicho na tela, o pokémon a 100% e a corrente
+  # acabada há sete segundos — sem sono nenhum. Um segundo depois a vida DELE
+  # era 4%: o bicho chegou justo na janela em que o pokémon estava na bola e
+  # matou de um golpe.
   #
-  # A regra dele, de 02/09, já dizia por quê: "só 8 conseguem ficar ao redor do
-  # meu pokémon — os outros podem ficar longe e com isso fazer eu morrer durante
-  # o revive". O sono da corrente cobre quem está colado, não quem está longe.
+  # A primeira versão desta cerca perguntava se ELE estava machucado, e não
+  # alcança um golpe que mata de uma vez: ele estava com a vida cheia. A regra
+  # dele, dita depois desta morte, é a que fecha:
   #
-  # Então o REVIVE DE CONVENIÊNCIA — resetar a barra, chegar preparado — espera
-  # ele parar de apanhar. Enquanto isso o pokémon fica DE PÉ, que é o escudo que
-  # ele tem, e a caçada cai pro recuo com o que sobrou na mão (R7). O resgate
-  # (vermelho, caído) e o `bleeding?` NÃO passam por aqui: lá o pokémon é que
-  # está indo embora, e a decisão de arriscar cedo é dele.
+  #   "não usar revive se tiver alguém perto, a não ser que tenha [saído] o
+  #    stun (…) quando usamos o R, depois dele é o momento seguro pra usar
+  #    revive, ou se não tiver nenhum monstro inimigo mais na tela" (03/09)
   #
-  # Sem leitura da vida dele isto não segura nada: cega, a regra some — a mesma
-  # disciplina do resto do módulo.
-  defp recall_safe?(t) do
-    not (player_hurt?(t) and is_integer(t.s.enemies) and t.s.enemies > 0)
+  # Então recolher o pokémon exige UMA das duas: tela limpa, ou o sono fresco
+  # que a corrente do jogo acabou de deixar. Vale para os revives de
+  # CONVENIÊNCIA (resetar a barra, chegar preparado); o resgate — vermelho,
+  # caído — passa por cima, porque lá quem está indo embora é o pokémon.
+  #
+  # Tela ILEGÍVEL não é tela limpa: sem saber quem está lá, o sono é a única
+  # licença.
+  # O CHEFE TEM CERCA PRÓPRIA, e ela é mais exigente que esta: o ciclo dele
+  # (stun a cada emenda, revive DENTRO do sono medido — `boss_covered_revive_due?`
+  # cobra `boss_asleep_left_ms` de sobra) tem física medida em oito PRs. Pôr
+  # esta cerca por cima atrasava o revive que compra o controle de volta: a
+  # bancada mediu um chefe 5,5s ACORDADO no cenário dos shinies empilhados, e
+  # "1 segundo sem stun no campo quer dizer que eu morri" (29/08).
+  defp recall_safe?(t), do: heavy?(t) or screen_clear?(t) or fresh_stun?(t)
+
+  # O revive seria devido AGORA e a cerca do sono é que o está segurando —
+  # diferente do reset DESARMADO (aquele é um julgamento que venceu) e de não
+  # haver reset nenhum a pedir.
+  defp held_by_recall?(t), do: reset_due?(t) and not recall_safe?(t)
+
+  defp screen_clear?(t), do: t.s.enemies == 0
+
+  # O SONO QUE COBRE A RECOLHIDA. No Auto Combo a corrente do jogo termina em
+  # controle, então "a corrente acabou agorinha" É o sono; fora dele, o carimbo
+  # do controle que este módulo mandou sair. A janela é a dele, de 26/08:
+  # "SEMPRE usar o revive dentro da range de 5 segundos no máximo depois de
+  # usar a skill de controle" (`stun_window_ms`).
+  # DURANTE a corrente ainda NÃO há sono: o controle é a última metade dela.
+  # Só depois que ela termina é que o bicho está no chão — e é por isso que o
+  # ciclo dele sempre foi "o revive o mais cedo possível DEPOIS do combo".
+  defp fresh_stun?(t) do
+    combo_just_ended?(t) or within_since?(t, Map.get(t.logic.since, :stunned))
   end
 
-  # CAINDO, não baixa — a mesma distinção que o `bleeding?` faz, e pelo mesmo
-  # motivo: "o modo hard vive com 1 de vida a noite inteira". Vida baixa e
-  # PARADA é a caçada normal dele; travar o revive nela seria trocar uma morte
-  # por uma noite inteira recuando. O que assina a morte de 03/09 é a vida dele
-  # ABAIXO DO PISO e caindo no mesmo tique — aí o pokémon recolhido é o que
-  # falta entre ele e a mobada.
-  defp player_hurt?(t) do
-    case Map.get(t.s, :player_hp) do
-      hp when is_integer(hp) ->
-        hp <= t.config.player_floor_pct and Map.get(t.s, :player_drop, 0) > 0
-
-      _sem_leitura ->
-        false
+  defp combo_just_ended?(t) do
+    case Map.get(t.s, :combo_since_end_ms) do
+      desde when is_integer(desde) -> not mid_combo?(t) and desde <= t.config.stun_window_ms
+      _sem_corrente -> false
     end
   end
+
+  # `within?/3` NÃO serve aqui: ele responde verdadeiro para um relógio que
+  # nunca começou ("a espera ainda não começou"), e um sono que nunca existiu
+  # abriria a cerca sozinho — foi o primeiro jeito que eu escrevi, e os testes
+  # da morte anterior pegaram. Aqui a ausência de carimbo é ausência de sono.
+  defp within_since?(t, at) when is_integer(at), do: t.now - at <= t.config.stun_window_ms
+  defp within_since?(_t, _sem_carimbo), do: false
 
   # A pile is PAYABLE while there is a bar to spend on it — or a revive that
   # buys the bar back (R3b). With neither, gathering is aggro with no answer:

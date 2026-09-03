@@ -103,6 +103,7 @@ defmodule Pokex.Bots.Engine.Situation do
           own_out?: boolean | :unknown,
           ready_keys: [String.t()] | nil,
           combo_left_ms: non_neg_integer | nil,
+          combo_since_end_ms: non_neg_integer | nil,
           bar_seen?: boolean,
           spent?: boolean | nil,
           prepared?: boolean | nil,
@@ -198,6 +199,9 @@ defmodule Pokex.Bots.Engine.Situation do
       # pokémon com metade das skills por sair: a corrente é indivisível, e
       # cortá-la joga fora o dano que ela ainda ia entregar.
       combo_left_ms: Map.get(inputs, :combo_left_ms),
+      # HÁ QUANTO TEMPO a corrente acabou — o relógio do sono que cobre o
+      # revive (ver `Logic.fresh_stun?/1`).
+      combo_since_end_ms: Map.get(inputs, :combo_since_end_ms),
       # A BARRA FOI LIDA NA TELA? `ready_keys` cruza a foto com o relógio, e
       # depois de um revive o relógio está zerado — então "tudo pronto" pode
       # ser a foto ou pode ser ninguém. O reset é cobrado POR IMAGEM (regra

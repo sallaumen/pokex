@@ -209,9 +209,14 @@ existem).
 
 ## 6. Suposições e perguntas
 
-- Suposto: o jogo roda em tela cheia no notebook e o macOS fica na escala
-  padrão. Se ele usar "mais espaço", a tela vira outra (1800×1169) e ganha perfil
-  próprio; o desenho aguenta.
+- Confirmado por ele (03/09): o jogo roda em TELA CHEIA no notebook e o Pokex
+  fica só em segundo plano. Consequências: a guarda de foco
+  (`pause_when_unfocused`, `bots/focus.ex`) pausa a caçada em qualquer olhada
+  no painel, então o alarme sonoro é a interface durante a caçada e o cartão
+  Tela precisa estar na Central, visível ANTES de Iniciar; a prova de leitura e
+  o wizard já fronteiam o jogo sozinhos (`GameFocus.with_game_front/1`,
+  `calibration_front_delay_ms`). Se ele usar "mais espaço" no macOS, a tela
+  vira outra (1800×1169) e ganha perfil próprio; o desenho aguenta.
 - Suposto: a régua do cliente novo no notebook fica perto de 0,7 como o antigo
   (0,76). A fase 0 confirma.
 - Pergunta: perfis com nome dele ("notebook-pa") ou só automáticos por tamanho?

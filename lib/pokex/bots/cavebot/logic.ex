@@ -475,6 +475,13 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # up, so neither a full battle list nor an engaged Combat stops the leg. The
   # not-attacking half is Combat's, told by the `:posture` fact the Worker
   # publishes — here the hunt simply keeps its feet moving.
+  #
+  # …UNTIL THE ENGINE SAYS STOP. Since 02/09 the brain decides how big the pile
+  # gets ("4 inimigos, para de andar!"): below its threshold it orders the road
+  # on ("seguindo a rota, contando quem vem"), at the threshold it holds and
+  # waits for the pile to close. A mob stretch that kept walking through that
+  # hold walked seven waypoints with eight monsters chasing (03/09, 05:34) —
+  # the hold is the stretch's own stop, not an interruption of it.
   defp walk(logic, world, now) do
     # Enter the route BEFORE judging the leg: until the hunt has homed,
     # `wp_index` is 0 by default and says nothing about where the character
@@ -483,10 +490,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
     logic = home_if_sighted(logic, world)
 
     cond do
-      # A mob a bit bigger than the stretch expected: the pokémon is dying UNDER the pile being
-      # gathered, and finishing the leg finishes it.
-      luring?(logic) and logic.recovering? -> enter_fight(logic, now)
-      luring?(logic) -> follow_route(logic, world, now)
+      luring?(logic) -> lure_step(logic, world, now)
       world.enemies > 0 -> enter_fight(logic, now)
       # The COUNT can lie — `enemies` is rows minus presumed scenery, and a stale presumption
       # once swallowed the only real enemy (2026-08-10: fightable read 0 over a
@@ -494,6 +498,19 @@ defmodule Pokex.Bots.Cavebot.Logic do
       # The pokémon is on the FLOOR: walking on drags the character alone into the next pile.
       logic.recovering? -> {hold_patience(logic, now), :none}
       # The ENGINE asking the road to wait.
+      Map.get(world, :route_hold?, false) -> {hold_patience(logic, now), :none}
+      true -> follow_route(logic, world, now)
+    end
+  end
+
+  # The mob stretch's own three answers.
+  defp lure_step(logic, world, now) do
+    cond do
+      # A mob a bit bigger than the stretch expected: the pokémon is dying UNDER the pile being
+      # gathered, and finishing the leg finishes it.
+      logic.recovering? -> enter_fight(logic, now)
+      # The ENGINE asking the road to wait — the stretch's "walk through" only
+      # lasts until the brain says the pile is big.
       Map.get(world, :route_hold?, false) -> {hold_patience(logic, now), :none}
       true -> follow_route(logic, world, now)
     end

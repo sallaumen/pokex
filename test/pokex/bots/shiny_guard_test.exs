@@ -81,7 +81,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     start_supervised!({ShinyGuard, name: nil, active: true, capture: capture})
   end
 
-  test "duas varreduras com a mancha REGISTRAM: troféu, diário e {:shiny_seen}", %{region: region} do
+  test "two scans with the blob RECORD: trophy, journal and {:shiny_seen}", %{region: region} do
     regra_provada()
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
     Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
@@ -95,7 +95,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     assert [%{outcome: "seen", note: "Electrode shiny"}] = ShinyLog.entries()
   end
 
-  test "UMA varredura só não registra — a confirmação pede a segunda", %{region: region} do
+  test "ONE scan alone does not record: the confirmation asks for the second", %{region: region} do
     regra_provada()
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
 
@@ -111,7 +111,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     refute_receive {:shiny_seen, _}, 1_000
   end
 
-  test "regra sem prova de ruído NÃO varre", %{region: region} do
+  test "a rule without noise proof does NOT scan", %{region: region} do
     {:ok, _} =
       ColorRules.add(%{
         "name" => "Sem prova",
@@ -125,7 +125,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     refute_receive {:shiny_seen, _}, 1_000
   end
 
-  test "o refratário segura a metralhadora: um registro por minuto por regra", %{region: region} do
+  test "the refractory holds the machine gun: one record per minute per rule", %{region: region} do
     regra_provada()
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
 
@@ -135,7 +135,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     refute_receive {:shiny_seen, _}, 1_000
   end
 
-  test "a mancha DENTRO da caixa do próprio pokémon não conta", %{region: region} do
+  test "the blob INSIDE the own pokemon's box does not count", %{region: region} do
     regra_provada()
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
 
@@ -150,7 +150,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     refute_receive {:shiny_seen, _}, 1_000
   end
 
-  test "guarda desligada não varre nem registra", %{region: region} do
+  test "guard off neither scans nor records", %{region: region} do
     regra_provada()
     Pokex.Settings.put(:shiny_guard_enabled, false)
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
@@ -160,7 +160,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     refute_receive {:shiny_seen, _}, 1_000
   end
 
-  test "um kill logo depois do avistamento fecha o troféu como killed", %{region: region} do
+  test "a kill right after the sighting closes the trophy as killed", %{region: region} do
     regra_provada()
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
     guard = start_guard(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
@@ -185,7 +185,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   # O FATO pro cérebro: a PRESENÇA, publicada a cada varredura — outro relógio
   # que o troféu (que tem refratário de um minuto). É o que mantém `heavy?` de
   # pé enquanto o especial está na tela e o derruba quando ele sai.
-  test "publica o fato :special enquanto a cor está na tela", %{region: region} do
+  test "publishes the :special fact while the colour is on screen", %{region: region} do
     regra_provada(%{"name" => "Electrode shiny"})
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
     start_guard(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
@@ -196,7 +196,9 @@ defmodule Pokex.Bots.ShinyGuardTest do
              WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
   end
 
-  test "tela limpa publica especial? false — a postura cai quando ele sai", %{region: region} do
+  test "a clean screen publishes special? false: the stance drops when it leaves", %{
+    region: region
+  } do
     regra_provada()
     limpo = frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [])
     guard = start_guard(fn _region, _name -> {:ok, limpo} end)
@@ -220,7 +222,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     |> Kernel.==(true)
   end
 
-  test "status expõe o estado do vigia" do
+  test "status exposes the watcher's state" do
     regra_provada()
     limpo = frame(64, 64, {40, 40, 40}, [])
     guard = start_guard(fn _region, _name -> {:ok, limpo} end)

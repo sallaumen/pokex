@@ -30,28 +30,28 @@ defmodule Pokex.Bots.SoAreaTest do
   end
 
   describe "a rotação" do
-    test "não abre com alvo único, nem quando ele é tudo que existe" do
+    test "does not open with single target, not even when it is all there is" do
       assert Strategy.opening(so_alvo()) == []
       assert Strategy.skill_order(so_alvo(), enemies: 4) == []
     end
 
-    test "e a abertura de quem tem área ignora a de alvo único" do
+    test "and the opening of one with area ignores the single target" do
       assert Strategy.opening(com_area()) == ~w(3 4)
     end
   end
 
   describe "as mãos que o cérebro entrega" do
-    test "a mão de alvo único vem vazia, com ou sem área" do
+    test "the single-target hand is empty, with or without area" do
       assert Inputs.hands(so_alvo(), picture()).single == []
       assert Inputs.hands(com_area(), picture()).single == []
     end
 
-    test "a mão pequena não cai no alvo único" do
+    test "the small hand does not fall back to single target" do
       assert Inputs.hands(so_alvo(), picture()).small == []
       assert Inputs.hands(com_area(), picture()).small == ["3"]
     end
 
-    test "a abertura também não" do
+    test "neither does the opening" do
       refute "7" in Inputs.hands(com_area(), picture()).opening
       assert Inputs.hands(so_alvo(), picture()).opening == []
     end
@@ -60,11 +60,11 @@ defmodule Pokex.Bots.SoAreaTest do
   describe "a escalação do resgate" do
     @kit %{crowd: ["1"], aoe: ["3"], single: ["7"]}
 
-    test "aperta controle e área, nunca alvo único" do
+    test "presses control and area, never single target" do
       assert PlayerSupport.Logic.last_resort_keys(@kit, [], nil) == ["1", "3"]
     end
 
-    test "e sem área sobra só o controle" do
+    test "and without area only the control is left" do
       assert PlayerSupport.Logic.last_resort_keys(%{crowd: ["1"], single: ["7"]}, [], nil) == [
                "1"
              ]
@@ -74,7 +74,7 @@ defmodule Pokex.Bots.SoAreaTest do
   # A regra é do JOGO dele, não uma verdade sobre todo pokémon: quem tiver alvo
   # único que machuque liga o ajuste e recupera os quatro caminhos.
   describe "e o ajuste devolve tudo, porque a regra é dele" do
-    test "rotação, mãos e resgate voltam a usar alvo único" do
+    test "rotation, hands and rescue go back to using single target" do
       assert Strategy.skill_order(so_alvo(), enemies: 4, single_target?: true) == ~w(7 8)
 
       hands = Inputs.hands(so_alvo(), picture(), %{single_target: true})

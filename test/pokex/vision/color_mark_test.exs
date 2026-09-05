@@ -29,7 +29,7 @@ defmodule Pokex.Vision.ColorMarkTest do
         %{rgb: cor, tol_h: Keyword.get(opts, :tol_h, 12), tol_sv: Keyword.get(opts, :tol_sv, 30)}
       ])
 
-  test "uma mancha concentrada vira UMA mancha com centro no lugar certo" do
+  test "a concentrated blob becomes ONE blob with its centre in the right place" do
     # 12×12 px verdes num campo cinza-escuro
     f = frame(64, 64, {40, 40, 40}, [{{20, 24, 12, 12}, @verde}])
     %{px: px, manchas: [m]} = ColorMark.scan(f, specs(@verde))
@@ -41,7 +41,7 @@ defmodule Pokex.Vision.ColorMarkTest do
     assert_in_delta cy, 30, 6
   end
 
-  test "o mesmo total ESPALHADO não vira mancha — célula rala é ruído" do
+  test "the same total SPREAD OUT is no blob: a sparse cell is noise" do
     salpicos =
       for i <- 0..11 do
         {{rem(i * 17, 60), div(i * 23, 2) |> rem(60), 1, 1}, @verde}
@@ -54,23 +54,23 @@ defmodule Pokex.Vision.ColorMarkTest do
     assert manchas == [], "mas nenhuma célula junta o bastante pra ser mancha"
   end
 
-  test "o shading do sprite (mais escuro, menos saturado) ainda casa — o matiz segura" do
+  test "the sprite's shading (darker, less saturated) still matches: the hue holds" do
     sombra = {30, 120, 45}
     f = frame(64, 64, {40, 40, 40}, [{{10, 10, 10, 10}, sombra}])
     %{manchas: [_m]} = ColorMark.scan(f, specs(@verde))
   end
 
-  test "matiz vizinho fora do cone NÃO casa — vermelho comum não é shiny verde" do
+  test "a neighbouring hue outside the cone does NOT match: plain red is not shiny green" do
     f = frame(64, 64, {40, 40, 40}, [{{10, 10, 10, 10}, @vermelho}])
     assert %{px: 0, manchas: []} = ColorMark.scan(f, specs(@verde))
   end
 
-  test "cinza nunca casa: sem matiz não há cor especial" do
+  test "grey never matches: without hue there is no special colour" do
     f = frame(32, 32, {40, 40, 40}, [{{8, 8, 8, 8}, {100, 100, 100}}])
     assert %{px: 0} = ColorMark.scan(f, specs(@verde, tol_sv: 100))
   end
 
-  test "a caixa proibida engole o próprio Torterra — verde DELE não apita" do
+  test "the forbidden box swallows the own Torterra: HIS green does not beep" do
     f = frame(64, 64, {40, 40, 40}, [{{20, 20, 16, 16}, @verde}])
 
     assert %{px: 0, manchas: []} =
@@ -91,7 +91,7 @@ defmodule Pokex.Vision.ColorMarkTest do
     assert length(manchas) == 2
   end
 
-  test "duas manchas separadas são duas — e vêm da maior pra menor" do
+  test "two separate blobs are two, and come from largest to smallest" do
     f = frame(96, 48, {40, 40, 40}, [{{4, 4, 12, 12}, @verde}, {{70, 30, 6, 6}, @verde}])
     %{manchas: [maior, menor]} = ColorMark.scan(f, specs(@verde))
     assert maior.px == 144
@@ -144,17 +144,17 @@ defmodule Pokex.Vision.ColorMarkTest do
       assert {r, g, b} in [@verde, {60, 90, 200}]
     end
 
-    test "clicar no cinza não ensina nada — e diz isso" do
+    test "clicking on grey teaches nothing, and says so" do
       f = frame(8, 8, {90, 90, 92}, [])
       assert :none = ColorMark.dominant(f, {4, 4})
     end
 
-    test "clicar no quase-preto também não ensina" do
+    test "clicking on near-black teaches nothing either" do
       f = frame(8, 8, {8, 14, 9}, [])
       assert :none = ColorMark.dominant(f, {4, 4})
     end
 
-    test "a mediana devolve um tom que EXISTE na tela, nunca a média de dois" do
+    test "the median returns a tone that EXISTS on screen, never the average of two" do
       # metade num verde, metade noutro: a média inventaria um terceiro
       f =
         frame(8, 8, {40, 40, 40}, [
@@ -166,7 +166,7 @@ defmodule Pokex.Vision.ColorMarkTest do
       assert cor in [{40, 160, 60}, {50, 180, 70}]
     end
 
-    test "clique na borda do quadro não estoura o frame" do
+    test "a click on the frame's edge does not overflow the frame" do
       f = frame(8, 8, {40, 40, 40}, [{{0, 0, 3, 3}, @verde}])
       assert {:ok, @verde} = ColorMark.dominant(f, {0, 0})
     end

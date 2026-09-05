@@ -24,7 +24,7 @@ defmodule Pokex.Vision.ColorRulesTest do
 
   # Shiny e chefe são a MESMA criatura neste jogo (01/09), então não há tipo a
   # escolher — e um arquivo escrito quando havia continua lendo.
-  test "regra antiga com “kind” no disco continua valendo" do
+  test "an old rule with a kind field on disk keeps working" do
     File.mkdir_p!(Path.dirname(ColorRules.file()))
 
     File.write!(
@@ -48,7 +48,7 @@ defmodule Pokex.Vision.ColorRulesTest do
     assert [%{slug: "velha", name: "Chefe da dungeon", min_px: 30}] = ColorRules.armed()
   end
 
-  test "ensinar guarda, listar devolve, o slug é único" do
+  test "teaching stores, listing returns, the slug is unique" do
     a = regra()
     b = regra()
     assert a["slug"] == "electrode-shiny"
@@ -56,19 +56,19 @@ defmodule Pokex.Vision.ColorRulesTest do
     assert length(ColorRules.list()) == 2
   end
 
-  test "regra nova NÃO está armada: sem prova de ruído não entra no vigia" do
+  test "a new rule is NOT armed: without noise proof it does not enter the watcher" do
     regra()
     assert ColorRules.armed() == []
   end
 
-  test "provada e ligada, arma — com as cores compiladas prontas pra varrer" do
+  test "proven and on, it arms, with the compiled colours ready to scan" do
     %{"slug" => slug} = regra()
     :ok = ColorRules.mark_proven(slug, 3)
 
     assert [%{slug: ^slug, min_px: 25, specs: [_spec]}] = ColorRules.armed()
   end
 
-  test "desligar desarma sem apagar" do
+  test "turning off disarms without erasing" do
     %{"slug" => slug} = regra()
     :ok = ColorRules.mark_proven(slug, 3)
     :ok = ColorRules.set_enabled(slug, false)
@@ -77,7 +77,7 @@ defmodule Pokex.Vision.ColorRulesTest do
     assert [%{"enabled" => false}] = ColorRules.list()
   end
 
-  test "mexer nas cores INVALIDA a prova — tolerância nova, chão novo" do
+  test "touching the colours INVALIDATES the proof: new tolerance, new ground" do
     %{"slug" => slug} = regra()
     :ok = ColorRules.mark_proven(slug, 3)
 

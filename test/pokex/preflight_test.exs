@@ -54,13 +54,13 @@ defmodule Pokex.PreflightTest do
     end
 
     @tag :tmp_dir
-    test "sem ninguém escolhido, não começa" do
+    test "with nobody chosen, it does not start" do
       assert {:error, msgs} = Preflight.run(Pokex.Rig.Fake)
       assert Enum.any?(msgs, &(&1 =~ "nenhum pokémon escolhido"))
     end
 
     @tag :tmp_dir
-    test "escolhido mas sem barra calibrada, não começa — e diz de quem" do
+    test "chosen but without a calibrated bar, it does not start, and says whose" do
       {:ok, _} = Pokex.Pokedex.Team.add("Bulbasaur")
       Pokex.Pokedex.Team.set_active("Bulbasaur")
 
@@ -69,7 +69,7 @@ defmodule Pokex.PreflightTest do
     end
 
     @tag :tmp_dir
-    test "com barra mas com uma tecla sem trabalho, não começa — e diz qual" do
+    test "with a bar but one key without a job, it does not start, and says which" do
       Pokex.TeamFixtures.ready!("Bulbasaur", count: 4, skills: %{"1" => :aoe, "2" => :single})
 
       assert {:error, msgs} = Preflight.run(Pokex.Rig.Fake)
@@ -77,7 +77,7 @@ defmodule Pokex.PreflightTest do
     end
 
     @tag :tmp_dir
-    test "com tudo configurado, começa" do
+    test "with everything configured, it starts" do
       Pokex.TeamFixtures.ready!("Bulbasaur", count: 4)
 
       assert Preflight.run(Pokex.Rig.Fake) == :ok
@@ -88,7 +88,7 @@ defmodule Pokex.PreflightTest do
     # que não existe em barra nenhuma: recusava o arranque PARA SEMPRE, e a
     # caçada bloqueava sem sair do lugar — "nem andar ele andou" (26/08).
     @tag :tmp_dir
-    test "uma barra de dez slots começa: a décima tecla é o 0, não o 10" do
+    test "a ten-slot bar starts: the tenth key is 0, not 10" do
       dez = Map.new(~w(1 2 3 4 5 6 7 8 9 0), &{&1, :single})
       Pokex.TeamFixtures.ready!("Dugtrio", count: 10, skills: dez)
 
@@ -96,7 +96,7 @@ defmodule Pokex.PreflightTest do
     end
 
     @tag :tmp_dir
-    test "e sem o 0 ela reclama do 0, não de um 10 que não existe" do
+    test "and without the 0 it complains about the 0, not about a 10 that does not exist" do
       nove = Map.new(~w(1 2 3 4 5 6 7 8 9), &{&1, :single})
       Pokex.TeamFixtures.ready!("Dugtrio", count: 10, skills: nove)
 

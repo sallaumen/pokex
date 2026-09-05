@@ -33,7 +33,7 @@ defmodule Pokex.Bots.HandWatchTest do
   end
 
   describe "judge/2 — de quem foi o aperto, e o que ele significa" do
-    test "tecla de skill da mão dele vira carimbo" do
+    test "a skill key from his hand becomes a stamp" do
       events = [%{code: code!("4"), shift?: false, at: 1_000}]
       assert HandWatch.judge(events, ctx()) == [{:stamp, "4"}]
     end
@@ -46,17 +46,17 @@ defmodule Pokex.Bots.HandWatchTest do
     # O reset do :rescue_done apaga o carimbo do F4 do próprio bot — num drain
     # atrasado a sighting ficaria sem dono. O caderninho é a testemunha que
     # sobra: revive anotado há pouco = aquele F4 já tem dono.
-    test "F4 logo depois de um revive anotado não conta duas vezes" do
+    test "an F4 right after a noted revive does not count twice" do
       events = [%{code: code!("f4"), shift?: false, at: 1_000}]
       assert HandWatch.judge(events, ctx(%{revive_noted?: true})) == []
     end
 
-    test "jogo fora de foco: um '4' é ele digitando em outro lugar, não skill" do
+    test "game out of focus: a '4' is him typing elsewhere, not a skill" do
       events = [%{code: code!("4"), shift?: false, at: 1_000}]
       assert HandWatch.judge(events, ctx(%{focus_ok?: false})) == []
     end
 
-    test "shift+tecla é troca de modo, nunca skill" do
+    test "shift+key is a stance switch, never a skill" do
       events = [
         %{code: code!("1"), shift?: true, at: 1_000},
         %{code: code!("3"), shift?: true, at: 2_000}
@@ -65,7 +65,7 @@ defmodule Pokex.Bots.HandWatchTest do
       assert HandWatch.judge(events, ctx()) == []
     end
 
-    test "o nosso próprio CGEvent voltando pela janela não conta duas vezes" do
+    test "our own CGEvent coming back through the window does not count twice" do
       # o Body carimbou a 4 há 200ms; a sighting é o aperto do BOT sendo visto
       last_press = fn
         "4" -> @now - 200
@@ -76,7 +76,7 @@ defmodule Pokex.Bots.HandWatchTest do
       assert HandWatch.judge(events, ctx(%{last_press: last_press})) == []
     end
 
-    test "um carimbo velho não engole o aperto novo dele na mesma tecla" do
+    test "an old stamp does not swallow his new press on the same key" do
       last_press = fn
         "4" -> @now - 30_000
         _key -> nil
@@ -86,14 +86,14 @@ defmodule Pokex.Bots.HandWatchTest do
       assert HandWatch.judge(events, ctx(%{last_press: last_press})) == [{:stamp, "4"}]
     end
 
-    test "código que não é fileira nem resgate é de outra conversa" do
+    test "a code that is neither the row nor the rescue belongs to another conversation" do
       # um keycode qualquer fora da fileira e do resgate (a tabela de Commands
       # nem mapeia letras — o helper só vigia o que a gente armou)
       events = [%{code: 999, shift?: false, at: 1_000}]
       assert HandWatch.judge(events, ctx()) == []
     end
 
-    test "apertos repetidos num drain viram UM veredito — narração sem eco" do
+    test "repeated presses in one drain become ONE verdict: narration without echo" do
       events = [
         %{code: code!("4"), shift?: false, at: 1_000},
         %{code: code!("4"), shift?: false, at: 1_200}
@@ -145,7 +145,7 @@ defmodule Pokex.Bots.HandWatchTest do
       %{watch: watch}
     end
 
-    test "um aperto dele numa skill carimba o relógio de verdade", %{watch: watch} do
+    test "a press of his on a skill stamps the real clock", %{watch: watch} do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.Combat.Worker.topic())
       assert HandWatch.attach(watch) == :ok
 
@@ -164,7 +164,7 @@ defmodule Pokex.Bots.HandWatchTest do
       assert HandWatch.detach(watch) == :ok
     end
 
-    test "pausado, o vigia não drena — e o resume devolve", %{watch: watch} do
+    test "paused, the watcher does not drain, and resume gives it back", %{watch: watch} do
       assert HandWatch.attach(watch) == :ok
       # PAUSA PRIMEIRO, e só então o roteiro entra: pôr o roteiro com o laço
       # correndo é uma corrida com a drenagem, e o teste mediria o agendador.
@@ -192,7 +192,7 @@ defmodule Pokex.Bots.HandWatchTest do
       await(fn -> SkillClock.last_press("8") end, "o resume não voltou a drenar")
     end
 
-    test "sair UM consumidor não apaga a luz do outro", %{watch: watch} do
+    test "ONE consumer leaving does not turn off the other's light", %{watch: watch} do
       parent = self()
 
       other =

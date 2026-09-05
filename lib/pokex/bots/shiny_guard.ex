@@ -42,12 +42,12 @@ defmodule Pokex.Bots.ShinyGuard do
   alias Pokex.Vision.{ColorMark, ColorRules, Frame}
 
   @combat_topic "combat"
-  # o medidor do painel e o Catcher escutam aqui
+  # the panel meter and the Catcher listen here
   @reading_topic "shiny"
   @idle_poll_ms 1_000
   @refractory_ms 60_000
   @reading_throttle_ms 700
-  # a janela em que um kill logo depois do avistamento É aquele shiny morrendo
+  # the window in which a kill right after a sighting IS that shiny dying
   @encounter_window_ms 45_000
 
   def start_link(opts \\ []) do
@@ -56,9 +56,9 @@ defmodule Pokex.Bots.ShinyGuard do
     state = %{
       active?: Keyword.get(opts, :active, Application.get_env(:pokex, :shiny_guard_active, true)),
       capture: Keyword.get(opts, :capture, &Capture.frame/2),
-      # varreduras seguidas com mancha, por regra — a confirmação
+      # consecutive scans with a blob, per rule: the confirmation
       streaks: %{},
-      # último disparo por regra — o refratário
+      # last trigger per rule: the refractory
       fired_at: %{},
       last_fired_at: nil,
       last_reading_at: nil
@@ -125,8 +125,8 @@ defmodule Pokex.Bots.ShinyGuard do
       rules ->
         case snapshot(state) do
           {:ok, frame, forbidden} -> judge(state, rules, frame, forbidden)
-          # Cego não é "não tem chefe": sem foto o fato NÃO é reescrito, e ele
-          # envelhece sozinho até o cérebro parar de acreditar nele.
+          # Blind is not "no boss": without a frame the fact is NOT rewritten; it ages
+          # on its own until the brain stops believing it.
           _blind -> state
         end
     end
@@ -140,9 +140,8 @@ defmodule Pokex.Bots.ShinyGuard do
     end
   end
 
-  # O personagem e o pokémon PARADO viram caixas proibidas de 3×3 tiles: o
-  # verde do próprio Torterra é quase o do Electrode shiny. Pontos em
-  # coordenadas de TELA; o frame conhece a própria escala.
+  # The character and the STANDING pokémon become 3×3-tile forbidden boxes: the own pokémon's
+  # green can match a shiny's. Points in SCREEN coordinates; the frame knows its own scale.
   defp forbidden_boxes(calib, %Frame{scale: scale}, {rx, ry, _w, _h}) do
     meia = round(Calibration.tile_px() * 1.5 * scale)
 
@@ -175,11 +174,9 @@ defmodule Pokex.Bots.ShinyGuard do
     broadcast_reading(state, best)
   end
 
-  # O FATO, publicado a CADA varredura — não a cada anúncio. O troféu tem
-  # refratário de um minuto (ninguém quer a metralhadora), mas o cérebro
-  # precisa da PRESENÇA: enquanto o chefe está na tela, `heavy?` tem que ficar
-  # de pé, e cair quando ele sai. São perguntas diferentes e relógios
-  # diferentes.
+  # The FACT is published on EVERY scan, not every announcement. The trophy has a one-minute
+  # refractory, but the brain needs PRESENCE: while the boss is on screen `heavy?` must stand,
+  # and fall when it leaves. Different questions, different clocks.
   defp publish_special(vistos) do
     WorldState.put(
       :special,
@@ -210,14 +207,14 @@ defmodule Pokex.Bots.ShinyGuard do
     end
   end
 
-  # Avistou: registra e anuncia — nenhuma ação (decisão dele, 01/09). O
-  # Catcher escuta o {:shiny_seen, _} e arma a bola garantida.
+  # Sighted: record and announce, no action here. The Catcher listens for {:shiny_seen, _} and
+  # arms the guaranteed ball.
   defp fire(state, rule, mancha) do
     reason = "✨ #{rule.name} na tela — mancha de #{mancha.px}px da cor dele"
 
     # the trophy shelf first: the encounter is logged even if a broadcast fails.
-    # `star_px` é o nome histórico do campo (a estrela morreu, o campo ficou):
-    # hoje guarda os px da MANCHA.
+    # `star_px` is the field's historical name (the star is gone, the field stayed): it now
+    # holds the BLOB's px.
     ShinyLog.record(star_px: mancha.px, action: nil, outcome: "seen", note: rule.name)
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:combat_log, :macro, reason})
@@ -256,8 +253,8 @@ defmodule Pokex.Bots.ShinyGuard do
     end
   end
 
-  # Ligado, a cadência é a da varredura; desligado (ou sem regra armada), um
-  # tique lento só pra reavaliar o interruptor.
+  # On, the cadence is the scan's; off (or no rule armed), a slow tick just to re-check the
+  # switch.
   defp schedule(state) do
     ms =
       if state.active? and Settings.get(:shiny_guard_enabled) and ColorRules.armed() != [],

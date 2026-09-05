@@ -71,15 +71,14 @@ defmodule Pokex.Bots.HandWatch do
 
   @drain_ms 150
   @error_backoff_ms 2_000
-  # O Body carimba no despacho e a rajada leva ~35-500ms entre teclas; um
-  # aperto visto até aqui depois do carimbo é o nosso próprio CGEvent.
+  # The Body stamps at dispatch and a burst takes ~35-500ms between keys: a press seen within
+  # this of the stamp is our own CGEvent.
   @own_window_ms 700
-  # O reset do revive do BOT (`:rescue_done`) apaga o carimbo do próprio F4 —
-  # num drain atrasado a sighting dele ficaria sem dono e viraria "mão do
-  # Lucas": item contado duas vezes e um re-reset apagando os carimbos novos
-  # da rajada pós-revive. O caderninho lembra a hora do último despacho, de
-  # qualquer mão — o que também impede o F4 DELE repetido em menos de 5s de
-  # contar dobrado (o item tem cooldown no jogo de qualquer jeito).
+  # The BOT's revive reset (`:rescue_done`) clears the stamp of its own F4: in a late drain
+  # that sighting would be ownerless and read as his hand, counting the item twice and
+  # re-resetting the fresh stamps of the post-revive burst. The ledger remembers the last
+  # dispatch from either hand, which also keeps HIS repeated F4 within 5s from counting
+  # twice (the item has an in-game cooldown anyway).
   @bot_revive_window_ms 5_000
 
   def start_link(opts \\ []) do
@@ -101,8 +100,8 @@ defmodule Pokex.Bots.HandWatch do
   @doc "O outro leitor terminou; volta a vigiar se houver consumidor."
   def resume(server \\ __MODULE__), do: safe_call(server, :resume)
 
-  # As páginas chamam isto de fora da árvore do bot; um vigia ausente (suíte,
-  # crash) nunca pode derrubar quem só queria avisar que vai gravar.
+  # Pages call this from outside the bot tree; a missing watcher (test suite, crash) must
+  # never crash a caller that only wanted to announce a recording.
   defp safe_call(server, msg) do
     GenServer.call(server, msg)
   catch
@@ -111,8 +110,8 @@ defmodule Pokex.Bots.HandWatch do
 
   @impl true
   def init(_opts) do
-    # O terminate abaixo é a única chance de desarmar o helper numa queda — sem
-    # trap, um crash deixaria o poll de 8ms lendo onze teclas pra sempre.
+    # `terminate/2` is the only chance to disarm the helper on a crash; without the trap the
+    # 8ms poll would keep reading eleven keys forever.
     Process.flag(:trap_exit, true)
     {:ok, %{consumers: %{}, paused_by: %{}, timer: nil, armed?: false}}
   end
@@ -130,8 +129,8 @@ defmodule Pokex.Bots.HandWatch do
   end
 
   def handle_call(:detach, {pid, _tag}, state) do
-    # Só o ÚLTIMO a sair apaga a luz — desarmar com outro consumidor vivo
-    # deixaria a caçada dele sem vigia porque outra página se despediu.
+    # Only the LAST consumer out turns off the light: disarming with another consumer alive
+    # would leave the hunt unwatched because a page left.
     state = drop_watcher(state, :consumers, pid)
     {:reply, :ok, if(active?(state), do: poke(state), else: settle(state))}
   end
@@ -156,8 +155,8 @@ defmodule Pokex.Bots.HandWatch do
     end
   end
 
-  # Um consumidor (ou pausador) morreu sem se despedir — a gravação que
-  # crashou não pode deixar o vigia pausado pra sempre.
+  # A consumer (or pauser) died without saying goodbye; a crashed recording must not leave the
+  # watcher paused forever.
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
     state =
       state
@@ -167,30 +166,26 @@ defmodule Pokex.Bots.HandWatch do
     {:noreply, if(active?(state), do: poke(state), else: settle(state))}
   end
 
-  # Com trap_exit ligado (pelo terminate que desarma o helper), um :EXIT de
-  # qualquer processo vira mensagem — e mensagem sem clause derrubaria o vigia
-  # pelo motivo errado.
+  # With trap_exit on (for the terminate that disarms the helper) any :EXIT becomes a message,
+  # and an unmatched message would crash the watcher for the wrong reason.
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # -- o laço ------------------------------------------------------------------
+  # -- the loop ---------------------------------------------------------------
 
   defp drain(state) do
     case Pokex.Rig.impl().key_watch(codes()) do
       {:ok, events} ->
-        # A PRIMEIRA DRENAGEM É LIXO, e de propósito. `key_watch/1` ARMA e
-        # ESVAZIA na mesma chamada: o que volta na primeira é tudo que o helper
-        # acumulou desde que alguém o armou pela última vez — pode ser o que ele
-        # jogou nos últimos minutos, até 500 teclas, com idade que ninguém sabe.
-        # Carimbar isso é inventar uma barra inteira em cooldown no instante em
-        # que a caçada começa. A sonda do /diagnostics já fazia isso ("cada
-        # rodada é medida limpa"); este vigia não fazia.
+        # The FIRST drain is garbage on purpose: `key_watch/1` ARMS and EMPTIES in one
+        # call, so the first result is whatever the helper accumulated since it was last
+        # armed (up to 500 keys of unknown age). Stamping that would invent a whole bar
+        # in cooldown the instant the hunt starts.
         if state.armed?, do: act(events)
 
         schedule(%{state | armed?: true}, @drain_ms)
 
-      # Helper indisponível (sem Accessibility, compilando, morto): o rig cai
-      # pro osascript pras TECLAS, mas o watch não existe. Insistir devagar —
-      # ele pode voltar (a permissão concedida no meio da sessão).
+      # Helper unavailable (no Accessibility, compiling, dead): the rig falls back to
+      # osascript for KEYS, but there is no watch. Retry slowly; it may come back
+      # (permission granted mid-session).
       {:error, _reason} ->
         schedule(state, @error_backoff_ms)
     end
@@ -200,12 +195,10 @@ defmodule Pokex.Bots.HandWatch do
     ctx = %{
       focus_ok?: InputGate.focus_ok?(),
       rescue_code: rescue_code(),
-      # `pressed_at/1` e não `last_press/1`: o `SkillClock.reset/0` do revive
-      # apaga os carimbos de TODAS as teclas, não só o do F4 — e sem o eco cada
-      # revive fazia a rajada que o bot acabou de disparar virar "mão do Lucas"
-      # 340ms depois, com o recarimbo desfazendo o reset que o revive tinha
-      # acabado de pagar. Foram 235 atribuições falsas em 242 revives na noite
-      # de 29/08, e o R3b se desarmando 37 vezes por causa delas.
+      # `pressed_at/1`, not `last_press/1`: the revive's `SkillClock.reset/0` clears the
+      # stamps of EVERY key. Without the echo, the burst the bot just fired read as his
+      # hand 340ms later and re-stamped what the revive had just reset (235 false
+      # attributions in 242 revives one night).
       last_press: &SkillClock.pressed_at/1,
       revive_noted?: ReviveLedger.noted_within?(@bot_revive_window_ms),
       now: System.monotonic_time(:millisecond)
@@ -234,7 +227,7 @@ defmodule Pokex.Bots.HandWatch do
     end
   end
 
-  # shift+tecla é modo (shift+1 ataca, shift+3 volta a mobar), nunca skill.
+  # shift+key is a stance (shift+1 attack, shift+3 back to luring), never a skill.
   defp verdict(%{shift?: true}, _ctx), do: nil
 
   defp verdict(%{code: code}, ctx) do
@@ -245,12 +238,12 @@ defmodule Pokex.Bots.HandWatch do
     end
   end
 
-  # Duas testemunhas de que o F4 foi NOSSO: o carimbo do press (que o reset do
-  # :rescue_done pode já ter apagado) e a anotação do caderninho, que fica.
+  # Two witnesses that the F4 was OURS: the press stamp (which the :rescue_done reset may have
+  # cleared already) and the ledger note, which stays.
   defp rescue_verdict(%{revive_noted?: true}), do: nil
   defp rescue_verdict(ctx), do: unless_own_press(rescue_key(), :revive, ctx)
 
-  # O nosso próprio CGEvent voltando pela janela: o carimbo já existe.
+  # Our own CGEvent coming back through the window: the stamp already exists.
   defp unless_own_press(key, action, ctx) do
     case ctx.last_press.(key) do
       at when is_integer(at) and ctx.now - at <= @own_window_ms -> nil
@@ -264,8 +257,8 @@ defmodule Pokex.Bots.HandWatch do
   end
 
   defp apply_action(:revive) do
-    # O efeito INTEIRO de um revive, como ele pediu: R3 zera o relógio
-    # (o que também limpa as teclas surdas) e o item sai do caderninho.
+    # The WHOLE effect of a revive: R3 resets the clock (which also clears the deaf keys)
+    # and the item leaves the ledger.
     SkillClock.reset()
     ReviveLedger.note()
     narrate("🖐️ #{rescue_key()} da tua mão — revive: zerei o relógio (R3) e anotei no estoque")
@@ -279,7 +272,7 @@ defmodule Pokex.Bots.HandWatch do
     )
   end
 
-  # -- códigos vigiados --------------------------------------------------------
+  # -- watched key codes ------------------------------------------------------
 
   defp codes, do: Enum.uniq(HandsRead.codes() ++ KeyProbe.codes([rescue_key()]))
 
@@ -306,14 +299,13 @@ defmodule Pokex.Bots.HandWatch do
 
   defp enabled?, do: Application.get_env(:pokex, :hand_watch_active, true)
 
-  # Acorda o laço se ele deveria estar rodando e não está.
+  # Wakes the loop if it should be running and is not.
   defp poke(state) do
     if active?(state) and state.timer == nil, do: schedule(state, 0), else: state
   end
 
-  # Aquieta: cancela o laço e DESARMA o helper uma vez — a lição da Central:
-  # "an empty watch list is the off switch", senão ele lê dez teclas a cada
-  # 8ms pra sempre, competindo com o jogo que ele está jogando.
+  # Quiets: cancels the loop and DISARMS the helper once. An empty watch list is the off
+  # switch; otherwise it reads ten keys every 8ms forever, competing with the game.
   defp settle(state) do
     if state.timer, do: Process.cancel_timer(state.timer)
 

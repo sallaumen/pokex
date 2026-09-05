@@ -17,7 +17,7 @@ defmodule Pokex.Settings.Locked do
   """
 
   @locked %{
-    # --- Barra de skills (visão) ---
+    # --- Skill bar (vision) ---
     skill_ready_min_saturation:
       {"Barra de skills (visão)", "slot pronto = cor: saturação média acima disto"},
     skill_cooldown_min_white_pct:
@@ -30,7 +30,7 @@ defmodule Pokex.Settings.Locked do
     skill_bar_fact_max_age_ms:
       {"Barra de skills (visão)",
        "leitura da barra mais velha que isto é desconhecida (rotação cega)"},
-    # --- Cadência das leituras ---
+    # --- Reading cadence ---
     feed_battle_ms:
       {"Cadência das leituras", "a janela de batalha é lida a cada 120ms (a mais rápida)"},
     feed_skill_bar_ms:
@@ -41,7 +41,7 @@ defmodule Pokex.Settings.Locked do
     feed_team_ms: {"Cadência das leituras", "painel do time a cada 1,2s"},
     feed_minimap_ms:
       {"Cadência das leituras", "posição a cada 0,5s ainda guia a rota a 5 passos/s"},
-    # --- Captura (visão) ---
+    # --- Capture (vision) ---
     corpse_sprite_box_px: {"Captura (visão)", "lado do quadrado do corpo; derivado do tile"},
     capture_aim_settle_ms: {"Captura (visão)", "pausa entre mirar o cursor e apertar a bola"},
     capture_hold_ms: {"Captura (visão)", "quanto o cursor fica no alvo depois do arremesso"},
@@ -131,7 +131,7 @@ defmodule Pokex.Settings.Locked do
     combat_confirm_skills: {"Combate (ritmo)", "a rajada confere na barra que a tecla saiu"},
     combat_confirm_ms: {"Combate (ritmo)", "quanto esperar a barra confirmar a tecla"},
     posture_max_age_ms: {"Combate (ritmo)", "postura lembrada por 3s"},
-    # --- Cérebro (prazos internos) ---
+    # --- Brain (internal deadlines) ---
     engine_pile_settle_ms:
       {"Cérebro (prazos internos)", "contagem parada por 1,5s = pararam de chegar"},
     engine_size_ceiling_ms:
@@ -176,11 +176,11 @@ defmodule Pokex.Settings.Locked do
     restore_mouse_after_actions:
       {"Foco e teclado", "o cursor volta pra onde estava depois de cada ação"},
     hold_max_ms: {"Foco e teclado", "tecla segurada solta sozinha em 1,5s"},
-    # --- Janela de batalha (visão) ---
+    # --- Battle window (vision) ---
     battle_first_row_y: {"Janela de batalha (visão)", "centro da linha 0 dentro da região"},
     battle_max_rows: {"Janela de batalha (visão)", "até 10 linhas lidas"},
     target_locked_min_pixels: {"Janela de batalha (visão)", "pixels vermelhos do anel de alvo"},
-    # --- Logout (mecânica) ---
+    # --- Logout (mechanics) ---
     logout_key: {"Logout (mecânica)", "Ctrl+Q é do jogo"},
     logout_confirm_key: {"Logout (mecânica)", "Enter confirma"},
     logout_confirm_delay_ms: {"Logout (mecânica)", "pausa antes do Enter"},
@@ -220,7 +220,7 @@ defmodule Pokex.Settings.Locked do
     mini_game_brake_down: {"Mini-game da pesca", "freio descendo (o jogo é assimétrico)"},
     mini_game_fact_max_age_ms:
       {"Mini-game da pesca", "fato do minigame mais velho que 2s = não está jogando"},
-    # --- Minimapa (visão) ---
+    # --- Minimap (vision) ---
     minimap_px_per_tile: {"Minimapa (visão)", "medido: 2px por tile"},
     # --- O modo decide ---
     engine_gather_piles: {"O modo decide", "juntar bicho andando: nenhum modo faz"},
@@ -228,7 +228,7 @@ defmodule Pokex.Settings.Locked do
       {"O modo decide",
        "o 'para e luta' já decide o tamanho do bolo: sem juntar andando, este número nunca é olhado"},
     engine_kite_when_spent: {"O modo decide", "recuar com a barra vazia"},
-    # --- Onde estão os monstros (visão) ---
+    # --- Where the monsters are (vision) ---
     crowd_scan_radius_tiles: {"Onde estão os monstros (visão)", "a foto ao redor cobre 6 tiles"},
     crowd_scan_evidence_shrink:
       {"Onde estão os monstros (visão)", "a evidência é desenhada 4× menor"},
@@ -256,14 +256,14 @@ defmodule Pokex.Settings.Locked do
     cast_delay_max_ms: {"Pesca (ritmo)", "até 250ms aleatórios antes de cada arremesso"},
     hook_delay_min_ms: {"Pesca (ritmo)", "mínimo aleatório antes de puxar"},
     hook_delay_max_ms: {"Pesca (ritmo)", "máximo aleatório antes de puxar"},
-    # --- Pesca (visão) ---
+    # --- Fishing (vision) ---
     glow_search_margin: {"Pesca (visão)", "margem da busca pelo brilho"},
     fishing_lure_min_pixels: {"Pesca (visão)", "pixels da isca pra achá-la"},
     fishing_bubble_radius_px: {"Pesca (visão)", "raio ao redor da isca onde as bolhas contam"},
     line_present_min_px: {"Pesca (visão)", "pixels que provam a linha na água"},
     wild_min_red_pixels: {"Pesca (visão)", "pixels vermelhos que denunciam um selvagem"},
     glow_streak_needed: {"Pesca (visão)", "um quadro de brilho basta pra fisgar"},
-    # --- Rastreio do pokémon (visão) ---
+    # --- Pokémon tracking (vision) ---
     pokemon_sprite_box_px: {"Rastreio do pokémon (visão)", "quadrado ensinado do pokémon"},
     pokemon_track_step_px: {"Rastreio do pokémon (visão)", "passo da busca"},
     pokemon_track_radius_px: {"Rastreio do pokémon (visão)", "raio ao redor do ponto esperado"},
@@ -271,7 +271,7 @@ defmodule Pokex.Settings.Locked do
       {"Rastreio do pokémon (visão)", "similaridade mínima (ele vira, por isso baixa)"},
     pokemon_park_tolerance_px:
       {"Rastreio do pokémon (visão)", "a 90px do ponto conta como chegou"},
-    # --- Revive (mecânica) ---
+    # --- Revive (mechanics) ---
     rescue_step_ms: {"Revive (mecânica)", "40ms entre o controle e o revive"},
     rescue_confirm_ms: {"Revive (mecânica)", "quanto esperar a barra confirmar o controle"},
     rescue_stun_settle_ms:
@@ -291,13 +291,13 @@ defmodule Pokex.Settings.Locked do
     reposition_battle_clear_ms: {"Revive (mecânica)", "2s fora de luta antes de reposicionar"},
     support_capture_wait_max_ms:
       {"Revive (mecânica)", "o suporte espera a captura no máximo 10s"},
-    # --- Shiny (visão) ---
+    # --- Shiny (vision) ---
     shiny_always_ball: {"Shiny (visão)", "shiny sempre leva bola, mesmo com captura desligada"},
     special_color_scan_ms: {"Shiny (visão)", "varredura de cor a cada 0,7s"},
     special_color_confirm_frames: {"Shiny (visão)", "2 varreduras seguidas confirmam"},
     # --- Timers ---
     timers_tick_ms: {"Timers", "os timers conferem o relógio a cada 1s"},
-    # --- Vida do pokémon (visão) ---
+    # --- Pokémon HP (vision) ---
     pokemon_hp_min_brightness:
       {"Vida do pokémon (visão)", "coluna cheia = pixel colorido: brilho mínimo"},
     pokemon_hp_min_saturation: {"Vida do pokémon (visão)", "…e saturação mínima"},

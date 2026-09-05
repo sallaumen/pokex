@@ -49,12 +49,11 @@ defmodule Pokex.Bots.SkillMeter do
 
   @type shot :: %{key: String.t(), took_pct: float, delay_ms: non_neg_integer}
 
-  # Quanto tempo esperar a queda aparecer. A observação dele — "leva tipo 1s" —
-  # é o piso do que isto precisa cobrir, com folga pro tique da lista.
+  # How long to wait for the drop to show: about 1s observed, plus slack for the list tick.
   @wait_ms 2_500
   @poll_ms 100
 
-  # Uma queda menor que isto é ruído da leitura da barra, não dano.
+  # A drop smaller than this is bar-reading noise, not damage.
   @min_drop_pct 2.0
 
   @doc "O modo está ligado? Desligado por padrão: ele mede quando quer medir."
@@ -85,7 +84,7 @@ defmodule Pokex.Bots.SkillMeter do
           sleep: Keyword.get(opts, :sleep, &Process.sleep/1)
         })
 
-      # Uma barra já vazia antes do aperto não tem queda pra dar.
+      # A bar already empty before the press has no drop to give.
       {:ok, _row, _zero} ->
         {:error, :no_bar}
 
@@ -103,21 +102,19 @@ defmodule Pokex.Bots.SkillMeter do
     end
   end
 
-  # MORREU: a barra zerou ou a linha sumiu da lista. É a medida mais valiosa que
-  # existe aqui — "se ele se identificar aqui com a skill 4 sozinha, ele já
-  # mata" — e a única que se perderia por parecer erro.
+  # DIED: the bar hit zero or the row left the list. The most valuable measurement here (a key
+  # that kills alone), and the only one that would be lost for looking like an error.
   defp judge(%{row: row} = t, {:ok, row, 0}), do: killed(t)
   defp judge(t, {:error, :no_bar}), do: killed(t)
 
-  # A linha travada mudou de bicho (o anterior morreu, a lista andou): a queda
-  # que viria agora não é da mesma barra, e uma medida assim seria pior que
-  # nenhuma.
+  # The locked row changed mob (the previous one died, the list moved): the drop now is not
+  # from the same bar, and such a measurement is worse than none.
   defp judge(%{row: row} = t, {:ok, row, bar}), do: drop(t, bar)
 
   defp judge(_t, {:ok, _other_row, _bar}), do: {:error, :target_changed}
 
-  # Sem alvo travado nenhum: a lista pode ter andado por qualquer motivo, e
-  # chamar isso de morte seria inventar um 100%.
+  # No locked target at all: the list may have moved for any reason, and calling that a death
+  # would invent a 100%.
   defp judge(_t, {:error, _no_target}), do: {:error, :target_gone}
 
   defp drop(%{before: before} = t, bar) when bar >= before, do: chase(t)
@@ -156,8 +153,8 @@ defmodule Pokex.Bots.SkillMeter do
     with {:ok, raw} <- File.read(Pokex.Home.skill_meter_file()),
          {:ok, %{"shots" => by_key}} <- JSON.decode(raw) do
       Map.new(by_key, fn {key, list} ->
-        # A tecla é a chave do mapa; ela volta pra DENTRO de cada tiro pra que
-        # um tiro lido do arquivo tenha a mesma forma de um recém-medido.
+        # The key is the map key; it goes back INSIDE each shot so a shot read from the
+        # file has the same shape as a fresh one.
         {key, Enum.map(list, &%{key: key, took_pct: &1["took_pct"], delay_ms: &1["delay_ms"]})}
       end)
     else
@@ -197,12 +194,12 @@ defmodule Pokex.Bots.SkillMeter do
     end)
   end
 
-  # O piso é a metade de baixo: tudo neste medidor erra pra menos de propósito,
-  # e "preciso de mais um tiro" é um erro barato ao lado de "achei que matava".
+  # The floor is the lower half: this meter errs low on purpose. "Need one more shot" is a
+  # cheap mistake next to "thought it killed".
   defp median([]), do: 0
   defp median(sorted), do: Enum.at(sorted, div(length(sorted) - 1, 2))
 
-  # O teto não é arrumação: o arquivo é lido inteiro a cada tiro medido.
+  # The cap is not tidiness: the whole file is read on every measured shot.
   @max_shots 200
 
   defp save(by_key) do
@@ -220,13 +217,13 @@ defmodule Pokex.Bots.SkillMeter do
     Pokex.Home.write!(Pokex.Home.skill_meter_file(), body)
   end
 
-  # A barra da linha TRAVADA, em pixels verdes. Sem alvo travado não há o que
-  # medir: a queda de uma linha qualquer não é dano desta tecla.
+  # The LOCKED row's bar, in green pixels. Without a locked target there is nothing to
+  # measure: a random row's drop is not this key's damage.
   defp locked_bar(%{locked_row: row, hp: hp}) when is_integer(row) and is_list(hp) do
     case Enum.at(hp, row) do
       count when is_integer(count) -> {:ok, row, count}
-      # A linha travada saiu da lista: durante a perseguição isso é morte, antes
-      # dela é não ter o que medir. Quem chama sabe em qual dos dois está.
+      # The locked row left the list: during the chase that is a death, before it there is
+      # nothing to measure. The caller knows which.
       nil -> {:error, :no_bar}
     end
   end

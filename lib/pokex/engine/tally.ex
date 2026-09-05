@@ -73,8 +73,8 @@ defmodule Pokex.Engine.Tally do
     end
   end
 
-  # A janela é o rastro, não o relógio: um dia com um registro só não tem
-  # duração, e dividir por ela seria inventar uma taxa.
+  # The window is the trail, not the clock: a day with a single record has no duration, and
+  # dividing by it would invent a rate.
   defp window(events) do
     times = for e <- events, is_integer(e["at"]), do: e["at"]
 
@@ -85,28 +85,26 @@ defmodule Pokex.Engine.Tally do
     end
   end
 
-  # A prensa do revive é uma DECISÃO, e é assim que ela aparece no rastro: uma
-  # linha de decisão com `revive: "now"`. Contada por mudança de ideia, que é a
-  # cadência em que essas linhas são escritas — duas seguidas com a mesma frase
-  # são a mesma prensa.
+  # A revive press is a DECISION, and that is how it shows in the trail: a decision line with
+  # `revive: "now"`. Counted per change of mind, the cadence those lines are written at: two
+  # in a row with the same phrase are the same press.
   defp revives(decisions), do: Enum.count(decisions, &(&1["revive"] == "now"))
 
-  # Sem pokémon em campo é o único tempo que é pura perda: não mata, não
-  # defende, e as mordidas passam a ser DELE.
+  # No pokémon on the field is the only pure loss: no kills, no defence, and the bites land on
+  # the CHARACTER.
   defp share([], _pred), do: 0.0
 
   defp share(vitals, pred) do
     Float.round(Enum.count(vitals, pred) * 100 / length(vitals), 1)
   end
 
-  # "Zero cooldowns livres com bicho na tela" — o estado que a R7 ataca.
+  # Zero free cooldowns with mobs on screen: the state R7 attacks.
   defp stalled?(v) do
     is_integer(v["enemies"]) and v["enemies"] > 0 and is_integer(v["ready"]) and v["ready"] == 0
   end
 
-  # AS PILHAS QUE ELE ENCONTROU, que é a visão de mundo que faltava: quantas
-  # vezes a lista de batalha teve 1, 2, 3… — a régua dele discutida com o que o
-  # jogo entrega, em vez de com o que eu imagino.
+  # The piles he found: how many times the battle list held 1, 2, 3… His ruler argued against
+  # what the game delivers.
   defp piles(vitals) do
     vitals
     |> Enum.map(& &1["enemies"])
@@ -143,14 +141,14 @@ defmodule Pokex.Engine.Tally do
       sairam: fired,
       falharam: missed,
       sem_veredito: count.("unknown"),
-      # a taxa só existe quando houve o que julgar: uma noite inteira de teclas
-      # já esfriando não prova nada sobre o intervalo
+      # the rate only exists when there was something to judge: a whole night of keys
+      # already cooling proves nothing about the interval
       taxa: if(judged > 0, do: Float.round(fired * 100 / judged, 1))
     }
   end
 
-  # Onde foi o minuto. Uma linha de decisão vale até a próxima, que é
-  # exatamente o que "uma linha por mudança de ideia" significa.
+  # Where the minute went. A decision line lasts until the next one, which is exactly what
+  # "one line per change of mind" means.
   defp by_phase([], _to), do: []
 
   defp by_phase(decisions, to) do

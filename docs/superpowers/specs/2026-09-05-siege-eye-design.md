@@ -180,7 +180,7 @@ cobre o notebook. As faixas do HUD saem por máscara das regiões calibradas
 %{read?: true, at: now, took_ms: 30,
   me: {px, py},                                   # ponto calibrado
   pet: %{point, dx, dy, tiles, hp_pct} | nil,     # a marca com caixa mais perto do personagem
-  hostiles: [%{point, dx, dy, from_me, from_pet | nil, hp_pct, heavy?}],
+  hostiles: [%{point, dx, dy, from_me, from_pet | nil, hp_pct, skull?}],
   evidence: data_url | nil}
 ```
 
@@ -235,15 +235,21 @@ cobre o notebook. As faixas do HUD saem por máscara das regiões calibradas
 
 ```elixir
 %{read?: boolean, age_ms: n, pet_seen?: boolean,
-  hostiles: [%{dx, dy, from_me, from_pet, hp_pct, heavy?, asleep?}],
+  heavy?: boolean,   # a ÁREA tem caveira (nunca há mistura: ou todos, ou nenhum)
+  hostiles: [%{dx, dy, from_me, from_pet, hp_pct, asleep?}],
   pinned: n,     # from_pet ≤ pin_tiles (1) — mordendo o pokémon
   covered: n,    # dormindo
   loose: n,      # acordado e fora da pilha
   unseen: n,     # max(listed − vistos, 0)
   nearest_awake_from_me: tiles | nil,
-  heavy_awake?: boolean,
   recall_gap_ok?: boolean}
 ```
+
+**Caveira é da área, não do bicho.** Lucas: "nunca existe bicho com caveira e
+sem caveira misturados, ou são todos com caveira ou nenhum". Então `heavy?`
+é um só: verdadeiro quando qualquer marca da leitura tem caveira, e **fica
+travado durante a luta** (`logic.heavy_area?`, zerado quando a lista esvazia),
+porque um efeito em cima da pilha esconde crânios sem mudar a área.
 
 **Cobertura do stun.** Em todo lugar onde o cérebro carimba `:stunned` (as
 ramas do controle, a do chefe e o `stamp_stun/1` do segurado) ou vê a
@@ -260,10 +266,10 @@ esconde barra é a pilha empilhada ou o efeito da área em cima dela). Sem sono
 fresco, `unseen` é acordado em lugar desconhecido e o gap não fecha.
 
 **A régua do revive.** `recall_gap_ok?` é verdadeiro quando não há acordado
-(nem solto, nem sem ver) OU quando **cada** acordado está a ≥ a sua guarda a
-partir do personagem: `recall_guard_tiles` (4) para quem tem caveira,
-`recall_guard_light_tiles` (2) para quem não tem. `nearest_awake_from_me` é
-informativo (feed e cartão); a decisão é por bicho.
+(nem solto, nem sem ver) OU quando `nearest_awake_from_me` ≥ a guarda da
+área: `recall_guard_tiles` (4) com caveira, `recall_guard_light_tiles` (2)
+sem ("sem caveira é brincadeira"). Uma guarda só por luta, porque a área é uma
+só.
 
 ### 5.2 As regras do `Logic` que mudam
 
@@ -280,7 +286,9 @@ informativo (feed e cartão); a decisão é por bicho.
    abaixo de `revive_desperate_pct` (15), revive assim mesmo — o pokémon no
    chão é a mesma janela sem o revive. A fuga entra aqui na peça 4, antes do
    desespero.
-4. `boss_tiles` passa a vir do olho no jogo (o pesado mais perto do pokémon):
+4. `boss_tiles` passa a vir do olho no jogo: com a postura de chefe ligada
+   (`heavy?` da `Situation` — o chefe por nome, cor ou grit, que é outra coisa
+   que a caveira), é a distância do inimigo mais perto do pokémon.
    `close_enough_to_stun?/1` deixa de ser sempre verdadeiro fora da bancada.
    `boss_asleep_left_ms` continua só da bancada.
 
@@ -292,13 +300,45 @@ qualquer um desligado o cérebro é o de hoje, byte a byte nos testes.
 `Siege.summary/1` gera UMA frase curta em pt-BR que entra em toda ordem de
 revive dada ou segurada (é `orders.why`; a narração já deduplica por frase):
 
-- `olho: 3 colados dormindo · 1 solto a 5 tiles (caveira) · 0 sem ver → revive seguro`
-- `olho: 2 colados acordados · 1 solto a 2 tiles → segurando`
+- `olho (caveira): 3 colados dormindo · 1 solto a 5 tiles · 0 sem ver → revive seguro`
+- `olho (caveira): 2 colados acordados · 1 solto a 2 tiles → segurando`
+- `olho: 1 solto a 3 tiles, área leve → revive seguro`
 - `sem olho (foto de 900 ms) → só o sono fresco vale`
 
 O registro `:decision` (`Pokex.Engine.Events`) ganha
-`siege: %{read, pinned, covered, loose, unseen, gap, heavy_awake}`, e a foto
-da decisão leva o veredito no nome. As linhas `🚑` do suporte não mudam.
+`siege: %{read, heavy, pinned, covered, loose, unseen, gap}`, e a foto da
+decisão leva o veredito no nome. As linhas `🚑` do suporte não mudam.
+
+### 5.4 Estacionar o pokémon ao lado do personagem quando a caçada para
+
+Pedido de Lucas: "quando pararmos de andar, clicar com o botão do meio em 1
+dos 4 tiles próximos ao meu personagem, com pelo menos 1 bloco de distância,
+pra garantir que possamos ver todos os monstros que estão realmente atacando
+meu pokémon". O pokémon segue o personagem a ~2 tiles; parado, a pilha fecha
+em cima dele, longe do centro e da câmera. Com o pokémon a 1 tile do
+personagem, a pilha fica no centro da tela, onde o olho lê melhor e onde a
+marca `pet` tem um lugar previsível pra estar.
+
+- **Quando:** na primeira ordem `route: :hold` com inimigo na lista (a parada
+  do `sizing`/`bunching`/segurado), uma vez por parada. Não em paradas por
+  escada, tropeço ou bloqueio.
+- **Onde:** um dos quatro vizinhos ortogonais do personagem, a
+  `cavebot_park_on_stop_tiles` (1) de distância, **do lado de onde a pilha
+  vem** (o centróide dos inimigos da leitura, arredondado ao vizinho mais
+  próximo); sem leitura, o tile de trás (o oposto ao último passo), que é
+  por onde o pokémon já vem seguindo.
+- **Como:** a mesma tubulação que já existe pro estacionar do fim da mobada:
+  `Cavebot.Logic` devolve `{:park, {:tiles, {dx, dy}}}`, o `Worker` traduz
+  por `Calibration.tile_point/2` e `park_click/2` (botão do meio nativo,
+  `cavebot_park_clicks` vezes).
+- **Prova:** o olho confirma (`pet.tiles == 1` nas leituras seguintes) e o
+  cartão mostra; a bancada modela o clique (7.1) e mede a mesma pergunta com
+  o estacionar ligado e desligado.
+- **Uma dúvida que a bancada responde:** com o pokémon a 1 tile, a pilha fica
+  a 1–2 tiles do personagem, e a guarda da recolhida se mede a partir dele —
+  quem está dormindo não conta, mas um solto que chega já chega perto. O
+  cenário `straggler-at-recall` roda nos dois modos e o número decide se 1
+  tile é o certo ou se 2 compra segurança sem perder a câmera.
 
 ## 6. O cartão do cerco
 
@@ -314,11 +354,12 @@ Camadas, de baixo pra cima:
   tile a tile bate por construção);
 - grade de tiles;
 - os raios: anel da mordida (`pin_tiles`) e do stun (`stun_reach_tiles`) em
-  volta do pokémon; quadrados da guarda em volta do personagem (4 com
-  caveira, 2 sem), Chebyshev como no `/sim`;
+  volta do pokémon; UM quadrado da guarda em volta do personagem (o da área:
+  4 com caveira, 2 sem), Chebyshev como no `/sim`;
 - inimigos como quadrados 1×1 em `(dx, dy)`: cor pela faixa de vida (paleta do
-  `/sim`), contorno tracejado dormindo (idioma do `/sim`), crânio pequeno nos
-  pesados, **contorno grosso vermelho em quem está acordado dentro da guarda**;
+  `/sim`), contorno tracejado dormindo (idioma do `/sim`), **contorno grosso
+  vermelho em quem está acordado dentro da guarda**; a caveira é um selo no
+  cabeçalho ("área com caveira"), não um glifo por bicho;
 - o pokémon em verde com anel, cinza quando não visto; o personagem no centro,
   o ponto azul do "você está aqui";
 - selo "N sem ver" encostado na pilha.
@@ -353,9 +394,13 @@ vida, sono. Sem zoom: o cartão é a tela do jogo.
 - `siege_truth/1`: a foto julgada exata (sono pelo `asleep_until`, distâncias
   inteiras), pra linha de divergência e pros testes.
 - Física que falta: `stragglers` (spawn a 6–8 tiles que acorda N ms depois da
-  corrente) e `player_bite_pct` (a mordida pesada NO PERSONAGEM durante a
-  recolhida; 96 nas dungeons com caveira: a morte de 100% → 4% num golpe). O
-  alvo já muda pro personagem quando o pokémon está na bola (`target_of/2`).
+  corrente); `player_bite_pct` (a mordida pesada NO PERSONAGEM durante a
+  recolhida; 96 nas dungeons com caveira: a morte de 100% → 4% num golpe); e
+  **o estacionar** — `Sim.Hands` passa a obedecer `{:park, {:tiles, {dx, dy}}}`
+  como o clique do botão do meio: o pokémon anda até o tile pedido a
+  `pet_ms_per_tile` e fica lá até o personagem andar de novo (aí volta a
+  seguir). O alvo já muda pro personagem quando o pokémon está na bola
+  (`target_of/2`).
 
 A bancada entrega `inputs.crowd` passando as marcas por `CrowdScan.place/3`;
 o `Siege.build` é chamado pelo `Logic.tick`, então não existe cópia
@@ -366,7 +411,9 @@ o `Siege.build` é chamado pelo `Logic.tick`, então não existe cópia
 
 - `straggler-at-recall` — a morte das 16:20: pilha de 3, corrente mata 2, um
   chega de fora com a barra gasta. Promessas: `:no_recall_with_awake_in_guard`,
-  `:alive`, e mortos por hora ≥ 90% do cenário sem straggler.
+  `:alive`, e mortos por hora ≥ 90% do cenário sem straggler. Roda com o
+  estacionar (5.4) ligado e desligado, e com o tile a 1 e a 2: é o número
+  que decide onde o pokémon para.
 - `asleep-pile-plus-loner` — pilha dormindo + um solto a 3 tiles: segura,
   controle sai, recolhe dentro da cobertura; `:alive`.
 - `nine-on-top` (já existe como `nove-em-cima`; renomeado) — barras empilhadas
@@ -405,9 +452,11 @@ O enxame de 4 sementes × 1 h com a config dele (`lotavanon`), olho desligado
 | chave | padrão | onde | serve pra |
 |---|---|---|---|
 | `crowd_watch_enabled` | já existe | /config | chave-mestra: desligada = o bot de hoje |
-| `engine_recall_guard_tiles` | 4 | /config, 0..10 | guarda contra acordado COM caveira; 0 = o olho não segura nada |
-| `engine_recall_guard_light_tiles` | 2 | /config, 0..10 | a guarda sem caveira |
+| `engine_recall_guard_tiles` | 4 | /config, 0..10 | guarda do revive em área COM caveira; 0 = o olho não segura nada |
+| `engine_recall_guard_light_tiles` | 2 | /config, 0..10 | a guarda em área sem caveira |
 | `engine_revive_desperate_pct` | 15 | /config, 0..34 | abaixo disso o vermelho revive com gap fechado |
+| `cavebot_park_on_stop` | true | /config | estacionar o pokémon ao lado do personagem em toda parada com bicho |
+| `cavebot_park_on_stop_tiles` | 1 | travada, 1..2 | a que distância do personagem (a bancada decide entre 1 e 2) |
 | `crowd_scan_radius_tiles` | 6 → 8 | travada (já existe) | a caixa cobre a tela do jogo inteira |
 | `crowd_scan_every_ms` | 250 | travada | cadência em luta (1 s andando) |
 | `crowd_fact_max_age_ms` | 600 | travada | foto mais velha = sem olho |
@@ -428,7 +477,10 @@ Cada um inteiro, testado, com bancada verde e mergeável sozinho.
 2. **Bancada e sombra.** `World.marks`, `siege_truth`, cenários, `/sim` com
    verdade × leitura, `Siege` calculado no tique e **escrito no feed como "o
    olho diria: …" sem mandar em nada**. Uma noite assim mostra onde ele
-   discordaria do bot antes de ganhar a chave.
+   discordaria do bot antes de ganhar a chave. **O estacionar (5.4) entra
+   aqui**: primeiro o modelo na bancada e o cenário nos dois modos, depois o
+   clique no jogo atrás de `cavebot_park_on_stop` — é a única mudança física
+   antes do PR 3, e o olho do PR 1 é quem prova que o pokémon foi.
 3. **O cérebro obedece.** As quatro regras da seção 5.2 atrás de
    `engine_recall_guard_tiles > 0`; bancada antes × depois; merge. As chaves
    de guarda nascem neste PR, já com o padrão 4/2: nos PRs 1 e 2 não existe
@@ -440,7 +492,9 @@ Cada um inteiro, testado, com bancada verde e mergeável sozinho.
 - quantas marcas sobrevivem numa pilha de 9;
 - a caixa preta do número aparece só no pokémon dele (e o que é o "320");
 - balão de fala esconde barra (a dele sumiu na foto);
-- se 4 tiles de guarda bastam pra velocidade real dos monstros com caveira.
+- se 4 tiles de guarda bastam pra velocidade real dos monstros com caveira;
+- (PR 2) o clique do meio leva o pokémon pro tile pedido, e ele fica lá até o
+  personagem andar — o olho mostra `pet.tiles == 1` nas leituras seguintes.
 
 ## 10. Riscos e perguntas abertas
 
@@ -459,8 +513,9 @@ Cada um inteiro, testado, com bancada verde e mergeável sozinho.
 `Pokex.Vision.CreatureMarks`, `Pokex.Bots.CrowdScan.place/3`,
 `Pokex.Bots.CrowdWatch`, `Pokex.Bots.Engine.Siege`,
 `PokexWeb.SiegeComponents.siege_card/1`, `Pokex.Sim.World.marks/1`,
-`Pokex.Sim.World.siege_truth/1`; campos `stun_cover`, `recall_gap_ok?`,
-`pinned`, `covered`, `loose`, `unseen`, `heavy?`, `pet?`; cenários
+`Pokex.Sim.World.siege_truth/1`; campos `stun_cover`, `heavy_area?`,
+`recall_gap_ok?`, `pinned`, `covered`, `loose`, `unseen`, `skull?`, `pet?`;
+ação do cavebot `{:park, {:tiles, {dx, dy}}}` (`park_beside/2`); cenários
 `straggler-at-recall`, `asleep-pile-plus-loner`, `nine-on-top`,
 `skull-less-easy`, `blind-eye`; promessas `:no_recall_with_awake_in_guard`,
 `:recall_flows`, `:eye_agrees`.

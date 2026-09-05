@@ -1,32 +1,28 @@
 defmodule PokexWeb.CalibrationZoom do
   @moduledoc """
-  The magnifier over the calibration screenshot — pure CSS, pure arithmetic.
+  The magnifier over the calibration screenshot: pure CSS, pure arithmetic.
 
-  Two clicks mark a point: the first is rough and magnifies around it, the
-  second is precise. This module owns the transform that magnifies, and it
-  lives on its own because it was SUSPECTED TWICE of misplacing marks
-  (2026-08-06) and could not be checked: it had no test, only a derivation on
-  paper. The clicks turned out fine both times — a hand-marked minimap cross
-  landed ~4px from its target — so the arithmetic below is now pinned instead
-  of re-argued.
+  Two clicks mark a point: the first is rough and magnifies around it, the second is precise.
+  This module owns the transform that magnifies, and it lives on its own because it was
+  SUSPECTED TWICE of misplacing marks and could not be checked: it had no test, only a
+  derivation on paper. The clicks turned out fine both times, with a hand-marked minimap cross
+  landing ~4px from its target, so the arithmetic below is now pinned instead of re-argued.
 
   ## Why translate-and-clamp instead of transform-origin
 
-  `transform-origin` at the clicked point PINS it where it already was, leaving
-  only `(1-f)/factor` of visible margin beyond it. For a target near an edge
-  that margin vanishes: the skill bar sits at the BOTTOM, and its bottom-right
-  corner fell OUTSIDE the zoom window (measured: corner at 92.85% of the height
-  against a window ending at 91.9%), which read as "não consigo clicar na
-  última skill" (Lucas, 2026-07-20). Scaling from the top-left and translating
-  so the point lands mid-container fixes that, and the clamp keeps the scaled
-  image flush with the edges so no blank gutter ever appears.
+  `transform-origin` at the clicked point PINS it where it already was, leaving only
+  `(1-f)/factor` of visible margin beyond it. For a target near an edge that margin vanishes:
+  the skill bar sits at the BOTTOM, and its bottom-right corner fell OUTSIDE the zoom window
+  (measured: the corner at 92.85% of the height against a window ending at 91.9%), which is why
+  he could not click the last skill. Scaling from the top-left and translating so the point
+  lands mid-container fixes that, and the clamp keeps the scaled image flush with the edges so
+  no blank gutter ever appears.
 
   ## Why the click still maps back
 
-  The hook reads `getBoundingClientRect` AFTER the transform, so the clicked
-  fraction is `(clientX - rect.left) / rect.width` — the translate cancels out
-  of both terms and the scale divides out. The page needs no inverse transform,
-  which is why none exists here.
+  The hook reads `getBoundingClientRect` AFTER the transform, so the clicked fraction is
+  `(clientX - rect.left) / rect.width`: the translate cancels out of both terms and the scale
+  divides out. The page needs no inverse transform, which is why none exists here.
   """
 
   @doc """

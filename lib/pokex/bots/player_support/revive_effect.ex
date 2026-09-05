@@ -1,23 +1,22 @@
 defmodule Pokex.Bots.PlayerSupport.ReviveEffect do
   @moduledoc """
-  O juiz de EFEITO do revive: pagou e a vida não voltou?
+  The revive's EFFECT judge: it was paid for, and the health did not come back?
 
-  A morte de 01/09 às 08:14 (e a segunda, às 08:21): a BAG estava sem revive.
-  O F4 aterrissava ("✂️" provou), o jogo aceitava a tecla e não fazia NADA — o
-  tanque sangrou 55%→2% com o cérebro pedindo revive a cada 5s pra sempre.
-  Dez "o revive não saiu" seguidos e nenhum grito: o desarme de 3-quebras do
-  #453 só vigia o revive de RESET (R3b); os revives de BANDA (amarelo/vermelho)
-  repetiam mudos. E o alerta de estoque vigia o número DECLARADO
-  (`revive_stock`), que dizia 2000.
+  Two deaths in one morning came from an empty BAG. The F4 landed (the receipt proved it), the
+  game accepted the key and did NOTHING, and the tank bled from 55% to 2% while the brain asked
+  for a revive every 5s forever. Ten "the revive did not fire" lines in a row and no shout: the
+  three-break disarm only watches the RESET revive (R3b), while the BAND revives (yellow and
+  red) repeated in silence. And the stock alert watches the DECLARED number (`revive_stock`),
+  which said 2000.
 
-  Este módulo é puro e julga o que nenhum contador declarado pode mentir: a
-  VIDA. Um revive pago com o pokémon machucado tem que curar; se em ~4,5s a
-  barra não subiu, é uma quebra. Três seguidas = a bag está seca (ou o jogo
-  parou de aceitar F4 — as duas conclusões pedem o mesmo grito). O caído que
-  precisa de insistência conta strike direto: pagou e ninguém levantou.
+  This module is pure and judges what no declared counter can lie about: HEALTH. A revive paid
+  for with the pokémon hurt has to heal; if the bar has not risen in about 4.5s, that is a
+  break. Three in a row means the bag is dry (or the game has stopped accepting F4, and both
+  conclusions ask for the same shout). A fainted pokémon that needs insistence counts a strike
+  outright: it was paid for and nobody stood up.
 
-  O worker é quem grita (categoria `:mortal`, que fura o mudo) e pede o
-  logout (`player_hp_logout`) — aqui só existe o veredito.
+  The worker is the one that shouts (category `:mortal`, which pierces the mute) and asks for
+  the logout (`player_hp_logout`); only the verdict lives here.
   """
 
   @probe_max_hp 60
@@ -37,21 +36,21 @@ defmodule Pokex.Bots.PlayerSupport.ReviveEffect do
   def new, do: %{probe: nil, streak: 0, screamed_at: nil}
 
   @doc """
-  Um resgate foi PAGO com o pokémon nesta vida. Só vidas ≤ #{@probe_max_hp}%
-  abrem sonda: um revive de reset em pokémon cheio não tem cura pra medir.
+  A rescue was PAID for with the pokémon at this health. Only health at or below
+  #{@probe_max_hp}% opens a probe: a reset revive on a full pokémon has no healing to measure.
   """
   def paid(judge, hp, now) when is_integer(hp) and hp <= @probe_max_hp,
     do: %{judge | probe: %{at: now, hp: hp}}
 
   def paid(judge, _healthy_or_unknown, _now), do: judge
 
-  @doc "O caído precisou de INSISTÊNCIA: pagou e ninguém levantou — strike direto."
+  @doc "The fainted one needed INSISTENCE: paid for and nobody stood up, a direct strike."
   def fallen_again(judge, now), do: judge |> strike() |> verdict(now)
 
   @doc """
-  Uma leitura de vida. Fecha a sonda vencida (curou = zera; não curou =
-  strike) e devolve `{judge, :quiet | :scream}` — `:scream` no máximo uma vez
-  por janela de #{div(@scream_refractory_ms, 1000)}s.
+  One health reading. Closes an expired probe (healed resets it, not healed is a strike) and
+  answers `{judge, :quiet | :scream}`, with `:scream` at most once per
+  #{div(@scream_refractory_ms, 1000)}s window.
   """
   def tick(judge, hp, _now) when is_integer(hp) and hp >= @healed_floor,
     do: {%{judge | probe: nil, streak: 0}, :quiet}
@@ -82,6 +81,6 @@ defmodule Pokex.Bots.PlayerSupport.ReviveEffect do
 
   defp verdict(judge, _now), do: {judge, :quiet}
 
-  @doc "Quantas quebras seguidas o juiz viu — pro texto do grito."
+  @doc "How many consecutive breaks the judge has seen, for the shout's text."
   def streak(%{streak: streak}), do: streak
 end

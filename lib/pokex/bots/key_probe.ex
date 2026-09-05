@@ -1,31 +1,27 @@
 defmodule Pokex.Bots.KeyProbe do
   @moduledoc """
-  Did the key we pressed actually leave this machine, and did it leave WITH its
-  modifier?
+  Did the key we pressed actually leave this machine, and did it leave WITH its modifier?
 
-  `Pokex.Bots.SkillReceipt` reads the game's answer (the cooldown) to know a
-  skill fired. That receipt cannot exist for the stance keys: shift+1 and
-  shift+3 change a MODE, spend no cooldown, and leave nothing on the bar to
-  compare. So they were the one thing the bot pressed with no way of knowing
-  whether anything happened — "nunca até hoje funcionou isso de mudar para modo
-  de ataque ou defesa com os comandos de shift" (Lucas, 2026-08-12).
+  `Pokex.Bots.SkillReceipt` reads the game's answer (the cooldown) to know a skill fired. That
+  receipt cannot exist for the stance keys: shift+1 and shift+3 change a MODE, spend no
+  cooldown, and leave nothing on the bar to compare. So they were the one thing the bot pressed
+  with no way of knowing whether anything happened, and by his account switching to attack or
+  defence stance with those combos had never once worked.
 
-  This is the receipt one layer lower: `Pokex.Rig.Mac.KeyEvents` polls the real
-  keyboard state at 8ms, so the key events WE post show up there like his own
-  hands would. Three outcomes, and the middle one is the one worth building
-  this for:
+  This is the receipt one layer lower: `Pokex.Rig.Mac.KeyEvents` polls the real keyboard state
+  at 8ms, so the key events WE post show up there like his own hands would. Three outcomes, and
+  the middle one is the one worth building this for:
 
-    * `:posted` — the key was seen, with its modifier. It left macOS correctly;
-      anything still wrong from here on is the game's side of the window.
-    * `:naked` — the key was seen WITHOUT the modifier. shift+1 arriving as a
-      bare "1" does not switch stance, it fires the skill bound to 1.
-    * `:silent` — never seen at all: it did not leave this machine.
-    * `:unmeasurable` — the key has no keycode to watch (a letter combo like
-      shift+v), so nothing here is a statement about it.
+    * `:posted` - the key was seen, with its modifier. It left macOS correctly; anything
+      still wrong from here on is the game's side of the window.
+    * `:naked` - the key was seen WITHOUT the modifier. shift+1 arriving as a bare "1"
+      does not switch stance, it fires the skill bound to 1.
+    * `:silent` - never seen at all: it did not leave this machine.
+    * `:unmeasurable` - the key has no keycode to watch (a letter combo like shift+v), so
+      nothing here is a statement about it.
 
-  Nothing in this module says the GAME received anything. A window can be
-  unfocused and Wine can drop a modifier macOS posted perfectly — that half is
-  read with eyes, on the game.
+  Nothing in this module says the GAME received anything. A window can be unfocused and Wine can
+  drop a modifier macOS posted perfectly, and that half is read with eyes, on the game.
   """
 
   alias Pokex.Rig.Mac.Commands

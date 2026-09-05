@@ -59,6 +59,10 @@ defmodule PokexWeb.CalibrationLive do
   # precise second click is transcribed back to screen coordinates. Helps a lot on a small screen.
   @zoom_factor 3.5
 
+  @review_note "Esta foto é a conferência das marcas salvas — um clique aqui não muda nada, " <>
+                 "de propósito. Pra mexer num ponto, use \"Conferir marca por marca\" aqui em " <>
+                 "cima, ou as Correções rápidas depois de confirmar."
+
   @impl true
   def mount(params, _session, socket) do
     # `?bar=<pokémon>` turns the standalone skill-bar fix into that POKÉMON's
@@ -100,6 +104,7 @@ defmodule PokexWeb.CalibrationLive do
        error: nil,
        skillbar_msg: nil,
        zoom_at: nil,
+       review_note: nil,
        coord_search: nil,
        coord_teach_msg: nil,
        skill_count: skill_count,
@@ -603,25 +608,12 @@ defmodule PokexWeb.CalibrationLive do
     # module's regression test is that crash's payload, verbatim.
     zoomed? = socket.assigns.zoom_at != nil
 
-    case CalibrationClick.read(params, socket.assigns.scale, zoomed?) do
-      {:ok, point, entry} ->
-        socket = assign(socket, click_trace: Enum.take([entry | socket.assigns.click_trace], 4))
-
-        socket =
-          if zoomed? do
-            # A precise click on the magnified view → record it, then drop the zoom.
-            socket |> record_point(point) |> assign(zoom_at: nil)
-          else
-            # A rough first click → magnify around it so the target is easy to hit.
-            assign(socket, zoom_at: point)
-          end
-
-        {:noreply, socket}
-
-      {:error, :empty_box} ->
-        # the <img> had no measurable size yet (still loading) — a point made
-        # of zeros would be garbage saved into the calibration
-        {:noreply, assign(socket, error: "a imagem ainda não carregou — clique de novo")}
+    if CalibrationSteps.marking?(socket.assigns.step) do
+      mark_click(socket, params, zoomed?)
+    else
+      # The review photo. Nothing here is a target, so nothing is recorded —
+      # but the click has to SAY that, or it reads as a broken page.
+      {:noreply, assign(socket, review_note: @review_note)}
     end
   end
 
@@ -1861,6 +1853,29 @@ defmodule PokexWeb.CalibrationLive do
 
   # One clause per step: the old single `case` over twenty steps scored 26 on
   # cyclomatic complexity and hid which step did what.
+  defp mark_click(socket, params, zoomed?) do
+    case CalibrationClick.read(params, socket.assigns.scale, zoomed?) do
+      {:ok, point, entry} ->
+        socket = assign(socket, click_trace: Enum.take([entry | socket.assigns.click_trace], 4))
+
+        socket =
+          if zoomed? do
+            # A precise click on the magnified view → record it, then drop the zoom.
+            socket |> record_point(point) |> assign(zoom_at: nil)
+          else
+            # A rough first click → magnify around it so the target is easy to hit.
+            assign(socket, zoom_at: point)
+          end
+
+        {:noreply, socket}
+
+      {:error, :empty_box} ->
+        # the <img> had no measurable size yet (still loading) — a point made
+        # of zeros would be garbage saved into the calibration
+        {:noreply, assign(socket, error: "a imagem ainda não carregou — clique de novo")}
+    end
+  end
+
   defp record_point(socket, point),
     do: record_step(socket.assigns.step, socket, point, socket.assigns.draft)
 
@@ -3344,6 +3359,13 @@ defmodule PokexWeb.CalibrationLive do
             >
               Conferir marca por marca
             </button>
+            <p
+              :if={@review_note}
+              id="review-note"
+              class="w-full border-t border-pk-ok/30 pt-2 text-pk-body text-pk-text-2"
+            >
+              {@review_note}
+            </p>
           </div>
 
           <div
@@ -3393,9 +3415,17 @@ defmodule PokexWeb.CalibrationLive do
             <div class="relative" style={CalibrationZoom.style(@zoom_at, @screen, @zoom_factor)}>
               <%!-- The confirmation step SHOWS the marks and takes no clicks:
                     a stray click there would re-mark what he came to keep. --%>
+              <%!-- The hook rides on the review photo TOO, and that is the whole
+                    point: this step takes no marks, and until 2026-09-05 it took
+                    no clicks either — no zoom, no mark, no message, nothing.
+                    "Clico na tela quando tô tentando mudar uma calibragem e não
+                    parece estar funcionando" (ele). Silence is not a refusal he
+                    can read, and the way out (the quick fixes) is below the fold
+                    on a small window. The click now ANSWERS; the cursor stays a
+                    plain arrow, because here it is not a target. --%>
               <img
                 id="calibration-screen"
-                phx-hook={CalibrationSteps.marking?(@step) && "ImgClick"}
+                phx-hook="ImgClick"
                 src={@screen.src}
                 class={["w-full", CalibrationSteps.marking?(@step) && "cursor-crosshair"]}
               />

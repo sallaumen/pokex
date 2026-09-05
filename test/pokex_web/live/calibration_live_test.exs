@@ -64,6 +64,49 @@ defmodule PokexWeb.CalibrationLiveTest do
     }
   end
 
+  # A CLICK ON THE REVIEW PHOTO USED TO DO NOTHING AT ALL — the failure he hit
+  # on 2026-09-05: "clico na tela quando tô tentando mudar uma calibragem e não
+  # parece estar funcionando". The confirmation step deliberately takes no
+  # marks (a stray click there would re-mark what he came to keep), and the
+  # `<img>` simply had no hook: no zoom, no mark, no message, nothing. Silence
+  # is not a refusal he can read — and the way OUT (the quick fixes) is below
+  # the fold on a small window, which is where he was.
+  @tag :tmp_dir
+  test "a click on the review photo says why it marks nothing", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    {:ok, _} =
+      Fake.start_link(%{capture: [{:ok, probe}], capture_screen: [{:ok, screen}, {:ok, screen}]})
+
+    Calibration.save(complete_calibration())
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    assert view |> element("button", "Capturar tela") |> render_click() =~ "confirm-saved"
+
+    html =
+      render_hook(view, "img_click", %{
+        "x" => 25.0,
+        "y" => 15.0,
+        "cw" => 50.0,
+        "ch" => 37.5,
+        "nw" => 200.0,
+        "nh" => 150.0
+      })
+
+    assert html =~ "conferência", "o clique tem que dizer o que ele é"
+    assert html =~ "Conferir marca por marca", "…e apontar por onde se muda um ponto"
+
+    # …and it changed nothing: still the review, no zoom, no mark taken
+    assert html =~ "confirm-saved"
+    refute html =~ "Ampliado"
+  end
+
   # "Quero que ele já sempre sugira a calibração que ele já tem salvo pra usar,
   # mostrando na tela e só me pedindo pra confirmar" (Lucas, 2026-08-25). A
   # monitor already calibrated is not a monitor to re-click nine times.

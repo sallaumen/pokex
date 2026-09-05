@@ -2,23 +2,22 @@ defmodule Pokex.Bots.Cavebot.Recording do
   @moduledoc """
   Reading what he was DOING from how long he stood still.
 
-  A recorded route used to be a list of PLACES, and marking what happened at
-  each one was work he had to redo by hand afterwards — "hoje está bem difícil
-  de gravar" (Lucas, 2026-08-11). But the clock already knows: a corner marked
-  in passing is a corner he walked through, and a spot he stood on for half a
+  A recorded route used to be a list of PLACES, and marking what happened at each one was work
+  he had to redo by hand afterwards, which made recording hard. But the clock already knows: a
+  corner marked in passing is a corner he walked through, and a spot he stood on for half a
   minute is a spot where he killed a pile and picked it up.
 
   So the recorder reads the dwell:
 
-    * a long stop is a KILL SPOT — `:lure_end`, the gathering ended here and
-      this is where everything dies;
-    * the stretch BETWEEN two kill spots is the GATHERING — `:lure_start` on
-      the first waypoint after the previous kill spot. His loop is exactly
-      that: kill, walk gathering the next pile, kill again. Nothing is
-      guessed; the route already says it.
+    * a long stop is a KILL SPOT (`:lure_end`), the gathering ended here and this is
+      where everything dies;
+    * the stretch BETWEEN two kill spots is the GATHERING (`:lure_start` on the first
+      waypoint after the previous kill spot). His loop is exactly that: kill, walk
+      gathering the next pile, kill again. Nothing is guessed; the route already says
+      it.
 
-  Everything here is a starting point, not a verdict: every mark is editable
-  on the page afterwards, and a waypoint he marked by hand is never touched.
+  Everything here is a starting point, not a verdict: every mark is editable on the page
+  afterwards, and a waypoint he marked by hand is never touched.
   """
 
   alias Pokex.Bots.Cavebot.Route
@@ -82,17 +81,16 @@ defmodule Pokex.Bots.Cavebot.Recording do
   end
 
   @doc """
-  The skill keys he uses HABITUALLY across these routes: the ones that show up
-  at most of his kill spots.
+  The skill keys he uses HABITUALLY across these routes: the ones that show up at most of his
+  kill spots.
 
-  The editor offers ten keys and his hands use four. Which four cannot be the
-  union of everything he ever pressed — his real route pressed `1 3 4 5` at
-  five kill spots and `2 6 7 8` at exactly one, the one he told us he fumbled
-  ("eu mesmo errei alguns combos ali", 2026-08-11). The union answers "eight of
-  your nine keys", which is not an answer.
+  The editor offers ten keys and his hands use four. Which four cannot be the union of
+  everything he ever pressed: his real route pressed `1 3 4 5` at five kill spots and `2 6 7 8`
+  at exactly one, the one he told us he fumbled. The union answers "eight of your nine keys",
+  which is not an answer.
 
-  So a key counts when it appears at HALF or more of the kill spots that have a
-  combo. A slip happens once; a combo happens every time.
+  So a key counts when it appears at HALF or more of the kill spots that have a combo. A slip
+  happens once; a combo happens every time.
   """
   @spec habitual_skills([Route.t()]) :: [String.t()]
   def habitual_skills(routes) when is_list(routes) do
@@ -117,13 +115,12 @@ defmodule Pokex.Bots.Cavebot.Recording do
   end
 
   @doc """
-  Cleans a route's marks up: every kill spot keeps its own, and each one gets
-  exactly ONE gathering leading into it.
+  Cleans a route's marks up: every kill spot keeps its own, and each one gets exactly ONE
+  gathering leading into it.
 
-  His first real mob route came back with two "até aqui" in a row and a
-  warning nobody could act on ("eu mesmo errei alguns combos ali",
-  2026-08-11) — a middle click he made twice, or one made where no stretch
-  had been walked. The marks are his; what is wrong is only their pairing.
+  His first real mob route came back with two lure-end marks in a row and a warning nobody could
+  act on: a middle click he made twice, or one made where no stretch had been walked. The marks
+  are his; what is wrong is only their pairing.
   """
   @spec tidy(Route.t()) :: {Route.t(), String.t()}
   def tidy(%Route{} = route) do
@@ -354,10 +351,9 @@ defmodule Pokex.Bots.Cavebot.Recording do
         "fiquei com ela (só o combo veio junto); "
 
   @doc """
-  Marks a kill spot he pointed out HIMSELF — the middle click that parks his
-  pokémon, which is the marker he asked for over the clock: "é uma marca muito
-  mais fácil de eu te passar" (2026-08-11), and unlike standing still it is
-  never invisible to the reader.
+  Marks a kill spot he pointed out HIMSELF: the middle click that parks his pokémon, which is
+  the marker he asked for over the clock (far easier for him to signal), and unlike standing
+  still it is never invisible to the reader.
   """
   @spec mark_park(Route.t(), non_neg_integer, {integer, integer}, keyword) ::
           {Route.t(), String.t() | nil}
@@ -381,15 +377,14 @@ defmodule Pokex.Bots.Cavebot.Recording do
   end
 
   @doc """
-  Marks the kill spot his own hand announced: shift+1 is the game's attack
-  mode, and pressing it means "saio do modo mobado, vou matar" — so the fight
-  starts HERE, and this is a stop on the route ("toda luta é uma parada na
-  rota", Lucas, 2026-08-11).
+  Marks the kill spot his own hand announced: shift+1 is the game's attack mode, and pressing it
+  means he is leaving the gathering stance to kill. So the fight starts HERE, and every fight is
+  a stop on the route.
 
-  The same marker as the middle click, with the same guard: a fight already
-  marked next door is not marked twice — shift+1 pressed again mid-pile, or
-  pressed right after the click that parked the pokémon, is the same fight.
-  A quiet `nil` note is the answer then, because nothing happened.
+  The same marker as the middle click, with the same guard: a fight already marked next door is
+  not marked twice. shift+1 pressed again mid-pile, or pressed right after the click that parked
+  the pokémon, is the same fight. A quiet `nil` note is the answer then, because nothing
+  happened.
   """
   @spec mark_fight_start(Route.t(), non_neg_integer, keyword) ::
           {Route.t(), String.t() | nil}
@@ -410,19 +405,17 @@ defmodule Pokex.Bots.Cavebot.Recording do
   end
 
   @doc """
-  Marks where the gathering STARTS AGAIN — his shift+3, the game's defence mode
-  ("o shift+3 é o modo mobando", Lucas, 2026-08-11).
+  Marks where the gathering STARTS AGAIN: his shift+3, the game's defence mode, which is the
+  stance a gathering is walked in.
 
-  Two silences, both deliberate. Pressed ON the spot he just closed — which is
-  where he presses it most of the time, right after the pile dies — it says
-  nothing new: the gathering resumes on the NEXT corner, which is exactly what
-  `mark_kill_spot/4` already infers, and marking here would erase the "até
-  aqui" he just made. Pressed on a corner that already says "mobar daqui", it
-  says nothing twice.
+  Two silences, both deliberate. Pressed ON the spot he just closed, which is where he presses
+  it most of the time right after the pile dies, it says nothing new: the gathering resumes on
+  the NEXT corner, which is exactly what `mark_kill_spot/4` already infers, and marking here
+  would erase the kill spot he just made. Pressed on a corner that already says "gather from
+  here", it says nothing twice.
 
-  Anywhere else it is information nothing else has: the corners between the
-  kill spot and this one are where he kept FIGHTING, and only his hand knows
-  where that ended.
+  Anywhere else it is information nothing else has: the corners between the kill spot and this
+  one are where he kept FIGHTING, and only his hand knows where that ended.
   """
   @spec mark_gathering_start(Route.t(), non_neg_integer, keyword) ::
           {Route.t(), String.t() | nil}
@@ -439,28 +432,25 @@ defmodule Pokex.Bots.Cavebot.Recording do
   @doc """
   Which waypoint this fight's lesson belongs to.
 
-  Measured on the Meganium 1 route (2026-08-12): four of the eight fights
-  closed one or two tiles PAST the "até aqui" — he kills, takes a step, and
-  only then presses the shift+3 that closes the fight. The `fight_ms`, the
-  `gather_ms` and the combo landed on the tile he was standing on, and the hunt
-  reads those three things only at the kill spot: 4 of the 8 lessons were
-  invisible.
+  Measured on a real route: four of the eight fights closed one or two tiles PAST the kill spot.
+  He kills, takes a step, and only then presses the shift+3 that closes the fight. The
+  `fight_ms`, the `gather_ms` and the combo landed on the tile he was standing on, and the hunt
+  reads those three things only at the kill spot: 4 of the 8 lessons were invisible.
 
-  The answer is the same ruler the middle click and the shift+1 already use to
-  decide "this is the same fight" — 6 tiles and 10 seconds. With no kill spot
-  nearby, the lesson stays where it is.
+  The answer is the same ruler the middle click and the shift+1 already use to decide "this is
+  the same fight": 6 tiles and 10 seconds. With no kill spot nearby, the lesson stays where it
+  is.
 
-  An index the route does not have is its own answer, quietly: a waypoint
-  deleted mid-recording leaves the buffered combo pointing past the end, and
-  the drain right after it must not take the recording — and the combo — down
-  with it. `Route.set_timing/3` has always no-opped there; so does this.
+  An index the route does not have is its own answer, quietly: a waypoint deleted mid-recording
+  leaves the buffered combo pointing past the end, and the drain right after it must not take
+  the recording, and the combo, down with it. `Route.set_timing/3` has always no-opped there; so
+  does this.
 
-  A kill spot is its own answer too, and for a harder reason: the ruler rejects
-  only `index` itself, so a fight closed ON a kill spot would file its lesson
-  onto the NEXT kill spot within 6 tiles, and `Route.set_timing/3` overwrites
-  what that one was holding. Two kill spots that close are reachable —
-  `infer_with_note/4` mints one from a long dwell with no ruler in the way, so
-  standing 12s on the tile after a kill spot makes one a tile away.
+  A kill spot is its own answer too, and for a harder reason: the ruler rejects only `index`
+  itself, so a fight closed ON a kill spot would file its lesson onto the NEXT kill spot within
+  6 tiles, and `Route.set_timing/3` overwrites what that one was holding. Two kill spots that
+  close are reachable: `infer_with_note/4` mints one from a long dwell with no ruler in the way,
+  so standing 12s on the tile after a kill spot makes one a tile away.
   """
   @spec lesson_index(Route.t(), non_neg_integer) :: non_neg_integer
   def lesson_index(%Route{waypoints: waypoints} = route, index) do

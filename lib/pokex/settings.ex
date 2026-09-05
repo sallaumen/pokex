@@ -685,13 +685,18 @@ defmodule Pokex.Settings do
     # what it does on its own.
     engine_orders_max_age_ms: 1_500,
     # --- Where the monsters are (a reading, not a rule) --------------------------------------------
-    # How far out `Pokex.Bots.CrowdScan` looks when asked. The box it captures is
-    # this many tiles in EVERY direction, so raising it costs area quadratically —
-    # 6 already covers more than any area skill in the game reaches.
-    # The waiting eye (phase 1): photographs around the pokémon while the brain waits for
-    # the pile and writes to the feed how many stand within 1 tile. It only measures.
+    # The eye: `Pokex.Bots.CrowdWatch` photographs the box around the character and
+    # publishes every creature's tiles. Nothing decides on it yet.
     crowd_watch_enabled: true,
-    crowd_scan_radius_tiles: 6,
+    # The box is this many tiles in EVERY direction. 8 covers the whole game viewport
+    # (15×11): a creature the battle list counts but the box cannot see would read as
+    # hidden, and hold a revive from something far away.
+    crowd_scan_radius_tiles: 8,
+    # How often the eye looks during a fight; walking with an empty list it looks once a
+    # second. Measured ~30 ms a look (2026-09-05).
+    crowd_scan_every_ms: 250,
+    # A `:crowd` fact older than this is no eye at all.
+    crowd_fact_max_age_ms: 600,
     # How much the evidence picture is shrunk before it is drawn.
     crowd_scan_evidence_shrink: 4,
     # CALIBRATION MODE, off by default: after every area key the bot presses, take one capture
@@ -876,6 +881,8 @@ defmodule Pokex.Settings do
     engine_reset_revive_cooldown_ms: 0..60_000,
     engine_reset_revive_min_hp: 0..100,
     crowd_scan_radius_tiles: 1..20,
+    crowd_scan_every_ms: 100..5_000,
+    crowd_fact_max_age_ms: 200..5_000,
     crowd_scan_evidence_shrink: 1..16,
     engine_crowd_from: 1..20,
     engine_spent_keys_left: 0..9,

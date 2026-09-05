@@ -355,10 +355,10 @@ defmodule PokexWeb.ConfigLive do
         %{
           key: :crowd_watch_enabled,
           kind: :bool,
-          label: "Olhar a pilha enquanto espera (só mede)",
+          label: "O olho do cerco (só mede)",
           hint:
-            "Esperando o bolo, fotografa ao redor do pokémon a cada meio segundo e escreve no feed " <>
-              "quantos estão a 1 tile. Ainda não decide nada por isso. Desligue se a batalha atrasar.",
+            "Em luta, fotografa a tela em volta do personagem 4× por segundo e desenha na Central " <>
+              "onde cada bicho está, a vida, a caveira e o seu pokémon. Ainda não decide nada por isso.",
           keywords: "olho perto pilha foto medir crowd alcance tile"
         }
       ]

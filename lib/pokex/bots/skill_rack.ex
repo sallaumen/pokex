@@ -1,25 +1,23 @@
 defmodule Pokex.Bots.SkillRack do
   @moduledoc """
-  A barra como ela está AGORA, tecla por tecla, com as duas fontes lado a lado.
+  The bar as it is RIGHT NOW, key by key, with both sources side by side.
 
-  A prontidão de uma tecla tem duas testemunhas e elas nem sempre concordam: a
-  TELA (a barra do jogo, lida por comparação de pixel contra uma referência da
-  calibração) e o RELÓGIO (`Pokex.Bots.SkillClock`, o que o bot carimbou ter
-  apertado, cruzado com o cooldown que ele escreveu no `/time`).
+  A key's readiness has two witnesses and they do not always agree: the SCREEN (the game's bar,
+  read by comparing pixels against a calibration reference) and the CLOCK
+  (`Pokex.Bots.SkillClock`, what the bot stamped as pressed, crossed with the cooldown he wrote
+  in `/time`).
 
-  Enquanto as duas moravam só dentro da decisão, uma discordância era invisível
-  — e discordância é exatamente o defeito que custou a caçada de 27/08: o jogo
-  escrevia `12`, `32` e `32` em cima das teclas 3, 4 e 5, a leitura respondia
-  "3 e 5 prontas", e a rotação passou dezenove segundos apertando as duas. Nada
-  em tela nenhuma dizia isso.
+  While both lived only inside the decision, a disagreement was invisible, and disagreement is
+  exactly the defect that cost one hunt: the game was writing `12`, `32` and `32` over keys 3, 4
+  and 5, the reading answered "3 and 5 ready", and the rotation spent nineteen seconds pressing
+  both. No screen anywhere said so.
 
-  Então este módulo não escolhe uma testemunha: ele mostra as duas, e diz qual
-  delas a rotação vai obedecer. `state` é a resposta OBEDECIDA — vem do mesmo
-  `SkillClock.ready/4` que o combate chama, nunca de uma segunda regra parecida
-  — e `disagree?` marca a linha onde vale a pena olhar.
+  So this module does not choose a witness: it shows both, and says which one the rotation will
+  obey. `state` is the OBEYED answer, from the same `SkillClock.ready/4` combat calls and never
+  from a second similar rule, and `disagree?` marks the row worth looking at.
 
-  Puro no que dá pra ser: recebe o `now`, lê o relógio (ETS) e devolve uma
-  lista. Nenhuma captura, nenhuma decisão.
+  As pure as it can be: it takes `now`, reads the clock (ETS) and answers a list. No capture, no
+  decision.
   """
 
   alias Pokex.Bots.SkillClock
@@ -37,11 +35,11 @@ defmodule Pokex.Bots.SkillRack do
         }
 
   @doc """
-  Uma peça por tecla da barra, na ordem da barra.
+  One piece per key of the bar, in the bar's order.
 
-  `loadout` é a visão que a página já tem (`opening`, `reserved`, `buffs`,
-  `heal`, `single`, `cooldowns`); `screen` é `Pokex.Perception.ready_skills/1`
-  — lista de prontas, ou `nil` quando a barra não foi lida.
+  `loadout` is the view the page already has (`opening`, `reserved`, `buffs`, `heal`, `single`,
+  `cooldowns`); `screen` is `Pokex.Perception.ready_skills/1`, the list of ready keys, or `nil`
+  when the bar was not read.
   """
   @spec build(map | nil, [String.t()] | nil, integer) :: [tile]
   def build(loadout, screen, now \\ System.monotonic_time(:millisecond))
@@ -57,11 +55,11 @@ defmodule Pokex.Bots.SkillRack do
   end
 
   @doc """
-  A ordem da FILEIRA, com o zero por último — que é onde ele está na barra.
+  The ROW's order, with the zero last, which is where it sits on the bar.
 
-  As de alvo único entram mesmo com a rotação sem elas: a barra é o que ELE
-  tem, não o que o bot vai apertar, e uma tecla que some da tela é uma tecla
-  que ele não sabe que existe. Quem diz que ela está fora é o `job`.
+  The single-target keys are in even when the rotation goes without them: the bar is what HE
+  has, not what the bot is going to press, and a key that vanishes from the screen is a key he
+  does not know exists. What says it is out is the `job`.
   """
   @spec order(map) :: [String.t()]
   def order(loadout) do
@@ -139,7 +137,7 @@ defmodule Pokex.Bots.SkillRack do
     {:single, "alvo único (fora da rotação)"}
   ]
 
-  @doc "O que essa tecla faz nesta caçada."
+  @doc "What this key does in this hunt."
   @spec job_of(String.t(), map) :: String.t()
   def job_of(key, loadout) do
     Enum.find_value(@jobs, "sem trabalho", fn {field, label} ->
@@ -147,14 +145,13 @@ defmodule Pokex.Bots.SkillRack do
     end)
   end
 
-  @doc "Quantas estão prontas de verdade — as que a rotação pode apertar agora."
+  @doc "How many are really ready: the ones the rotation may press now."
   @spec ready_count([tile]) :: non_neg_integer
   def ready_count(tiles), do: Enum.count(tiles, &(&1.state == :ready))
 
   @doc """
-  Quanto da recuperação já passou, em 0-100, pra desenhar o trilho que enche.
-  Sem número escrito não há fração — a peça mostra o estado, não uma barra
-  inventada.
+  How much of the recovery has passed, 0-100, for drawing the filling rail. Without a written
+  number there is no fraction: the piece shows the state, not an invented bar.
   """
   @spec recovered_pct(tile) :: non_neg_integer | nil
   def recovered_pct(%{state: :ready}), do: 100

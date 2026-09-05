@@ -1,21 +1,19 @@
 defmodule Pokex.Vision.ColorRules do
   @moduledoc """
-  O acervo das CORES ESPECIAIS: as regras que o `ColorMark` varre.
+  The collection of SPECIAL COLOURS: the rules `ColorMark` scans for.
 
-  **Shiny e "chefe" são a MESMA criatura neste jogo** ("o shiny É o chefe —
-  foi assim que eu usei pra falar antes, mas nesse jogo o que tô chamando de
-  chefe são os shinies", Lucas, 01/09). Um shiny é um recolor — o Electrode
-  dele é verde onde o comum é vermelho —, tem vida e ataque muito maiores, e é
-  ao mesmo tempo o troféu que ele caça. Por isso existe UM tipo de regra e não
-  dois: cada uma guarda o(s) tom(s) de referência, a tolerância e a
-  sensibilidade, ensinados no painel de calibração por conta-gotas
+  **A shiny and a "boss" are the SAME creature in this game**, in his own words: what he
+  had been calling a boss is what this game calls a shiny. A shiny is a recolour (his
+  Electrode is green where the common one is red), it has far more health and attack, and
+  it is at the same time the trophy he hunts. That is why there is ONE kind of rule and
+  not two: each one holds the reference tone or tones, the tolerance and the sensitivity,
+  taught in the calibration panel with an eyedropper
   (docs/shiny/plano-shiny-por-cor.md).
 
-  Mesma disciplina do `SpriteLibrary`: o arquivo JSON é a verdade
-  (`~/.pokex/special_colors.json`), cache em `:persistent_term` carimbado por
-  mtime+tamanho. Regra NÃO PROVADA (sem `proven`) não entra no vigia: a prova de
-  ruído do painel é obrigatória antes de armar (o chão de caçada normal é
-  medido e o `min_px` ganha margem 3× — o método do grit/#461).
+  Same discipline as `SpriteLibrary`: the JSON file is the truth
+  (`~/.pokex/special_colors.json`), cached in `:persistent_term` stamped by mtime and size. An
+  UNPROVEN rule (no `proven`) does not enter the watcher: the panel's noise proof is mandatory
+  before arming, with the ordinary hunt floor measured and `min_px` given a 3x margin.
   """
 
   alias Pokex.Home
@@ -27,12 +25,12 @@ defmodule Pokex.Vision.ColorRules do
   def list, do: cache().entries
 
   @doc """
-  Cria uma regra. `attrs` pede `name` e `colors` (lista de
-  `%{"rgb" => [r, g, b], "tol_h" => graus, "tol_sv" => pct}`); aceita `min_px`,
-  `min_cell_px` e `note`. Nasce ligada e NÃO provada.
+  Creates a rule. `attrs` requires `name` and `colors` (a list of
+  `%{"rgb" => [r, g, b], "tol_h" => degrees, "tol_sv" => pct}`); it accepts `min_px`,
+  `min_cell_px` and `note`. It is born enabled and NOT proven.
 
-  Não existe `kind`: shiny e chefe são a mesma coisa aqui. Arquivos antigos que
-  guardaram o campo continuam lendo — ele simplesmente não decide mais nada.
+  There is no `kind`: shiny and boss are the same thing here. Old files that stored the field
+  still load, it simply no longer decides anything.
   """
   def add(%{"name" => name, "colors" => colors} = attrs)
       when is_binary(name) and is_list(colors) and colors != [] do
@@ -54,7 +52,7 @@ defmodule Pokex.Vision.ColorRules do
 
   def add(_incomplete), do: {:error, :invalid}
 
-  @doc "Atualiza campos editáveis (tolerâncias, sensibilidade, nota) de uma regra."
+  @doc "Updates a rule's editable fields (tolerances, sensitivity, note)."
   def update(slug, attrs) do
     editable = ["min_px", "min_cell_px", "note", "colors", "name"]
 
@@ -79,8 +77,8 @@ defmodule Pokex.Vision.ColorRules do
   end
 
   @doc """
-  Carimba a prova de ruído: o pico de px do CHÃO (caçada normal, sem o
-  especial na tela) e quando foi medida. O vigia só varre regra provada.
+  Stamps the noise proof: the FLOOR's px peak (an ordinary hunt, with no special on screen) and
+  when it was measured. The watcher only scans a proven rule.
   """
   def mark_proven(slug, floor_px) when is_integer(floor_px) and floor_px >= 0 do
     mutate(slug, fn entry ->
@@ -100,7 +98,7 @@ defmodule Pokex.Vision.ColorRules do
   end
 
   @doc """
-  As regras que o VIGIA varre — ligadas E provadas — já compiladas:
+  The rules the WATCHER scans, enabled AND proven, already compiled:
   `[%{slug, name, min_px, min_cell_px, specs}]`.
   """
   def armed do

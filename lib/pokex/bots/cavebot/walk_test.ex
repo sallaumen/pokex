@@ -1,28 +1,26 @@
 defmodule Pokex.Bots.Cavebot.WalkTest do
   @moduledoc """
-  "Anda três passos e me diz o que aconteceu" — the hunt's smallest possible
-  rehearsal.
+  "Walk three steps and tell me what happened": the hunt's smallest possible rehearsal.
 
-  Arming a whole hunt to find out whether the character moves is an expensive
-  question with a slow answer: combat starts, the route runs, and a failure
-  arrives minutes later wearing somebody else's name. This walks a few tiles
-  toward a target and reports which of the three links broke:
+  Arming a whole hunt to find out whether the character moves is an expensive question with a
+  slow answer: combat starts, the route runs, and a failure arrives minutes later wearing
+  somebody else's name. This walks a few tiles toward a target and reports which of the three
+  links broke:
 
-    * the keys never reached the game (`:did_not_move` — focus, gate, wine),
-    * the position is not being read (`:no_position` — the minimap),
+    * the keys never reached the game (`:did_not_move`: focus, gate, wine),
+    * the position is not being read (`:no_position`: the minimap),
     * or both work and the character moved (`{:ok, _}`).
 
-  These are HUMAN hands, not the fleet's: the button is clicked in the browser,
-  so the game is brought forward, the calibrated neutral point is clicked (macOS
-  hands the keyboard on a CLICK, not on `set frontmost`) and the arrows go out
-  UNGATED — the safety gate's corner flag is proven by the Guardian, which only
-  polls while the fleet is up, so with the bot stopped a gated press can never
-  happen. That is exactly the refusal this test used to answer with
-  (`:input_gate_closed`, 2026-08-10) instead of walking.
+  These are HUMAN hands, not the fleet's: the button is clicked in the browser, so the game is
+  brought forward, the calibrated neutral point is clicked (macOS hands over the keyboard on a
+  CLICK, not on `set frontmost`) and the arrows go out UNGATED. The safety gate's corner flag is
+  proven by the Guardian, which only polls while the fleet is up, so with the bot stopped a
+  gated press can never happen. That is exactly the refusal this test used to answer with
+  (`:input_gate_closed`) instead of walking.
 
-  Everything it needs is injected, so the whole thing is testable without a
-  game: `body` (anything with `arrow_step/3`), `read` (a function returning
-  the current position), `sleep`, `front` and `focus`.
+  Everything it needs is injected, so the whole thing is testable without a game: `body`
+  (anything with `arrow_step/3`), `read` (a function returning the current position), `sleep`,
+  `front` and `focus`.
   """
 
   alias Pokex.Bots.Body

@@ -2,26 +2,23 @@ defmodule Pokex.Bots.SkillReceipt do
   @moduledoc """
   Did the skill actually go off?
 
-  Pressing a key proves nothing. The window can be unfocused, the safety gate
-  shut, the mana short, the client busy — and the bot happily carries on as if
-  the screen had answered. In fishing that cost a few seconds. Hunting is
-  another game: "é mais difícil e mais perigoso as coisas" (Lucas,
-  2026-08-11), and the press that matters most is the crowd control that puts
-  everything around him to sleep BEFORE his pokémon leaves the field.
+  Pressing a key proves nothing. The window can be unfocused, the safety gate shut, the mana
+  short, the client busy, and the bot happily carries on as if the screen had answered. In
+  fishing that cost a few seconds. Hunting is another game, harder and more dangerous by his
+  account, and the press that matters most is the crowd control that puts everything around him
+  to sleep BEFORE his pokémon leaves the field.
 
-  There is a receipt, and it was already on screen: **the cooldown**. A skill
-  that fired is no longer ready. So a press is confirmed by comparing the
-  skill bar before and after it — no new perception, no new calibration, just
-  reading what the game already answers with.
+  There is a receipt, and it was already on screen: **the cooldown**. A skill that fired is no
+  longer ready. So a press is confirmed by comparing the skill bar before and after it: no new
+  perception, no new calibration, just reading what the game already answers with.
 
   Three outcomes per key, and the third one is the important one:
 
-    * `fired` — it was ready, and now it is not;
-    * `missed` — it was ready, and it still is: the press did not land;
-    * `unknown` — it was already cooling (nothing to fire), or the bar could
-      not be read. Never counted as fired. A caller that treats "I could not
-      see" as "it worked" is exactly the caller that strips the field with the
-      mobs wide awake.
+    * `fired` - it was ready, and now it is not;
+    * `missed` - it was ready, and it still is: the press did not land;
+    * `unknown` - it was already cooling (nothing to fire), or the bar could not be read.
+      Never counted as fired. A caller that treats "I could not see" as "it worked" is
+      exactly the caller that strips the field with the mobs wide awake.
   """
 
   @type reading :: [String.t()] | nil

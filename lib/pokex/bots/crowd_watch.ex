@@ -1,32 +1,29 @@
 defmodule Pokex.Bots.CrowdWatch do
   @moduledoc """
-  O OLHO DA ESPERA — fase 1: mede, não decide.
+  THE WAITING EYE, phase 1: it measures, it does not decide.
 
-  "Em cima e perto" é, até hoje, um relógio: o cérebro espera `engine_bunch_ms`
-  e chama isso de perto. Este vigia fotografa ao redor do pokémon ENQUANTO o
-  cérebro espera o bolo (`:bunching`, ou `:sizing` com pilha que vale) e escreve
-  no feed quantos bichos estão ao alcance — 1 tile, os oito quadrados
-  vizinhos: "alcance padrão é 1 quadrado de distância do meu pokémon no max"
-  (Lucas, foto de 02/09). O cérebro NÃO lê o fato ainda; a fase 2 é dele.
+  "On top and close" is, to this day, a clock: the brain waits `engine_bunch_ms` and calls that
+  close. This watcher photographs around the pokémon WHILE the brain waits for the pile
+  (`:bunching`, or `:sizing` with a pile worth it) and writes to the feed how many creatures are
+  within reach, one tile, the eight neighbouring squares, which is the area reach he measured.
+  The brain does NOT read the fact yet; phase 2 is that.
 
-  ## O que a fase 1 compra
+  ## What phase 1 buys
 
-    * o fato `:crowd` no quadro, com `near`, `seen`, `listed`, a origem da medida
-      e quanto custou;
-    * uma linha no feed a cada leitura que mudou — o número que o relógio
-      decidia às cegas;
-    * na ABERTURA (a espera virou `:engaged`), a última foto com as caixas,
-      guardada em `captures/crowd/` — a calibração do leitor é uma noite dessas
-      fotos;
-    * dois medidores no `Perf`: quanto a foto custou e QUANTO A BATALHA ATRASOU
-      enquanto ela saía. A fila de captura é uma só (~0,28s por foto, contra o
-      feed de batalha a 120ms), e é isso que decide se a fase 2 pode ligar.
+    * the `:crowd` fact in the frame, with `near`, `seen`, `listed`, the origin of the
+      measurement and what it cost;
+    * one feed line per changed reading, the number the clock used to decide blind;
+    * at the OPENING (the wait became `:engaged`), the last photo with its boxes, kept in
+      `captures/crowd/`. Calibrating the reader is a night of those photos;
+    * two meters in `Perf`: what the photo cost, and HOW LATE THE BATTLE READING WAS while
+      it was taken. There is one capture queue (~0.28s per photo, against the battle feed
+      at 120ms), and that is what decides whether phase 2 may be switched on.
 
-  ## O que ela não faz
+  ## What it does not do
 
-  Nada andando, nada lutando, nada revivendo: a foto só sai na espera parada,
-  a cada 500ms, doze por espera no máximo. Desligada (`crowd_watch_enabled`),
-  o vigia só reavalia o interruptor uma vez por segundo.
+  Nothing while walking, fighting or reviving: the photo is only taken during the standing wait,
+  every 500ms, twelve per wait at most. Off (`crowd_watch_enabled`), the watcher only re-checks
+  the switch once a second.
   """
   use GenServer
 
@@ -61,11 +58,11 @@ defmodule Pokex.Bots.CrowdWatch do
     end
   end
 
-  @doc "Até quantos tiles do pokémon conta como ao alcance da área."
+  @doc "How many tiles from the pokémon still count as within the area's reach."
   @spec reach_tiles() :: pos_integer
   def reach_tiles, do: @reach_tiles
 
-  @doc "Uma leitura agora, fora do relógio — o teste e o botão da página usam."
+  @doc "One reading now, off the clock: the test and the page's button use it."
   @spec look_now(GenServer.server()) :: :ok
   def look_now(server \\ __MODULE__), do: GenServer.call(server, :look_now)
 

@@ -1,34 +1,29 @@
 defmodule Pokex.Bots.ShinyGuard do
   @moduledoc """
-  O vigia das CORES ESPECIAIS — o gatilho do SHINY no Poké Alliance, que é o
-  mesmo bicho que ele chamava de "chefe" ("o shiny É o chefe (…) nesse jogo o
-  que tô chamando de chefe são os shinies", 01/09): recolor, vida e ataque
-  muito maiores, e o troféu da noite. Um conceito, um caminho.
+  The watcher for SPECIAL COLOURS: the SHINY trigger in this client, which is the same creature
+  he used to call a boss (a recolour, far more health and attack, and the night's trophy). One
+  concept, one path.
 
-  O detector antigo esperava a estrela dourada que o PokeTibia pintava na
-  battle list; o PA não pinta estrela nenhuma. O que separa o especial do
-  comum aqui é a PALETA: o Electrode shiny é verde onde o comum é vermelho
-  (print de 01/09), e o matiz sobrevive a qualquer pose — até ao rollout de
-  ponta-cabeça. Então o vigia varre o quadrado ao redor do personagem (o
-  mesmo do `SpotScan`) atrás das regras PROVADAS do `ColorRules`, com o
-  `ColorMark` fazendo a leitura.
+  The old detector waited for the golden star the previous client painted in the battle list;
+  this one paints no star. What separates the special from the common here is the PALETTE: a
+  shiny Electrode is green where the common one is red, and the hue survives any pose, even an
+  upside-down rollout. So the watcher scans the square around the character (the same one
+  `SpotScan` uses) for the PROVEN rules of `ColorRules`, with `ColorMark` doing the reading.
 
-  SEM AÇÕES, por decisão dele (01/09): nem alarme, nem fuga — `shiny_action`
-  e o `escape_fun` morreram com a estrela. Avistou = REGISTRA: linha no
-  diário, troféu no `ShinyLog`, `{:shiny_seen, info}` no tópico "shiny" (o
-  Catcher arma a bola garantida — `shiny_always_ball`), e o medidor vivo do
-  painel. A reação inteligente nasce no protocolo shiny da fase 2 do plano
-  (docs/shiny/plano-shiny-por-cor.md).
+  NO ACTIONS, by his decision: no alarm, no escape; `shiny_action` and the `escape_fun` died
+  with the star. Sighted means RECORDED: a journal line, a trophy in `ShinyLog`,
+  `{:shiny_seen, info}` on the "shiny" topic (the Catcher arms the guaranteed ball,
+  `shiny_always_ball`), and the panel's live meter. The intelligent reaction is born in phase 2
+  of the shiny protocol (docs/shiny/plano-shiny-por-cor.md).
 
-  A confirmação é por VARREDURAS SEGUIDAS (`special_color_confirm_frames`):
-  um vislumbre de um quadro só não registra. O refratário por regra segura a
-  metralhadora. A caixa do personagem e a do pokémon PARADO são proibidas —
-  o verde do Torterra dele é quase o do Electrode shiny (armadilha nº 1 do
-  plano); a prova de ruído do acervo é a outra metade dessa defesa.
+  Confirmation is by CONSECUTIVE SCANS (`special_color_confirm_frames`): a single-frame glimpse
+  does not record. The per-rule refractory holds the machine gun. The boxes of the character and
+  of the STANDING pokémon are forbidden, because his own Torterra's green is nearly a shiny
+  Electrode's; the collection's noise proof is the other half of that defence.
 
-  Filho sempre-vivo da aplicação, como o Guardian — um shiny importa também
-  no jogo manual. `:shiny_guard_active` desliga a instância global nos
-  testes; instâncias de teste optam por entrar com `active: true`.
+  An always-alive child of the application, like the Guardian, because a shiny matters in manual
+  play too. `:shiny_guard_active` disables the global instance in tests; test instances opt in
+  with `active: true`.
   """
 
   use GenServer

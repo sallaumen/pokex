@@ -1406,34 +1406,31 @@ defmodule Pokex.Bots.Cavebot.Worker do
   @type walk_outcome :: {:hold, [String.t()]} | {:tap, String.t() | nil} | :nothing
 
   @doc """
-  One line per walking decision, carrying everything a hunt cannot be read back
-  from afterwards: where he WAS, how far the target was when the decision was
-  taken, how old the reading it was taken on was, and what actually went out.
+  One line per walking decision, carrying everything a hunt cannot be read back from afterwards:
+  where he WAS, how far the target was when the decision was taken, how old the reading it was
+  taken on was, and what actually went out.
 
-  The four together answer the three questions this instrument exists for —
-  real speed in tiles/s (absolute positions, differenced by nobody), tiles
-  covered per decision (`{:walk, 4, -3}` reads identically whether the Worker
-  then held two keys, held one, tapped one or pressed nothing: what went out is
-  the half that differs), and whether decisions are taken on stale readings.
+  The four together answer the three questions this instrument exists for: real speed in tiles/s
+  (absolute positions, differenced by nobody), tiles covered per decision (`{:walk, 4, -3}`
+  reads identically whether the Worker then held two keys, held one, tapped one or pressed
+  nothing, so what went out is the half that differs), and whether decisions are taken on stale
+  readings.
 
-  `cavebot_measure_walk` (off by default) is the whole switch, and off means
-  SILENCE: the hunt decides ~5x a second, `/cavebot` keeps 8 log lines and does
-  not filter by level, so a line per decision turned that box into a rolling
-  1.6-second window — `waypoint 12/67`, `🪜 procurando a escada` and `BLOQUEADO`
-  scrolled away before he could read them. Measuring is opt-in; off costs
-  exactly zero lines.
+  `cavebot_measure_walk` (off by default) is the whole switch, and off means SILENCE: the hunt
+  decides ~5x a second, `/cavebot` keeps 8 log lines and does not filter by level, so a line per
+  decision turned that box into a rolling 1.6-second window and the waypoint counter, the
+  staircase search and the BLOCKED lines scrolled away before he could read them. Measuring is
+  opt-in; off costs exactly zero lines.
 
-  On, the line is `:macro`, because `:debug` is exactly what
-  `Journal.persist_event/2` refuses to write: measured at `:debug` a hunt leaves
-  nothing on disk and can only be read off the panel's last ~200 lines. `:macro`
-  is the lowest level the journal keeps, so a whole hunt lands in
-  `~/.pokex/journal/*.jsonl`. It does bury the narrative while it is on — which
-  is what measuring means, and why nobody hunts with it on.
+  On, the line is `:macro`, because `:debug` is exactly what `Journal.persist_event/2` refuses
+  to write: measured at `:debug` a hunt leaves nothing on disk and can only be read off the
+  panel's last ~200 lines. `:macro` is the lowest level the journal keeps, so a whole hunt lands
+  in `~/.pokex/journal/*.jsonl`. It does bury the narrative while it is on, which is what
+  measuring means, and why nobody hunts with it on.
 
-  Public because it is instrumentation: the point is to be callable from a test
-  without standing up a whole hunt. "a movimentação tá muito ruim ainda"
-  (Lucas, 2026-08-12) — and neither the overshoot nor the wall-pushing has ever
-  been measured, only watched.
+  Public because it is instrumentation: the point is to be callable from a test without standing
+  up a whole hunt. He has said the movement is still bad, and neither the overshoot nor the
+  wall-pushing has ever been measured, only watched.
   """
   @spec log_walk_decision(
           Logic.action(),

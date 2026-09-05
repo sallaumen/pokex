@@ -111,8 +111,6 @@ test/pokex/bots/combat/worker_test.exs: test "o recibo julga contra um quadro de
 test/pokex/bots/combat/worker_test.exs: test "o relógio das teclas já está carimbado no meio da rajada"
 test/pokex/bots/combat/worker_test.exs: test "sem revive anotado a janela não existe"
 test/pokex/bots/combat/worker_test.exs: test "tecla que já está na abertura não é apertada duas vezes"
-test/pokex/bots/crowd_scan_test.exs: test "his own pokémon is never one of the spots"
-test/pokex/bots/crowd_scan_test.exs: test "the green name of his own pokémon is the origin"
 test/pokex/bots/engine/config_test.exs: test "a sobreposição não muda o CONJUNTO de knobs, só valores"
 test/pokex/bots/engine/config_test.exs: test "as sementes e o que está em vigor têm exatamente as mesmas chaves"
 test/pokex/bots/engine/config_test.exs: test "as sementes são as do Settings, não uma cópia com vida própria"

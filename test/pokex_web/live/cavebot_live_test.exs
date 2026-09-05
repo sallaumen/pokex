@@ -28,6 +28,46 @@ defmodule PokexWeb.CavebotLiveTest do
     WorldState.put(:minimap, %{pos: pos}, System.monotonic_time(:millisecond))
   end
 
+  defp crowd_fact do
+    %{
+      read?: true,
+      at: System.monotonic_time(:millisecond),
+      took_ms: 27,
+      me: {906, 720},
+      box: {0, 0, 1812, 1440},
+      pet: %{point: {906, 1022}, dx: 0, dy: 2, tiles: 2, hp_pct: 100},
+      hostiles: [
+        %{point: {1057, 1022}, dx: 1, dy: 2, from_me: 2, from_pet: 1, hp_pct: 100, skull?: true}
+      ],
+      listed: 1
+    }
+  end
+
+  describe "the siege card" do
+    test "opens on the fact already on the blackboard", %{conn: conn} do
+      WorldState.put(:crowd, crowd_fact(), System.monotonic_time(:millisecond))
+
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ ~s(id="siege-card")
+      assert html =~ ~s(data-from-me="2")
+      refute html =~ "onde eles estão"
+    end
+
+    test "without a reading it says so", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+      assert html =~ "sem olho — nenhuma leitura ainda"
+    end
+
+    test "every reading the eye broadcasts redraws it", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(view.pid, {:crowd, crowd_fact()})
+
+      assert render(view) =~ ~s(data-dx="1")
+    end
+  end
+
   test "marking a waypoint records the current position on the active route", %{conn: conn} do
     put_pos({10, 20, 7})
 
@@ -2666,7 +2706,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
       {:ok, view, html} = live(conn, ~p"/cavebot")
       assert has_element?(view, "#cavebot-instruments")
-      assert has_element?(view, "#cavebot-crowd")
+      assert has_element?(view, "#cavebot-area-reach")
       refute html =~ ~s(<details id="cavebot-instruments" open)
 
       {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")

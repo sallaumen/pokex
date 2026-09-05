@@ -198,21 +198,26 @@ defmodule Pokex.Bots.CrowdWatch do
 
   defp photo_on_opening(state, _orders), do: state
 
-  # One photo per revive SENTENCE: the brain repeats its order every tick.
-  defp photo_on_decision(%{last_why: why} = state, %{why: why}), do: state
-
-  defp photo_on_decision(state, %{why: why} = orders) do
-    state = %{state | last_why: why}
-
-    with tag when is_binary(tag) <- tag(orders),
-         :ok <- allowed(state, now()) do
-      {reading, state} = look(state, now(), evidence: true)
-      save_photo(reading, tag)
+  # One photo per revive SENTENCE: the brain repeats its order every tick. An
+  # order without a sentence (a test's bare map) is nothing to photograph.
+  defp photo_on_decision(state, %{why: why} = orders) when is_binary(why) do
+    if why == state.last_why do
       state
     else
-      _nothing_to_keep -> state
+      state = %{state | last_why: why}
+
+      with tag when is_binary(tag) <- tag(orders),
+           :ok <- allowed(state, now()) do
+        {reading, state} = look(state, now(), evidence: true)
+        save_photo(reading, tag)
+        state
+      else
+        _nothing_to_keep -> state
+      end
     end
   end
+
+  defp photo_on_decision(state, _no_sentence), do: state
 
   defp tag(%{revive: revive}) when revive in [:now, :prepare], do: "revive"
   defp tag(%{why: why}), do: if(String.contains?(why, "segurando o revive"), do: "held")

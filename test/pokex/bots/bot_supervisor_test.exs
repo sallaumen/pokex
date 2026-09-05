@@ -115,12 +115,19 @@ defmodule Pokex.Bots.BotSupervisorTest do
     # glow never crosses threshold (stays "watching" forever, never idles) and the Battle list
     # has no candidate (combat stays in :hunting, holding) — so both workers report a
     # stable non-idle state right after start_all/0, instead of racing a full cycle to :idle.
-    {:ok, _} =
-      Sensors.Fake.start_link(%{
-        glow: [50],
-        battle: [%{enemies: [], red: [0, 0, 0, 0, 0, 0]}],
-        hostile: [{410, 320}]
-      })
+    # Supervised, and started BEFORE any worker: ExUnit stops supervised children in
+    # reverse order, AFTER the test process dies. A `start_link` here died with the test
+    # process while a worker tick was still in flight, and the tick crashed on :noproc,
+    # printing a GenServer terminate outside the capture window (an escaped log the gate
+    # then reports). Supervised, the sensors outlive every worker that reads them.
+    start_supervised!(
+      {Sensors.Fake,
+       %{
+         glow: [50],
+         battle: [%{enemies: [], red: [0, 0, 0, 0, 0, 0]}],
+         hostile: [{410, 320}]
+       }}
+    )
 
     :ok
   end

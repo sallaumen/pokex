@@ -110,10 +110,8 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
     # watching starts under threshold (calm, so it settles) and spikes over
     # (a bite) — proving the worker applies threshold_glow/2 before Logic
     # ever sees a boolean.
-    {:ok, _} =
-      Sensors.Fake.start_link(%{
-        glow: [50, 50, 900]
-      })
+    # Supervised so it outlives the worker: see the note in bot_supervisor_test.exs.
+    start_supervised!({Sensors.Fake, %{glow: [50, 50, 900]}})
 
     {:ok, _} = Body.start_link(name: :fishing_worker_test_body)
     worker = start_supervised!({Worker, name: nil, body: :fishing_worker_test_body})

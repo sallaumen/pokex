@@ -181,25 +181,18 @@ defmodule Pokex.Rig.Mac.Commands do
     ]
   end
 
-  # O MODIFICADOR VAI SEGURADO, não pendurado na tecla.
+  # The modifier is HELD, not attached to the key.
   #
-  # `key code 18 using {shift down}` marca a bandeira do shift no PRÓPRIO evento
-  # da tecla. É correto no macOS e é o que a maioria dos apps lê — mas o jogo
-  # dele roda sob Wine, que traduz evento por evento, e aí a tecla pode chegar
-  # antes de o estado do modificador virar. O resultado é o que ele viu em
-  # 02/09: "shift+1 e shift+3 às vezes saem separadas, daí a skill 1 ou 3 sai
-  # sozinha e o modo não muda — o pior dos dois mundos". Uma skill gasta sem
-  # querer E a postura errada.
+  # `key code 18 using {shift down}` flags shift on the key's own event. Correct on macOS, but
+  # the game runs under Wine, which translates event by event, and the key can arrive before
+  # the modifier state flips: shift+1 fires as a bare 1, a skill spent by accident AND the
+  # wrong stance. A real `key down` / `key up` is its own event that arrives BEFORE the key,
+  # and the settle between the two gives the game time to register it (tunable: nobody
+  # measured what Wine needs).
   #
-  # Segurando o shift de verdade (`key down` / `key up`), o modificador vira um
-  # evento próprio que chega ANTES: quando a tecla sai, o estado já mudou. O
-  # respiro entre os dois é o que dá tempo do jogo registrar, e é ajustável
-  # porque ninguém mediu quanto o Wine precisa.
-  #
-  # O `key up` fica FORA do `try`: se a prensa falhar no meio, o shift não pode
-  # ficar preso — um modificador segurado transforma toda tecla seguinte em
-  # outra coisa. É a mesma regra do `key_up` do rig, que é ungated pelo mesmo
-  # motivo: soltar só pode PARAR alguma coisa.
+  # The `key up` stays OUTSIDE the `try`: if the press fails midway shift must not stay stuck,
+  # turning every following key into something else. Same rule as the rig's ungated `key_up`:
+  # releasing can only STOP something.
   defp key_lines(combo, opts) do
     {mods, [key]} = combo |> String.split("+") |> Enum.split(-1)
 

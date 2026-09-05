@@ -20,10 +20,9 @@ defmodule Pokex.Bots.Body do
     GenServer.start_link(__MODULE__, %{}, name: name)
   end
 
-  # `:still` como primeiro elemento: solta as setas seguradas antes da
-  # sequência sair (ver `run_next/2`). É a marca de uma tecla que não pode
-  # sair andando — o revive, hoje; a corrente do combo pede o mesmo por
-  # `release/1`, porque a rajada não passa por aqui.
+  # `:still` as the first element releases the held arrows before the sequence fires (see
+  # `run_next/2`): the mark of a key that must not go out walking. The revive today; the combo
+  # chain asks the same through `release/1`, since the burst does not pass here.
   @spec perform([tuple | :still], :critical | :high | :normal, GenServer.server()) ::
           :ok | {:error, term}
   def perform(actions, priority \\ :normal, server \\ __MODULE__),
@@ -377,13 +376,10 @@ defmodule Pokex.Bots.Body do
   defp run_next(state, item) do
     item = %{item | started_at: now()}
 
-    # A TECLA QUE NÃO ANDA JUNTO. `:still` na frente de uma sequência solta o
-    # que estiver segurado ANTES de ela sair — aqui, no laço do Body, onde o
-    # conjunto segurado é estado e a soltura é atômica com a prensa. "Ele
-    # continuou andando depois de fechar o grupo (…) o próprio teclado deveria
-    # saber que essa tecla é especial, e com ela não se pode andar junto"
-    # (02/09). O cavebot solta no tique DELE (200ms); o revive não espera esse
-    # tique.
+    # The key that does not walk along: `:still` in front of a sequence releases whatever is
+    # held BEFORE it fires, here in the Body loop where the held set is state and the
+    # release is atomic with the press. The cavebot releases on ITS tick (200ms); the revive
+    # does not wait for it.
     state = if :still in item.actions, do: apply_hold(state, []), else: state
 
     state = %{
@@ -524,19 +520,14 @@ defmodule Pokex.Bots.Body do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  # O CARIMBO DO RELÓGIO DAS TECLAS mora aqui porque aqui é o único portão: não
-  # existe caminho no bot que aperte uma tecla sem passar por `execute/1`, então
-  # não existe jeito de o cérebro perder um disparo.
+  # The key clock is stamped here because this is the only gate: no path in the bot presses a
+  # key without `execute/1`, so the brain cannot miss a shot.
   #
-  # E o `:ok` do rig NÃO basta: `Rig.Mac.gated/1` ENGOLE o input com o
-  # `InputGate` fechado e responde `:ok` mesmo assim (contrato global — "seguro
-  # por segurança" não é falha de I/O). Carimbar esse `:ok` inventava um
-  # cooldown de 40-50s pra uma tecla que nunca saiu — cada aperto com o jogo
-  # fora de foco virava uma tecla boa recusada depois ("a IA acha que usou uma
-  # skill e marca o cooldown, mas ela não saiu", ele, 28/08). Então o portão é
-  # perguntado de novo aqui, como o `walk_click` já faz: melhor esforço — o
-  # gate pode virar entre o press e esta leitura, e essa corrida custa UM
-  # carimbo errado, não todos.
+  # And the rig's `:ok` is NOT enough: `Rig.Mac.gated/1` SWALLOWS the input with the
+  # `InputGate` closed and still answers `:ok`. Stamping that invented a 40-50s cooldown for a
+  # key that never left, so the gate is asked again here, like `walk_click` does. Best effort:
+  # the gate can flip between the press and this read, and that race costs ONE wrong stamp,
+  # not all of them.
   defp execute({:press, key}) do
     case Rig.impl().press(key) do
       :ok ->
@@ -548,7 +539,7 @@ defmodule Pokex.Bots.Body do
     end
   end
 
-  # Já cumprido em `run_next/2`, antes de a sequência ganhar o executor.
+  # Already done in `run_next/2`, before the sequence got its executor.
   defp execute(:still), do: :ok
   defp execute({:click, button, point}), do: Rig.impl().click(button, point)
   defp execute({:move, point}), do: Rig.impl().move(point)

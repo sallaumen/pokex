@@ -26,10 +26,10 @@ defmodule Pokex.Application do
       # Native CGEvent key helper (~1-2ms per key event vs ~60-100ms osascript).
       # Degrades to :disabled/:untrusted states; Rig.Mac falls back to osascript.
       Pokex.Rig.Mac.KeyEvents,
-      # A mão DELE vira fato: vigia os apertos que ele mesmo dá (fileira + tecla
-      # do resgate) enquanto a caçada roda, e carimba/zera o relógio das teclas
-      # como se o bot tivesse apertado. Depois do KeyEvents (quem lê o teclado)
-      # e do InputGate (o foco decide se o aperto era jogo).
+      # His own hand becomes a fact: watches the presses he makes (skill row + rescue key)
+      # while the hunt runs and stamps/resets the key clock as if the bot had pressed.
+      # After KeyEvents (reads the keyboard) and InputGate (focus decides whether the
+      # press was the game).
       Pokex.Bots.HandWatch,
       # Serializes the osascript KEY fallback — System Events is one queue; concurrent key
       # scripts pile up and desync keys from the mouse moves they belong with.
@@ -53,8 +53,8 @@ defmodule Pokex.Application do
       # The anti-shiny watchdog (always-on like Guardian; manages its own
       # arena-feed attachment from the shiny_guard_enabled setting).
       Pokex.Bots.ShinyGuard,
-      # O olho da espera (fase 1): fotografa ao redor do pokémon enquanto o
-      # cérebro espera o bolo, e só mede.
+      # The waiting eye (phase 1): photographs around the pokémon while the brain waits
+      # for the pile. It only measures.
       Pokex.Bots.CrowdWatch,
       # Ends the session (idle/goal rules or the manual button). After BotSupervisor
       # because it halts the fleet.
@@ -93,14 +93,9 @@ defmodule Pokex.Application do
     :ok
   end
 
-  # O LOG DO SERVIDOR EM ARQUIVO — porque a próxima morte não pode virar
-  # mistério. Em 03/09 o `Engine.Worker` parou às 14:17:01 e a caçada seguiu
-  # oito minutos sem cérebro até o personagem morrer; a razão do crash foi
-  # embora com o terminal, que é o único lugar onde este log existia. Agora ele
-  # também cai em ~/.pokex/log/server.log (5 arquivos de 5MB, rotativos), que é
-  # o mesmo lugar de onde saem os registros de decisão e o diário.
-  #
-  # Nunca no teste: a suíte tem o home dela e não precisa de arquivo nenhum.
+  # The server log also goes to a file (~/.pokex/log/server.log, 5 rotating files of 5MB) so a
+  # crash of the brain does not vanish with the terminal. Never in test: the suite has its own
+  # home.
   defp attach_file_log do
     if Application.get_env(:pokex, :file_log, true) do
       path = Path.join([Pokex.Home.dir(), "log", "server.log"])
@@ -118,7 +113,7 @@ defmodule Pokex.Application do
 
     :ok
   catch
-    # Um log que não sobe não pode impedir o bot de subir.
+    # A log that fails to start must not stop the bot from starting.
     _kind, _reason -> :ok
   end
 end

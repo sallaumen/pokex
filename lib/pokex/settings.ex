@@ -39,7 +39,7 @@ defmodule Pokex.Settings do
     # From how many enemies on the battle list the fight leads with AREA damage instead of
     # single-target.
     combat_aoe_from_enemies: 3,
-    # SE A CAÇADA USA AS TECLAS DE ALVO ÚNICO.
+    # Whether the hunt spends the single-target keys.
     combat_single_target: false,
     # A PARTIR DE QUANTOS INIMIGOS a aura de DEFESA vale a pena.
     combat_shield_from_enemies: 2,
@@ -59,11 +59,10 @@ defmodule Pokex.Settings do
     # How often the scheduled actions (`Pokex.Timers`) check their clocks.
     timers_tick_ms: 1_000,
     combat_skill_tap_count: 1,
-    # ESCOLHA DELE (26/08): "usa um gap universal de uns 300ms acho que é suficiente".
+    # The universal gap between two skill presses.
     combat_skill_gap_ms: 300,
-    # 20 → 100: o valor que ele roda desde a calibração (02/09).
     combat_skill_jitter_ms: 100,
-    # QUANTO O MODIFICADOR SEGURA ANTES DA TECLA, nas combinações tipo `shift+1`.
+    # How long a held modifier waits before the key, in combos like `shift+1`.
     key_modifier_settle_ms: 30,
     # --- Skill-bar cooldown tracking (SkillBar reads the hotbar per-process) ---
     # Legacy fallback when an old calibration has no explicit count. New calibrations
@@ -190,7 +189,6 @@ defmodule Pokex.Settings do
     target_locked_min_pixels: 120,
     # Consecutive ticks the enemy must be GONE from the Battle list before the fight is
     # declared over — filters a 1-frame HP-bar blink on a hit/death animation.
-    # 2 → 1: o valor que ele roda (02/09).
     target_lost_streak: 1,
     # What the bot DOES when the overlay opens (see Pokex.Bots.MiniGame.Mode): "manual_assist"
     # (default, safe: detect + hold the other workers + alert, Lucas plays),
@@ -218,8 +216,8 @@ defmodule Pokex.Settings do
     mini_game_exit_streak: 2,
     mini_game_min_confidence: 0.62,
     mini_game_min_dark_ratio: 0.34,
-    # Meia-largura da faixa DERIVADA do minigame (o resto vem das âncoras: o personagem em cima,
-    # a barra de skills embaixo).
+    # Half-width of the mini-game band; the rest comes from the anchors (character above,
+    # skill bar below).
     mini_game_bar_offset_px: 12,
     mini_game_bar_width_px: 24,
     mini_game_above_px: 16,
@@ -264,13 +262,13 @@ defmodule Pokex.Settings do
     # toggles the last used mode — from INSIDE the game, without clicking the
     command_corner: true,
     command_corner_dwell_ms: 600,
-    # Shiny guard: vigia de CORES ESPECIAIS (shiny/chefe do Poké Alliance — a estrela do
-    # PokeTibia não existe lá; docs/shiny/plano-shiny-por-cor.md).
+    # Shiny guard: watches for the special colours of shinies and bosses
+    # (docs/shiny/plano-shiny-por-cor.md).
     shiny_guard_enabled: false,
     # A shiny ALWAYS deserves a pokéball, even with capture_enabled off.
     shiny_always_ball: true,
-    # a cadência da varredura de cor (quadrado do SpotScan) e quantas
-    # varreduras SEGUIDAS com mancha confirmam um avistamento
+    # Colour-scan cadence (the SpotScan square) and how many CONSECUTIVE scans with a blob
+    # confirm a sighting.
     special_color_scan_ms: 700,
     special_color_confirm_frames: 2,
     # Anti-stagnation: an ACTIVE session with no sign of life for this window is a stuck bot
@@ -310,8 +308,8 @@ defmodule Pokex.Settings do
     rescue_enabled: false,
     rescue_key: "q",
     pokemon_hp_rescue_pct: 50,
-    # O PISO ENTRE DOIS RESGATES, e a curva dele foi medida em 25/08 no circuito denso, 60
-    # minutos por linha, com o stun na frente do revive: piso 2s → 0 quedas ·
+    # The floor between two rescues. Measured on the dense circuit with the stun before the
+    # revive: a 2s floor gave zero falls, a 3s floor doubled the dead.
     rescue_cooldown_ms: 3_000,
     # ms between the stun prefix and the revive so the game registers each.
     rescue_step_ms: 40,
@@ -320,12 +318,12 @@ defmodule Pokex.Settings do
     rescue_confirm_ms: 900,
     # …and the receipt is NOT the sleep.
     rescue_stun_settle_ms: 2_000,
-    # …E A OUTRA METADE DA JANELA: quanto o pokémon demora pra voltar a conjurar DEPOIS do
+    # The other half of the window: how long the pokémon takes to cast again AFTER the
     # revive.
     rescue_blackout_ms: 2_000,
     # MORREU.
     pokemon_hp_fainted_below_pct: 35,
-    # Cinto de segurança depois de reviver um caído.
+    # Seat belt after reviving a fainted pokémon.
     fainted_revive_cooldown_ms: 3_000,
     # Stun BEFORE reviving (2026-07-30): hunting strong mobs, the pokémon's own area-control
     # keys are reserved for this moment and become the PREFIX of the same
@@ -337,15 +335,15 @@ defmodule Pokex.Settings do
     # Anti-spam only: whether the skill is UP is the skill bar's answer, not a
     # guess kept here.
     heal_skill_cooldown_ms: 3_000,
-    # A AURA DE DEFESA, um degrau acima da cura: abaixo disto "já tem gente batendo nele o
-    # suficiente e vale usar o buff de defesa" (02/09). Sai só com a barra dizendo pronta.
+    # The defence aura, one rung above the heal: below this HP enough enemies are hitting
+    # him to be worth the buff. Fires only when the bar reads ready.
     shield_skill_enabled: true,
     pokemon_hp_shield_pct: 85,
     shield_skill_cooldown_ms: 3_000,
-    # …E ANTES DA CORRENTE. Medido em 02/09 (feraligatr, 19 revives em 4min): o revive
-    # devolve 100% a cada corrente e a vida do pokémon nunca chegou aos 85% — a aura só
-    # saía pela mão dele. Com a pilha fechando (o cérebro em `:bunching`, parado esperando
-    # o bolo pra estourar) e a aura pronta, ela sai, vida cheia ou não.
+    # …and before the chain: the revive restores the bar every chain, so the pokémon rarely
+    # drops to 85% and the aura would never fire by HP. With the pile closing (the brain in
+    # `:bunching`, standing and waiting for the pile) and the aura ready, it fires, full HP
+    # or not.
     shield_on_mob_enabled: true,
     # How often the PlayerSupport samples the main Pokémon's HP bar.
     support_tick_ms: 120,
@@ -381,8 +379,8 @@ defmodule Pokex.Settings do
     # back to its strategic tile (toggle in the panel).
     reposition_enabled: false,
     reposition_battle_clear_ms: 2_000,
-    # A pokébola só é arremessada com isto ligado — a captura é o único uso de item que
-    # sobrou no jogo novo (F1/F2), já que ele recolhe o loot sozinho.
+    # Pokéballs are only thrown with this on. Capture is the only item use left (F1/F2): the
+    # game picks up the loot by itself.
     capture_enabled: true,
     # Post-fight ORDER policy (ball → support): with this on, a due potion/reposition ALSO waits
     # for the catcher to resolve its pending corpses (queued + ball in flight) before acting.
@@ -502,13 +500,12 @@ defmodule Pokex.Settings do
     # N consecutive balls resolved WITHOUT a confirmed capture → :capture
     # alarm (the mirror of fishing's dry_casts_alarm). 0 = off.
     dry_balls_alarm: 4,
-    # --- Varredura cega (the blind sweep) ---------------------------------------------------------
-    # The safety net UNDER the aimed capture: on a slow cadence, a ball at every
-    # tile around the character, with no detector involved. Asked for after
-    # watching bodies go unclaimed (Lucas, 2026-08-05: "não precisa ser o mais
-    # eficiente, mas não perde os pokémon"). Independent of `capture_enabled` on
-    # purpose — this is the guarantee you switch on when you stopped trusting
-    # the aim, so it must not hang off the aim's own switch.
+    # --- Blind sweep ------------------------------------------------------------------------------
+    #
+    # The safety net UNDER the aimed capture: on a slow cadence, a ball at every tile around
+    # the character, with no detector involved. Not efficient, but no body goes unclaimed.
+    # Independent of `capture_enabled` on purpose: this is the guarantee you switch on when
+    # you stopped trusting the aim, so it must not hang off the aim's own switch.
     sweep_enabled: false,
     sweep_interval_ms: 30_000,
     # 4 = a 9×9 tile square, ~80 balls per pass. `sweep_side` halves it because
@@ -516,21 +513,21 @@ defmodule Pokex.Settings do
     sweep_radius_tiles: 4,
     sweep_side: "square",
     # --- Cavebot (waypoint-route hunting) --------------------------------------------------------
-    # QUAL ESTRATÉGIA DE COMBATE a caçada roda quando a rota não escolhe uma.
-    # `auto_combo` é o padrão: o jogo encadeia as skills ofensivas atrás de UMA
-    # tecla, então o bot aperta uma vez e cuida só do revive. `economy` é a
-    # rota barata: Tab, alvo único, e área só se ainda precisar. Ver
-    # `Pokex.Bots.HuntMode` — a rota manda, isto é o piso.
+    # Which combat strategy the hunt runs when the route does not pick one. `auto_combo` is
+    # the default: the game chains the offensive skills behind ONE key, so the bot presses
+    # once and only manages the revive. `economy` is the cheap route: Tab, single target,
+    # area only when still needed. See `Pokex.Bots.HuntMode`: the route wins, this is the
+    # floor.
     hunt_mode: "auto_combo",
-    # A TECLA DO COMBO e QUANTO ELE OCUPA.
+    # The combo key and how long it occupies the hands.
     auto_combo_key: "r",
     auto_combo_window_ms: 4_000,
     defense_mode_key: "shift+3",
     attack_mode_key: "shift+1",
     cavebot_arrival_tolerance_tiles: 1,
-    # QUANTO TEMPO SEM O CÉREBRO até a caçada parar. Ele republica as ordens a
-    # cada tique (200ms); cinco segundos de silêncio não é atraso, é morte —
-    # e caçar sem ele é caçar sem revive (03/09, a segunda morte).
+    # How long without the brain before the hunt stops. Orders are republished every tick
+    # (200ms): five seconds of silence is a dead brain, and hunting without it is hunting
+    # without revive.
     cavebot_brain_gone_ms: 5_000,
     cavebot_walk_timeout_ms: 3000,
     # Standing still and blind, the client renders no coordinate (it only draws the label while
@@ -540,10 +537,10 @@ defmodule Pokex.Settings do
     # MEASURING THE WALK — off, and off means SILENT.
     cavebot_measure_walk: false,
     cavebot_stuck_max_retries: 4,
-    # A NOITE é o produto: "ele vai estar lá a madrugada inteira farmando" (Lucas).
+    # The whole night is the product: the bot farms unattended for hours.
     cavebot_block_retries: 3,
-    # Tempo parado antes de tentar de novo — longo o bastante para o obstáculo
-    # que se resolve sozinho (um player passando) ter passado.
+    # Time standing still before retrying: long enough for a self-resolving obstacle (a
+    # passing player) to clear.
     cavebot_block_retry_ms: 30_000,
     cavebot_post_kill_dwell_ms: 1200,
     # After a kill the CAPTURE needs the floor: picking a corpse up is seconds of Body time,
@@ -554,8 +551,8 @@ defmodule Pokex.Settings do
     cavebot_pinned_probe_ms: 1_000,
     # The plain "esperar" stop: seconds standing still so cooldowns come back on their own.
     cavebot_stop_wait_ms: 5_000,
-    # "quando termino de mobar, eu geralmente dá quatro segundos até todos os bichos se
-    # agruparem ao redor do meu" (Lucas, 2026-08-11).
+    # After luring, the mobs take about four seconds to gather around the pokémon (his
+    # measurement).
     cavebot_gather_wait_ms: 4_000,
     # The recorder learns this pause from his own hands, and a learned number is only trusted
     # inside a plausible band: his real route came back with 2.0s, 3.3s and
@@ -594,41 +591,28 @@ defmodule Pokex.Settings do
     cavebot_smart_recording: true,
     cavebot_fight_timeout_ms: 20_000,
     # --- Engine ---------------------------------------------------------------------------------
-    # HIS RULER, e ele a moveu três vezes — a última vence.
-    #
-    #   17/08: três ("eu realmente mato quando tem uns três")
-    #   25/08: dois, vendo a simulação rodar ("matar quando tem mais do que
-    #          dois inimigos, dois ou mais")
-    #   28/08: SEIS ("coloca 6, no mapa que caço lota de monstro")
-    #   29/08: seis de novo, vendo a caçada ("ele tá parando pra matar quando
-    #          tem 2 inimigos só (…) pra evitar de usar um monte de coisas em
-    #          2 bixos só")
-    #
-    # A BANCADA NÃO SEPARA AS DUAS, e isso está dito porque importa: 20 min × 4
-    # sementes na rota dele, régua de 1 a 8, tudo entre 16,9 e 18,3 mortos/min
-    # com os monstros perdidos praticamente parados (138-150). O motivo é que
-    # `engine_gather_target` (6) já decide quando a janela fecha — no mundo
-    # simulado a pilha cresce rápido e a régua quase nunca morde. No jogo dele
-    # ela morde: uma dupla que não vira bolo é uma barra gasta em dois bichos.
-    # Quem decidiu aqui foi ele olhando a caçada, e o simulador não contradiz.
+    # HIS RULER for when the pile is worth the area, moved several times (3, then 2, then
+    # 6): the last one wins. The bench cannot tell the values apart (16.9-18.3 kills/min for
+    # every value from 1 to 8 on his route) because `engine_gather_target` already decides
+    # when the window closes and the simulated pile grows fast. In his game the ruler does
+    # bite: a pair that never becomes a pile is a spent bar on two mobs.
     engine_engage_from: 6,
     # Whether the hunt GATHERS a pile before hitting it.
     engine_gather_piles: true,
-    # …e a paciência do outro lado: andados estes passos sem ninguém novo chegando, vale mais
-    # matar o que tem do que continuar procurando.
+    # …and the patience on the other side: after this many steps with nobody new arriving,
+    # killing what is here beats searching on.
     engine_patience_tiles: 10,
     # "Pararam de chegar" needs a floor: how long the count must hold still before the pile
     # counts as closed.
     engine_pile_settle_ms: 1_500,
-    # R12 — QUANTO ESPERAR, DEPOIS DE FECHAR A JANELA, pros bichos chegarem perto do pokémon
-    # antes de estourar a área.
+    # R12: how long to wait after closing the window for the mobs to reach the pokémon
+    # before the area fires.
     engine_bunch_ms: 6_000,
-    # QUANTOS BICHOS FAZEM UM BOLO — o alvo que a régua persegue antes de fechar a janela.
+    # How many mobs make a pile: the target the ruler chases before closing the window.
     engine_gather_target: 6,
-    # …and a ceiling, because R2 says greed makes the pile VANISH: past this, the hunt decides
-    # with whatever showed up instead of waiting more — ABRE se a pilha vale a área, PULA se
-    # não vale (até 02/09 pulava as duas, e "não vale a área" mentia na primeira). Tem que
-    # caber a paciência em passos: 10 passos cabem em 8s; 20 passos pedem ~16s.
+    # …and a ceiling, because R2 says greed makes the pile VANISH: past this the hunt
+    # decides with whatever showed up. It OPENS if the pile is worth the area and SKIPS if
+    # not. The patience in steps must fit: 10 steps fit in 8s, 20 steps need ~16s.
     engine_size_ceiling_ms: 8_000,
     # THE BANDS (2026-08-17).
     engine_band_yellow_pct: 60,
@@ -638,25 +622,25 @@ defmodule Pokex.Settings do
     # The floor between two of them, so a fight whose bar stays empty does not become a key held
     # down.
     engine_reset_revive_cooldown_ms: 3_000,
-    # …e a vida abaixo da qual ele recusa gastar um revive só pra zerar cooldowns.
+    # …and the HP below which a revive is not spent just to reset cooldowns.
     engine_reset_revive_min_hp: 0,
     # …and the route only walks again above this.
     engine_resume_pct: 80,
-    # A revive that never lands must not end the night standing still — o pedido desacelera pra
-    # um por meio minuto…
+    # A revive that never lands must not end the night standing still: the request slows
+    # down to one per half minute…
     engine_recover_timeout_ms: 30_000,
-    # …e DESISTE aqui.
+    # …and gives up here.
     engine_downed_give_up_ms: 300_000,
-    # R11 na estrada: quantos RESTOS na tela ainda contam como "entre grupos".
+    # R11 on the road: how many leftovers on screen still count as "between groups".
     engine_prepare_max_enemies: 2,
-    # O estoque de revives que ele DIGITOU ter agora — digitar É o botão de repor (a conta do
-    # ReviveLedger zera quando o número muda).
+    # The revive stock he typed in. Typing IS the restock button: the ReviveLedger count
+    # resets when the number changes.
     revive_stock: 0,
-    # Quantos revives ficam GUARDADOS pra emergência: as regras de conveniência (preparar,
-    # resetar) param de gastar quando a conta chega aqui; vermelho e caído gastam até o fim.
+    # Revives kept for emergencies: the convenience rules (prepare, reset) stop spending at
+    # this count; red and fainted spend to the end.
     engine_revive_reserve: 5,
-    # A vida do PERSONAGEM (a barra vermelha do painel "Pokémon"): abaixo disto por duas
-    # leituras, o suporte alarma — e sai do jogo se player_hp_logout estiver ligado.
+    # The CHARACTER's HP (the red bar of the "Pokémon" panel): below this for two readings
+    # the support alarms, and logs out if player_hp_logout is on.
     player_hp_floor_pct: 50,
     player_hp_logout: false,
     # Nor may closing a round wait forever for a pile that stopped coming — the
@@ -665,33 +649,31 @@ defmodule Pokex.Settings do
     # R5: how long a revive has to prove it landed before the engine calls it a refusal and
     # walks again.
     engine_revive_confirm_ms: 3_000,
-    # R7: com TODAS as teclas de dano em cooldown e bicho em cima, ficar parado é uma troca em
-    # que só um lado bate.
+    # R7: with every damage key cooling and mobs on top, standing still is a trade where
+    # only one side hits.
     engine_kite_when_spent: true,
-    # …E POR QUANTO TEMPO, no máximo, uma retirada dura.
+    # …and the longest a retreat may last.
     engine_kite_max_ms: 20_000,
-    # QUANTAS TECLAS DE DANO AINDA PRONTAS ainda contam como "acabou a barra" — a condição que
-    # autoriza gastar um revive só pra zerar cooldowns.
+    # How many damage keys still ready count as "bar spent": the condition that allows a
+    # revive just to reset cooldowns.
     engine_spent_keys_left: 0,
-    # CHEGAR PREPARADO NO PRÓXIMO GRUPO — a regra dele, dita em 27/08: "é raro quando uso todas
-    # minhas skills realmente esperar cooldown, eu sempre uso um revive
+    # Arrive prepared at the next group: rather than wait out the cooldowns, spend a revive.
     engine_prepare_revive: true,
-    # R10 — O CONTROLE É UMA SKILL, NÃO UM AMULETO.
+    # R10: the control key is a skill, not an amulet.
     engine_crowd_from: 1,
-    # …e a segunda metade da regra dele, que é o que a torna barata: "SEMPRE usar o revive
-    # dentro da range de 5 segundos no máximo depois de usar a skill de controle".
+    # …and the second half of his rule, the part that makes it cheap: the revive ALWAYS goes
+    # out within 5s of the control key.
     engine_stun_window_ms: 5_000,
-    # QUANTO O CONTROLE DELE SEGURA, contado do APERTO — MEDIDO POR ELE (30/08, segunda medida):
-    # "o stun dura 5s, começando a contar depois dos 2s". Ou seja: 2s de PEGADA (o mesmo
-    # fenômeno que o settle do resgate espera) + 5s de sono = 7s de cobertura do aperto.
+    # How long his control holds, counted from the PRESS. Measured by him: 2s to land (the
+    # same settle the rescue waits for) + 5s of sleep = 7s of cover.
     engine_stun_hold_ms: 7_000,
-    # OS NOMES DOS CHEFES, separados por vírgula ("Chefe, Boss X").
+    # Boss names, comma-separated.
     engine_boss_names: "",
-    # O CHEFE PELO TEMPO DE MATAR: quantas skills de dano ENTREGUES (cooldown andou) sem NENHUM
-    # corpo cair da pilha antes do cérebro declarar chefe.
+    # A boss by time-to-kill: how many damage skills DELIVERED (cooldown moved) with no body
+    # dropping from the pile before the brain declares a boss.
     engine_boss_grit: 10,
-    # ATÉ QUANTOS TILES o controle dele alcança — o gate do stun de chefe: apertar com o alvo
-    # além disso é dormir o vento.
+    # How many tiles his control reaches, the gate of the boss stun: pressing with the
+    # target beyond it stuns the wind.
     engine_stun_reach_tiles: 3,
     # QUANTO TEMPO um reset desarmado fica fora do jogo antes de tentar de novo.
     engine_reset_rearm_ms: 600_000,
@@ -703,12 +685,12 @@ defmodule Pokex.Settings do
     # How old the engine's ORDERS may be before a worker stops obeying them and falls back to
     # what it does on its own.
     engine_orders_max_age_ms: 1_500,
-    # --- Onde estão os monstros (leitura, não regra) ----------------------------------------------
+    # --- Where the monsters are (a reading, not a rule) --------------------------------------------
     # How far out `Pokex.Bots.CrowdScan` looks when asked. The box it captures is
     # this many tiles in EVERY direction, so raising it costs area quadratically —
     # 6 already covers more than any area skill in the game reaches.
-    # O OLHO DA ESPERA (fase 1, 02/09): fotografa ao redor do pokémon enquanto o cérebro
-    # espera o bolo e escreve no feed quantos estão a 1 tile. Só mede.
+    # The waiting eye (phase 1): photographs around the pokémon while the brain waits for
+    # the pile and writes to the feed how many stand within 1 tile. It only measures.
     crowd_watch_enabled: true,
     crowd_scan_radius_tiles: 6,
     # How much the evidence picture is shrunk before it is drawn.
@@ -716,8 +698,8 @@ defmodule Pokex.Settings do
     # CALIBRATION MODE, off by default: after every area key the bot presses, take one capture
     # and file where the damage landed.
     area_probe_enabled: false,
-    # MODO DE CHECAGEM, desligado por padrão: com ele ligado, todo aperto de UMA tecla vira uma
-    # medida de quanto ela tirou da barra do alvo e de quanto tempo levou pra tirar.
+    # Check mode, off by default: every single-key press becomes a measurement of how much
+    # it took from the target's bar and how long it took.
     skill_meter_enabled: false
   }
 
@@ -914,7 +896,8 @@ defmodule Pokex.Settings do
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_bunch_ms: 0..30_000,
-    # 8 é o que cabe ao redor do pokémon; acima disso o resto fica longe e bate NELE (02/09).
+    # 8 is what fits around the pokémon; beyond that the rest stands far and hits the
+    # CHARACTER.
     engine_gather_target: 1..8,
     engine_patience_tiles: 1..200,
     engine_size_ceiling_ms: 100..600_000,
@@ -927,8 +910,8 @@ defmodule Pokex.Settings do
     revive_stock: 0..10_000,
     engine_revive_reserve: 0..1_000,
     player_hp_floor_pct: 0..99,
-    # As faixas dos números que o /config repaginado edita direto: os limites que os formulários
-    # antigos guardavam no cliente (min/max do input) viram regra do dono
+    # The ranges the /config page edits directly: the limits the old forms kept client-side
+    # (input min/max) are now the owner's rule.
     pokemon_hp_rescue_pct: 1..90,
     pokemon_hp_potion_pct: 1..99,
     pokemon_hp_fishing_pct: 1..90,
@@ -1088,10 +1071,10 @@ defmodule Pokex.Settings do
     # Persist ONLY the user's overrides.
     overrides = load(path)
 
-    # …E AS CHAVES QUE ESTA BUILD NÃO CONHECE VIAJAM JUNTO, intocadas.
+    # …and the keys this build does not know travel along, untouched.
     foreign = foreign_keys(path)
 
-    # …E UMA BUILD MAIS VELHA QUE O ARQUIVO NÃO ESCREVE NELE.
+    # …and a build older than the file does not write to it.
     somos_velhos? = older_build?(path)
     if somos_velhos?, do: announce_read_only(path), else: heal(path, overrides, foreign)
     announce_foreign(foreign, path)
@@ -1158,10 +1141,8 @@ defmodule Pokex.Settings do
     {:reply, :ok, state |> put_global(key, value) |> mirror_sync([key])}
   end
 
-  # CADA MUDANÇA VAI PRO DIÁRIO. De 02/09 a 03/09 o arquivo não gravava e, no
-  # restart, tudo que ele tinha mudado sumiu sem deixar rastro — "já perdi
-  # tudo, saco!". Com a linha no diário (`~/.pokex/journal/`, fonte `config`),
-  # o que se perde se relê. A mesma chave com o mesmo valor não é mudança.
+  # Every change goes to the journal (`~/.pokex/journal/`, source `config`), so a lost setting
+  # can be read back. The same key with the same value is not a change.
   defp note_change(_key, before, value) when before == value, do: :ok
 
   defp note_change(key, before, value) do
@@ -1182,8 +1163,8 @@ defmodule Pokex.Settings do
         do: Map.delete(state.data, key),
         else: Map.put(state.data, key, value)
 
-    # As chaves estrangeiras vão junto em TODA escrita, não só no heal do boot: senão o primeiro
-    # ajuste que ele salva apaga o que o boot preservou, e a proteção duraria até o primeiro
+    # Foreign keys travel on EVERY write, not only the boot heal: otherwise the first saved
+    # tweak would erase what the boot preserved.
     if Map.get(state, :read_only?, false) do
       Logger.warning(
         "Settings: #{key} mudou só nesta sessão — o arquivo foi escrito por uma versão mais " <>
@@ -1258,9 +1239,9 @@ defmodule Pokex.Settings do
       for {key_string, value} <- json,
           key = known_key(key_string),
           key in keys,
-          # UMA CONSTANTE NÃO VEM DO ARQUIVO: o número é o do código
-          # (`Pokex.Settings.Locked`). Um override antigo dela fica no disco
-          # até a próxima escrita, que não o leva junto.
+          # A locked constant never comes from the file: the number is the code's
+          # (`Pokex.Settings.Locked`). A stale override stays on disk until the next
+          # write, which drops it.
           not Locked.locked?(key),
           # A JSON null is file corruption, never a legitimate override — keeping
           # it would make Settings.get return nil to code expecting a number.
@@ -1280,13 +1261,12 @@ defmodule Pokex.Settings do
     Enum.find(@setting_keys, &(Atom.to_string(&1) == key_string))
   end
 
-  # O ALFABETO QUE A BUILD ESCRITORA CONHECIA, carimbado em toda escrita. Não é
-  # um ajuste: é o crachá do arquivo, e por isso sai do `foreign_keys/1`.
+  # The alphabet the writing build knew, stamped on every write. Not a setting but the file's
+  # badge, hence excluded from `foreign_keys/1`.
   @alphabet_key "__keys__"
 
   @doc false
-  # As chaves do arquivo que ESTA build não conhece — cruas, com a chave em string e o valor
-  # como veio.
+  # The file's keys THIS build does not know: raw, string key and value as they came.
   def foreign_keys(path) do
     for {key_string, value} <- read_json(path),
         key_string != @alphabet_key,
@@ -1359,8 +1339,7 @@ defmodule Pokex.Settings do
     )
   end
 
-  # O ARQUIVO É A UNIÃO das duas coisas: os overrides que esta build entende e as chaves que ela
-  # não entende.
+  # The file is the union of the overrides this build understands and the keys it does not.
   defp persist!(path, data, foreign \\ %{}) do
     File.mkdir_p!(Path.dirname(path))
     backup(path)
@@ -1373,14 +1352,14 @@ defmodule Pokex.Settings do
             into: %{},
             do: {Atom.to_string(key), value}
       )
-      # O CRACHÁ, em toda escrita: o alfabeto que ESTA build conhece.
+      # The badge, on every write: the alphabet THIS build knows.
       |> Map.put(@alphabet_key, Enum.map(@setting_keys, &Atom.to_string/1))
       |> JSON.encode!()
 
     Pokex.Home.write!(path, body)
   end
 
-  # UMA CÓPIA ANTES DE CADA ESCRITA, e as dez últimas ficam.
+  # A backup before every write; the last ten are kept.
   @backups 10
 
   defp backup(path) do

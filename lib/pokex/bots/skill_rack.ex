@@ -76,7 +76,7 @@ defmodule Pokex.Bots.SkillRack do
   defp slot_number(key) do
     case Integer.parse(key) do
       {n, ""} -> n
-      # uma tecla que não é número (f4, shift+1) vai pro fim, em ordem estável
+      # non-digit keys (f4, shift+1) go last, in stable order
       _not_a_slot -> 99
     end
   end
@@ -95,9 +95,8 @@ defmodule Pokex.Bots.SkillRack do
       screen: screen_says,
       clock: clock_says,
       state: state,
-      # QUANTO FALTA, e zero quer dizer "ninguém sabe" quando o estado é frio:
-      # a tela pode dizer que a tecla está fria sem que exista número nenhum
-      # escrito pra ela. Um contador que inventa segundos é pior que um traço.
+      # Time left; zero on a cooling key means "unknown": the screen can say cold with no
+      # number written for it, and a counter that invents seconds is worse than a dash.
       left_ms: if(state == :cooling, do: max(cooling, deaf), else: 0),
       written_ms: written,
       muted?: deaf > 0,
@@ -115,9 +114,8 @@ defmodule Pokex.Bots.SkillRack do
   defp screen_says(_key, nil), do: :unknown
   defp screen_says(key, ready), do: if(key in ready, do: :ready, else: :cooling)
 
-  # O relógio só fala de tecla com cooldown ESCRITO ou já pega mentindo. Sem
-  # isso ele não está dizendo "pronta": está dizendo que não sabe, e as duas
-  # coisas não podem virar a mesma cor.
+  # The clock only speaks for keys with a WRITTEN cooldown or already caught lying. Otherwise
+  # it is saying "unknown", not "ready", and the two must not share a colour.
   defp clock_says(_key, nil, 0), do: :unknown
   defp clock_says(_key, _written, left) when left > 0, do: :cooling
 
@@ -129,10 +127,9 @@ defmodule Pokex.Bots.SkillRack do
   defp disagree?(_screen, :unknown), do: false
   defp disagree?(_screen, _clock), do: true
 
-  # A ORDEM IMPORTA: `reserved` é a lista de EXCLUSÃO da rotação e junta
-  # controle com escudo, então o escudo tem que ser perguntado antes — numa tela
-  # de diagnóstico, chamar o escudo de controle mente sobre a coisa exata que
-  # ela existe pra mostrar.
+  # Order matters: `reserved` is the rotation's EXCLUSION list and mixes control with shield,
+  # so the shield must be asked first. A diagnostics screen calling the shield "control" lies
+  # about the exact thing it exists to show.
   @jobs [
     {:shield, "escudo"},
     {:reserved, "controle (guardado pro revive)"},
@@ -164,9 +161,8 @@ defmodule Pokex.Bots.SkillRack do
   def recovered_pct(%{left_ms: 0}), do: nil
 
   def recovered_pct(%{left_ms: left} = tile) do
-    # Uma tecla calada por mentira da barra é segurada pelo assumido quando
-    # ninguém escreveu o número dela — o trilho tem que medir a mesma coisa que
-    # a contagem, ou os dois contam histórias diferentes da mesma espera.
+    # A key silenced by a lying bar is held by the assumed cooldown when nobody wrote its
+    # number: the rail must measure the same thing as the count.
     total = tile.written_ms || (tile.muted? && SkillClock.assumed_ms())
 
     if total, do: round(max(total - left, 0) * 100 / total)

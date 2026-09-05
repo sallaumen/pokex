@@ -112,33 +112,27 @@ defmodule Pokex.Bots.HuntMode do
   @spec engine_overrides(t) :: %{atom => term}
   def engine_overrides(:economy) do
     %{
-      # Juntar bolo é economia de ÁREA, e numa rota barata a área é a exceção.
-      # Cada pilha juntada é aggro que ninguém pediu.
+      # Gathering a pile saves AREA, and on a cheap route area is the exception: every
+      # gathered pile is aggro nobody asked for.
       gather_piles: false,
       bunch_ms: 0,
-      # Bateu, luta: a régua dos três existe pra poupar a área.
+      # Hit, fight: the three-mob ruler exists to spare the area.
       engage_from: 1,
-      # Recuar compra tempo pra barra voltar. Sem barra pra esperar, recuar só
-      # refaz de costas o chão que a rota acabou de andar.
+      # Retreating buys time for the bar to return; with no bar to wait for it only
+      # re-walks the route backwards.
       kite_when_spent: false,
-      # As duas regras que COMPRAM conveniência com revive. Numa rota fraca o
-      # revive vale mais no bolso — a emergência e o caído continuam intactos,
-      # porque não passam por aqui.
+      # The two rules that BUY convenience with a revive. On a weak route the revive is
+      # worth more in the pocket; emergency and fainted stay intact, they do not pass
+      # through here.
       reset_revive: false,
       prepare_revive: false
     }
   end
 
-  # O AUTO COMBO NÃO JUNTA ANDANDO. É o modo das hunts fortes, e a regra dele
-  # (02/09) é literal: "se tem 8 na tela ele deveria parar na hora, não dar
-  # mais nenhum passo e deixar os bichos virem até mim — andar até eles é mais
-  # perigoso ainda, que vai chamar ainda mais bicho". O diário de 07:58 mostra o
-  # porquê: a lista leu 2→3→4→6 enquanto ele andava 11 passos "juntando", e
-  # pulou pra 9 de uma vez — os que corriam atrás dele FORA da tela não entram
-  # na contagem até alcançá-lo. Ele via doze; o bot via seis e foi buscar mais.
-  # Parado, a régua conta quem chega, abre quando vale, e a corrente cuida do
-  # resto. Custo medido na bancada: −14% de mortos no cenário do combo, zero
-  # quedas dos dois lados — e a bancada não enxerga os doze fora da tela.
+  # Auto Combo never gathers while walking. The mobs chasing him OFF screen are not counted
+  # until they reach him, so walking "to gather" calls more than the list shows. Standing
+  # still, the ruler counts who arrives, opens when it is worth it, and the chain does the
+  # rest. Bench cost: 14% fewer kills in the combo scenario, zero falls.
   def engine_overrides(:auto_combo), do: %{gather_piles: false}
 
   def engine_overrides(_unknown_runs_the_bot_as_it_is), do: %{}

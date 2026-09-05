@@ -84,8 +84,7 @@ defmodule Pokex.Bots.MiniGame.Worker do
   # (`:ok`, because a worker the mode does not want is not a failed start).
   # Without this the watcher would still pay a screen capture per tick against
   # the one serialized broker, competing with the feeds that ARE reading, over
-  # something that cannot happen ("não existe o minigame fora da pesca", Lucas,
-  # 2026-08-25).
+  # something that cannot happen (the mini-game only exists while fishing).
   @impl true
   def handle_call(:run, _from, state) do
     if Pokex.Modes.watches_mini_game?(), do: do_run(state), else: {:reply, :ok, state}
@@ -165,19 +164,14 @@ defmodule Pokex.Bots.MiniGame.Worker do
   # must not crash the worker.
   def handle_info({:EXIT, _pid, _reason}, state), do: {:noreply, state}
 
-  # Jogando, o intervalo é um PRAZO, não uma soneca: dormir os
-  # mini_game_play_tick_ms INTEIROS depois do trabalho fazia o período real
-  # virar trabalho+intervalo. Medido no trace da partida de 2026-08-05
-  # (`~/.pokex/exports/mini_game-*/summary.json`): tick 68ms de trabalho + 81ms
-  # de sono = 149ms entre observações, 6,7 fps — o piloto pediu 12,5 e recebeu
-  # metade, e no regime de visão lenta a cápsula oscila (o lab já mostrava isso
-  # com o slider de FPS em 7). Descontando o trabalho, o período volta a ser o
-  # que o seed promete.
+  # While PLAYING the interval is a DEADLINE, not a nap: sleeping the whole
+  # mini_game_play_tick_ms after the work made the real period work+interval (measured: 68ms
+  # work + 81ms sleep = 149ms, 6.7 fps instead of the 12.5 asked for), and at that vision rate
+  # the capsule oscillates. Subtracting the work restores the promised period.
   #
-  # Só no modo JOGANDO: aí todos os outros feeds estão pausados pelo fato
-  # :mini_game, então acelerar não disputa a fila de captura com ninguém. O
-  # vigia (fora de jogo) mantém a soneca cheia de propósito — ele CONCORRE com
-  # pesca, batalha e feeds, e a fome de captura é cara demais pra arriscar.
+  # PLAYING only: there every other feed is paused by the :mini_game fact, so speeding up
+  # competes with nobody. The watcher (outside a game) keeps the full nap on purpose: it
+  # COMPETES with fishing, battle and the feeds, and capture hunger is too expensive.
   @doc false
   def next_delay(%{in_game?: true}, started_at) do
     Settings.get(:mini_game_play_tick_ms) - (System.monotonic_time(:millisecond) - started_at)
@@ -209,12 +203,11 @@ defmodule Pokex.Bots.MiniGame.Worker do
 
   @no_strip_error "sem faixa do minigame marcada — vigia desligado (Calibração → Só o minigame)"
 
-  # Sem faixa o vigia NÃO adivinha onde olhar: os dois palpites anteriores
-  # falharam no campo (a caixa de meia-tela era "aquela área grandona"; a caixa
-  # ancorada no personagem leu tronco escuro + flores azuis como "barra +
-  # cápsula" num spot rochoso, 2026-08-05, flapando 1×/s e segurando a frota).
-  # Cego E DECLARADO: o erro fica no pill, o aviso sai UMA vez, e a calibração
-  # é relida a cada tick — marcar a faixa religa o vigia sem restart.
+  # Without a band the watcher does NOT guess where to look: both earlier guesses failed in
+  # the field (a half-screen box, then a box anchored on the character reading dark trunk +
+  # blue flowers as "bar + capsule", flapping 1×/s and holding the fleet). Blind AND declared:
+  # the error sits in the pill, the warning goes out ONCE, and the calibration is re-read
+  # every tick, so marking the band re-arms the watcher without a restart.
   defp no_strip_tick(state) do
     state =
       case Calibration.load() do

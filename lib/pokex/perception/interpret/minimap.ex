@@ -60,8 +60,8 @@ defmodule Pokex.Perception.Interpret.Minimap do
     {obs |> Map.put(:coord_gap, state.gap) |> Map.put(:coord_guessed, state[:chute]), state}
   end
 
-  # QUANTO DESTA COORDENADA É CHUTE — o aviso que faltava, e a razão de ele ter olhado a tela de
-  # glifos e lido "nenhum problema" enquanto o bot andava pra um lugar inventado.
+  # How much of this coordinate is a GUESS: the warning that was missing, and why the glyph
+  # screen read "no problem" while the bot walked to an invented place.
   defp chute(%{guessed: guessed, glyphs: total})
        when is_integer(guessed) and is_integer(total) and total > 0 and guessed > 0,
        do: %{guessed: guessed, glyphs: total, pct: round(guessed * 100 / total)}
@@ -178,8 +178,8 @@ defmodule Pokex.Perception.Interpret.Minimap do
       near?(pos, last, reach(state[:at], now)) ->
         {%{pos: pos}, accepted(state, pos, now)}
 
-      # Um salto vindo de uma leitura que é quase toda chute não é um salto, é
-      # o atlas errando o mesmo glifo duas vezes. Ver `resemblance?/1`.
+      # A jump coming from a reading that is almost all guess is not a jump, it is the
+      # atlas misreading the same glyph twice. See `resemblance?/1`.
       resemblance?(read) ->
         {%{pos: last}, hold(state, pos, now)}
 
@@ -191,7 +191,7 @@ defmodule Pokex.Perception.Interpret.Minimap do
     end
   end
 
-  # SEMELHANÇA NÃO TELEPORTA NINGUÉM.
+  # Resemblance teleports nobody.
   @mostly_guessed 0.5
 
   defp resemblance?(%{guessed: guessed, glyphs: total})

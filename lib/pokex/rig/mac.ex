@@ -93,17 +93,16 @@ defmodule Pokex.Rig.Mac do
     end
   end
 
-  # A CERCA DA CAUDA. Uma rajada leva (n-1) × gap pra sair da mão — ~1,5s com
-  # as quatro teclas dele — e cada dormida dessas é tempo em que o mundo muda
-  # embaixo da decisão que a despachou. Medido na noite de 30/08 (4h17): 325
-  # rajadas foram atravessadas por um F4 no MEIO, 237 teclas aterrissaram
-  # DEPOIS dele — quase todas com a tela já vazia, engolidas pela janela cega
-  # que o próprio revive abre. O portão da LARGADA (blackout do combate) nunca
-  # viu nada disso: ele só vota antes da primeira tecla.
+  # The tail fence. A burst takes (n-1) × gap to leave the hand (~1.5s with his four keys),
+  # and every one of those sleeps is time in which the world changes under the decision that
+  # dispatched it. Measured over one night: 325 bursts were crossed by an F4 in the MIDDLE and
+  # 237 keys landed AFTER it, almost all with the screen already empty, swallowed by the blind
+  # window the revive itself opens. The START gate (combat blackout) never saw any of it: it
+  # only votes before the first key.
   #
-  # `halt?` é votada antes de CADA prensa, nunca no meio de uma — parar é
-  # sempre seguro (são taps, nada fica segurado). As teclas que não saíram
-  # voltam em `{:halted, saíram}` pra quem despachou acertar recibo e relato.
+  # `halt?` is voted before EACH press, never mid-press; stopping is always safe (taps,
+  # nothing stays held). The keys that did not fire come back in `{:halted, fired}` for the
+  # dispatcher to settle receipt and report.
   @doc false
   def walk_burst(steps, halt?, press) do
     steps
@@ -143,8 +142,8 @@ defmodule Pokex.Rig.Mac do
   # keystroke script when the user is off on the panel/browser. Settings-driven so it can be
   # turned off (ensure_game_focus) or renamed if the game ever leaves Wine (game_app_name).
   # Fail-open: if Settings isn't up (early boot), skip the guard rather than block the press.
-  # O que TODA prensa por osascript precisa saber: pra onde apontar, e quanto o
-  # modificador segura antes da tecla (ver `Commands.key_lines/2`).
+  # What EVERY osascript press needs to know: where to aim, and how long the modifier holds
+  # before the key (see `Commands.key_lines/2`).
   defp key_opts,
     do: [focus_app: focus_app(), modifier_settle_ms: Pokex.Settings.get(:key_modifier_settle_ms)]
 

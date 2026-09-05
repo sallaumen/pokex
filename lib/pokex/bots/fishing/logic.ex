@@ -384,15 +384,15 @@ defmodule Pokex.Bots.Fishing.Logic do
   defp cast(logic, now, prefix_actions \\ []) do
     logic = update_in(logic.counters.cycles, &(&1 + 1))
 
-    # The DRY CAST: a whole cycle in which the LINE never showed up. A swallowed
-    # rod key (gate, focus, key helper) returns :ok and the water simply stays
-    # empty — the screen is the only witness the cast happened. N dry cycles in a
-    # row → alarm, and the count restarts (re-alarms if still dry). Casting
-    # continues: the alarm wakes the human, it doesn't stop the rod.
+    # The DRY CAST: a whole cycle in which the LINE never showed up. A swallowed rod key
+    # (gate, focus, key helper) returns :ok and the water simply stays empty: the screen is
+    # the only witness the cast happened. N dry cycles in a row alarm, and the count
+    # restarts (re-alarms if still dry). Casting continues: the alarm wakes the human, it
+    # does not stop the rod.
     #
-    # The witness is the LINE, not a BITE. Waiting a whole cycle without a bite
-    # is what fishing IS — counting that as dry made the alarm cry "a tecla da
-    # vara não está chegando no jogo" over a rod that was working perfectly.
+    # The witness is the LINE, not a BITE. Waiting a whole cycle without a bite is what
+    # fishing IS; counting that as dry made the alarm cry that the rod key was not reaching
+    # the game over a rod that was working perfectly.
     dry = if logic.line_seen?, do: 0, else: logic.dry_casts + 1
     threshold = Map.get(logic.config, :dry_casts_alarm, 0)
 
@@ -462,16 +462,13 @@ defmodule Pokex.Bots.Fishing.Logic do
     if line_present?(obs), do: 0, else: logic.dead_streak + 1
   end
 
-  # The rod key does not put the lure in the water: the throw arcs, and the lure
-  # appears seconds later (MEASURED on Lucas's 3440×1440, journal 2026-08-10: 2-5s
-  # from the key to the first frame with any lure pixel). Re-throwing inside that
-  # window yanks the bait that has just landed back OUT — "joga a vara, acha que
-  # não lançou nada e re-lança".
+  # The rod key does not put the lure in the water: the throw arcs, and the lure appears
+  # seconds later (MEASURED on his 3440×1440: 2-5s from the key to the first frame with any
+  # lure pixel). Re-throwing inside that window yanks the bait that has just landed back OUT.
   #
-  # Timed from cast_at, the throw's own clock. entered_at is refreshed by every
-  # bite peak, so a held bite used to re-open the grace over a line that had been
-  # live for a minute. A hand-built struct (tests, a resumed cycle) has no
-  # cast_at yet and falls back to it.
+  # Timed from cast_at, the throw's own clock. entered_at is refreshed by every bite peak, so
+  # a held bite used to re-open the grace over a line that had been live for a minute. A
+  # hand-built struct (tests, a resumed cycle) has no cast_at yet and falls back to it.
   defp within_cast_grace?(logic, now),
     do: now - cast_clock(logic) < Map.get(logic.config, :cast_grace_ms, 5_000)
 

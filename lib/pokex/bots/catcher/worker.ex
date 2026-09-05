@@ -61,11 +61,10 @@ defmodule Pokex.Bots.Catcher.Worker do
       body: Keyword.get(opts, :body, Body),
       # kill-anchored vision; injectable in tests like the Body
       scanner: Keyword.get(opts, :scanner, &SpotScan.scan/0),
-      # PORTA DE ENTRADA, como todo irmão desta família tem. O env estava sendo
-      # lido CRU dentro de `arm_sweep/1`, então na suíte o `sweep_timer` ficava
-      # nil pra sempre e o re-armar não tinha como ser exercitado — a regra
-      # escrita logo acima dele ("não pode calar até o próximo Iniciar") passava
-      # verde mesmo estreitada.
+      # Entry door, like every sibling in this family. The env used to be read RAW inside
+      # `arm_sweep/1`, so in the suite the `sweep_timer` stayed nil forever and re-arming
+      # could not be exercised: the rule written right above it (must not go quiet until
+      # the next Start) passed green even when narrowed.
       auto_tick?:
         Keyword.get(opts, :auto_tick, Application.get_env(:pokex, :sweep_auto_tick, true))
     }

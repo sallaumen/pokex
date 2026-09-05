@@ -48,8 +48,8 @@ defmodule Pokex.Bots.SkillTruth do
 
   @table :pokex_skill_truth
 
-  # O efeito de uma skill demora ~800ms-1s a aparecer; a folga cobre isso e a
-  # idade que o frame já tinha quando o aperto saiu.
+  # A skill's effect takes ~800ms-1s to show; the slack covers that and the age the frame
+  # already had when the press left.
   @grace_ms 2_500
   @frames_to_free 2
 
@@ -81,12 +81,12 @@ defmodule Pokex.Bots.SkillTruth do
   def observe(%{ready_keys: ready}, now) when is_list(ready) do
     ensure_table()
 
-    # `judge` condena, `free` executa — e o free RECONFERE o carimbo, porque
-    # entre os dois o Body pode ter apertado a mesma tecla de novo.
+    # `judge` condemns, `free` executes, and free RE-CHECKS the stamp, because between the
+    # two the Body may have pressed the same key again.
     freed = Enum.filter(ready, fn key -> judge(key, now) and free(key, now) end)
 
-    # Uma tecla que a tela mostra ESFRIANDO está de acordo com qualquer carimbo
-    # — a discordância dela morreu, e o streak morre junto.
+    # A key the screen shows COOLING agrees with any stamp: its disagreement died, and the
+    # streak dies with it.
     Enum.each(known_streaks() -- ready, &:ets.delete(@table, &1))
 
     freed
@@ -94,7 +94,7 @@ defmodule Pokex.Bots.SkillTruth do
 
   def observe(_sem_leitura, _now), do: []
 
-  # A tecla está pronta NA TELA. Ela merece ser solta?
+  # The key is ready ON SCREEN. Does it deserve to be freed?
   defp judge(key, now) do
     with at when is_integer(at) <- SkillClock.last_press(key),
          true <- now - at > @grace_ms,
@@ -107,11 +107,10 @@ defmodule Pokex.Bots.SkillTruth do
     end
   end
 
-  # Solta de verdade — e diz se soltou. A idade é RELIDA aqui: entre o
-  # julgamento e este apagar, o Body pode ter carimbado um aperto NOVO na
-  # mesma tecla, e soltá-lo seria apagar um disparo legítimo. Carimbo mais
-  # novo que a carência = mudou de mãos; o streak zera e o julgamento
-  # recomeça do primeiro frame.
+  # Frees for real, and says whether it did. The age is RE-READ here: between the judgement
+  # and this erase the Body may have stamped a NEW press on the same key, and freeing it would
+  # erase a legitimate shot. A stamp younger than the grace = changed hands; the streak resets
+  # and the judgement restarts from the first frame.
   defp free(key, now) do
     :ets.delete(@table, key)
     age = now - (SkillClock.last_press(key) || now)
@@ -119,8 +118,8 @@ defmodule Pokex.Bots.SkillTruth do
     if age > @grace_ms do
       SkillClock.release(key)
 
-      # Carimbo que ainda seguraria a tecla é notícia; carimbo já expirado é
-      # faxina, e faxina narrada em loop enterraria o feed.
+      # A stamp that would still hold the key is news; an expired stamp is housekeeping,
+      # and housekeeping narrated in a loop would bury the feed.
       if age < SkillClock.assumed_ms(), do: narrate(key, age)
       true
     else

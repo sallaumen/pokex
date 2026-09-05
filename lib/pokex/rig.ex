@@ -8,9 +8,9 @@ defmodule Pokex.Rig do
   @type region :: {integer, integer, integer, integer}
 
   @callback press(String.t()) :: :ok | {:error, term}
-  # `opts[:halt?]` (0-arity fun) é a CERCA da rajada: checada antes de CADA
-  # tecla, verdadeira = as restantes não saem e a resposta é `{:halted, saíram}`.
-  # Uma tecla nunca é cancelada no meio — a cerca só decide a PRÓXIMA.
+  # `opts[:halt?]` (0-arity fun) is the burst's FENCE: checked before EACH key, true = the
+  # remaining keys do not fire and the answer is `{:halted, fired}`. A key is never cancelled
+  # midway; the fence only decides the NEXT one.
   @callback press_many([String.t()], keyword) ::
               :ok | {:halted, [String.t()]} | {:error, term}
   @callback key_down(String.t()) :: :ok | {:error, term}

@@ -47,14 +47,13 @@ defmodule Pokex.Pokedex.SkillProfile do
   described every one of his own combos ("as skills 3 e 5", "3, 4, 5").
   """
 
-  # Ordered by MOMENT, so reading the editor top to bottom tells the story of
-  # a hunt: raise the damage aura while gathering, open with area, finish on a
-  # target, heal when asked, and keep the control for the revive.
+  # Ordered by MOMENT, so reading the editor top to bottom tells the story of a hunt: raise
+  # the damage aura while gathering, open with area, finish on a target, heal when asked, and
+  # keep the control for the revive.
   #
-  # `:buffs` and `:shield` were ONE job until 2026-08-26, and being one is what
-  # made the bot use them badly: "a aura 2 é uma aura para dar dano e a aura 3 é
-  # uma hora que deixa ele indestrutível". A timer that fires "the auras" spends
-  # the invulnerability every eight seconds of gathering, on nothing.
+  # `:buffs` and `:shield` were ONE job, and being one is what made the bot use them badly:
+  # one aura is damage, the other makes the pokémon invulnerable for a moment. A timer that
+  # fires "the auras" spends the invulnerability every eight seconds of gathering, on nothing.
   @categories [:buffs, :shield, :aoe, :single, :heal, :crowd]
 
   # The two halves of the kill, in the order they fire. Area first because it

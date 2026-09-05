@@ -515,11 +515,11 @@ defmodule PokexWeb.CalibrationOverlay do
     """
   end
 
-  # Regions as marked; points as the window around them (a point on its own
-  # shows nothing — "o ponto da água caiu na água?" needs the neighbourhood).
-  # RESOLVED values (manual > layout > derived) so the automatic areas show up
-  # too — adjusting one materializes it as manual, the established "a mão
-  # manda" semantics. The key names the CALIBRATION FIELD the pad writes.
+  # Regions as marked; points as the window around them (a point on its own shows nothing:
+  # whether the water point landed on water needs the neighbourhood). RESOLVED values (manual
+  # > layout > derived) so the automatic areas show up too; adjusting one materializes it as
+  # manual, the established "the hand rules" semantics. The key names the CALIBRATION FIELD
+  # the pad writes.
   defp crop_list(calib) do
     [
       {:pokemon_hp_region, "vida do Pokémon", :region, calib.pokemon_hp_region},

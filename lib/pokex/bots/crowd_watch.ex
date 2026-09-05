@@ -36,7 +36,7 @@ defmodule Pokex.Bots.CrowdWatch do
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
 
-  # As linhas viajam com as do cérebro: mesma tabela, mesmo feed.
+  # The lines travel with the brain's: same table, same feed.
   @topic "engine"
   @reach_tiles 1
   @look_ms 500
@@ -107,7 +107,7 @@ defmodule Pokex.Bots.CrowdWatch do
 
   defp forget(state, phase), do: %{state | last: nil, last_phase: phase}
 
-  # A espera acabou em luta: a última foto é a da abertura.
+  # The wait ended in a fight: the last frame is the opening's.
   defp opening?(%{last: last, last_phase: before}, phase),
     do: last != nil and before in @watching and phase == :engaged
 
@@ -139,8 +139,8 @@ defmodule Pokex.Bots.CrowdWatch do
     )
   end
 
-  # O PREÇO, nos dois lados: quanto a foto custou, e quão velha a batalha
-  # estava no instante seguinte — é a idade dela que diz se a fila engasgou.
+  # The price, on both sides: what the frame cost, and how old the battle was the instant
+  # after. Its age is what says whether the queue choked.
   defp measure(%{read?: true, took_ms: took}, now) do
     Perf.record("crowd_watch.look_ms", took)
 

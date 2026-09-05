@@ -127,11 +127,10 @@ defmodule Pokex.Bots.ReviveLedger do
 
   @doc "Esquece a conta — usado por teste e pela troca de personagem."
   @spec reset() :: :ok
-  # …e o POUSO também. Um reset que esquece o estoque mas lembra "o F4 acabou de
-  # aterrissar" deixa a janela cega armada pra quem vier depois — na suíte, o
-  # teste seguinte nascia dentro de um blackout de 2s (CI de 02/09, cinco
-  # "skill não saiu" que dependiam da ordem); no jogo, uma troca de personagem
-  # herdaria dois segundos de mudo.
+  # …and the LANDING too. A reset that forgets the stock but remembers "the F4 just landed"
+  # leaves the blind window armed for whoever comes next: in the suite the next test was born
+  # inside a 2s blackout (order-dependent failures); in the game a character switch would
+  # inherit two seconds of mute.
   def reset do
     ensure_table()
     :ets.delete(@table, :ledger)
@@ -140,9 +139,8 @@ defmodule Pokex.Bots.ReviveLedger do
     :ok
   end
 
-  # A conta vale para UM valor digitado: se o ajuste mudou desde a última
-  # anotação, ele recontou o bolso e a conta velha morre aqui, sem precisar de
-  # observador nenhum de settings.
+  # The count is valid for ONE typed value: if the setting changed since the last note, he
+  # recounted the pocket and the old count dies here, with no settings observer needed.
   defp current(stock) do
     case :ets.lookup(@table, :ledger) do
       [{:ledger, ^stock, spent}] -> {stock, spent}

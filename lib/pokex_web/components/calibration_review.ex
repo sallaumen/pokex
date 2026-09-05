@@ -1,25 +1,24 @@
 defmodule PokexWeb.CalibrationReview do
   @moduledoc """
-  "Áreas que o bot está usando" — the review panel, laid out around the one
-  question it exists to answer.
+  The review panel ("areas the bot is using"), laid out around the one question it exists to
+  answer.
 
-  It used to be six coloured alert boxes stacked at the same weight (an
-  explanation, a nudge pad, a form, the ruler, a legend, the photo), so colour
-  was doing two jobs at once: naming an area AND signalling urgency. With
-  everything shouting, nothing could — "18 números são de OUTRA tela" sat at
-  exactly the same volume as a paragraph he had already read forty times
-  (Lucas, 2026-08-10: "ta ruim de usar, confuso").
+  It used to be six coloured alert boxes stacked at the same weight (an explanation, a nudge
+  pad, a form, the ruler, a legend, the photo), so colour was doing two jobs at once: naming an
+  area AND signalling urgency. With everything shouting, nothing could, and "18 numbers belong
+  to ANOTHER screen" sat at exactly the same volume as a paragraph he had already read forty
+  times. His verdict was that it was confusing and hard to use.
 
   The order here is the order of his questions:
 
-  1. **is something wrong?** — one alert, the most severe, with its way out;
-  2. **is it in the right place?** — the crops, at reading size, right away;
-  3. **fix it** — the three tools, one open at a time, behind a row of buttons;
-  4. **why / where** — explanation, legend and the full photo, folded away.
+  1. **is something wrong?** - one alert, the most severe, with its way out;
+  2. **is it in the right place?** - the crops, at reading size, right away;
+  3. **fix it** - the three tools, one open at a time, behind a row of buttons;
+  4. **why / where** - explanation, legend and the full photo, folded away.
 
-  Colour still names the area (the dot on each tool matches its overlay), but
-  weight is reserved for urgency: tools sit on the neutral raised surface and
-  only a real problem gets the warning tint.
+  Colour still names the area (the dot on each tool matches its overlay), but weight is reserved
+  for urgency: tools sit on the neutral raised surface and only a real problem gets the warning
+  tint.
   """
   use PokexWeb, :html
 

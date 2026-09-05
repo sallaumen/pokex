@@ -408,13 +408,11 @@ defmodule PokexWeb.Layouts do
   @doc """
   The one state that makes EVERY reading wrong, said on every page.
 
-  A calibration belongs to the screen it was marked on: on another one the bot
-  aims at coordinates that no longer exist. The warning already existed — but
-  only inside /calibration, so switching monitors and going straight to the
-  panel told him nothing (Lucas, 2026-08-10: "o tamanho da minha tela era
-  diferente da última calibragem, nada me foi avisado"). It rides inside the
-  sticky header block so scrolling cannot leave it behind, and disappears by
-  itself the moment the two agree.
+  A calibration belongs to the screen it was marked on: on another one the bot aims at
+  coordinates that no longer exist. The warning already existed, but only inside /calibration,
+  so switching monitors and going straight to the panel told him nothing. It rides inside the
+  sticky header block so scrolling cannot leave it behind, and disappears by itself the moment
+  the two agree.
   """
   def screen_mismatch_strip(%{check: {tag, {sw, sh}, {cw, ch}}} = assigns)
       when tag in [:another_screen, :rescalable] do
@@ -561,16 +559,15 @@ defmodule PokexWeb.Layouts do
   slot :aside, doc: "o que fica à direita do título, na mesma linha"
 
   @doc """
-  O NOME DA PÁGINA, com uma voz só.
+  THE PAGE'S NAME, in one voice.
 
-  Cada tela tinha inventado a sua: `text-base`, `text-lg`, `text-xl`, `text-2xl`
-  e dois degraus do sistema — seis páginas, seis tamanhos, três decisões
-  diferentes sobre caixa alta. A única coisa que deveria mudar ao navegar é o
-  conteúdo, e o cabeçalho estava mudando junto.
+  Every screen had invented its own: `text-base`, `text-lg`, `text-xl`, `text-2xl` and two
+  system steps, six pages, six sizes, three different decisions about capitals. The only thing
+  that should change while navigating is the content, and the header was changing along with it.
 
-  A voz é a do aparelho: o maior degrau que o sistema tem (15px — não existe
-  display aqui), caixa alta e `0.14em` de tracking. Nada de `text-2xl`: uma
-  página que grita o próprio nome rouba a linha de quem tem número pra mostrar.
+  The voice is the machine's: the largest step the system has (15px, there is no display size
+  here), capitals and `0.14em` of tracking. No `text-2xl`: a page that shouts its own name
+  steals the line from whoever has a number to show.
   """
   def page_title(assigns) do
     ~H"""

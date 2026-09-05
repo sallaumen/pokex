@@ -49,8 +49,8 @@ defmodule Pokex.Bots.MiniGame.Player do
   # bar: wide enough for the track + the fish poking past it, and ~8x cheaper
   # to capture and scan than the whole arena.
   @strip_half_pt 40
-  # Folga vertical em volta da barra detectada: a cápsula encosta no fim dela, e
-  # a eleição do Track pode variar uma ou duas linhas entre frames.
+  # Vertical slack around the detected bar: the capsule touches its end, and the Track's
+  # election can shift a row or two between frames.
   @strip_margin_pt 10
   @strip_file "mini_game_strip.png"
   @preview_file "mini_game_preview.png"
@@ -124,27 +124,22 @@ defmodule Pokex.Bots.MiniGame.Player do
 
   def arm(player, _calib, _region, _reading), do: player
 
-  # Where the playing strip ENDS — and the two opposite ways of getting it wrong.
+  # Where the playing strip ENDS, and the two opposite ways of getting it wrong.
   #
-  # Cutting the tail below the bar exists for a reason: the Track elects the bar
-  # by the longest run of DARK rows and only looks for the fish INSIDE it, so
-  # every leftover row of scenery is a candidate to steal the election. With the
-  # region derived from anchors (#151) there were ~235 rows of dark rock below
-  # the bar and the pilot went blind on 96% of the ticks (no_fish 302/316, trace
-  # 2026-08-05).
+  # Cutting the tail below the bar exists for a reason: the Track elects the bar by the
+  # longest run of DARK rows and only looks for the fish INSIDE it, so every leftover row of
+  # scenery is a candidate to steal the election. With the region derived from anchors there
+  # were ~235 rows of dark rock below the bar and the pilot went blind on 96% of the ticks.
   #
-  # But cutting by `bar.y2` assumes the detector saw the WHOLE bar, and it does
-  # not always: on Lucas's trace of 2026-08-10 the strip stopped at y2+10 while
-  # the real track kept going — the dark run reached the strip's last row on
-  # frame after frame. Everything past that line was invisible: the fish sat at
-  # the bottom end for 26 ticks (`no_fish`), the capsule that fell there was
-  # never seen (`blue_px` 0 in all 54 samples), and `no_capsule_streak` hit its
-  # ceiling and declared the game OVER while it was still on screen. That is
-  # what the workers acting on top of the mini-game were made of.
+  # But cutting by `bar.y2` assumes the detector saw the WHOLE bar, and it does not always: on
+  # one trace the strip stopped at y2+10 while the real track kept going. Everything past that
+  # line was invisible: the fish sat at the bottom end for 26 ticks, the capsule that fell
+  # there was never seen, and `no_capsule_streak` hit its ceiling and declared the game OVER
+  # while it was still on screen.
   #
-  # So: with a HAND-MARKED region the hand already framed the track — it is the
-  # source of truth (`a mão manda`, #109) and nothing is cut. The tail cut stays
-  # for the DERIVED region, which is the one that drags scenery in.
+  # So: with a HAND-MARKED region the hand already framed the track, it is the source of truth
+  # (the hand rules) and nothing is cut. The tail cut stays for the DERIVED region, which is
+  # the one that drags scenery in.
   defp strip_bottom(calib, {_rx, ry, _rw, rh}, bar, scale) do
     if hand_marked?(calib),
       do: ry + rh,

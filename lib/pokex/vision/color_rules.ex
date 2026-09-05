@@ -63,7 +63,7 @@ defmodule Pokex.Vision.ColorRules do
       |> Map.take(editable)
       |> Enum.reduce(entry, fn
         {"colors", colors}, e when is_list(colors) and colors != [] ->
-          # tolerância nova = prova velha não vale mais
+          # new tolerance = old proof no longer valid
           %{e | "colors" => Enum.map(colors, &normalize_color/1)} |> Map.put("proven", nil)
 
         {"min_px", v}, e ->

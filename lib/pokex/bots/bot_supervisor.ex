@@ -290,14 +290,11 @@ defmodule Pokex.Bots.BotSupervisor do
     end
   end
 
-  # A refused start is announced HERE, by the owner of the operation, so no
-  # caller can swallow it. Both did: the command corner threw the return away
-  # inside a fire-and-forget Task, and the panel put it in an assign that no
-  # feed and no journal ever saw. One worker refusing preflight halts the whole
-  # chain, so the fleet sat stopped with nothing on screen but "ligando o modo
-  # still" (Lucas, 2026-08-07: "é como se ele não ligasse os supervisors de
-  # pesca nem de batalha nunca" / "quando um worker diz algum erro, tem que ter
-  # log"). The alarm rides the :command sector, which the journal records.
+  # A refused start is announced HERE, by the owner of the operation, so no caller can swallow
+  # it. Both did: the command corner threw the return away inside a fire-and-forget Task, and
+  # the panel put it in an assign that no feed and no journal ever saw. One worker refusing
+  # preflight halts the whole chain, so the fleet sat stopped with nothing on screen but the
+  # mode pill. The alarm rides the :command sector, which the journal records.
   defp announce_refusal(messages) do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,

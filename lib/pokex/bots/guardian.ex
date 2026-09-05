@@ -351,11 +351,10 @@ defmodule Pokex.Bots.Guardian do
         {:rule_alarm, :command, "🕹️ canto de comando: parando o bot"}
       )
 
-      # PARAR NO MEIO DA MOBADA É FICAR DE ALVO. Em 30/08 o canto parou a
-      # caçada com 5+ bichos aggroados; o personagem ficou parado na pilha e
-      # morreu AFK em 8 minutos. O comando obedece — parar tem que parar —
-      # mas grita a exposição, porque quem para e sai da frente do teclado
-      # precisa saber que deixou a pilha acordada em cima.
+      # Stopping in the middle of a mob is standing as a target: the corner once stopped
+      # the hunt with 5+ mobs aggroed, the character stood in the pile and died AFK in 8
+      # minutes. The command obeys (stop must stop) but shouts the exposure, because
+      # whoever stops and leaves the keyboard needs to know the pile is awake on top.
       warn_if_exposed()
 
       BotSupervisor.stop_all("canto de comando")

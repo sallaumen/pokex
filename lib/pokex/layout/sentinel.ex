@@ -73,13 +73,11 @@ defmodule Pokex.Layout.Sentinel do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # Judging the layout while the game is BEHIND something is judging the wrong
-  # picture. The capture is of the DISPLAY, so with a single monitor every
-  # glance at the panel put the browser in front of the HUD and the sentinel
-  # answered "não achei o HUD" — a red alarm for the most normal act there is
-  # (Lucas, 2026-08-06: "tenho que deixar o browser fora da tela principal").
-  # Not found and not looked at are different facts and now say different
-  # things; `located?` is left alone, because nothing was learned.
+  # Judging the layout while the game is BEHIND something is judging the wrong picture. The
+  # capture is of the DISPLAY, so with a single monitor every glance at the panel put the
+  # browser in front of the HUD and the sentinel answered "HUD not found", a red alarm for the
+  # most normal act there is. Not found and not looked at are different facts and now say
+  # different things; `located?` is left alone, because nothing was learned.
   defp relocate(%{located?: located?} = state) do
     if game_in_front?() do
       locate(state)

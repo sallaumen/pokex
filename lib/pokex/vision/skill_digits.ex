@@ -135,13 +135,13 @@ defmodule Pokex.Vision.SkillDigits do
     }
   end
 
-  # --- o teste de dígito ------------------------------------------------------
+  # --- the digit test --------------------------------------------------------
 
   defp countdown_digit?(cluster, frame, scale),
     do: upper_half?(cluster, frame) and label_glyph?(cluster, frame, scale)
 
-  # Um glifo da fonte do jogo, em qualquer altura do slot: tamanho de dígito e
-  # contorno preto. A contagem e o rótulo da tecla são a MESMA fonte.
+  # A glyph of the game's font, at any height in the slot: digit-sized with a black outline.
+  # The count and the key label are the SAME font.
   defp label_glyph?(cluster, frame, scale) do
     height = cluster.max_y - cluster.min_y + 1
 
@@ -151,8 +151,8 @@ defmodule Pokex.Vision.SkillDigits do
       outlined?(cluster, frame)
   end
 
-  # O centro do aglomerado acima da metade do frame: é o que separa a contagem
-  # do rótulo da tecla, que usa a MESMA fonte na metade de baixo.
+  # The cluster's centre above the frame's midline: what separates the count from the key
+  # label, which uses the SAME font in the lower half.
   defp upper_half?(cluster, frame),
     do: (cluster.min_y + cluster.max_y) / 2 < frame.height / 2
 

@@ -197,11 +197,11 @@ defmodule Pokex.Perception do
         region: fn _calib -> Pokex.Bots.ActiveBar.region() end,
         interval_setting: :feed_skill_bar_ms,
         filename: "feed_skill_bar.raw",
-        # A TELA CORRIGE O RELÓGIO no caminho do frame: cada leitura fresca da
-        # barra passa pelo `SkillTruth`, que solta os carimbos que o jogo
-        # desmentiu (aperto engolido, cooldown escrito maior que o real, revive
-        # que o bot não viu). Aqui porque é o único lugar onde a foto tem idade
-        # ZERO — qualquer consumidor mais tarde já lê um fato envelhecido.
+        # The screen corrects the clock on the frame's path: every fresh bar reading
+        # passes through `SkillTruth`, which frees the stamps the game disproved
+        # (swallowed press, written cooldown longer than the real one, a revive the bot
+        # did not see). Here because it is the only place where the frame has age ZERO;
+        # any later consumer already reads an aged fact.
         interpret: fn frame, calib, settings ->
           obs = Interpret.skills(frame, calib, settings)
           Pokex.Bots.SkillTruth.observe(obs)

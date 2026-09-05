@@ -43,8 +43,8 @@ defmodule Pokex.Bots.SkillClock do
 
   @table :pokex_skill_clock
 
-  # O QUE ASSUMIR PARA A TECLA QUE ELE AINDA NÃO MEDIU (pedido dele, 27/08: "na falta de
-  # configuração, faz ele assumir que o cooldown é 45 segundos").
+  # What to assume for a key he has not measured yet (his request: 45 seconds when nothing is
+  # configured).
   @assumed_ms 45_000
 
   @doc "O cooldown assumido pra tecla sem número escrito."
@@ -54,8 +54,8 @@ defmodule Pokex.Bots.SkillClock do
   @doc false
   def table, do: @table
 
-  # Uma tabela pública e nomeada, no mesmo molde do `WorldState`: escrita a cada
-  # tecla (o Body), lida a cada tique (o cérebro), de processos diferentes.
+  # A public named table, in the mould of `WorldState`: written on every key (the Body), read
+  # on every tick (the brain), from different processes.
   @doc "Garante a tabela. Idempotente — chamado no boot e por quem chegar antes."
   @spec ensure_table() :: :ok
   def ensure_table do
@@ -65,7 +65,7 @@ defmodule Pokex.Bots.SkillClock do
 
     :ok
   rescue
-    # duas corridas criando a mesma tabela: a perdedora só precisa não morrer
+    # two races creating the same table: the loser only needs not to die
     ArgumentError -> :ok
   end
 
@@ -289,9 +289,8 @@ defmodule Pokex.Bots.SkillClock do
 
   def ready(nil, keys, cooldowns, now), do: ready_by_clock(keys, cooldowns, now)
 
-  # Duas razões pra não oferecer o que a tela ofereceu: um cooldown ESCRITO que
-  # a foto ainda não mostrou, e uma tecla que o jogo já provou não estar
-  # aceitando (`denied/2`).
+  # Two reasons not to offer what the screen offered: a WRITTEN cooldown the frame has not
+  # shown yet, and a key the game already proved it is not accepting (`denied/2`).
   defp muted?(key, cooldowns, now),
     do: cooling_ms(key, cooldowns, now) > 0 or deaf_ms(key, cooldowns, now) > 0
 

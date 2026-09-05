@@ -69,10 +69,9 @@ defmodule Pokex.Bots.Cavebot.HandsRead do
   defp step(state, reading, "1", %{shift?: true, at: at}),
     do: {%{state | fight_at: at}, %{reading | fight_started?: true}}
 
-  # shift+3: "já terminei de matar tudo" — the fight's length is known, and he
-  # is back in the game's defence mode, which is the one a gathering is walked
-  # in ("o shift+3 é o modo mobando", 2026-08-11). It says the second thing
-  # even with no fight open: pressing it IS going back to gathering.
+  # shift+3 means "done killing everything": the fight's length is known, and he is back in
+  # the game's defence stance, the one a gathering is walked in. It says the second thing even
+  # with no fight open: pressing it IS going back to gathering.
   defp step(%{fight_at: nil} = state, reading, "3", %{shift?: true}),
     do: {state, %{reading | gathering_started?: true}}
 

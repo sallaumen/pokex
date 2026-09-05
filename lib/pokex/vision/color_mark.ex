@@ -155,9 +155,9 @@ defmodule Pokex.Vision.ColorMark do
 
   # -- a passada ---------------------------------------------------------------
 
-  # Linha a linha: a célula-linha (`cy`) é constante por linha, e o binário da
-  # linha sai por pattern match sem cópia. Pixels que não casam custam só o
-  # teste; o mapa de células cresce apenas nos casados (esparso).
+  # Row by row: the cell row (`cy`) is constant per row, and the row's binary comes out by
+  # pattern match without copying. Pixels that do not match cost only the test; the cell map
+  # grows only on matches (sparse).
   defp walk_rows(_rgba, y, _w, h, _specs, _cell, _forbidden, acc) when y >= h, do: acc
 
   defp walk_rows(rgba, y, w, h, specs, cell, forbidden, acc) do
@@ -193,8 +193,8 @@ defmodule Pokex.Vision.ColorMark do
     delta = mx - mn
 
     cond do
-      # cinza não tem matiz: só um cone quase-cinza o aceitaria, e regra de
-      # shiny nunca é cinza — rejeita antes de qualquer divisão
+      # grey has no hue: only a near-grey cone would accept it, and a shiny rule is never
+      # grey; reject before any division
       delta == 0 -> matches?(r, g, b, rest)
       abs(mx - rv) > tol_sv -> matches?(r, g, b, rest)
       abs(sat(mx, delta) - rs) > tol_sv -> matches?(r, g, b, rest)
@@ -234,8 +234,8 @@ defmodule Pokex.Vision.ColorMark do
 
   # -- as manchas --------------------------------------------------------------
 
-  # Componentes conexos das células (8 vizinhos — detalhe de sprite atravessa
-  # diagonal), sem contar de novo o que já entrou.
+  # Connected components of the cells (8 neighbours: sprite detail crosses diagonals), without
+  # recounting what already entered.
   defp clusters(cells) when map_size(cells) == 0, do: []
 
   defp clusters(cells) do

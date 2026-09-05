@@ -401,9 +401,8 @@ defmodule Pokex.Pokedex.Team do
   defp name_or_nil(value) when is_binary(value) and value != "", do: value
   defp name_or_nil(_other), do: nil
 
-  # v1 stored bare name strings; v2 added "level"; v3 "slot"; v4 "skills";
-  # v5 "cooldowns" — every one of them still loads, e um campo que falta é
-  # simplesmente vazio.
+  # v1 stored bare name strings; v2 added "level"; v3 "slot"; v4 "skills"; v5 "cooldowns".
+  # Every one of them still loads, and a missing field is simply empty.
   defp entries(list) when is_list(list) do
     list
     |> Enum.map(fn

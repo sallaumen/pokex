@@ -161,9 +161,8 @@ defmodule Pokex.Timers do
 
   defp decode_trigger(_absent), do: :error
 
-  # Minutes are how he says the long ones ("a cada 55 minutos") and seconds how
-  # he says the short ones ("8 segundos") — storing ms and editing in his unit
-  # keeps both honest.
+  # Minutes are how he says the long ones and seconds how he says the short ones; storing ms
+  # and editing in his unit keeps both honest.
   defp decode_after(raw, unit, trigger) do
     factor = if unit == "min", do: 60_000, else: 1_000
 

@@ -28,8 +28,8 @@ defmodule PokexWeb.Router do
       # SAME LiveView: the ⚙️ is an overlay ON TOP of the live dashboard, not
       # another page. The route exists to give its own URL, F5 and back.
       live "/config", ConfigLive
-      # os editores compostos (bolas, presets, shiny) seguem no overlay
-      # do painel — formulários com estado próprio não cabem no schema do /config
+      # the composite editors (balls, presets, shiny) stay in the panel overlay: forms
+      # with their own state do not fit the /config schema
       live "/config/editores", PanelLive, :config
       live "/diagnostics", DiagnosticsLive
       live "/mini-game", MiniGameLive

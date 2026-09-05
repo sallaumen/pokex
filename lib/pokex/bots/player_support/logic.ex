@@ -136,11 +136,10 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   def last_resort_keys(nil, _tried, _ready, _single?), do: []
 
   def last_resort_keys(loadout, tried, ready, single_target?) do
-    # …E O ALVO ÚNICO SÓ SE ELE MACHUCAR. Esta escalação existe pra tapar o
-    # buraco de um resgate sem controle, e ela apertava TUDO que sobrou — mas
-    # "skills de alvo único não funcionam mais, de propósito" (29/08). Uma
-    # tecla que o jogo ignora não protege recolhida nenhuma: gasta o tempo do
-    # corpo e o cooldown dela, e deixa a pilha acordada do mesmo jeito.
+    # …and the single-target key only if it hurts. This escalation exists to plug the hole
+    # of a rescue without control, and it used to press EVERYTHING left; but a key the game
+    # ignores protects no recall: it spends the body's time and its own cooldown and leaves
+    # the pile awake all the same.
     single = if single_target?, do: Map.get(loadout, :single, []), else: []
 
     (Map.get(loadout, :crowd, []) ++ Map.get(loadout, :aoe, []) ++ single)
@@ -198,10 +197,10 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   still away for a moment (Lucas, 2026-08-24) — so the prefix stays available,
   off by default, for the hunt that turns out to need it.
   """
-  # E NASCE COM `:still` NA FRENTE: o Body solta as setas antes de qualquer
-  # coisa desta lista sair. Reviver andando era o que ele proibiu em 02/09
-  # ("pode ser mortal eu usar o revive enquanto ainda tem monstro na tela"), e
-  # o cavebot só solta no tique dele — o revive não pode depender desse tique.
+  # And it is born with `:still` in front: the Body releases the arrows before anything on
+  # this list fires. Reviving while walking is forbidden (mobs still on screen make the revive
+  # deadly), and the cavebot only releases on its own tick; the revive cannot depend on that
+  # tick.
   @spec revive(map) :: [tuple | :still]
   def revive(%{rescue_key: rescue_key} = config) do
     stun = Map.get(config, :stun_steps, [])

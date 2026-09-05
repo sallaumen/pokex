@@ -63,8 +63,8 @@ defmodule Pokex.Bots.PlayerSupport.ReviveEffect do
       else: %{judge | probe: nil} |> strike() |> verdict(now)
   end
 
-  # A sonda venceu e a barra segue ilegível: o pokémon não voltou pra tela.
-  # Depois de #{@probe_blind_max_ms}ms de cegueira, isso É a quebra.
+  # The probe won and the bar is still unreadable: the pokémon did not come back to the
+  # screen. After #{@probe_blind_max_ms}ms of blindness, that IS the break.
   def tick(%{probe: %{at: at}} = judge, hp, now)
       when not is_integer(hp) and now - at >= @probe_blind_max_ms do
     %{judge | probe: nil} |> strike() |> verdict(now)

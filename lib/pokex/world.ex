@@ -33,9 +33,9 @@ defmodule Pokex.World do
               # this is the difference between a coordinate that is late and a
               # coordinate that is WRONG.
               coord_gap: nil,
-              # …e o OUTRO buraco: o alfabeto completo lendo por semelhança.
-              # Ver `Interpret.Minimap.chute/1` — `coord_gap` só sabe acusar
-              # dígito AUSENTE, e o render dele não tinha nenhum ausente.
+              # …and the OTHER hole: the whole alphabet reading by resemblance.
+              # See `Interpret.Minimap.chute/1`: `coord_gap` only knows how to
+              # accuse a MISSING digit, and his render had none missing.
               coord_guessed: nil,
               layout?: false,
               at: nil
@@ -64,7 +64,7 @@ defmodule Pokex.World do
         # the trusted one; the digits above are a bonus that needs every glyph
         # learned, and must never be the reason the card goes blank.
         hp_pct: pokemon_fact_pct(now),
-        # A vida do PERSONAGEM (fato :player) — nil sem a região marcada.
+        # The CHARACTER's HP (fact :player): nil without the region marked.
         player_hp: player_fact_pct(now),
         level: hud[:level],
         food: hud[:food],
@@ -73,8 +73,8 @@ defmodule Pokex.World do
       inventory: hud[:slots] || %{f1: nil, f2: nil, e: nil, s_q: nil},
       team: team[:rows] || [],
       enemies: battle[:enemies_detail] || [],
-      # a estrela do PXG morreu; o shiny é visto por COR no ShinyGuard, que
-      # anuncia por PubSub — este fato não o carrega mais
+      # the old client's star is gone; the shiny is seen by COLOUR in the ShinyGuard,
+      # which announces over PubSub. This fact no longer carries it.
       shiny?: false,
       engaged?: battle[:locked?] == true,
       pos: minimap[:pos],
@@ -107,9 +107,8 @@ defmodule Pokex.World do
 
   def pokemon_hp_pct(_snapshot), do: nil
 
-  # A vida do PERSONAGEM é `player_hp` — `hp_pct`, no mesmo fato, é a do
-  # POKÉMON. Este cartão mostrava a segunda com o rótulo da primeira (mesmo
-  # engano do cérebro, consertado junto em 03/09).
+  # The CHARACTER's HP is `player_hp`; `hp_pct` in the same fact is the POKÉMON's. This card
+  # used to show the second under the first's label (the brain's mistake, fixed together).
   defp player_fact_pct(now) do
     case WorldState.get(:player, 5_000, now) do
       {:ok, %{player_hp: pct}} -> pct

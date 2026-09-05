@@ -212,12 +212,12 @@ defmodule PokexWeb.CalibrationLibrary do
     """
   end
 
-  # Os dois handlers nomeiam o índice diferente ("idx" no corpo, "index" no
-  # pokémon); a tira é a mesma, então o nome do parâmetro vira dado.
+  # The two handlers name the index differently ("idx" for the body, "index" for the pokémon);
+  # the strip is the same, so the parameter name becomes data.
   defp sample_index("idx", idx), do: %{"phx-value-idx" => idx}
   defp sample_index("index", idx), do: %{"phx-value-index" => idx}
 
-  # Na mira primeiro, vetados no fim; alfabético dentro de cada grupo.
+  # Aimed first, vetoed last; alphabetical within each group.
   defp sort_by_state(entries) do
     Enum.sort_by(entries, &{!CorpseLibrary.enabled?(&1), String.downcase(&1["name"] || "")})
   end

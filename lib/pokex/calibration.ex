@@ -365,12 +365,11 @@ defmodule Pokex.Calibration do
 
   defp profile_settings_path(slug), do: Path.join(profiles_dir(), slug <> ".settings.json")
 
-  # --- one calibration per MONITOR (Lucas, 2026-08-07) -------------------------
-  # "A calibração não tem que se adaptar automaticamente, ficar fazendo essas
-  # multiplicações... tem que ser uma calibração por monitor." The monitor's
-  # size IS the key: every save of the active calibration refreshes this
-  # monitor's snapshot (marks + the screen-dependent settings), and coming back
-  # to a monitor offers its LAST calibration back — no arithmetic, no wizard.
+  # --- one calibration per MONITOR ---------------------------------------------
+  #
+  # No automatic adaptation, no scaling arithmetic: the monitor's size IS the key. Every save
+  # of the active calibration refreshes this monitor's snapshot (marks + the screen-dependent
+  # settings), and coming back to a monitor offers its LAST calibration back.
 
   defp screen_slug({w, h}), do: "auto-#{w}x#{h}"
 

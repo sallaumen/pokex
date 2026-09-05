@@ -366,11 +366,10 @@ defmodule Pokex.Bots.Cavebot.Recording do
       Enum.at(route.waypoints, index) == nil ->
         {route, nil}
 
-      # ONE fight, several clicks. He middle-clicks three, five, eight times
-      # while a pile dies — moving the pokémon around — and each click used to
-      # open a kill spot of its OWN: his 2026-08-11 recording came back with
-      # eight "até aqui" in ten seconds, one per tile, each with its own park
-      # point. A click next door to a kill spot belongs to
+      # ONE fight, several clicks. He middle-clicks three, five, eight times while a pile
+      # dies, moving the pokémon around, and each click used to open a kill spot of its
+      # OWN (one recording came back with eight lure-end corners in ten seconds, one per
+      # tile, each with its own park point). A click next door to a kill spot belongs to
       # that kill spot: it moves where the pokémon waits and marks nothing new.
       spot = same_fight_spot(route, index, opts) ->
         {Route.set_park_point(route, spot, point), moved_note(point, spot)}

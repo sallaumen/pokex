@@ -305,9 +305,9 @@ defmodule Pokex.Layout do
   @doc "Reading options a region declares (its ink floor), ready for Glyphs."
   def region_opts(%Fix{region_opts: opts}, region), do: Map.get(opts, region, [])
 
-  # Sem layout não há opção declarada — a mesma resposta que `region/2` dá pro
-  # retângulo. Levantar aqui derrubava a página de quem lê a tela só pelas
-  # marcações à mão, que é o caso dele: nunca houve `layout_fix.json`.
+  # Without a layout there is no declared option, the same answer `region/2` gives for the
+  # rectangle. Raising here crashed the page for whoever reads the screen by hand marks alone,
+  # which is his case: there never was a `layout_fix.json`.
   def region_opts(nil, _region), do: []
 
   defp find_anchors(frame, profile) do

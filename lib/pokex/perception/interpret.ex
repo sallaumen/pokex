@@ -72,9 +72,9 @@ defmodule Pokex.Perception.Interpret do
         :none -> nil
       end
 
-    # A estrela dourada do PokeTibia morreu com a migração: o Poké Alliance
-    # não marca shiny na battle list. O shiny/chefe agora é visto por COR
-    # (`ShinyGuard` + `Vision.ColorMark`), fora deste leitor.
+    # The old client's golden star died with the migration: this client does not mark
+    # shinies in the battle list. Shiny/boss is now seen by COLOUR (`ShinyGuard` +
+    # `Vision.ColorMark`), outside this reader.
     detail = enemies_detail(body, measured, placed, [])
 
     %{

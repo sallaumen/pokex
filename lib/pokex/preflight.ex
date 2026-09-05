@@ -35,12 +35,10 @@ defmodule Pokex.Preflight do
       else: ["calibração não encontrada — rode o wizard em /calibration" | errors]
   end
 
-  # The pokémon on the field owns its bar and its jobs, and nothing else does:
-  # the shared bar is gone (see `Pokex.Bots.ActiveBar`). Starting without them
-  # is starting blind — the cooldown reader would score against another
-  # creature's icons, and the fight would rotate keys nobody classified.
-  # "Temos que até bloquear de funcionar se não tiver corretamente configurado
-  # para o pokémon ativo" (Lucas, 2026-08-24).
+  # The pokémon on the field owns its bar and its jobs, and nothing else does: the shared bar
+  # is gone (see `Pokex.Bots.ActiveBar`). Starting without them is starting blind: the
+  # cooldown reader would score against another creature's icons, and the fight would rotate
+  # keys nobody classified. His rule: refuse to run when the active pokémon is not configured.
   defp check_active_pokemon(errors) do
     case Team.active() do
       nil ->
@@ -63,15 +61,13 @@ defmodule Pokex.Preflight do
     end
   end
 
-  # Every slot, not just some: a key without a job is a key the fight cannot
-  # choose — nem área, nem controle, nem alvo único.
+  # Every slot, not just some: a key without a job is a key the fight cannot choose, neither
+  # area, nor control, nor single target.
   #
-  # A DÉCIMA TECLA É O ZERO, e este check contava 1..10. Uma barra de dez slots
-  # tem as teclas 1–9 e 0, então ele procurava por uma tecla "10" que não existe
-  # em barra nenhuma e recusava o arranque PARA SEMPRE — o Dugtrio dele, com os
-  # dez slots todos classificados, nunca conseguiu ligar o combate, e a caçada
-  # bloqueava sem sair do lugar (26/08). `SkillBar.keys/1` já sabia disso desde
-  # sempre; era o único lugar que sabia.
+  # The tenth key is the ZERO, and this check used to count 1..10. A ten-slot bar has keys 1-9
+  # and 0, so it looked for a key "10" that exists on no bar and refused the start FOREVER: a
+  # pokémon with all ten slots classified never got combat on. `SkillBar.keys/1` always knew;
+  # it was the only place that did.
   defp check_skills(errors, name) do
     skills = Team.skills(name)
     slots = bar_slots()

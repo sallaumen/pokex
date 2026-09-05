@@ -110,11 +110,9 @@ defmodule Pokex.Bots.Catcher.Sweep do
 
   # Where the corpses ARE, which is not always where he is.
   #
-  # "Como eu apertei o botão do meio do mouse, esses corpos de pokémons não
-  # estão ao redor do meu personagem" (Lucas, 2026-08-11): the pile dies
-  # around the tile his pokémon was PARKED on, several tiles away. Sweeping
-  # around the character throws balls at empty ground and leaves the corpses
-  # where they fell.
+  # The pile dies around the tile his pokémon was PARKED on (he middle-clicks it there),
+  # several tiles away. Sweeping around the character throws balls at empty ground and leaves
+  # the corpses where they fell.
   defp anchor(_calib, {_x, _y} = around), do: {:ok, around}
 
   defp anchor(calib, _no_park) do

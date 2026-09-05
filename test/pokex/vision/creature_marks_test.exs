@@ -17,25 +17,32 @@ defmodule Pokex.Vision.CreatureMarksTest do
     FrameFixtures.of(w, h, fn x, y -> Enum.find_value(bars, @sand, &paint(&1, x, y)) end)
   end
 
-  defp paint(%{x: bx, y: by} = bar, x, y) do
-    fill = Map.get(bar, :fill, 25)
-    ink = Map.get(bar, :ink, @green)
-
+  defp paint(bar, x, y) do
     cond do
-      x >= bx and x < bx + 27 and y >= by and y < by + 4 ->
-        inside_x = x - bx - 1
-        inside_y = y - by - 1
-        if inside_x in 0..24 and inside_y in 0..1 and inside_x < fill, do: ink, else: @black
-
-      Map.get(bar, :skull?, false) and x in (bx + 6)..(bx + 21) and y in (by - 30)..(by - 15) ->
-        @white
-
-      Map.get(bar, :box?, false) and x in (bx - 25)..(bx + 51) and y in (by + 3)..(by + 18) ->
-        @black
-
-      true ->
-        nil
+      on_bar?(bar, x, y) -> bar_pixel(bar, x, y)
+      on_skull?(bar, x, y) -> @white
+      on_box?(bar, x, y) -> @black
+      true -> nil
     end
+  end
+
+  defp on_bar?(%{x: bx, y: by}, x, y), do: x >= bx and x < bx + 27 and y >= by and y < by + 4
+
+  # Interior columns are ink up to `fill`, black after; the border is black.
+  defp bar_pixel(%{x: bx, y: by} = bar, x, y) do
+    inside_x = x - bx - 1
+    inside_y = y - by - 1
+    filled? = inside_x in 0..24 and inside_y in 0..1 and inside_x < Map.get(bar, :fill, 25)
+
+    if filled?, do: Map.get(bar, :ink, @green), else: @black
+  end
+
+  defp on_skull?(%{x: bx, y: by} = bar, x, y) do
+    Map.get(bar, :skull?, false) and x in (bx + 6)..(bx + 21) and y in (by - 30)..(by - 15)
+  end
+
+  defp on_box?(%{x: bx, y: by} = bar, x, y) do
+    Map.get(bar, :box?, false) and x in (bx - 25)..(bx + 51) and y in (by + 3)..(by + 18)
   end
 
   describe "a full health bar on bare ground" do
@@ -86,12 +93,10 @@ defmodule Pokex.Vision.CreatureMarksTest do
       # 54×8 rectangle, 52×6 interior, 30 of 52 columns filled
       frame =
         FrameFixtures.of(200, 120, fn x, y ->
-          cond do
-            x in 60..113 and y in 50..57 ->
-              if x in 61..112 and y in 51..56 and x - 61 < 30, do: @green, else: @black
-
-            true ->
-              @sand
+          if x in 60..113 and y in 50..57 do
+            if x in 61..112 and y in 51..56 and x - 61 < 30, do: @green, else: @black
+          else
+            @sand
           end
         end)
 

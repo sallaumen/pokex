@@ -189,29 +189,30 @@ defmodule Pokex.Bots.CrowdScan do
 
   defp evidence(opts, frame, marks, {rx, ry, _w, _h}, {px, py}, scale) do
     if Keyword.get(opts, :evidence, false) do
-      %{bar_w: bw, bar_h: bh} = CreatureMarks.geometry(round(Calibration.tile_px() * scale))
-
-      boxes =
-        Enum.flat_map(marks, fn %{point: {x, y}} = mark ->
-          bar = %{
-            x: x - div(bw, 2),
-            y: y - div(bh, 2),
-            w: bw,
-            h: bh,
-            colour: if(mark.pet?, do: @pet_box, else: @hostile_box)
-          }
-
-          if mark.skull?,
-            do: [bar, %{x: x - 8, y: y - 34, w: 16, h: 17, colour: @skull_box}],
-            else: [bar]
-        end)
+      geo = CreatureMarks.geometry(round(Calibration.tile_px() * scale))
 
       Evidence.data_url(frame,
         shrink: Pokex.Settings.get(:crowd_scan_evidence_shrink),
-        boxes: boxes,
+        boxes: Enum.flat_map(marks, &mark_boxes(&1, geo)),
         marks: [{round((px - rx) * scale), round((py - ry) * scale), @me_cross}]
       )
     end
+  end
+
+  # The bar boxed in its kind's colour, and the skull boxed above it when
+  # there is one.
+  defp mark_boxes(%{point: {x, y}} = mark, %{bar_w: bw, bar_h: bh}) do
+    bar = %{
+      x: x - div(bw, 2),
+      y: y - div(bh, 2),
+      w: bw,
+      h: bh,
+      colour: if(mark.pet?, do: @pet_box, else: @hostile_box)
+    }
+
+    skull = %{x: x - 8, y: y - 34, w: 16, h: 17, colour: @skull_box}
+
+    if mark.skull?, do: [bar, skull], else: [bar]
   end
 
   defp frame_scale(%Frame{scale: scale}) when is_number(scale) and scale > 0, do: scale

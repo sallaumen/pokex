@@ -134,7 +134,7 @@ defmodule Pokex.Bots.CrowdScanTest do
   # `look/1` as the capture.
   defp look_at(bodies, opts) do
     {px, py} = @me
-    %{bar_w: bw, bar_h: bh} = Pokex.Vision.CreatureMarks.geometry(@tile)
+    %{bar_w: bw, bar_h: bh} = geo = Pokex.Vision.CreatureMarks.geometry(@tile)
 
     capture = fn {rx, ry, w, h}, _name ->
       bars =
@@ -142,24 +142,24 @@ defmodule Pokex.Bots.CrowdScanTest do
           {px + dx * @tile - div(bw, 2) - rx, py + dy * @tile - @tile - div(bh, 2) - ry}
         end)
 
-      rgba =
-        for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
-          case Enum.find(bars, fn {bx, by} ->
-                 x >= bx and x < bx + bw and y >= by and y < by + bh
-               end) do
-            {bx, by} ->
-              if x > bx and x < bx + bw - 1 and y > by and y < by + bh - 1,
-                do: <<0, 188, 0, 255>>,
-                else: <<0, 0, 0, 255>>
-
-            nil ->
-              <<224, 192, 128, 255>>
-          end
-        end
-
+      rgba = for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>>, do: pixel(bars, geo, x, y)
       {:ok, %Frame{width: w, height: h, rgba: rgba, scale: 1.0}}
     end
 
     CrowdScan.look(Keyword.put(opts, :capture, capture))
   end
+
+  # Green inside a bar, black on its border, sand everywhere else.
+  defp pixel(bars, geo, x, y) do
+    case Enum.find(bars, &covers?(&1, geo, x, y)) do
+      nil -> <<224, 192, 128, 255>>
+      bar -> if border?(bar, geo, x, y), do: <<0, 0, 0, 255>>, else: <<0, 188, 0, 255>>
+    end
+  end
+
+  defp covers?({bx, by}, %{bar_w: bw, bar_h: bh}, x, y),
+    do: x >= bx and x < bx + bw and y >= by and y < by + bh
+
+  defp border?({bx, by}, %{bar_w: bw, bar_h: bh}, x, y),
+    do: x == bx or x == bx + bw - 1 or y == by or y == by + bh - 1
 end

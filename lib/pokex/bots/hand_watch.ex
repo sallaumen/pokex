@@ -1,64 +1,58 @@
 defmodule Pokex.Bots.HandWatch do
   @moduledoc """
-  A mão DELE vira fato: os apertos que ele mesmo dá no teclado, lidos e
-  carimbados como se o bot tivesse dado.
+  HIS hand becomes a fact: the presses he makes on the keyboard, read and stamped as if the bot
+  had made them.
 
-  "Se eu aqui no meu teclado apertar F4, vai afetar o jogo ali (…) é como se
-  fosse um ressurrect que a IA fez. Então tem que fazer todo o efeito de um
-  ressurrect mesmo, não tendo partido dela. Isso, em teoria, em qualquer
-  botão." (ele, 28/08). Até aqui o vigia nativo de teclado
-  (`Pokex.Rig.Mac.KeyEvents.key_watch/2`, polling de 8ms no helper) só era
-  armado enquanto a Central GRAVAVA uma rota — numa caçada, a mão dele era
-  invisível, o painel acusava dessincronia, e um F4 manual não zerava relógio
-  nenhum.
+  His rule: a key he presses himself affects the game just the same, so an F4 from his hand must
+  produce the WHOLE effect of a revive even though the bot did not send it, and in theory that
+  holds for any key. Until this worker existed the native keyboard watcher
+  (`Pokex.Rig.Mac.KeyEvents.key_watch/2`, an 8ms poll in the helper) was only armed while the
+  panel RECORDED a route: during a hunt his hand was invisible, the panel reported
+  desynchronisation, and a manual F4 reset no clock at all.
 
-  Este worker é o dono do `key_watch` durante a caçada: arma a fileira (1-0)
-  mais a tecla do resgate, drena a cada 150ms, e para cada aperto QUE NÃO
-  FOI DO BOT:
+  This worker owns `key_watch` during the hunt: it arms the skill row (1-0) plus the rescue key,
+  drains every 150ms, and for every press THAT WAS NOT THE BOT'S:
 
-    * tecla de skill → `SkillClock.pressed/2` — o painel passa a mostrar o
-      cooldown que o jogo está mesmo contando;
-    * tecla do resgate → o efeito INTEIRO de um revive: `SkillClock.reset/0`
-      (R3 — o revive zera todos os cooldowns) e `ReviveLedger.note/0` (saiu um
-      item do bolso dele, contado).
+    * a skill key -> `SkillClock.pressed/2`, so the panel shows the cooldown the game
+      is really counting;
+    * the rescue key -> the WHOLE effect of a revive: `SkillClock.reset/0` (R3, the
+      revive resets every cooldown) and `ReviveLedger.note/0` (an item left his pocket,
+      and it is counted).
 
-  ## Como se separa a mão dele da nossa
+  ## How his hand is told from ours
 
-  O helper vê TODO aperto nos códigos vigiados — inclusive os CGEvents que o
-  próprio Body posta (é assim que o `KeyProbe` confere os nossos). A
-  atribuição usa o carimbo: um aperto visto de uma tecla que o `SkillClock`
-  carimbou há menos de `@own_window_ms` é o NOSSO voltando pela janela, e já
-  está contado. Shift+tecla é troca de modo, não skill — fica de fora, como o
-  `HandsRead` já lê.
+  The helper sees EVERY press on the watched codes, including the CGEvents the Body itself posts
+  (that is how `KeyProbe` checks ours). Attribution uses the stamp: a seen press of a key the
+  `SkillClock` stamped less than `@own_window_ms` ago is OURS coming back through the window,
+  and it is already counted. shift+key is a stance switch, not a skill, and stays out, exactly
+  as `HandsRead` reads it.
 
-  O carimbo é lido por `SkillClock.pressed_at/1`, e não por `last_press/1`,
-  porque um revive apaga TODOS os carimbos (R3) e não só o do F4: sem o eco
-  que o reset deixa pra trás, cada revive fazia a rajada que o bot tinha
-  acabado de disparar chegar aqui órfã e virar "mão do Lucas" 340ms depois —
-  e o recarimbo desfazia o reset que o revive tinha acabado de pagar. Foram
-  235 atribuições falsas em 242 revives na noite de 29/08, com o R3b se
-  desarmando 37 vezes por causa delas.
+  The stamp is read through `SkillClock.pressed_at/1` and not `last_press/1`, because a revive
+  erases EVERY stamp (R3) and not only the F4's. Without the echo the reset leaves behind, each
+  revive made the burst the bot had just fired arrive here orphaned and become "his hand" 340ms
+  later, and the re-stamp undid the reset the revive had just paid for: 235 false attributions
+  in 242 revives over one night, with R3b disarming 37 times because of them.
 
-  E só com o JOGO EM FOCO (`InputGate.focus_ok?/0`): fora de foco, um "4" é
-  ele digitando em outro lugar, e carimbar isso inventaria cooldown. (Se
-  escapar um — número digitado no chat do jogo —, o `SkillTruth` solta o
-  carimbo em ~1s, quando a tela mostrar a tecla pronta.)
+  And only with the GAME IN FOCUS (`InputGate.focus_ok?/0`): out of focus a "4" is him typing
+  somewhere else, and stamping that would invent a cooldown. If one slips through, a number
+  typed in the game's chat, `SkillTruth` frees the stamp in about a second, when the screen
+  shows the key ready.
 
-  ## Um dono, dois inquilinos
+  ## One owner, two tenants
 
-  `key_watch/2` é UM buffer global: armar troca os códigos e drenar esvazia.
-  Dois leitores simultâneos roubam eventos um do outro. Então:
+  `key_watch/2` is ONE global buffer: arming swaps the codes and draining empties it. Two
+  simultaneous readers steal each other's events. So:
 
-    * a CAÇADA liga este worker — `Combat.Worker` chama `attach/0` no `:run` e
-      `detach/0` no `:halt`; sem consumidor, o vigia desarma (a lição do
-      comentário da Central: um watch armado pra sempre compete com o jogo);
-    * a GRAVAÇÃO de rota e a sonda do `/diagnostics` continuam com o drain
-      próprio — elas chamam `pause/0` antes e `resume/0` depois, e este worker
-      sai da frente. Quem pausou é monitorado: a página que morrer pausada
-      devolve o vigia sozinha.
+    * the HUNT turns this worker on. `Combat.Worker` calls `attach/0` on `:run` and
+      `detach/0` on `:halt`; with no consumer the watcher disarms, because a watch
+      armed forever competes with the game it is playing;
+    * route RECORDING and the `/diagnostics` probe keep their own drain. They call
+      `pause/0` before and `resume/0` after, and this worker steps aside. Whoever
+      paused is monitored: a page that dies while paused gives the watcher back by
+      itself.
 
-  Inerte na suíte (`:hand_watch_active`), como os feeds: um loop de drain
-  contra o rig Fake sujaria a lista de chamadas de qualquer teste de worker.
+  Inert in the suite (`:hand_watch_active`), like the feeds: a drain loop against the Fake rig
+  would dirty the call list of any worker test.
   """
 
   use GenServer
@@ -88,13 +82,13 @@ defmodule Pokex.Bots.HandWatch do
     end
   end
 
-  @doc "Liga o vigia pra quem chama (a caçada). Idempotente; morre com o chamador."
+  @doc "Turns the watcher on for the caller (the hunt). Idempotent; dies with the caller."
   def attach(server \\ __MODULE__), do: safe_call(server, :attach)
 
-  @doc "Desliga pra quem chama. O último a sair desarma o watch."
+  @doc "Turns it off for the caller. The last one out disarms the watch."
   def detach(server \\ __MODULE__), do: safe_call(server, :detach)
 
-  @doc "Sai da frente: outro leitor (gravação, sonda) vai armar o key_watch."
+  @doc "Steps aside: another reader (recording, probe) is going to arm the key_watch."
   def pause(server \\ __MODULE__), do: safe_call(server, :pause)
 
   @doc "O outro leitor terminou; volta a vigiar se houver consumidor."
@@ -210,10 +204,9 @@ defmodule Pokex.Bots.HandWatch do
   end
 
   @doc """
-  O julgamento de um drain, puro: cada evento vira `{:stamp, key}`, `:revive`
-  ou nada. `ctx` traz o foco, o código do resgate, o relógio (`last_press`),
-  se o caderninho anotou um revive há pouco (`revive_noted?`) e o agora —
-  tudo injetável, pra mesa de teste.
+  The judgement of one drain, pure: every event becomes `{:stamp, key}`, `:revive` or nothing.
+  `ctx` carries the focus, the rescue code, the clock (`last_press`), whether the ledger noted a
+  revive recently (`revive_noted?`) and the current time, all injectable for the test bench.
   """
   @spec judge([map], map) :: [{:stamp, String.t()} | :revive]
   def judge(events, ctx) do

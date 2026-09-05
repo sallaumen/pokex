@@ -21,12 +21,12 @@ defmodule Pokex.Engine.TallyTest do
     )
   end
 
-  test "sem rastro não há placar — uma taxa sem janela é um chute" do
+  test "without a trail there is no tally: a rate without a window is a guess" do
     assert Tally.card([]) == nil
     assert Tally.card([vitals(0)]) == nil
   end
 
-  test "os mortos vêm do combate, que é o único que sabe" do
+  test "the kills come from combat, the only one that knows" do
     card =
       Tally.card([
         vitals(0),
@@ -40,7 +40,7 @@ defmodule Pokex.Engine.TallyTest do
     assert card.kills_per_min == 2.0
   end
 
-  test "o tempo no chão é o pokémon fora de campo, não a vida baixa" do
+  test "floor time is the pokemon off the field, not low HP" do
     card =
       Tally.card([
         vitals(0),
@@ -52,7 +52,7 @@ defmodule Pokex.Engine.TallyTest do
     assert card.down_pct == 50.0
   end
 
-  test "e o tempo sem cooldown é bicho na tela com zero teclas prontas" do
+  test "and no-cooldown time is mobs on screen with zero keys ready" do
     card =
       Tally.card([
         vitals(0, %{"ready" => 0}),
@@ -66,7 +66,7 @@ defmodule Pokex.Engine.TallyTest do
 
   # A VISÃO DE MUNDO que faltava: a régua dele discutida com o que o jogo
   # entrega, em vez de com o que eu imagino.
-  test "as pilhas que ele encontrou de verdade" do
+  test "the piles he really found" do
     card =
       Tally.card([
         vitals(0, %{"enemies" => 1}),
@@ -79,7 +79,7 @@ defmodule Pokex.Engine.TallyTest do
     assert card.piles == %{1 => 1, 3 => 2}
   end
 
-  test "onde foi o minuto: uma linha de decisão vale até a próxima" do
+  test "where the minute went: a decision line lasts until the next" do
     card =
       Tally.card([
         decision(0, "travelling"),
@@ -95,7 +95,7 @@ defmodule Pokex.Engine.TallyTest do
            ] = card.by_phase
   end
 
-  test "e os revives contados por prensa, não por tique" do
+  test "and the revives counted per press, not per tick" do
     card =
       Tally.card([
         decision(0, "engaged"),
@@ -123,7 +123,7 @@ defmodule Pokex.Engine.TallyTest do
       }
     end
 
-    test "agrupadas pelo intervalo em vigor, com a taxa de cada um" do
+    test "grouped by the interval in force, with each one's rate" do
       %{keys: keys} =
         Tally.card([
           vitals(0),
@@ -139,7 +139,7 @@ defmodule Pokex.Engine.TallyTest do
 
     # Uma tecla que já estava esfriando não prova nada sobre o intervalo, e
     # contá-la como falha inventaria uma culpa.
-    test "e o que já estava esfriando fica de fora da conta" do
+    test "and what was already cooling stays out of the count" do
       %{keys: keys} =
         Tally.card([vitals(0), receipt(35, [], [], ~w(7 8 9)), vitals(60_000)])
 

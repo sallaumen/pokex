@@ -21,13 +21,13 @@ defmodule Pokex.Bots.SkillTruthTest do
     :ok
   end
 
-  test "barra ilegível não desmente ninguém" do
+  test "an unreadable bar disproves nobody" do
     SkillClock.pressed("4", @now - 10_000)
     assert SkillTruth.observe(%{ready_keys: nil}, @now) == []
     assert SkillClock.last_press("4")
   end
 
-  test "a discordância precisa de DOIS frames — um frame só é foto com ruído" do
+  test "the disagreement needs TWO frames: a single frame is a noisy photo" do
     SkillClock.pressed("4", @now - 10_000)
 
     assert SkillTruth.observe(%{ready_keys: ["4"]}, @now) == []
@@ -37,7 +37,7 @@ defmodule Pokex.Bots.SkillTruthTest do
     refute SkillClock.last_press("4")
   end
 
-  test "carimbo quente solto vira notícia no feed" do
+  test "a hot stamp freed becomes news in the feed" do
     SkillClock.pressed("4", @now - 10_000)
     SkillTruth.observe(%{ready_keys: ["4"]}, @now)
     SkillTruth.observe(%{ready_keys: ["4"]}, @now + 400)
@@ -47,7 +47,7 @@ defmodule Pokex.Bots.SkillTruthTest do
     assert text =~ "soltei"
   end
 
-  test "carimbo mais novo que a carência fica — o efeito leva ~1s pra aparecer na tela" do
+  test "a stamp younger than the grace stays: the effect takes ~1s to show on screen" do
     SkillClock.pressed("4", @now - 1_000)
 
     for frame <- 0..4 do
@@ -57,7 +57,7 @@ defmodule Pokex.Bots.SkillTruthTest do
     assert SkillClock.last_press("4")
   end
 
-  test "a tecla que sai de pronta entre os frames zera o streak" do
+  test "a key leaving ready between frames resets the streak" do
     SkillClock.pressed("4", @now - 10_000)
 
     SkillTruth.observe(%{ready_keys: ["4"]}, @now)
@@ -68,7 +68,7 @@ defmodule Pokex.Bots.SkillTruthTest do
     assert SkillClock.last_press("4")
   end
 
-  test "tecla surda fica fora — 'pronta na tela' é exatamente o estado mentiroso dela" do
+  test "a deaf key stays out: 'ready on screen' is exactly its lying state" do
     SkillClock.pressed("5", @now - 10_000)
     SkillClock.denied("5", @now - 5_000)
 
@@ -77,7 +77,7 @@ defmodule Pokex.Bots.SkillTruthTest do
     assert SkillClock.last_press("5")
   end
 
-  test "carimbo já expirado é faxina silenciosa, não notícia" do
+  test "an already expired stamp is silent housekeeping, not news" do
     SkillClock.pressed("4", @now - 60_000)
 
     SkillTruth.observe(%{ready_keys: ["4"]}, @now)
@@ -87,7 +87,7 @@ defmodule Pokex.Bots.SkillTruthTest do
     refute_receive {:combat_log, _level, _text}, 50
   end
 
-  test "várias teclas soltas de uma vez — a assinatura do revive que o bot não viu" do
+  test "several keys freed at once: the signature of the revive the bot did not see" do
     for key <- ~w(3 4 5), do: SkillClock.pressed(key, @now - 10_000)
 
     SkillTruth.observe(%{ready_keys: ~w(3 4 5)}, @now)

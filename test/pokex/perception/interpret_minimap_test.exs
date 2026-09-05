@@ -41,7 +41,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
   # linha tem dez dígitos de 15 linhas, duas vírgulas de 6 e dois parênteses de
   # 19. Pela mais alta a resposta seria 19 — uma altura em que o atlas está
   # completo — e a pergunta erraria a fonte que ela queria medir.
-  test "a fonte medida é a dos dígitos, e um render completo não acusa buraco" do
+  test "the measured font is the digits', and a complete render accuses no hole" do
     for {name, _expected} <- @coords do
       {fix, panel} = located(name)
       calib = %Calibration{scale: 1.0, layout: fix}
@@ -60,7 +60,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
   # aqui foi reconhecido de verdade?" — e é ela que fica sem resposta quando o
   # atlas conhece os dez dígitos mas não conhece o desenho DESTA tela.
   describe "o aviso de leitura por parecença" do
-    test "um render que o atlas conhece não acusa chute nenhum" do
+    test "a render the atlas knows accuses no guess at all" do
       for {name, _expected} <- @coords do
         {fix, panel} = located(name)
         calib = %Calibration{scale: 1.0, layout: fix}
@@ -70,7 +70,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
       end
     end
 
-    test "uma tinta que desfigura os glifos acusa, com a fração" do
+    test "a paint that disfigures the glyphs accuses, with the fraction" do
       {fix, panel} = located("ultrawide_3440x1440_time")
       calib = %Calibration{scale: 1.0, layout: fix}
 
@@ -322,7 +322,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     # segundos sem leitura um salto de 30 casas passava de primeira — que é
     # exatamente o tamanho do salto que um dígito errado na casa das dezenas
     # produz. Agora o tempo cego não é prova de caminhada: vem de novo.
-    test "um tempo cego longo não vira licença de teleporte — mas volta em duas leituras" do
+    test "a long blind spell is no teleport licence, but it comes back in two readings" do
       state = %{last: {100, 100, 7}, pending: nil, at: 0}
 
       assert {%{pos: {100, 100, 7}}, state} = Minimap.accept({130, 100, 7}, state, 5_000)
@@ -335,7 +335,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     # dentro de uma janela de 40, então um confirmava o outro e o mundo ia
     # parar do outro lado do mapa. A confirmação é contra o relógio do
     # PENDENTE: entre duas leituras cabem 4 casas, não 40.
-    test "duas leituras erradas DIFERENTES não confirmam uma à outra" do
+    test "two DIFFERENT wrong readings do not confirm each other" do
       state = %{last: {1088, 1409, 5}, pending: nil, at: 0}
 
       assert {%{pos: {1088, 1409, 5}}, state} = Minimap.accept({1066, 1409, 5}, state, 4_000)
@@ -347,7 +347,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     # Um número montado por PARECENÇA (nenhum acerto exato no atlas) tem que
     # voltar duas vezes. Custa um tique ao teleporte de verdade, num render que
     # o atlas nunca viu — e custa tudo ao chute.
-    test "leitura adivinhada precisa vir três vezes; leitura conhecida, duas" do
+    test "a guessed reading must come three times; a known one, twice" do
       state = %{last: {100, 100, 7}, pending: nil, at: 0}
       longe = %{pos: {900, 900, 7}, guessed: 2, px: 8}
 
@@ -386,7 +386,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
       assert state.last == {102, 100, 7}
     end
 
-    test "mas NUNCA re-baseia um salto, por mais que se repita" do
+    test "but NEVER re-bases a jump, however often it repeats" do
       state = %{last: {100, 100, 7}, pending: nil, at: 0}
       longe = %{pos: {900, 900, 7}, guessed: 7, glyphs: 11, px: 8}
 
@@ -399,7 +399,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
       assert state.last == {100, 100, 7}, "o chute levou o mundo junto"
     end
 
-    test "e uma leitura com poucos chutes segue podendo, com as confirmações de sempre" do
+    test "and a reading with few guesses still can, with the usual confirmations" do
       state = %{last: {100, 100, 7}, pending: nil, at: 0}
       longe = %{pos: {900, 900, 7}, guessed: 2, glyphs: 11, px: 8}
 
@@ -411,7 +411,7 @@ defmodule Pokex.Perception.InterpretMinimapTest do
 
     # Um relatório antigo (ou o achado da busca de banda) não traz o total.
     # Sem a fração não há acusação: o desconhecido não pode virar veto.
-    test "sem o total de glifos, a regra antiga vale" do
+    test "without the glyph total, the old rule holds" do
       state = %{last: {100, 100, 7}, pending: nil, at: 0}
       longe = %{pos: {900, 900, 7}, guessed: 7, px: 8}
 

@@ -52,12 +52,12 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
       now: 10_000
     }
 
-    test "com a pilha fechando e a aura fora do cooldown, quer" do
+    test "with the pile closing and the aura off cooldown, it wants" do
       assert Logic.mob_shield_wanted?(@pilha)
       assert Logic.mob_shield_wanted?(%{@pilha | last_shield_at: 6_000})
     end
 
-    test "fora do bunching, desligada ou esfriando, não quer" do
+    test "outside bunching, off or cooling, it does not want" do
       refute Logic.mob_shield_wanted?(%{@pilha | phase: :travelling})
       refute Logic.mob_shield_wanted?(%{@pilha | phase: :engaged})
       refute Logic.mob_shield_wanted?(%{@pilha | phase: nil})
@@ -81,11 +81,11 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
       assert Logic.shield_wanted?(@escudo)
     end
 
-    test "uma leitura só não pede — um quadro ruim não gasta cooldown" do
+    test "a single reading does not ask: one bad frame does not spend a cooldown" do
       refute Logic.shield_wanted?(%{@escudo | prev_hp_pct: 95})
     end
 
-    test "acima do limiar, ou desligada, não pede" do
+    test "above the threshold, or off, it does not ask" do
       refute Logic.shield_wanted?(%{@escudo | hp_pct: 90})
       refute Logic.shield_wanted?(%{@escudo | enabled?: false})
     end
@@ -178,7 +178,7 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
     # funcionam mais, de propósito". Uma tecla que o jogo ignora não protege
     # recolhida nenhuma — gasta o corpo e o cooldown e deixa a pilha acordada.
     # Quem tem alvo único que machuca liga a regra e ela volta (último teste).
-    test "control first, then area — e o alvo único fica de fora" do
+    test "control first, then area, and the single target stays out" do
       assert Logic.last_resort_keys(@kit, [], nil) == ["1", "2", "3"]
     end
 
@@ -196,7 +196,7 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
       assert Logic.last_resort_keys(@kit, ["1"], nil) == ["2", "3"]
     end
 
-    test "com a regra ligada, o alvo único volta pro fim da fila" do
+    test "with the rule on, the single target goes back to the end of the queue" do
       assert Logic.last_resort_keys(@kit, [], nil, true) == ["1", "2", "3", "4"]
     end
 

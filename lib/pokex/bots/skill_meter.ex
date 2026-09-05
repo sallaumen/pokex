@@ -1,48 +1,43 @@
 defmodule Pokex.Bots.SkillMeter do
   @moduledoc """
-  Quanto cada tecla tira de um bicho, e quanto tempo ela leva pra tirar.
+  How much each key takes off a mob, and how long it takes to take it.
 
-  ## A ideia é dele, inteira
+  ## The idea is entirely his
 
-  "Seria interessante se ele às vezes entrasse num modo de calibração de
-  checagem. Por exemplo ele e um inimigo de vida cheia, o sistema identifica que
-  o inimigo de vida cheia, usa uma skill e calcula a diferença e salva essa
-  diferença e associa a essa skill... se ele se identificar aqui com a skill 4
-  sozinha, ele já mata, ele não precisa ficar usando 4, 5, 6 sempre" (26/08).
+  He asked for a check mode: the bot and a full-health enemy, the system sees the full bar,
+  presses one skill, computes the difference and saves it against that skill. If key 4 alone
+  already kills, it does not need to keep pressing 4, 5 and 6.
 
-  E o segundo número, que ele também viu antes de qualquer medição: "a spell 4
-  leva tipo 1s para realmente dar dano e às vezes ele sai apertando 4, 5, 6. Na
-  prática a spell 4 já mataria mas parece que ele não sabe."
+  And the second number, which he also saw before any measurement: a skill can take about a
+  second to actually deal its damage, and meanwhile the bot presses 4, 5 and 6. In practice 4
+  would already have killed, but the bot does not know that.
 
-  ## De onde sai, sem nenhuma captura nova
+  ## Where it comes from, with no new capture
 
-  A lista de batalha já é fotografada a cada tique e já publica a barra de vida
-  de cada linha (`hp`) e qual delas está travada (`locked_row`). Medir é olhar a
-  linha travada antes do aperto e de novo depois — a queda é o dano, e QUANDO
-  ela aparece é o atraso. Nada aqui tira foto.
+  The battle list is already photographed every tick and already publishes each row's health bar
+  (`hp`) and which row is locked (`locked_row`). Measuring is looking at the locked row before
+  the press and again after: the drop is the damage, and WHEN it appears is the delay. Nothing
+  here takes a photo.
 
-  ## Uma tecla por vez, senão não é medida
+  ## One key at a time, or it is not a measurement
 
-  Uma rajada de três teclas tira uma queda só, e ninguém sabe de quem foi. Então
-  o medidor só aceita presses de UMA tecla, que é exatamente o modo de checagem
-  que ele descreveu — e é por isso que `Pokex.Bots.Combat.Worker` só o chama
-  quando a rajada tem uma tecla e o modo está ligado.
+  A burst of three keys produces one drop, and nobody knows whose it was. So the meter only
+  accepts presses of ONE key, which is exactly the check mode he described, and that is why
+  `Pokex.Bots.Combat.Worker` only calls it when the burst has a single key and the mode is on.
 
-  ## Ele mede a barra, não o número
+  ## It measures the bar, not the number
 
-  A barra é contada em pixels verdes, então o que se guarda é uma FRAÇÃO: quanto
-  da barra sumiu. É o que ele pediu ("tira essa porcentagem de vida do pokémon e
-  salva isso associado"), e sobrevive a monstros de vidas diferentes, que um
-  número absoluto não faria.
+  The bar is counted in green pixels, so what is stored is a FRACTION: how much of the bar
+  vanished. That is what he asked for, and it survives mobs with different health pools, which
+  an absolute number would not.
 
-  ## O que ele NÃO consegue saber
+  ## What it cannot know
 
-  Que a queda foi dele. Outro jogador batendo na mesma linha entra na conta, e
-  um bicho morrendo some da lista antes de terminar de cair. Por isso as
-  amostras são guardadas cruas e o resumo sai em MEDIANA, com quantas amostras
-  ele tem ao lado: um número com três amostras não merece a mesma fé que um com
-  quarenta, e escondê-lo atrás de uma média seria a mesma invenção que este
-  módulo existe pra apagar.
+  That the drop was his. Another player hitting the same row enters the count, and a dying mob
+  leaves the list before finishing its fall. That is why samples are stored raw and the summary
+  comes out as a MEDIAN, with the sample count beside it: a number with three samples does not
+  deserve the same faith as one with forty, and hiding that behind an average would be the same
+  invention this module exists to erase.
   """
 
   alias Pokex.Perception.WorldState
@@ -56,16 +51,16 @@ defmodule Pokex.Bots.SkillMeter do
   # A drop smaller than this is bar-reading noise, not damage.
   @min_drop_pct 2.0
 
-  @doc "O modo está ligado? Desligado por padrão: ele mede quando quer medir."
+  @doc "Is the mode on? Off by default: he measures when he wants to measure."
   @spec on?() :: boolean
   def on?, do: Pokex.Settings.get(:skill_meter_enabled) == true
 
   @doc """
-  Observa UM aperto: espera a linha travada cair e devolve quanto e quando.
+  Watches ONE press: waits for the locked row to drop and answers how much and when.
 
-  `{:ok, shot}` ou `{:error, reason}`. Bloqueia até a queda ou até `@wait_ms`,
-  então quem chama tem que estar num processo que pode morrer — no
-  `Pokex.Bots.Combat.Worker` é o mesmo processo da rajada, ao lado do recibo.
+  `{:ok, shot}` or `{:error, reason}`. Blocks until the drop or until `@wait_ms`, so the caller
+  must be in a process that may die. In `Pokex.Bots.Combat.Worker` that is the burst's own
+  process, next to the receipt.
   """
   @spec watch(String.t(), keyword) :: {:ok, shot} | {:error, atom}
   def watch(key, opts \\ []) do
@@ -132,10 +127,10 @@ defmodule Pokex.Bots.SkillMeter do
   defp shot(t, pct), do: %{key: t.key, took_pct: pct, delay_ms: t.now.() - t.started}
 
   @doc """
-  Observa e GUARDA. O que o processo da rajada chama no modo de checagem.
+  Watches and STORES. What the burst process calls in check mode.
 
-  Nunca levanta e nunca responde: uma medição que pudesse derrubar a caçada
-  junto seria uma troca pior do que não medir.
+  Never raises and never answers: a measurement that could take the hunt down with it would be a
+  worse trade than not measuring.
   """
   @spec file(String.t(), keyword) :: :ok
   def file(key, opts \\ []) do
@@ -147,7 +142,7 @@ defmodule Pokex.Bots.SkillMeter do
     _anything -> :ok
   end
 
-  @doc "Tudo que foi medido, por tecla, mais novo primeiro."
+  @doc "Everything measured, per key, newest first."
   @spec shots() :: %{optional(String.t()) => [shot]}
   def shots do
     with {:ok, raw} <- File.read(Pokex.Home.skill_meter_file()),
@@ -162,20 +157,19 @@ defmodule Pokex.Bots.SkillMeter do
     end
   end
 
-  @doc "Esquece o que mediu — outro pokémon tem outras teclas."
+  @doc "Forgets what it measured: another pokémon has other keys."
   @spec clear() :: :ok
   def clear, do: save(%{})
 
   @doc """
-  O que as amostras dizem, por tecla — e o que ele quer saber com elas.
+  What the samples say, per key, and what he wants to know from them.
 
-  `%{shots:, took_pct:, delay_ms:, to_kill:}`. O `to_kill` é a pergunta dele
-  inteira: "se ele se identificar aqui com a skill 4 sozinha, ele já mata, ele
-  não precisa ficar usando 4, 5, 6 sempre".
+  `%{shots:, took_pct:, delay_ms:, to_kill:}`. The `to_kill` is his whole question: if one key
+  alone already kills, the rotation does not need to keep spending the others.
 
-  MEDIANA, nunca média: outro jogador batendo na mesma linha entra na conta, e
-  uma média deixa esse dano alheio dentro do número pra sempre. E o número de
-  amostras sai junto, porque três amostras não merecem a fé de quarenta.
+  MEDIAN, never mean: another player hitting the same row enters the count, and a mean leaves
+  that foreign damage inside the number forever. The sample count comes along, because three
+  samples do not deserve the faith of forty.
   """
   @spec summary() :: %{optional(String.t()) => map}
   def summary do

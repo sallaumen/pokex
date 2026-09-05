@@ -2,49 +2,44 @@ defmodule Pokex.Pokedex.SkillProfile do
   @moduledoc """
   What each of a pokémon's skills is FOR.
 
-  A combo written as "press 4, then 1, then 3 and 5" only ever works for the
-  pokémon whose bar it was written against — swap Vileplume for Vespiqueen and
-  the same keys do something else entirely. So the plan stops naming keys and
-  names JOBS instead. Each pokémon says which of ITS keys does what, and one
-  written strategy drives all of them.
+  A combo written as "press 4, then 1, then 3 and 5" only ever works for the pokémon whose bar
+  it was written against: swap one pokémon for another and the same keys do something else
+  entirely. So the plan stops naming keys and names JOBS instead. Each pokémon says which of ITS
+  keys does what, and one written strategy drives all of them.
 
   ## A job is a MOMENT, not a slot in one sequence
 
-  The first cut treated the profile as a single ordered list and printed every
-  classified key joined left to right — "combo: 1 → 2 → 3 → 4 → 5 → 6". He
-  rejected it on sight: "eu seleciono, mas o combo não é uma junção"
-  (2026-08-11). The jobs do not queue up behind each other; they happen at
-  different points of the hunt:
+  The first cut treated the profile as a single ordered list and printed every classified key
+  joined left to right, "combo: 1 -> 2 -> 3 -> 4 -> 5 -> 6". He rejected it on sight: he selects
+  the keys, but the combo is not their concatenation. The jobs do not queue up behind each
+  other; they happen at different points of the hunt:
 
-    * `:buffs` (aura) — DURING the gathering, halfway through the huddle. It
-      is what he keeps up while walking the mob stretch, not something pressed
-      at the kill.
-    * `:aoe` (área) — opens the kill. Area damage needs no target, which is
-      why it can fire the instant the fire is released.
-    * `:single` (alvo único) — the kill's SECOND half, and only with something
-      marked: "skill single target só funciona se eu estiver marcando um
-      alvo". Before the target lock it presses into nothing.
-    * `:heal` (cura) — when the pokémon's life asks for it. Reactive, never a
-      step in an order: `Pokex.Bots.PlayerSupport` presses it a rung ABOVE the
-      potion, because a skill is one press and a potion is a channel combat
-      cancels — so it is the only one of the two that works mid-fight.
-    * `:crowd` (controle) — RESERVED for the moment before an auto-revive, the
-      stun that buys the recall its time, "praticamente exclusivamente antes
-      do momento de ter que usar revive". Spending it in an ordinary fight is
-      the failure, so it is barred from the combo by construction — the brain
-      is the one voice that may put it in a hand (R10), and the rescue prefix
+    * `:buffs` (aura) - DURING the gathering, halfway through the huddle. It is what he
+      keeps up while walking the mob stretch, not something pressed at the kill.
+    * `:aoe` (area) - opens the kill. Area damage needs no target, which is why it can
+      fire the instant the fire is released.
+    * `:single` (single target) - the kill's SECOND half, and only with something
+      marked: a single-target skill only works while a target is locked. Before the
+      target lock it presses into nothing.
+    * `:heal` - when the pokémon's life asks for it. Reactive, never a step in an
+      order: `Pokex.Bots.PlayerSupport` presses it a rung ABOVE the potion, because a
+      skill is one press and a potion is a channel combat cancels, so it is the only
+      one of the two that works mid-fight.
+    * `:crowd` (control) - RESERVED for the moment before an auto-revive, the stun that
+      buys the recall its time, practically never for anything else. Spending it in an
+      ordinary fight is the failure, so it is barred from the combo by construction:
+      the brain is the one voice that may put it in a hand (R10), and the rescue prefix
       presses it with the settle.
 
-  So `combo/1` is area-then-target and NOTHING else, and the other three jobs
-  are read by whoever owns their moment.
+  So `combo/1` is area-then-target and NOTHING else, and the other three jobs are read by
+  whoever owns their moment.
 
-  The profile is stored the way it is EDITED — one job per key
-  (`%{"3" => :aoe}`) — which makes a key belonging to two categories
-  impossible by construction rather than by validation. `by_category/1` and
-  `keys/2` give the engine the view it wants.
+  The profile is stored the way it is EDITED, one job per key (`%{"3" => :aoe}`), which makes a
+  key belonging to two categories impossible by construction rather than by validation.
+  `by_category/1` and `keys/2` give the engine the view it wants.
 
-  Within a moment, hotbar order is the firing order, because that is how he
-  described every one of his own combos ("as skills 3 e 5", "3, 4, 5").
+  Within a moment, hotbar order is the firing order, because that is how he described every one
+  of his own combos.
   """
 
   # Ordered by MOMENT, so reading the editor top to bottom tells the story of a hunt: raise
@@ -134,10 +129,9 @@ defmodule Pokex.Pokedex.SkillProfile do
   @doc """
   The kill combo: the area keys, then the single-target ones.
 
-  "O combo na prática deveria ser só as skills de área. Depois, as skills
-  single target" (2026-08-11). Not every classified key joined together —
-  the aura belongs to the gathering, the heal to a moment nobody schedules,
-  and the control is reserved for the revive.
+  In practice the combo should be the area skills and then the single-target ones, not every
+  classified key joined together. The aura belongs to the gathering, the heal to a moment nobody
+  schedules, and the control is reserved for the revive.
   """
   @spec combo(t) :: [String.t()]
   def combo(profile), do: Enum.flat_map(@combo_categories, &keys(profile, &1))
@@ -227,11 +221,10 @@ defmodule Pokex.Pokedex.SkillProfile do
   @type cooldowns :: %{optional(String.t()) => pos_integer}
 
   @doc """
-  Os cooldowns vindos do formulário, em SEGUNDOS — que é como ele os lê no
-  jogo ("essa volta em 40 segundos"), e a única unidade em que digitar o número
-  errado é difícil.
+  The cooldowns coming from the form, in SECONDS, which is how he reads them in the game and the
+  only unit in which typing the wrong number is hard.
 
-  Campo vazio é ausência, não zero: apagar o número é como se diz "não sei".
+  An empty field is absence, not zero: erasing the number is how "I do not know" is said.
   """
   @spec cooldowns_from_form(term) :: cooldowns
   def cooldowns_from_form(params) when is_map(params) do
@@ -253,7 +246,7 @@ defmodule Pokex.Pokedex.SkillProfile do
 
   defp seconds_to_ms(_absent), do: nil
 
-  @doc "O cooldown de `key` em segundos, pro formulário. Vazio quando não há."
+  @doc "The cooldown of `key` in seconds, for the form. Empty when there is none."
   @spec seconds(cooldowns, String.t()) :: String.t()
   def seconds(cooldowns, key) do
     case Map.get(cooldowns, key) do
@@ -269,16 +262,16 @@ defmodule Pokex.Pokedex.SkillProfile do
   end
 
   @doc """
-  O cooldown de cada tecla, saneado.
+  Each key's cooldown, sanitised.
 
-  Mora junto do perfil porque é a mesma pergunta feita à mesma pessoa sobre a
-  mesma tecla — "o que ela faz" e "de quanto em quanto tempo dá pra usar" — e
-  porque quem troca de pokémon troca as duas respostas de uma vez.
+  It lives next to the profile because it is the same question asked of the same person about
+  the same key ("what does it do" and "how often can it be used"), and because switching pokémon
+  switches both answers at once.
 
-  Fora de faixa é DESCARTADO e não corrigido: um cooldown de 0 (ou de meia
-  hora) digitado por engano vira "não sei", que é o único valor que não faz o
-  cérebro decidir errado com confiança. O teto de 10 minutos é generoso de
-  propósito; o piso de 1 segundo separa o que ele mediu do que escapou.
+  Out of range is DISCARDED and not corrected: a cooldown of 0 (or of half an hour) typed by
+  mistake becomes "I do not know", the only value that does not make the brain decide wrongly
+  with confidence. The 10-minute ceiling is generous on purpose; the 1-second floor separates
+  what he measured from what slipped.
   """
   @spec decode_cooldowns(term) :: cooldowns
   def decode_cooldowns(map) when is_map(map) do

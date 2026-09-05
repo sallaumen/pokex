@@ -70,10 +70,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # ring search gets its turn
             stair_taps: 0
 
-  # Quantas vezes o `fight_timeout_ms` uma luta pode durar esperando cooldown
-  # antes de ser chamada de empate assim mesmo. Com os 15s dele, isso dá 90s —
-  # dois ciclos inteiros da barra, e o suficiente pra qualquer bolo que ele
-  # ainda pretenda matar.
+  # How many `fight_timeout_ms` a fight may last waiting for cooldown before being called a
+  # stalemate anyway. With his 15s that is 90s: two whole bar cycles, enough for any pile he
+  # still means to kill.
   @stall_slack 6
 
   @type state ::
@@ -105,8 +104,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
           optional(:route_hold?) => boolean,
           optional(:route_back?) => boolean,
           optional(:stranded?) => boolean,
-          # o cérebro CALOU numa caçada que já o tinha (ver
-          # `Cavebot.Worker.brain_gone?/3`): freio perigoso, não espera
+          # the brain went SILENT in a hunt that already had it (see
+          # `Cavebot.Worker.brain_gone?/3`): dangerous brake, not a wait
           optional(:brain_gone?) => boolean,
           optional(:bar_spent?) => boolean,
           optional(:reset_worth?) => boolean | :unknown,
@@ -205,15 +204,15 @@ defmodule Pokex.Bots.Cavebot.Logic do
   @spec step(t, world, integer) :: {t, action}
   def step(%__MODULE__{state: :blocked} = logic, _world, _now), do: {logic, :none}
 
-  # O CÉREBRO DESISTIU DO REVIVE.
+  # The brain gave up on the revive.
   def step(%__MODULE__{} = logic, %{stranded?: true} = world, _now),
     do: {%{track_hp(logic, world) | state: :blocked}, {:block, :revive_dead}}
 
-  # O CÉREBRO SUMIU — pior que desistir, porque não há ninguém pra dizer que
-  # desistiu. Caçar sem ele é caçar sem revive, sem segurar a estrada na mobada
-  # e sem o freio do chão: foi assim que o personagem morreu em 03/09 às 14:19,
-  # oito minutos depois de o `Engine.Worker` parar em silêncio. Freio perigoso:
-  # não volta sozinho, porque ninguém sabe POR QUE ele calou.
+  # The brain vanished: worse than giving up, because nobody is left to say so. Hunting
+  # without it is hunting without revive, without the road hold in the mob and without the
+  # floor brake; that is how the character died once, eight minutes after the `Engine.Worker`
+  # stopped silently. Dangerous brake: it does not come back on its own, because nobody knows
+  # WHY it went silent.
   def step(%__MODULE__{} = logic, %{brain_gone?: true} = world, _now),
     do: {%{track_hp(logic, world) | state: :blocked}, {:block, :brain_gone}}
 
@@ -431,8 +430,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   defp default_park(%__MODULE__{config: config}), do: Map.get(config, :park_tiles)
 
-  # Arriving at "até aqui" starts the huddle clock; arriving anywhere else clears it, so a stale
-  # stamp can never hold fire on a plain corner.
+  # Arriving at the lure-end corner ("até aqui") starts the huddle clock; arriving anywhere
+  # else clears it, so a stale stamp can never hold fire on a plain corner.
   defp arrived(logic, wp, now) when is_map(wp) do
     logic = arrived_at(logic, wp, now)
 
@@ -539,7 +538,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       logic.since
       |> Map.delete(:clear)
       |> Map.put(:fight, now)
-      # O RELÓGIO QUE NÃO REINICIA.
+      # The clock that does not restart.
       |> Map.put_new(:fight_from, now)
 
     {%{logic | state: :fighting, since: since}, :none}
@@ -723,8 +722,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # `park_tiles` conta como marca pelo mesmo motivo do `park_point`: os dois são "o pokémon fica
-  # AQUI", só ditos em línguas diferentes — e uma esquina com a
+  # `park_tiles` counts as a mark for the same reason `park_point` does: both say "the pokémon
+  # stays HERE", in different languages.
   defp plain?(%{action: :walk} = wp),
     do: Map.get(wp, :stops, []) == [] and wp[:park_point] == nil and wp[:park_tiles] == nil
 
@@ -930,7 +929,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp retreat_ordered?(world),
     do: Map.get(world, :engine?, false) and Map.get(world, :route_back?, false)
 
-  # A RETIRADA: UM waypoint pra trás, e o índice da rota NÃO se mexe.
+  # The retreat: ONE waypoint back, and the route index does NOT move.
   defp retreat(logic, %{pos: nil}, _now), do: {logic, :none}
 
   defp retreat(logic, %{pos: {x, y, z}}, now) do
@@ -943,8 +942,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
       wp == nil or wp.z != z ->
         {logic, :none}
 
-      # Chegou no anterior: acabou o recuo. Nada de encadear pro anterior dele,
-      # e o índice fica onde estava — a rota tem um sentido só.
+      # Reached the previous one: the retreat is over. No chaining to its own previous,
+      # and the index stays where it was: the route has one direction.
       abs(wp.x - x) <= tol and abs(wp.y - y) <= tol ->
         {note_progress(logic, {x, y, z}, now), :none}
 
@@ -955,26 +954,23 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   defp clear?(world), do: Map.get(world, :enemies) == 0 and not engaged?(world)
 
-  # A ordem é uma só e vem com idade: `route_hold?` é `false` tanto quando o
-  # cérebro manda andar quanto quando não há cérebro nenhum, e as duas coisas
-  # não podem se parecer. `engine?` é o que separa.
+  # The order is one and comes with an age: `route_hold?` is `false` both when the brain says
+  # walk and when there is no brain at all, and the two must not look alike. `engine?` is what
+  # separates them.
   defp walk_ordered?(world),
     do: Map.get(world, :engine?, false) and not Map.get(world, :route_hold?, false)
 
-  # ANDANDO, o relógio do travamento não corre — e não é descuido. Ele mede uma
-  # luta que não sai do lugar, e quem está andando tem outro guarda: o da rota,
-  # que já reclama de um pé que não anda (`:stuck`). Deixar os dois correrem
-  # juntos fazia a caçada ser declarada travada por estar fazendo exatamente o
-  # que foi mandada fazer.
+  # While WALKING the stall clock does not run, on purpose: it measures a fight that goes
+  # nowhere, and a walker has another guard, the route's, which already complains about a foot
+  # that does not move (`:stuck`). Letting both run declared the hunt stalled for doing
+  # exactly what it was told.
   #
-  # Zerado, e não pausado: quando o cérebro parar a estrada, a janela do
-  # travamento começa do instante em que ela realmente parou.
-  # `:clear` sai junto, e por um motivo próprio: só se chega aqui com bicho na
-  # tela (ou sem leitura), e uma tela com bicho não está limpa. Um carimbo velho
-  # sobrevivia à caminhada inteira, e então um tique curto de `:hold` com a tela
-  # limpa caía direto em `:post_fight` numa esquina arbitrária — `next_stop/1`
-  # lê `wp_index - 1`, a esquina onde ela por acaso está, não onde a pilha
-  # morreu.
+  # Reset, not paused: when the brain stops the road, the stall window starts from the instant
+  # it really stopped. `:clear` goes with it, for its own reason: this point is only reached
+  # with mobs on screen (or no reading), and a screen with mobs is not clear. A stale stamp
+  # used to survive the whole walk, so a short `:hold` tick with a clean screen fell straight
+  # into `:post_fight` at an arbitrary corner (`next_stop/1` reads `wp_index - 1`, wherever it
+  # happens to be, not where the pile died).
   defp fight_clocks(logic, world, _now) do
     %{
       logic
@@ -1027,7 +1023,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # ESPERAR COOLDOWN NÃO É TRAVAR.
+  # Waiting for cooldown is not a stall.
   defp stall_or_wait(logic, since, fight_since, world, now) do
     cond do
       now - fight_since < logic.config.fight_timeout_ms ->
@@ -1041,7 +1037,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # O cérebro diz que a barra está gasta, e a luta ainda cabe no teto duro.
+  # The brain says the bar is spent, and the fight still fits under the hard ceiling.
   defp esperando_cooldown?(logic, since, world, now) do
     dentro_do_teto? =
       case Map.get(since, :fight_from) do

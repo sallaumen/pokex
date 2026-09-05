@@ -1,78 +1,92 @@
 defmodule Pokex.Bots.CrowdScan do
   @moduledoc """
-  How many creatures are CLOSE, how close, and close to WHAT.
+  Where every creature around the character stands, in tiles from HIM and
+  from his pokemon.
 
-  The battle list has always answered "how many exist", which is where `world.enemies` comes
-  from and the count every rule in `Pokex.Bots.Engine.Logic` reasons with. It cannot answer "how
-  many are within reach of an area skill", and that gap is the waste he named: there is no point
-  optimising for more cooldowns via revives if the bot does not wait for the mobs to be close,
-  because then all the skills are wasted.
+  ## Measured from the character, always
 
-  ## Measured from the pokémon, not the trainer
+  The calibrated character point never disappears and is never mistaken for
+  a monster. His pokemon is one more mark — the one with the number box under
+  its bar, nearest to him — and it is optional: without it `from_pet` is
+  `nil`, and a consumer knows it only has distances from the character.
 
-  An area skill leaves the POKÉMON. The first version of this measured from the character
-  because that is the point the calibration knows, and on his screen the two sit two tiles apart
-  routinely: every distance carried that error.
+  The first eye anchored on "the green name", which in this client is any
+  creature at full health: on 2026-09-03 it measured from a Feraligatr, and
+  from a palm tree.
 
-  The fix needed no sprite taught: the game draws HIS pokémon's name in green, so the same pass
-  that finds the red hostiles finds the green anchor. `Pokex.Bots.PokemonTracker` could have
-  answered too, but only for pokémon he has photographed, and his library held two he no longer
-  plays.
+  ## Marks in, tiles out
 
-  When the green label is covered, the reading falls back to the character and SAYS SO in
-  `:anchor`. A distance whose origin is unknown is worse than no distance, because it looks the
-  same as a good one.
+  `Pokex.Vision.CreatureMarks` turns pixels into bar marks; `place/3` turns
+  marks into tiles and is pure, so the simulator can feed it the marks its
+  own world would draw. `look/1` is the only function here that touches the
+  screen.
 
   ## It shows its work
 
-  He called the reading still very imprecise, and a number cannot say whether it was the
-  detector, the anchor or the ruler. `look/1` with `evidence: true` returns the picture it read
-  with boxes on what it found and a cross on what it measured from.
+  With `evidence: true` the reading carries the captured box with the marks
+  drawn on it: bars boxed (blue hostile, green pet), skulls tagged, a magenta
+  cross where the character is. A number cannot say whether the detector, the
+  anchor or the ruler was wrong; a picture can.
 
   ## Cost
 
-  One capture (~0.28s serialized through `Pokex.Bots.Capture`, raw pixels, see
-  `capture_format_test.exs`) plus a row scan of the box (14-31ms). That is a per-DECISION cost,
-  not a per-tick one; nothing here is wired into a feed.
-
-  ## Reads low, never high
-
-  A creature standing under a bright spell effect loses its label to the effect, and a yellow
-  skill banner lands in the same band as the names. Measured in the field: four hostiles on
-  screen, the two with uncovered names counted. So `seen` is a floor, and a rule that gates on
-  "enough of them are close" gets more cautious under effects rather than more reckless.
+  Measured on the live server log (2026-09-05): ~9 ms for the capture of a
+  1812×1440 box and ~18 ms for the read. A per-tick cost, not a per-decision
+  one.
   """
 
   alias Pokex.Bots.Capture
   alias Pokex.Calibration
-  alias Pokex.Vision.{Evidence, Frame, NameLabels}
+  alias Pokex.Vision.{CreatureMarks, Evidence, Frame}
 
   @hostile_box {0, 220, 255}
-  @own_box {0, 255, 120}
-  @anchor_cross {255, 0, 255}
+  @pet_box {0, 255, 120}
+  @skull_box {255, 255, 255}
+  @me_cross {255, 0, 255}
 
-  @type spot :: %{tiles: non_neg_integer, dx: integer, dy: integer, point: {integer, integer}}
+  # A mark whose body stands within this many tiles of the character IS the
+  # character (his own bar floats over his head).
+  @me_tiles 0.6
+
+  @type hostile :: %{
+          point: {integer, integer},
+          dx: integer,
+          dy: integer,
+          from_me: non_neg_integer,
+          from_pet: non_neg_integer | nil,
+          hp_pct: 0..100,
+          skull?: boolean
+        }
+  @type pet :: %{
+          point: {integer, integer},
+          dx: integer,
+          dy: integer,
+          tiles: non_neg_integer,
+          hp_pct: 0..100
+        }
+  @type placed :: %{read?: true, me: {integer, integer}, pet: pet | nil, hostiles: [hostile]}
   @type reading ::
           %{
             read?: true,
-            seen: non_neg_integer,
-            listed: non_neg_integer | nil,
-            spots: [spot],
-            anchor: :pokemon | :character,
-            radius: pos_integer,
+            at: integer,
             took_ms: non_neg_integer,
+            me: {integer, integer},
+            box: {integer, integer, integer, integer},
+            pet: pet | nil,
+            hostiles: [hostile],
+            listed: non_neg_integer | nil,
             evidence: String.t() | nil
           }
           | %{read?: false, reason: atom}
 
   @doc """
-  Looks around the character and reports every creature it could place.
+  Captures the box around the character and places every creature in it.
 
   Options:
 
     * `:radius_tiles` — how far out to look (default `crowd_scan_radius_tiles`)
-    * `:listed` — the battle-list count to report alongside, when the caller has one
-    * `:evidence` — also return the picture it read, with its findings drawn on
+    * `:listed` — the battle-list count to carry alongside, when the caller has one
+    * `:evidence` — also return the picture it read, with the marks drawn on
     * `:capture` — injected for tests
   """
   @spec look(keyword) :: reading
@@ -83,22 +97,22 @@ defmodule Pokex.Bots.CrowdScan do
 
     with {:ok, calib} <- calibration(),
          {px, py} when is_integer(px) <- Calibration.player_point(calib),
-         region = box_around({px, py}, radius, calib),
-         {:ok, frame} <- capture.(region, "crowd_scan.raw") do
-      labels = NameLabels.find(frame)
-      {anchor, from} = anchor(labels, frame, region, {px, py})
+         box = box_around({px, py}, radius, calib),
+         {:ok, frame} <- capture.(box, "crowd_scan.raw") do
+      scale = frame_scale(frame)
+      tile = Calibration.tile_px()
+      found = CreatureMarks.find(frame, tile_px: round(tile * scale))
+      marks = Enum.map(found, &to_screen(&1, box, scale))
 
-      %{
-        read?: true,
-        seen: 0,
-        listed: Keyword.get(opts, :listed),
-        spots: spots(labels, region, from, frame),
-        anchor: anchor,
-        radius: radius,
+      marks
+      |> place({px, py}, tile)
+      |> Map.merge(%{
+        at: started,
         took_ms: System.monotonic_time(:millisecond) - started,
-        evidence: evidence(opts, frame, labels, region, from)
-      }
-      |> then(&%{&1 | seen: length(&1.spots)})
+        box: box,
+        listed: Keyword.get(opts, :listed),
+        evidence: evidence(opts, frame, found, box, {px, py}, scale)
+      })
     else
       {:error, reason} -> %{read?: false, reason: reason}
       :not_calibrated -> %{read?: false, reason: :not_calibrated}
@@ -107,77 +121,98 @@ defmodule Pokex.Bots.CrowdScan do
   end
 
   @doc """
-  How many of them are within `tiles`. The question a rule actually asks, kept
-  here so no caller has to re-derive it from `spots`.
+  Marks (bar centres, in screen points) placed in tiles from `me` and from
+  his pokemon. Pure: the simulator calls it with the marks its world draws.
   """
-  @spec within(reading, pos_integer) :: non_neg_integer
-  def within(%{read?: true, spots: spots}, tiles), do: Enum.count(spots, &(&1.tiles <= tiles))
+  @spec place([CreatureMarks.mark()], {integer, integer}, pos_integer) :: placed
+  def place(marks, {px, py} = me, tile) do
+    bodies =
+      marks
+      |> Enum.map(fn %{point: {x, y}} = mark -> %{mark | point: {x, y + tile}} end)
+      |> Enum.reject(&(chebyshev(&1.point, me) <= @me_tiles * tile))
+
+    pet =
+      bodies
+      |> Enum.filter(& &1.pet?)
+      |> Enum.min_by(&chebyshev(&1.point, me), fn -> nil end)
+
+    hostiles =
+      bodies
+      |> Enum.reject(&(&1 == pet))
+      |> Enum.map(&hostile(&1, me, pet, tile))
+      |> Enum.sort_by(&{&1.from_me, &1.dx, &1.dy})
+
+    %{read?: true, me: {px, py}, pet: pet && pet_of(pet, me, tile), hostiles: hostiles}
+  end
+
+  @doc "How many hostiles stand within `tiles` of the CHARACTER. Zero for an unread scan, never a guess."
+  @spec within(reading | placed, non_neg_integer) :: non_neg_integer
+  def within(%{read?: true, hostiles: hostiles}, tiles),
+    do: Enum.count(hostiles, &(&1.from_me <= tiles))
+
   def within(_unread, _tiles), do: 0
-
-  @doc "The nearest creature's distance in tiles, or `nil` when none was placed."
-  @spec nearest(reading) :: non_neg_integer | nil
-  def nearest(%{read?: true, spots: [_ | _] = spots}),
-    do: spots |> Enum.map(& &1.tiles) |> Enum.min()
-
-  def nearest(_none), do: nil
 
   # --- geometry ------------------------------------------------------------
 
-  # His pokémon's own green name when it was readable, else the calibrated
-  # character point — and the caller is told which, because the two are
-  # routinely two tiles apart.
-  defp anchor(labels, frame, region, player) do
-    case NameLabels.own(labels) do
-      nil -> {:character, player}
-      label -> {:pokemon, creature_point(label, region, frame)}
-    end
-  end
+  defp hostile(%{point: point, hp_pct: hp, skull?: skull?}, me, pet, tile) do
+    {dx, dy} = offset(point, me, tile)
 
-  defp spots(labels, region, {ax, ay}, frame) do
-    tile = Calibration.tile_px()
-
-    labels
-    |> NameLabels.hostiles()
-    |> Enum.map(fn label ->
-      {x, y} = creature_point(label, region, frame)
-      dx = round((x - ax) / tile)
-      dy = round((y - ay) / tile)
-      %{tiles: max(abs(dx), abs(dy)), dx: dx, dy: dy, point: {x, y}}
-    end)
-    |> Enum.sort_by(& &1.tiles)
-  end
-
-  # The label is drawn ABOVE the creature it names — one tile up, measured on
-  # his recording. Expressed in TILES so it survives any client zoom that moves
-  # `tile_px`; a pixel constant here would silently rot.
-  defp creature_point(label, {rx, ry, _w, _h}, frame) do
-    scale = frame_scale(frame)
-
-    {
-      rx + round((label.x + div(label.w, 2)) / scale),
-      ry + round((label.y + div(label.h, 2)) / scale) + Calibration.tile_px()
+    %{
+      point: point,
+      dx: dx,
+      dy: dy,
+      from_me: max(abs(dx), abs(dy)),
+      from_pet: pet && tiles_between(point, pet.point, tile),
+      hp_pct: hp,
+      skull?: skull?
     }
   end
 
-  defp evidence(opts, frame, labels, {rx, ry, _w, _h}, {ax, ay}) do
+  defp pet_of(%{point: point, hp_pct: hp}, me, tile) do
+    {dx, dy} = offset(point, me, tile)
+    %{point: point, dx: dx, dy: dy, tiles: max(abs(dx), abs(dy)), hp_pct: hp}
+  end
+
+  defp offset({x, y}, {px, py}, tile), do: {round((x - px) / tile), round((y - py) / tile)}
+
+  defp tiles_between(a, b, tile) do
+    {dx, dy} = offset(a, b, tile)
+    max(abs(dx), abs(dy))
+  end
+
+  defp chebyshev({ax, ay}, {bx, by}), do: max(abs(ax - bx), abs(ay - by))
+
+  # Frame pixels → screen points: the box's origin plus the pixel over the
+  # backend's scale.
+  defp to_screen(%{point: {x, y}} = mark, {rx, ry, _w, _h}, scale),
+    do: %{mark | point: {rx + round(x / scale), ry + round(y / scale)}}
+
+  defp evidence(opts, frame, marks, {rx, ry, _w, _h}, {px, py}, scale) do
     if Keyword.get(opts, :evidence, false) do
-      scale = frame_scale(frame)
+      geo = CreatureMarks.geometry(round(Calibration.tile_px() * scale))
 
       Evidence.data_url(frame,
         shrink: Pokex.Settings.get(:crowd_scan_evidence_shrink),
-        boxes:
-          Enum.map(labels, fn l ->
-            %{
-              x: l.x,
-              y: l.y,
-              w: l.w,
-              h: l.h,
-              colour: if(l.kind == :hostile, do: @hostile_box, else: @own_box)
-            }
-          end),
-        marks: [{round((ax - rx) * scale), round((ay - ry) * scale), @anchor_cross}]
+        boxes: Enum.flat_map(marks, &mark_boxes(&1, geo)),
+        marks: [{round((px - rx) * scale), round((py - ry) * scale), @me_cross}]
       )
     end
+  end
+
+  # The bar boxed in its kind's colour, and the skull boxed above it when
+  # there is one.
+  defp mark_boxes(%{point: {x, y}} = mark, %{bar_w: bw, bar_h: bh}) do
+    bar = %{
+      x: x - div(bw, 2),
+      y: y - div(bh, 2),
+      w: bw,
+      h: bh,
+      colour: if(mark.pet?, do: @pet_box, else: @hostile_box)
+    }
+
+    skull = %{x: x - 8, y: y - 34, w: 16, h: 17, colour: @skull_box}
+
+    if mark.skull?, do: [bar, skull], else: [bar]
   end
 
   defp frame_scale(%Frame{scale: scale}) when is_number(scale) and scale > 0, do: scale

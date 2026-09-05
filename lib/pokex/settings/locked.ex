@@ -229,7 +229,12 @@ defmodule Pokex.Settings.Locked do
        "o 'para e luta' já decide o tamanho do bolo: sem juntar andando, este número nunca é olhado"},
     engine_kite_when_spent: {"O modo decide", "recuar com a barra vazia"},
     # --- Where the monsters are (vision) ---
-    crowd_scan_radius_tiles: {"Onde estão os monstros (visão)", "a foto ao redor cobre 6 tiles"},
+    crowd_scan_radius_tiles:
+      {"Onde estão os monstros (visão)", "a foto ao redor cobre a tela do jogo inteira (8 tiles)"},
+    crowd_scan_every_ms:
+      {"Onde estão os monstros (visão)", "em luta olha 4× por segundo (~30 ms cada)"},
+    crowd_fact_max_age_ms:
+      {"Onde estão os monstros (visão)", "foto mais velha que 0,6 s não vale"},
     crowd_scan_evidence_shrink:
       {"Onde estão os monstros (visão)", "a evidência é desenhada 4× menor"},
     # --- Painel (canto de comando) ---

@@ -24,7 +24,6 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.SkillClock
   alias Pokex.Bots.SkillMeter
   alias Pokex.Bots.SkillRack
-  alias Pokex.Bots.CrowdScan
   alias Pokex.Bots.HuntMode
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Calibration
@@ -123,9 +122,10 @@ defmodule PokexWeb.CavebotLive do
        reset_revive: Settings.get(:engine_reset_revive),
        minimap_gap?: minimap_gap?(),
        recording?: false,
-       # What the last look at the SCREEN found, and nothing until he asks: the
-       # scan costs a capture, so it never runs on the poll (see the button).
-       crowd: nil,
+       # The eye's last reading (the :crowd fact), and the photo only when he
+       # asks for one: the picture never rides the blackboard.
+       crowd: crowd_fact(),
+       crowd_photo: nil,
        # The simulator's fence points the eyes at a world that is not the game.
        # Free to read (`:persistent_term`), and re-read on the heartbeat.
        sim_armed?: Fence.armed?(),
@@ -242,6 +242,8 @@ defmodule PokexWeb.CavebotLive do
 
   def handle_info({:engine, situation, orders}, socket),
     do: {:noreply, assign(socket, situation: situation, orders: orders)}
+
+  def handle_info({:crowd, reading}, socket), do: {:noreply, assign(socket, crowd: reading)}
 
   # Os dois placares que faltavam pro resumo. Nenhum dos dois desenha nada
   # sozinho: são contadores que o resumo soma.
@@ -959,8 +961,13 @@ defmodule PokexWeb.CavebotLive do
   end
 
   def handle_event("crowd_scan", _params, socket) do
-    reading = CrowdScan.look(listed: enemy_count(socket.assigns.world), evidence: true)
-    {:noreply, assign(socket, crowd: reading)}
+    reading = Pokex.Bots.CrowdWatch.look_now()
+
+    {:noreply,
+     assign(socket,
+       crowd: Map.delete(reading, :evidence),
+       crowd_photo: Map.get(reading, :evidence)
+     )}
   end
 
   def handle_event("toggle_debug", _params, socket),
@@ -1370,28 +1377,6 @@ defmodule PokexWeb.CavebotLive do
 
   # -- onde eles estão --------------------------------------------------------
 
-  defp crowd_headline(%{seen: 0, radius: r}),
-    do: "nenhum nome legível dentro de #{r} tiles"
-
-  defp crowd_headline(%{seen: seen, spots: [%{tiles: near} | _]}) do
-    "#{seen} #{if seen == 1, do: "monstro localizado", else: "monstros localizados"} — o mais perto a #{near} #{if near == 1, do: "tile", else: "tiles"}"
-  end
-
-  # The histogram he can check against his own screen: how many at each ring.
-  defp crowd_spread(%{spots: []}), do: "—"
-
-  defp crowd_spread(%{spots: spots}) do
-    spots
-    |> Enum.frequencies_by(& &1.tiles)
-    |> Enum.sort()
-    |> Enum.map_join("  ", fn {tiles, n} -> "#{tiles}t×#{n}" end)
-  end
-
-  # What the battle list counted that the screen could not place. Only a gap
-  # when there IS a list to compare against.
-  defp crowd_gap(%{listed: listed, seen: seen}) when is_integer(listed), do: max(listed - seen, 0)
-  defp crowd_gap(_no_list), do: 0
-
   # An area skill leaves the POKÉMON. When its green name is covered the reading
   # falls back to the character, and the difference is two tiles on his screen —
   # so it is said out loud instead of quietly changing what the number means.
@@ -1413,13 +1398,6 @@ defmodule PokexWeb.CavebotLive do
     {inicio, [ultimo]} = Enum.split(digitos, -1)
     "o " <> Enum.join(inicio, ", o ") <> " e o " <> ultimo <> " nunca foram ensinados"
   end
-
-  defp crowd_anchor(:pokemon), do: "medido do seu pokémon"
-  defp crowd_anchor(:character), do: "medido do personagem (não achei o nome verde)"
-
-  defp crowd_reason(:not_calibrated), do: "o /calibrar nunca rodou nesta tela"
-  defp crowd_reason(:no_player_point), do: "a calibração não marcou onde o personagem fica"
-  defp crowd_reason(reason), do: to_string(reason)
 
   defp enemy_count(%{enemies: enemies}), do: length(enemies)
   defp enemy_count(_none), do: 0
@@ -1979,6 +1957,15 @@ defmodule PokexWeb.CavebotLive do
     case Pokex.Perception.WorldState.get(key, 3_000, System.monotonic_time(:millisecond)) do
       {:ok, obs} -> obs
       _stale_or_missing -> nil
+    end
+  end
+
+  # A minute is generous on purpose: the card itself says "sem olho" past
+  # `crowd_fact_max_age_ms`, and a stale reading with words beats a blank.
+  defp crowd_fact do
+    case Pokex.Perception.WorldState.get(:crowd, 60_000, System.monotonic_time(:millisecond)) do
+      {:ok, reading} -> reading
+      _none_or_stale -> nil
     end
   end
 
@@ -3756,62 +3743,28 @@ defmodule PokexWeb.CavebotLive do
           reset_revive={@reset_revive}
         />
 
+        <%!-- THE SIEGE: what the eye sees around him, in tiles. The page
+            re-renders on every engine tick and every reading, so the age in
+            the headline keeps up without a timer of its own. --%>
+        <PokexWeb.SiegeComponents.siege_card
+          reading={@crowd}
+          photo={@crowd_photo}
+          radius={Settings.get(:crowd_scan_radius_tiles)}
+          max_age_ms={Settings.get(:crowd_fact_max_age_ms)}
+          now_ms={System.monotonic_time(:millisecond)}
+        />
+
         <details id="cavebot-instruments" class="rounded-lg border border-pk-line bg-pk-surface">
           <summary class="cursor-pointer list-none px-3 py-2 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
             Instrumentos ▸
           </summary>
           <div class="space-y-3 px-3 pb-3">
-            <%!-- ONDE ELES ESTÃO. A lista de batalha sempre soube QUANTOS existem;
-            o que faltava era a distância — "não adianta a gente otimizar ele
-            ter mais cooldowns pra usar com Revives se ele não espera os
-            pokémons estarem próximos" (2026-08-26).
-
-            Isto é LEITURA: não manda em nada, e está aqui pra ele julgar se
-            merece virar regra. --%>
-            <section id="cavebot-crowd" class="rounded-pk border border-pk-line bg-pk-surface p-3">
-              <div class="flex flex-wrap items-center gap-2">
-                <h3 class="text-pk-sm font-semibold text-pk-text-1">onde eles estão</h3>
-                <button
-                  type="button"
-                  phx-click="crowd_scan"
-                  class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
-                >
-                  olhar agora
-                </button>
-                <span class="text-pk-meta text-pk-text-3">
-                  custa uma foto da tela (~0,3s) — só quando você pede
-                </span>
-              </div>
-
-              <p :if={@crowd == nil} class="mt-2 text-pk-meta text-pk-text-3">
-                ninguém olhou ainda
-              </p>
-
-              <p :if={@crowd && !@crowd.read?} class="mt-2 text-pk-meta text-pk-warn">
-                não deu pra olhar: {crowd_reason(@crowd.reason)}
-              </p>
-
-              <div :if={@crowd && @crowd.read?} class="mt-2">
-                <p class="text-pk-sm text-pk-text-1">{crowd_headline(@crowd)}</p>
-                <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">
-                  {crowd_spread(@crowd)} · {crowd_anchor(@crowd.anchor)}
-                </p>
-
-                <%!-- A PROVA. Um número não diz se errou o detector, a âncora ou a
-                régua — três bugs diferentes, um "2" indistinguível. Aqui dá
-                pra ver: caixa azul é hostil, verde é o pokémon dele, e a cruz
-                rosa é o ponto de onde a distância foi medida. --%>
-                <img
-                  :if={@crowd.evidence}
-                  src={@crowd.evidence}
-                  alt="o que a leitura enxergou"
-                  class="mt-2 w-full max-w-2xl rounded border border-pk-line"
-                />
-                <p :if={@crowd.evidence} class="mt-1 text-pk-meta text-pk-text-3">
-                  caixa azul = hostil · verde = seu pokémon · cruz rosa = de onde mediu
-                </p>
-              </div>
-
+            <%!-- Where the monsters are moved up to the siege card, beside the
+            brain. What stays here is the calibration of the area's reach. --%>
+            <section
+              id="cavebot-area-reach"
+              class="rounded-pk border border-pk-line bg-pk-surface p-3"
+            >
               <%!-- QUANTO A ÁREA ALCANÇA. O simulador resolve todo disparo de área
               com `aoe_radius: 4`, debaixo de um comentário que diz que o
               número foi inventado — e é ele que faz TODOS os knobs de
@@ -3952,19 +3905,6 @@ defmodule PokexWeb.CavebotLive do
                   <span>
                     é MEDIANA: o dano de outro jogador na mesma linha entra na conta. E poucas
                     amostras (em amarelo) não merecem a mesma fé que muitas.
-                  </span>
-                </p>
-
-                <%!-- O ponto cego, escrito onde ele lê o número: efeito de skill
-                pinta por cima do nome, então some quem está DENTRO da área.
-                Erra sempre pra menos. --%>
-                <p
-                  :if={crowd_gap(@crowd) > 0}
-                  class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn"
-                >
-                  <.icon name="hero-eye-slash" class="mt-px size-3.5 shrink-0" />
-                  <span>
-                    a lista tem {@crowd.listed} e eu localizei {@crowd.seen} — {crowd_gap(@crowd)} sem nome legível (efeito na tela cobre o nome, ou está fora do alcance da vista)
                   </span>
                 </p>
               </div>

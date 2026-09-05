@@ -1,29 +1,25 @@
 defmodule Pokex.Bots.CrowdWatch do
   @moduledoc """
-  THE WAITING EYE, phase 1: it measures, it does not decide.
+  THE EYE: it measures, publishes and photographs. It decides nothing yet.
 
-  "On top and close" is, to this day, a clock: the brain waits `engine_bunch_ms` and calls that
-  close. This watcher photographs around the pokémon WHILE the brain waits for the pile
-  (`:bunching`, or `:sizing` with a pile worth it) and writes to the feed how many creatures are
-  within reach, one tile, the eight neighbouring squares, which is the area reach he measured.
-  The brain does NOT read the fact yet; phase 2 is that.
+  Every `crowd_scan_every_ms` during a fight (enemies listed, or a revive
+  pending), once a second walking with an empty list, it captures the box
+  around the character, places every creature (`Pokex.Bots.CrowdScan`) and
+  writes the whole reading to the `:crowd` fact, positions included, which
+  the first eye threw away. The page learns of every reading by PubSub.
 
-  ## What phase 1 buys
+  ## Photos as proof
 
-    * the `:crowd` fact in the frame, with `near`, `seen`, `listed`, the origin of the
-      measurement and what it cost;
-    * one feed line per changed reading, the number the clock used to decide blind;
-    * at the OPENING (the wait became `:engaged`), the last photo with its boxes, kept in
-      `captures/crowd/`. Calibrating the reader is a night of those photos;
-    * two meters in `Perf`: what the photo cost, and HOW LATE THE BATTLE READING WAS while
-      it was taken. There is one capture queue (~0.28s per photo, against the battle feed
-      at 120ms), and that is what decides whether phase 2 may be switched on.
+  Two moments keep a picture with the marks drawn on: the fight opening
+  (`open`) and every revive decision the brain makes, fired (`revive`) or
+  held by the sleep fence (`held`). The file name carries the verdict. Thirty
+  stay. A death is investigated from these.
 
-  ## What it does not do
+  ## Cost
 
-  Nothing while walking, fighting or reviving: the photo is only taken during the standing wait,
-  every 500ms, twelve per wait at most. Off (`crowd_watch_enabled`), the watcher only re-checks
-  the switch once a second.
+  ~9 ms capture + ~18 ms read, measured 2026-09-05. Four looks a second is
+  under 12% of the helper's time; `crowd_watch.battle_age_ms` in `Perf` says
+  whether the battle feed ever waited behind it.
   """
   use GenServer
 
@@ -33,13 +29,13 @@ defmodule Pokex.Bots.CrowdWatch do
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
 
-  # The lines travel with the brain's: same table, same feed.
   @topic "engine"
-  @reach_tiles 1
-  @look_ms 500
+  @walk_ms 1_000
   @idle_ms 1_000
-  @watching [:bunching, :sizing]
   @keep_photos 30
+  @waiting [:bunching, :sizing]
+  @no_hunt [nil, :idle, :guarding]
+  @walking [:travelling, :post_fight]
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -49,7 +45,8 @@ defmodule Pokex.Bots.CrowdWatch do
       look: Keyword.get(opts, :look, &CrowdScan.look/1),
       last: nil,
       last_phase: nil,
-      last_line: nil
+      last_line: nil,
+      last_why: nil
     }
 
     case name do
@@ -58,86 +55,93 @@ defmodule Pokex.Bots.CrowdWatch do
     end
   end
 
-  @doc "How many tiles from the pokémon still count as within the area's reach."
-  @spec reach_tiles() :: pos_integer
-  def reach_tiles, do: @reach_tiles
-
-  @doc "One reading now, off the clock: the test and the page's button use it."
-  @spec look_now(GenServer.server()) :: :ok
+  @doc "One reading now, WITH the picture: the page's button. Published and broadcast like any other."
+  @spec look_now(GenServer.server()) :: CrowdScan.reading()
   def look_now(server \\ __MODULE__), do: GenServer.call(server, :look_now)
+
+  @doc "How long until the next look on the clock, for the current picture (tests)."
+  @spec next_look_ms(GenServer.server()) :: pos_integer | :idle
+  def next_look_ms(server \\ __MODULE__), do: GenServer.call(server, :next_look_ms)
 
   @impl true
   def init(state) do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, @topic)
     schedule(@idle_ms)
     {:ok, state}
   end
 
   @impl true
-  def handle_call(:look_now, _from, state), do: {:reply, :ok, tick(state)}
+  def handle_call(:look_now, _from, state) do
+    case allowed(state, now()) do
+      :ok ->
+        {reading, state} = look(state, now(), evidence: true)
+        {:reply, reading, state}
+
+      {:error, reason} ->
+        {:reply, %{read?: false, reason: reason}, state}
+    end
+  end
+
+  def handle_call(:next_look_ms, _from, state), do: {:reply, cadence(now()), state}
 
   @impl true
   def handle_info(:look, state) do
-    state = tick(state)
-    schedule(if watching?(state), do: @look_ms, else: @idle_ms)
+    now = now()
+    cadence = cadence(now)
+
+    state =
+      if allowed(state, now) == :ok and is_integer(cadence),
+        do: state |> look(now, evidence: false) |> elem(1),
+        else: state
+
+    schedule(if cadence == :idle, do: @idle_ms, else: cadence)
     {:noreply, state}
+  end
+
+  # The brain spoke: the opening and every revive decision keep a photo.
+  def handle_info({:engine, _picture, orders}, state) do
+    {:noreply, state |> photo_on_opening(orders) |> photo_on_decision(orders)}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # -- o tique -----------------------------------------------------------------
+  # -- the clock ---------------------------------------------------------------
 
-  defp tick(state) do
-    now = now()
-    phase = phase(now)
-
-    cond do
-      not enabled?(state) -> forget(state, phase)
-      phase in @watching -> look(state, phase, now)
-      opening?(state, phase) -> state |> save_photo(phase) |> forget(phase)
-      true -> forget(state, phase)
+  defp cadence(now) do
+    case orders(now) do
+      nil -> :idle
+      %{phase: phase} when phase in @no_hunt -> :idle
+      %{phase: phase, revive: revive} -> fight_or_walk(phase, revive, listed(now))
     end
   end
 
-  defp enabled?(state), do: state.active? and Settings.get(:crowd_watch_enabled) == true
+  defp fight_or_walk(phase, revive, listed) do
+    if listed > 0 or revive != :hold or phase not in @walking,
+      do: Settings.get(:crowd_scan_every_ms),
+      else: @walk_ms
+  end
 
-  defp watching?(%{last_phase: phase}), do: phase in @watching
+  defp allowed(state, now) do
+    cond do
+      not state.active? or Settings.get(:crowd_watch_enabled) != true -> {:error, :disabled}
+      cadence(now) == :idle -> {:error, :no_hunt}
+      true -> :ok
+    end
+  end
 
-  defp forget(state, phase), do: %{state | last: nil, last_phase: phase}
+  # -- a look ------------------------------------------------------------------
 
-  # The wait ended in a fight: the last frame is the opening's.
-  defp opening?(%{last: last, last_phase: before}, phase),
-    do: last != nil and before in @watching and phase == :engaged
+  defp look(state, now, opts) do
+    reading = state.look.(Keyword.merge([listed: listed(now), evidence: false], opts))
+    published = Map.delete(reading, :evidence)
 
-  defp look(state, phase, now) do
-    listed = listed(now)
-    reading = state.look.(listed: listed, evidence: true)
-    near = CrowdScan.within(reading, @reach_tiles)
-
-    publish(reading, near, listed, now)
+    WorldState.put(:crowd, published, now)
     measure(reading, now)
+    broadcast({:crowd, published})
 
-    %{narrate(state, reading, near, listed) | last: reading, last_phase: phase}
+    {reading, %{narrate(state, reading) | last: reading, last_phase: phase(now)}}
   end
 
-  defp publish(reading, near, listed, now) do
-    WorldState.put(
-      :crowd,
-      %{
-        read?: Map.get(reading, :read?, false),
-        near: near,
-        seen: Map.get(reading, :seen, 0),
-        listed: listed,
-        anchor: Map.get(reading, :anchor),
-        took_ms: Map.get(reading, :took_ms),
-        reach_tiles: @reach_tiles,
-        reason: Map.get(reading, :reason)
-      },
-      now
-    )
-  end
-
-  # The price, on both sides: what the frame cost, and how old the battle was the instant
-  # after. Its age is what says whether the queue choked.
   defp measure(%{read?: true, took_ms: took}, now) do
     Perf.record("crowd_watch.look_ms", took)
 
@@ -145,15 +149,15 @@ defmodule Pokex.Bots.CrowdWatch do
       {:ok, %{captured_at: at}} when is_integer(at) ->
         Perf.record("crowd_watch.battle_age_ms", max(now() - at, 0))
 
-      _sem_batalha ->
+      _no_battle ->
         :ok
     end
   end
 
   defp measure(_unread, _now), do: Perf.count("crowd_watch.unread")
 
-  defp narrate(state, reading, near, listed) do
-    line = line(reading, near, listed)
+  defp narrate(state, reading) do
+    line = line(reading)
 
     if line == state.last_line do
       state
@@ -163,51 +167,88 @@ defmodule Pokex.Bots.CrowdWatch do
     end
   end
 
-  defp line(%{read?: true} = reading, near, listed) do
-    "👀 perto: #{near} de #{listed || "?"} a ≤#{@reach_tiles} tile (vi #{reading.seen}, " <>
-      "medido do #{origin_label(reading.anchor)}, #{reading.took_ms}ms)"
+  defp line(%{read?: true} = r) do
+    "👀 vi #{length(r.hostiles)} (lista #{r.listed || "?"}) · #{pet_words(r.pet)} · " <>
+      "#{nearest_words(r.hostiles)} · #{skull_words(r.hostiles)} · #{r.took_ms}ms"
   end
 
-  defp line(reading, _near, _listed),
-    do: "👀 sem leitura ao redor (#{inspect(Map.get(reading, :reason))})"
+  defp line(unread), do: "👀 sem leitura ao redor (#{inspect(Map.get(unread, :reason))})"
 
-  defp origin_label(:pokemon), do: "pokémon"
-  defp origin_label(_character), do: "personagem"
+  defp pet_words(nil), do: "pokémon não visto"
+  defp pet_words(%{tiles: t}), do: "pokémon a #{t} #{tiles(t)}"
 
-  # -- a foto da abertura ------------------------------------------------------
+  defp nearest_words([]), do: "ninguém perto"
+  defp nearest_words([%{from_me: t} | _]), do: "mais perto a #{t} #{tiles(t)}"
 
-  defp save_photo(%{last: %{read?: true, evidence: "data:" <> _ = url} = last} = state, _phase) do
-    listed = Map.get(last, :listed) || "?"
-    near = CrowdScan.within(last, @reach_tiles)
+  defp skull_words(hostiles),
+    do: if(Enum.any?(hostiles, & &1.skull?), do: "caveira", else: "sem caveira")
 
+  defp tiles(1), do: "tile"
+  defp tiles(_n), do: "tiles"
+
+  # -- the photos ----------------------------------------------------------------
+
+  # The wait ended in a fight: a fresh picture is the opening.
+  defp photo_on_opening(%{last: %{read?: true}, last_phase: before} = state, %{phase: :engaged})
+       when before in @waiting do
+    {reading, state} = look(state, now(), evidence: true)
+    save_photo(reading, "open")
+    state
+  end
+
+  defp photo_on_opening(state, _orders), do: state
+
+  # One photo per revive SENTENCE: the brain repeats its order every tick. An
+  # order without a sentence (a test's bare map) is nothing to photograph.
+  defp photo_on_decision(state, %{why: why} = orders) when is_binary(why) do
+    if why == state.last_why do
+      state
+    else
+      state = %{state | last_why: why}
+
+      with tag when is_binary(tag) <- tag(orders),
+           :ok <- allowed(state, now()) do
+        {reading, state} = look(state, now(), evidence: true)
+        save_photo(reading, tag)
+        state
+      else
+        _nothing_to_keep -> state
+      end
+    end
+  end
+
+  defp photo_on_decision(state, _no_sentence), do: state
+
+  defp tag(%{revive: revive}) when revive in [:now, :prepare], do: "revive"
+  defp tag(%{why: why}), do: if(String.contains?(why, "segurando o revive"), do: "held")
+
+  defp save_photo(%{read?: true, evidence: "data:" <> _ = url}, tag) do
     case decode(url) do
-      {:ok, png} ->
+      {:ok, bytes} ->
         dir = Path.join(Home.captures_dir(), "crowd")
         File.mkdir_p!(dir)
-        path = Path.join(dir, "#{System.system_time(:millisecond)}-#{near}de#{listed}.png")
-        Home.write!(path, png)
+        Home.write!(Path.join(dir, photo_name(tag)), bytes)
         rotate(dir)
-
-        broadcast(
-          {:engine_log, :macro,
-           "olho: 📷 abriu com #{near} de #{listed} a ≤#{@reach_tiles} tile — foto guardada"}
-        )
 
       :error ->
         :ok
     end
-
-    state
   rescue
-    _sem_foto -> state
+    _no_photo -> :ok
   end
 
-  defp save_photo(state, _phase), do: state
+  defp save_photo(_unread, _tag), do: :ok
+
+  # Millisecond stamp first (so the rotation's sort is chronological), a unique
+  # integer second (two decisions in one millisecond are two files).
+  defp photo_name(tag) do
+    "#{System.system_time(:millisecond)}-#{System.unique_integer([:positive, :monotonic])}-#{tag}.png"
+  end
 
   defp decode(url) do
     case String.split(url, ",", parts: 2) do
       [_head, body] -> Base.decode64(body)
-      _sem_corpo -> :error
+      _no_body -> :error
     end
   end
 
@@ -219,19 +260,26 @@ defmodule Pokex.Bots.CrowdWatch do
     |> Enum.each(&File.rm(Path.join(dir, &1)))
   end
 
-  # -- o quadro ----------------------------------------------------------------
+  # -- the blackboard --------------------------------------------------------------
+
+  defp orders(now) do
+    case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now) do
+      {:ok, %{phase: _} = orders} -> Map.put_new(orders, :revive, :hold)
+      _no_brain -> nil
+    end
+  end
 
   defp phase(now) do
-    case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now) do
-      {:ok, %{phase: phase}} -> phase
-      _sem_cerebro -> nil
+    case orders(now) do
+      %{phase: phase} -> phase
+      nil -> nil
     end
   end
 
   defp listed(now) do
     case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now) do
       {:ok, %{enemies: enemies}} when is_list(enemies) -> length(enemies)
-      _sem_lista -> nil
+      _no_list -> 0
     end
   end
 

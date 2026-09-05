@@ -1,6 +1,3 @@
-lib/pokex/bots/combat/combo.ex: restante
-lib/pokex/bots/combat/plan/economy.ex: prontas
-lib/pokex/bots/crowd_watch.ex: origem
 lib/pokex/bots/engine/logic.ex: bolo_cheio?
 lib/pokex/bots/engine/logic.ex: controle_livre?
 lib/pokex/bots/engine/logic.ex: emenda_due?
@@ -8,7 +5,6 @@ lib/pokex/bots/engine/logic.ex: reset_no_piso?
 lib/pokex/bots/engine/logic.ex: sem_vida_note
 lib/pokex/bots/engine/situation.ex: especial?
 lib/pokex/bots/engine/worker.ex: especial?
-lib/pokex/bots/player_support/worker.ex: sem_controle_text
 lib/pokex/sim/hands.ex: tentando_andar?
 lib/pokex/sim/scenario.ex: anel
 lib/pokex/sim/scenario.ex: aperto_label
@@ -18,14 +14,6 @@ lib/pokex/sim/verdict.ex: com_bicho_na_frente?
 lib/pokex/sim/verdict.ex: desperdicou_controle?
 lib/pokex/sim/verdict.ex: desperdicou_revive?
 lib/pokex/sim/verdict.ex: segundos
-lib/pokex/vision/color_mark.ex: mediana
-lib/pokex/vision/color_mark.ex: sem_matiz?
-lib/pokex_web/live/sim_live.ex: aperto_class
-lib/pokex_web/live/sim_live.ex: aperto_text
-lib/pokex_web/live/sim_live.ex: falta_texto
-lib/pokex_web/live/sim_live.ex: noite_readouts
-lib/pokex_web/live/sim_live.ex: pronta?
-lib/pokex_web/live/sim_live.ex: prontas
 test/pokex/bots/active_bar_test.exs: test "a pokémon nobody has, and one never calibrated, both answer nil"
 test/pokex/bots/active_bar_test.exs: test "calibrating one pokémon never touches another's bar"
 test/pokex/bots/active_bar_test.exs: test "choosing another pokémon reads NOTHING until THAT one is calibrated"

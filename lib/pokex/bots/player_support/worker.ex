@@ -1341,14 +1341,14 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     loadout = Loadout.current()
 
     case Plan.for(hunt_mode()).crowd(loadout, %{config: %{}}) do
-      [] -> {:off, [log: sem_controle_text(loadout)]}
+      [] -> {:off, [log: no_control_text(loadout)]}
       crowd -> control_stun(crowd)
     end
   end
 
-  defp sem_controle_text(nil), do: "🚑 sem controle pronto no pokémon — revivendo direto"
+  defp no_control_text(nil), do: "🚑 sem controle pronto no pokémon — revivendo direto"
 
-  defp sem_controle_text(_loadout) do
+  defp no_control_text(_loadout) do
     if hunt_mode() == :auto_combo,
       do: "🚑 o controle é a última parte do combo — revivendo dentro do sono dele",
       else: "🚑 sem controle pronto no pokémon — revivendo direto"

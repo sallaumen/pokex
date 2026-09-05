@@ -86,7 +86,7 @@ defmodule PokexWeb.SimLive do
        setup_open?: false,
        zoom: :rota,
        calib: Calibrate.report(Date.utc_today()),
-       noite: Tally.of_day(Date.utc_today()),
+       night: Tally.of_day(Date.utc_today()),
        measuring?: Pokex.Settings.get(:cavebot_measure_walk),
        auto?: Runner.auto?()
      )}
@@ -772,35 +772,35 @@ defmodule PokexWeb.SimLive do
 
   # Cinco mostradores, na ordem em que ele os lê: o que rendeu, o que custou, e
   # os dois números que dizem por quê.
-  defp noite_readouts(noite) do
+  defp night_readouts(night) do
     [
       %{
         label: "mortos/min",
-        value: noite.kills_per_min,
+        value: night.kills_per_min,
         tone: "text-pk-text",
-        note: "#{noite.kills} no total"
+        note: "#{night.kills} no total"
       },
       %{
         label: "revives/min",
-        value: noite.revives_per_min,
+        value: night.revives_per_min,
         tone: "text-pk-text",
-        note: "#{noite.revives} prensas"
+        note: "#{night.revives} prensas"
       },
       %{
         label: "no chão",
-        value: "#{noite.down_pct}%",
-        tone: if(noite.down_pct > 10, do: "text-pk-danger", else: "text-pk-text"),
+        value: "#{night.down_pct}%",
+        tone: if(night.down_pct > 10, do: "text-pk-danger", else: "text-pk-text"),
         note: "sem pokémon em campo"
       },
       %{
         label: "sem cooldown",
-        value: "#{noite.stalled_pct}%",
+        value: "#{night.stalled_pct}%",
         tone: "text-pk-text",
         note: "com bicho na tela"
       },
       %{
         label: "leituras",
-        value: map_size(noite.piles),
+        value: map_size(night.piles),
         tone: "text-pk-text-2",
         note: "tamanhos de pilha distintos"
       }
@@ -942,7 +942,7 @@ defmodule PokexWeb.SimLive do
 
   # O RACK, respondido pelo mundo e não por conta na tela: `World.cooling/2` é a
   # mesma função que a decisão usa pra saber o que está pronto.
-  defp pronta?(world, key), do: elem(World.cooling(world, key), 0) == 0
+  defp ready?(world, key), do: elem(World.cooling(world, key), 0) == 0
 
   defp recuperado_pct(world, key) do
     {_falta, fracao} = World.cooling(world, key)
@@ -951,7 +951,7 @@ defmodule PokexWeb.SimLive do
 
   # Segundo com uma casa até 10s, inteiro depois: o olho lê a contagem final
   # tique a tique e não precisa de precisão nenhuma num cooldown de 45.
-  defp falta_texto(world, key) do
+  defp missing_text(world, key) do
     {falta, _fracao} = World.cooling(world, key)
 
     if falta < 10_000,
@@ -959,7 +959,7 @@ defmodule PokexWeb.SimLive do
       else: "#{div(falta + 999, 1_000)}s"
   end
 
-  defp prontas(world), do: Enum.count(bar_order(world), &pronta?(world, &1))
+  defp ready_count(world), do: Enum.count(bar_order(world), &ready?(world, &1))
 
   # A JANELA EM QUE O REVIVE AINDA É NOTÍCIA. Meio segundo é o tempo de ele
   # perceber a barra inteira voltando; mais que isso vira enfeite aceso.
@@ -1243,13 +1243,13 @@ defmodule PokexWeb.SimLive do
   # A cor do CARTÃO é a do aperto (o que esperar), nunca a do selo (o que
   # aconteceu): um cenário quebrado de propósito é vermelho antes e depois de
   # rodar, e pintá-lo de verde ao passar diria que a falha foi consertada.
-  defp aperto_class(:ok), do: "border-pk-ok-line bg-pk-ok-dim"
-  defp aperto_class(:warn), do: "border-pk-warn-line bg-pk-warn-dim"
-  defp aperto_class(:danger), do: "border-pk-danger-line bg-pk-danger-dim"
+  defp severity_class(:ok), do: "border-pk-ok-line bg-pk-ok-dim"
+  defp severity_class(:warn), do: "border-pk-warn-line bg-pk-warn-dim"
+  defp severity_class(:danger), do: "border-pk-danger-line bg-pk-danger-dim"
 
-  defp aperto_text(:ok), do: "text-pk-ok"
-  defp aperto_text(:warn), do: "text-pk-warn"
-  defp aperto_text(:danger), do: "text-pk-danger"
+  defp severity_text(:ok), do: "text-pk-ok"
+  defp severity_text(:warn), do: "text-pk-warn"
+  defp severity_text(:danger), do: "text-pk-danger"
 
   # Os cenários na ordem da tela, agrupados — e um grupo só aparece com gente
   # dentro, senão um grupo novo e vazio vira um título órfão.
@@ -1497,7 +1497,7 @@ defmodule PokexWeb.SimLive do
               <.icon name="hero-arrow-path-rounded-square" class="size-3.5" /> revive — barra zerada
             </span>
             <span class="pk-num ml-auto font-mono text-pk-meta text-pk-text-3">
-              {prontas(@world)}/{length(bar_order(@world))} prontas
+              {ready_count(@world)}/{length(bar_order(@world))} prontas
             </span>
           </div>
 
@@ -1506,7 +1506,7 @@ defmodule PokexWeb.SimLive do
               :for={chave <- bar_order(@world)}
               class={[
                 "relative overflow-hidden rounded border px-2 py-1.5",
-                if(pronta?(@world, chave),
+                if(ready?(@world, chave),
                   do: "border-pk-ok-line bg-pk-ok-dim",
                   else: "border-pk-line bg-pk-sunken"
                 )
@@ -1523,7 +1523,7 @@ defmodule PokexWeb.SimLive do
               <span class="relative flex items-baseline gap-1.5">
                 <span class={[
                   "pk-num font-mono text-pk-title font-bold",
-                  if(pronta?(@world, chave), do: "text-pk-ok", else: "text-pk-text-3")
+                  if(ready?(@world, chave), do: "text-pk-ok", else: "text-pk-text-3")
                 ]}>
                   {chave}
                 </span>
@@ -1533,16 +1533,16 @@ defmodule PokexWeb.SimLive do
               </span>
               <span class="relative mt-0.5 block">
                 <span
-                  :if={pronta?(@world, chave)}
+                  :if={ready?(@world, chave)}
                   class="text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-ok"
                 >
                   pronta
                 </span>
                 <span
-                  :if={!pronta?(@world, chave)}
+                  :if={!ready?(@world, chave)}
                   class="pk-num font-mono text-pk-body font-bold tabular-nums text-pk-warn"
                 >
-                  {falta_texto(@world, chave)}
+                  {missing_text(@world, chave)}
                 </span>
               </span>
             </li>
@@ -1776,7 +1776,7 @@ defmodule PokexWeb.SimLive do
                   title={Scenario.aperto_note(item.aperto)}
                   class={[
                     "flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition hover:brightness-125",
-                    aperto_class(Scenario.aperto_tone(item.aperto)),
+                    severity_class(Scenario.aperto_tone(item.aperto)),
                     @scenario && @scenario.id == item.id && "ring-1 ring-pk-ok"
                   ]}
                 >
@@ -1788,7 +1788,7 @@ defmodule PokexWeb.SimLive do
                     </span>
                     <span class={[
                       "block text-pk-meta",
-                      aperto_text(Scenario.aperto_tone(item.aperto))
+                      severity_text(Scenario.aperto_tone(item.aperto))
                     ]}>
                       {Scenario.aperto_label(item.aperto)}
                       <span :if={dureza(item)} class="text-pk-text-3">
@@ -1822,7 +1822,7 @@ defmodule PokexWeb.SimLive do
             <span class="text-pk-title leading-none">{@scenario.icon}</span>
             <span class="font-semibold">{@scenario.name}</span>
             <span class="text-pk-text-3">· {Scenario.group_label(@scenario.group)}</span>
-            <span class={aperto_text(Scenario.aperto_tone(@scenario.aperto))}>
+            <span class={severity_text(Scenario.aperto_tone(@scenario.aperto))}>
               · {Scenario.aperto_label(@scenario.aperto)}
             </span>
           </div>
@@ -2178,19 +2178,19 @@ defmodule PokexWeb.SimLive do
               caçada real gasta o minuto onde a simulada gasta, o simulador está
               dizendo a verdade sobre a caçada. --%>
         <section
-          :if={@noite}
+          :if={@night}
           id="placar-da-noite"
           class="space-y-2 rounded-lg border border-pk-line bg-pk-surface p-3"
         >
           <header class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <h2 class="text-pk-title font-bold text-pk-text">O placar da noite</h2>
             <p class="pk-num font-mono text-pk-meta text-pk-text-3">
-              {@noite.minutes} min de rastro
+              {@night.minutes} min de rastro
             </p>
           </header>
 
           <dl class="grid grid-cols-2 gap-px overflow-hidden rounded border border-pk-line bg-pk-line sm:grid-cols-3 lg:grid-cols-5">
-            <div :for={cell <- noite_readouts(@noite)} class="bg-pk-sunken px-3 py-2">
+            <div :for={cell <- night_readouts(@night)} class="bg-pk-sunken px-3 py-2">
               <dt class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
                 {cell.label}
               </dt>
@@ -2202,14 +2202,14 @@ defmodule PokexWeb.SimLive do
           </dl>
 
           <div
-            :if={@noite.by_phase != []}
+            :if={@night.by_phase != []}
             class="space-y-1 rounded border border-pk-line bg-pk-sunken p-2"
           >
             <h3 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
               Onde foi o minuto, no jogo
             </h3>
             <dl class="flex flex-wrap gap-x-4 gap-y-1">
-              <div :for={slice <- @noite.by_phase} class="flex items-baseline gap-1">
+              <div :for={slice <- @night.by_phase} class="flex items-baseline gap-1">
                 <dt class="text-pk-body text-pk-text-2">{phase_label(slice.phase)}</dt>
                 <dd class="pk-num font-mono text-pk-body font-bold text-pk-text">{slice.pct}%</dd>
               </div>
@@ -2221,7 +2221,7 @@ defmodule PokexWeb.SimLive do
                 pronta, e o recibo lê isso. Duas noites com intervalos
                 diferentes decidem sozinhas. --%>
           <div
-            :if={@noite.keys != %{}}
+            :if={@night.keys != %{}}
             class="space-y-1 rounded border border-pk-line bg-pk-sunken p-2"
           >
             <h3 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
@@ -2238,7 +2238,7 @@ defmodule PokexWeb.SimLive do
                 </tr>
               </thead>
               <tbody>
-                <tr :for={{gap, t} <- Enum.sort(@noite.keys)} class="border-t border-pk-line">
+                <tr :for={{gap, t} <- Enum.sort(@night.keys)} class="border-t border-pk-line">
                   <td class="pk-num py-1 pr-3 font-mono text-pk-text">{gap}ms</td>
                   <td class="pk-num py-1 pr-3 text-right font-mono text-pk-text-2">{t.rajadas}</td>
                   <td class="pk-num py-1 pr-3 text-right font-mono text-pk-text">{t.sairam}</td>
@@ -2263,7 +2263,7 @@ defmodule PokexWeb.SimLive do
           <%!-- A RÉGUA DELE DISCUTIDA COM O QUE O JOGO ENTREGA, em vez de com o
                 que eu imagino: quantas vezes a lista de batalha teve 1, 2, 3… --%>
           <div
-            :if={@noite.piles != %{}}
+            :if={@night.piles != %{}}
             class="space-y-1 rounded border border-pk-line bg-pk-sunken p-2"
           >
             <h3 class="text-pk-meta font-semibold uppercase tracking-[0.12em] text-pk-text-3">
@@ -2271,7 +2271,7 @@ defmodule PokexWeb.SimLive do
             </h3>
             <dl class="flex flex-wrap gap-x-4 gap-y-1">
               <div
-                :for={{quantos, vezes} <- Enum.sort(@noite.piles)}
+                :for={{quantos, vezes} <- Enum.sort(@night.piles)}
                 class="flex items-baseline gap-1"
               >
                 <dt class="text-pk-body text-pk-text-2">{quantos} na lista</dt>

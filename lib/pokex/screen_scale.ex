@@ -1,44 +1,41 @@
 defmodule Pokex.ScreenScale do
   @moduledoc """
-  How big this screen's game is compared to the screen the numbers were measured
-  on — and what each screen-dependent setting should become because of it.
+  How big this screen's game is compared to the screen the numbers were measured on, and what
+  each screen-dependent setting should become because of it.
 
-  Every pixel-denominated seed in `Settings` was measured once, on the 3440×1440
-  ultrawide. None of them survives a change of screen: on Lucas's MacBook the
-  same skill bar is 0.67× as wide, so `tile_px: 88` overshoots by half a tile,
-  the corpse box crops the wrong square, and `glow_threshold: 1100` asks for
-  more than twice the cyan a real bite can produce. That is what "nada funciona
-  em 1 monitor só" was made of (2026-08-06).
+  Every pixel-denominated seed in `Settings` was measured once, on the 3440x1440 ultrawide. None
+  of them survives a change of screen: on his MacBook the same skill bar is 0.67x as wide, so
+  `tile_px: 88` overshoots by half a tile, the corpse box crops the wrong square, and
+  `glow_threshold: 1100` asks for more than twice the cyan a real bite can produce. That is what
+  "nothing works on a single monitor" was made of.
 
   ## The ruler is the GAME, never the display
 
-  Measured on his two screens: the display went 3440 → 1512 points (0.44) while
-  the game's HUD went 53.8 → 36.1 points per skill slot (**0.67**). Deriving
-  from the display size would be wrong by half. So the ruler is a piece of the
-  GAME that is always calibrated and has crisp edges — one skill slot:
+  Measured on his two screens: the display went 3440 -> 1512 points (0.44) while the game's HUD
+  went 53.8 -> 36.1 points per skill slot (**0.67**). Deriving from the display size would be
+  wrong by half. So the ruler is a piece of the GAME that is always calibrated and has crisp
+  edges, one skill slot:
 
       ui_scale = (skill_bar_region width / skill_bar_count) / #{53.75}
 
   ## Two families, and why the exponent differs
 
-  A LINEAR measure (a tile, a box side, a search margin) scales with the ruler.
-  A PIXEL COUNT (how much cyan makes a bite) is an AREA, so it scales with the
-  ruler SQUARED — a bubble 0.67× as wide covers 0.45× the pixels. Getting this
-  wrong is not cosmetic: at 0.67 the fishing threshold would still be 50% too
-  high and no bite would ever register.
+  A LINEAR measure (a tile, a box side, a search margin) scales with the ruler. A PIXEL COUNT
+  (how much cyan makes a bite) is an AREA, so it scales with the ruler SQUARED: a bubble 0.67x
+  as wide covers 0.45x the pixels. Getting this wrong is not cosmetic: at 0.67 the fishing
+  threshold would still be 50% too high and no bite would ever register.
 
   Deliberately NOT here: anything counted in TILES (`corpse_scan_radius_tiles`,
-  `sweep_radius_tiles`, the cavebot's) — a tile is a game unit and already
-  immune — and anything that is a colour or a percentage
-  (`corpse_diff_threshold`, `minimap_coord_ink`, `skill_ready_*`), which a
-  smaller screen does not change.
+  `sweep_radius_tiles`, the cavebot's), because a tile is a game unit and already immune, and
+  anything that is a colour or a percentage (`corpse_diff_threshold`, `minimap_coord_ink`,
+  `skill_ready_*`), which a smaller screen does not change.
 
   ## Proposals come from the SEED, never from the value in force
 
-  `proposals/2` derives from `Settings.defaults()`, so applying twice lands on
-  the same number instead of scaling an already-scaled value. It also means a
-  hand-tuned override shows up in the table as being replaced — which is the
-  honest thing to show, since the tuning belonged to the other screen.
+  `proposals/2` derives from `Settings.defaults()`, so applying twice lands on the same number
+  instead of scaling an already-scaled value. It also means a hand-tuned override shows up in
+  the table as being replaced, which is the honest thing to show, since the tuning belonged to
+  the other screen.
   """
 
   alias Pokex.{Calibration, Settings}

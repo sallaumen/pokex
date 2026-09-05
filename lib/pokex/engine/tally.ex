@@ -1,29 +1,28 @@
 defmodule Pokex.Engine.Tally do
   @moduledoc """
-  A NOITE DE VERDADE em números, na mesma forma que o placar do simulador.
+  THE REAL NIGHT in numbers, in the same shape as the simulator's scoreboard.
 
-  O simulador responde "esse cérebro é melhor que aquele" porque é dono do
-  mundo: ele sabe quantos monstros existiam e quantos morreram. Uma caçada real
-  não tem esse luxo — o que ela tem é o rastro que o bot deixou. Este módulo lê
-  esse rastro e responde as mesmas perguntas com ele.
+  The simulator can answer "is this brain better than that one" because it owns the world: it
+  knows how many monsters existed and how many died. A real hunt has no such luxury; what it has
+  is the trail the bot left. This module reads that trail and answers the same questions with
+  it.
 
-  Três fontes, e cada uma sabe uma coisa que as outras não sabem:
+  Three sources, each knowing something the others do not:
 
-    * `vitals` — o pulso da engine: vida, quantos na lista, quantas teclas de
-      dano prontas, e se o pokémon está em campo. É daqui que saem o tempo no
-      chão, o tempo sem cooldown e a distribuição de pilhas que ele encontrou.
-    * `decision` — uma linha por MUDANÇA DE IDEIA, com a fase. É daqui que sai
-      "onde foi o minuto".
-    * `kill` — o único momento que o mundo real não deduz: `Combat` viu um alvo
-      cair.
+    * `vitals` - the engine's pulse: health, how many on the list, how many damage keys
+      ready, and whether the pokémon is on the field. This is where floor time,
+      no-cooldown time and the distribution of piles he found come from.
+    * `decision` - one line per CHANGE OF MIND, with the phase. This is where "where the
+      minute went" comes from.
+    * `kill` - the one moment the real world does not deduce: `Combat` saw a target fall.
 
-  ## O que este placar NÃO é
+  ## What this scoreboard is NOT
 
-  Não é comparável ao do simulador linha a linha. Lá as taxas saem de um mundo
-  inventado e valem como COMPARAÇÃO entre dois cérebros; aqui elas saem do jogo
-  e valem como o que a noite realmente rendeu. O que se compara entre os dois é
-  a FORMA — se a caçada real gasta o minuto onde a simulada gasta, o simulador
-  está dizendo a verdade sobre a caçada.
+  It is not comparable to the simulator's line by line. There the rates come from an invented
+  world and are worth a COMPARISON between two brains; here they come from the game and are
+  worth what the night actually produced. What compares between the two is the SHAPE: if the
+  real hunt spends the minute where the simulated one spends it, the simulator is telling the
+  truth about the hunt.
   """
 
   alias Pokex.Engine.Events
@@ -31,15 +30,15 @@ defmodule Pokex.Engine.Tally do
   @minute_ms 60_000
 
   @doc """
-  O placar de um dia, ou `nil` quando não há rastro nenhum.
+  One day's scoreboard, or `nil` when there is no trail at all.
 
-  `at` existe pro teste: a janela é do primeiro ao último registro do dia, e um
-  dia com um registro só não tem janela.
+  `at` exists for the test: the window runs from the day's first record to its last, and a day
+  with a single record has no window.
   """
   @spec of_day(Date.t()) :: map | nil
   def of_day(date \\ Date.utc_today()), do: date |> Events.read_day() |> card()
 
-  @doc "O placar de uma lista de registros já lida."
+  @doc "The scoreboard of a list of records already read."
   @spec card([map]) :: map | nil
   def card([]), do: nil
 
@@ -113,15 +112,15 @@ defmodule Pokex.Engine.Tally do
   end
 
   @doc """
-  AS TECLAS QUE REALMENTE SAÍRAM, por intervalo entre elas.
+  THE KEYS THAT REALLY FIRED, by the interval between them.
 
-  "Quanto tempo entre duas teclas o jogo aceita" é uma pergunta sobre o JOGO, e
-  ele já responde: uma tecla que saiu deixa de estar pronta. Uma noite com o
-  intervalo em 500ms e outra com 200 respondem juntas o que nenhuma discussão
-  responde — e é por isso que o `gap_ms` viaja em cada recibo, e não fora dele.
+  "How long between two keys does the game accept" is a question about the GAME, and the game
+  already answers it: a key that fired stops being ready. One night with the gap at 500ms and
+  another at 200 answer together what no discussion answers, and that is why `gap_ms` travels in
+  every receipt rather than outside it.
 
-  `unknown` não é falha: é uma tecla que já estava esfriando quando a rajada
-  saiu, e sobre essa o recibo não tem o que dizer.
+  `unknown` is not a failure: it is a key that was already cooling when the burst fired, and
+  about that one the receipt has nothing to say.
   """
   @spec keys([map]) :: %{optional(integer) => map}
   def keys(receipts) do

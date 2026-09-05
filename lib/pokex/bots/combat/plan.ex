@@ -39,6 +39,7 @@ defmodule Pokex.Bots.Combat.Plan do
   """
 
   alias Pokex.Bots.Combat.Loadout
+  alias Pokex.Bots.StatusCure
   alias Pokex.Bots.Combat.Plan
   alias Pokex.Bots.HuntMode
 
@@ -67,6 +68,21 @@ defmodule Pokex.Bots.Combat.Plan do
   @callback reserve(Loadout.t() | nil, ctx) :: [String.t()]
   @callback damage_keys(Loadout.t() | nil, ctx) :: [String.t()]
   @callback tab?(ctx) :: boolean
+
+  @doc """
+  HOW OFTEN THIS MODE CLEANS STATUS — the Status Potion in front of the attack
+  (`Pokex.Bots.StatusCure`).
+
+  `:always` is one cleaning before every burst; `:opening`, one per fight.
+
+  The answer belongs to the mode because the mode's cadence decides the cost.
+  In Auto Combo the chain leaves at most every 4s (the window), so `:always`
+  costs ~15 presses a minute — and it is the only way to cover the status that
+  arrives in the MIDDLE of the mob, between the first chain and the third. In
+  the other modes bursts leave almost every tick, and the same answer would
+  become one `e` per second for a gain the opening already delivers.
+  """
+  @callback cure_policy(ctx) :: StatusCure.policy()
 
   @doc """
   The plan `mode` fights with.

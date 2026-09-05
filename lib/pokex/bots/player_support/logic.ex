@@ -11,50 +11,19 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   """
 
   @doc """
-  True when the main Pokémon wants a potion — everything EXCEPT the combat gate: enabled, HP known
-  and below the potion threshold, and the previous sip's heal channel (cooldown) has elapsed. The
-  caller checks combat separately because that answer costs a screen capture — this predicate is
-  what makes that capture worth taking. A potion drunk in combat is a wasted potion (the channel is
-  interrupted the moment a fight starts), so the worker only fires when it CONFIRMED out-of-combat.
-
-  Same two-consecutive-reads rule as `decide/1` (`prev_hp_pct` must agree): a single garbage
-  frame must not chug a potion either.
-
-  Expects `:hp_pct` and `:prev_hp_pct` (0..100 or nil), `:threshold_pct`, `:enabled?`,
-  `:cooldown_ms`, `:last_potion_at` (monotonic ms or nil) and `:now` (monotonic ms).
-  """
-  @spec potion_wanted?(map) :: boolean
-  def potion_wanted?(%{enabled?: false}), do: false
-  def potion_wanted?(%{hp_pct: nil}), do: false
-  def potion_wanted?(%{hp_pct: hp, threshold_pct: threshold}) when hp >= threshold, do: false
-
-  def potion_wanted?(%{prev_hp_pct: prev, threshold_pct: threshold})
-      when is_nil(prev) or prev >= threshold,
-      do: false
-
-  def potion_wanted?(%{last_potion_at: nil}), do: true
-
-  def potion_wanted?(%{now: now, last_potion_at: last, cooldown_ms: cooldown}),
-    do: now - last >= cooldown
-
-  @doc """
   True when the main Pokémon should press its own HEALING SKILL — the one job on
   `/time` that nothing used to fire.
 
-  This exists because of what `potion_wanted?/1` says right above: a potion is a
-  CHANNEL and combat cancels it, so the sip only ever happens out of battle.
-  Which leaves the case that actually kills a pokémon — HP falling WHILE it
-  fights — with nothing at all between the last full bar and the revive. A skill
-  is an instant press, not a channel: it is the only one of the three that works
-  mid-fight, so this predicate deliberately has NO combat gate.
+  A skill is an instant press, not a channel: it works mid-fight, which is
+  exactly the case that kills a pokémon — HP falling WHILE it fights. So this
+  predicate deliberately has NO combat gate.
 
-  Hence the ladder, cheapest and most available first:
+  Hence the ladder, cheapest first:
 
-      heal skill  — free, works in combat        (pokemon_hp_heal_pct, highest)
-      potion      — costs money, out of combat   (pokemon_hp_potion_pct)
-      revive      — costs a revive, last resort  (pokemon_hp_rescue_pct, lowest)
+      heal skill  — free, works in combat        (pokemon_hp_heal_pct, higher)
+      revive      — costs a revive, last resort  (pokemon_hp_rescue_pct, lower)
 
-  Same two-consecutive-reads rule as the other two: one garbage frame must not
+  Same two-consecutive-reads rule as the rescue: one garbage frame must not
   spend a cooldown either. The cooldown here is only anti-spam — whether the
   skill is actually up is the SKILL BAR's answer, and the caller asks it.
 

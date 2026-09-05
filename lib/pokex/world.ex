@@ -59,8 +59,8 @@ defmodule Pokex.World do
     %Snapshot{
       me: %{
         pokemon_hp: team[:pokemon_hp],
-        # PlayerSupport has been reading this bar in production for the potion
-        # and revive rules long before the HUD feeds existed. Its percentage is
+        # PlayerSupport has been reading this bar in production for the revive
+        # rules long before the HUD feeds existed. Its percentage is
         # the trusted one; the digits above are a bonus that needs every glyph
         # learned, and must never be the reason the card goes blank.
         hp_pct: pokemon_fact_pct(now),
@@ -96,8 +96,8 @@ defmodule Pokex.World do
   @doc """
   The active pokémon's health as a fraction.
 
-  Prefers the proven `:pokemon` fact (the bar PlayerSupport reads for potions
-  and revives); falls back to the digits when that worker is not running.
+  Prefers the proven `:pokemon` fact (the bar PlayerSupport reads for the heal
+  and the revive); falls back to the digits when that worker is not running.
   """
   def pokemon_hp_pct(%Snapshot{me: %{hp_pct: pct}}) when is_number(pct) and pct >= 0,
     do: pct / 100

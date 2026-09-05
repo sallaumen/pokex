@@ -10,7 +10,7 @@ defmodule Pokex.Bots.Engine.OrdersTest do
   test "andar é rota indo e mãos baixas" do
     o = Orders.walking(:travelling, :green, "andando a rota")
 
-    assert %{route: :go, fire: :hold, opening: [], revive: :hold, potion: :hold} = o
+    assert %{route: :go, fire: :hold, opening: [], revive: :hold} = o
     assert o.phase == :travelling
     assert o.why == "andando a rota"
   end

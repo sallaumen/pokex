@@ -110,10 +110,10 @@ defmodule Pokex.Bots.StockAlertsTest do
 
     assert_receive {:rule_alarm, :stock, first}, 500
     assert_receive {:rule_alarm, :stock, second}, 500
-    labels = Enum.map([first, second], &(String.split(&1, " ") |> Enum.at(2)))
+    said = Enum.join([first, second], " | ")
 
-    assert "F2" in labels
-    assert "E" in labels
+    assert said =~ "F2"
+    assert said =~ "E (Status Potion)"
     settle(alerts)
   end
 end

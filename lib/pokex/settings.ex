@@ -329,7 +329,7 @@ defmodule Pokex.Settings do
     # keys are reserved for this moment and become the PREFIX of the same
     revive_dry_action: "logout",
     rescue_stun_first: true,
-    # The main Pokémon's own HEALING SKILL — the rung above the potion.
+    # The main Pokémon's own HEALING SKILL — the rung below the revive.
     heal_skill_enabled: true,
     pokemon_hp_heal_pct: 70,
     # Anti-spam only: whether the skill is UP is the skill bar's answer, not a
@@ -363,18 +363,17 @@ defmodule Pokex.Settings do
     # A uniformly DARK strip is a covered window, not an empty bar: every dark pixel used to
     # count as the bar's empty track, so the browser in front of the game read
     pokemon_hp_min_bright_pct: 10,
-    # --- Potion: cheap top-up so the expensive revive rarely fires ------------------------------
-    # Below pokemon_hp_potion_pct AND out of combat (the heal channel is interrupted by entering a
-    # fight, so an in-combat potion is a wasted potion), press potion_key — the game applies it to
-    # the active Pokémon by itself, no mouse needed. The cooldown covers the heal channel: firing
-    # again mid-channel wastes a potion, so wait it out before another sip.
-    potion_enabled: false,
-    potion_key: "e",
-    pokemon_hp_potion_pct: 70,
-    potion_cooldown_ms: 10_000,
-    # One out-of-combat read is NOT "battle over": fished enemies re-aggress in the post-kill
-    # gap and the game cancels the heal channel, wasting the potion.
-    potion_battle_clear_ms: 2_000,
+    # --- Status cure: the Status Potion in front of every attack --------------------------------
+    # His pokémon can be asleep, silenced or frozen when the chain goes out, and in that state the
+    # combo key does nothing: no skill leaves, the bar is not spent, and the bot keeps pressing at
+    # a mob that keeps hitting. The E slot cures every negative status and is a NO-OP when there is
+    # none to cure, so the prefix costs time and never an item. Auto Combo cleans before every
+    # chain (its 4s window caps it at ~15/min); the other modes clean once per fight — see
+    # `Combat.Plan.cure_policy/1`.
+    status_cure_enabled: true,
+    status_cure_key: "e",
+    # How long the game gets to apply the potion before the attack leaves.
+    status_cure_settle_ms: 100,
     # After every battle, middle-click the calibrated pokemon_spot_point to send the Pokémon
     # back to its strategic tile (toggle in the panel).
     reposition_enabled: false,
@@ -382,7 +381,7 @@ defmodule Pokex.Settings do
     # Pokéballs are only thrown with this on. Capture is the only item use left (F1/F2): the
     # game picks up the loot by itself.
     capture_enabled: true,
-    # Post-fight ORDER policy (ball → support): with this on, a due potion/reposition ALSO waits
+    # Post-fight ORDER policy (ball → support): with this on, a due reposition ALSO waits
     # for the catcher to resolve its pending corpses (queued + ball in flight) before acting.
     support_waits_capture: false,
     support_capture_wait_max_ms: 10_000,
@@ -722,9 +721,6 @@ defmodule Pokex.Settings do
     :rescue_enabled,
     :rescue_key,
     :pokemon_hp_rescue_pct,
-    :potion_enabled,
-    :potion_key,
-    :pokemon_hp_potion_pct,
     :reposition_enabled,
     # post-fight policy
     :support_waits_capture
@@ -913,7 +909,7 @@ defmodule Pokex.Settings do
     # The ranges the /config page edits directly: the limits the old forms kept client-side
     # (input min/max) are now the owner's rule.
     pokemon_hp_rescue_pct: 1..90,
-    pokemon_hp_potion_pct: 1..99,
+    status_cure_settle_ms: 0..2_000,
     pokemon_hp_fishing_pct: 1..90,
     rescue_cooldown_ms: 0..600_000,
     fight_timeout_ms: 1_000..600_000,

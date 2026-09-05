@@ -80,7 +80,7 @@ defmodule Pokex.Bots.BotSupervisor do
       }) do
     # The panic corner halts EVERY automated worker — including the mini-game watcher (its
     # halt clears the :mini_game fact, so nobody stays self-held) and the PlayerSupport
-    # (Lucas: a support gone wrong, e.g. a minimized window misread burning potions, must be
+    # (Lucas: a support gone wrong, e.g. a minimized window misread burning revives, must be
     # killable by mouse-to-corner like everything else; it re-arms on boot, Iniciar bot, or a
     # support toggle).
     on_panic = fn ->

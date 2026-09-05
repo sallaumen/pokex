@@ -208,7 +208,7 @@ defmodule Pokex.Bots.Body do
     do:
       {:ok,
        %{
-         # ONE LANE PER ACTUATOR. The body had a single slot, so a potion —
+         # ONE LANE PER ACTUATOR. The body had a single slot, so a revive —
          # which never touches the mouse — waited behind a ball throw or a
          # minimap step for no physical reason. Priority only reorders the
          # QUEUE: `dequeue/1` is reached when the running sequence ENDS, so not

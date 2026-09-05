@@ -2,47 +2,6 @@ defmodule Pokex.Bots.PlayerSupport.LogicTest do
   use ExUnit.Case, async: true
   alias Pokex.Bots.PlayerSupport.Logic
 
-  describe "potion_wanted?/1" do
-    defp potion_input(overrides) do
-      %{
-        hp_pct: 100,
-        prev_hp_pct: 0,
-        threshold_pct: 70,
-        enabled?: true,
-        cooldown_ms: 10_000,
-        last_potion_at: nil,
-        now: 50_000
-      }
-      |> Map.merge(Map.new(overrides))
-    end
-
-    test "wants a potion the first time HP drops below the potion threshold" do
-      assert Logic.potion_wanted?(potion_input(hp_pct: 69))
-      assert Logic.potion_wanted?(potion_input(hp_pct: 30))
-    end
-
-    test "holds at or above the threshold, on nil HP, or when disabled" do
-      refute Logic.potion_wanted?(potion_input(hp_pct: 70))
-      refute Logic.potion_wanted?(potion_input(hp_pct: 100))
-      refute Logic.potion_wanted?(potion_input(hp_pct: nil))
-      refute Logic.potion_wanted?(potion_input(hp_pct: 30, enabled?: false))
-    end
-
-    test "the heal-channel cooldown blocks a second sip within the window" do
-      refute Logic.potion_wanted?(potion_input(hp_pct: 30, last_potion_at: 45_000, now: 50_000))
-      assert Logic.potion_wanted?(potion_input(hp_pct: 30, last_potion_at: 40_000, now: 50_000))
-    end
-
-    test "one garbage frame never chugs a potion: the previous read must agree" do
-      refute Logic.potion_wanted?(potion_input(hp_pct: 30, prev_hp_pct: nil))
-      refute Logic.potion_wanted?(potion_input(hp_pct: 30, prev_hp_pct: 95))
-      assert Logic.potion_wanted?(potion_input(hp_pct: 30, prev_hp_pct: 60))
-    end
-  end
-
-  # "Quando o pokémon chega abaixo de 85% da HP quer dizer que já tem gente
-  # batendo nele o suficiente e vale usar o buff de defesa" (02/09).
-  # A aura ANTES da corrente: só com a pilha fechando, ligada, e fora do cooldown.
   describe "mob_shield_wanted?/1" do
     @pilha %{
       enabled?: true,

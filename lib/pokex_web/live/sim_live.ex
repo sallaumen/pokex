@@ -787,6 +787,12 @@ defmodule PokexWeb.SimLive do
         note: "#{night.revives} prensas"
       },
       %{
+        label: "limpezas/min",
+        value: night.cures_per_min,
+        tone: "text-pk-text",
+        note: "#{night.cures} Status Potion"
+      },
+      %{
         label: "no chão",
         value: "#{night.down_pct}%",
         tone: if(night.down_pct > 10, do: "text-pk-danger", else: "text-pk-text"),
@@ -2082,7 +2088,6 @@ defmodule PokexWeb.SimLive do
                   <div>rota: <span class="text-pk-text">{@orders.route}</span></div>
                   <div>fogo: <span class="text-pk-text">{@orders.fire}</span></div>
                   <div>revive: <span class="text-pk-text">{@orders.revive}</span></div>
-                  <div>poção: <span class="text-pk-text">{@orders.potion}</span></div>
                 </dl>
               <% else %>
                 <p class="text-pk-body text-pk-text-3">

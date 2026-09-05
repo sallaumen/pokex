@@ -883,7 +883,7 @@ defmodule Pokex.Vision do
   number) — so their combined share is high. When the party window is MINIMIZED the region
   shows something else entirely (game world / window chrome: bright, blue-ish, colourful),
   the known share collapses, and the fill% becomes garbage — which read as "low HP" and made
-  the survival combo open/close the window in a loop, burning potions and revives (Lucas,
+  the survival combo open/close the window in a loop, burning revives (Lucas,
   2026-07-11). Callers treat an implausible frame as UNKNOWN (nil HP → never act), same
   fail-safe rule as everywhere else.
 
@@ -892,7 +892,7 @@ defmodule Pokex.Vision do
   `:max_track_brightness` (75), how bright the EMPTY track is allowed to be. That last one
   is per-client: Poké Alliance's pokebar track is (45,69,69), so a ceiling of 60 counted
   every emptying column as neither fill nor track and the share fell WITH the HP, blanking
-  the reading below ~65% — blind exactly where the potion and the rescue live.
+  the reading below ~65% — blind exactly where the heal and the rescue live.
   """
   def hp_region_plausible?(frame, opts \\ [])
 

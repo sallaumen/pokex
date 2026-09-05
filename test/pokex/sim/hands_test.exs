@@ -22,11 +22,8 @@ defmodule Pokex.Sim.HandsTest do
     rescue_stun_first: true,
     rescue_stun_settle_ms: 800,
     heal_skill_enabled: false,
-    potion_enabled: false,
     heal_pct: 0,
-    heal_skill_cooldown_ms: 0,
-    potion_pct: 0,
-    potion_cooldown_ms: 0
+    heal_skill_cooldown_ms: 0
   }
 
   # O ninho do anel fica no canto SEGUINTE, a vinte tiles. Pra perguntar
@@ -47,9 +44,49 @@ defmodule Pokex.Sim.HandsTest do
 
   defp ordens(overrides \\ %{}) do
     Map.merge(
-      %{route: :hold, fire: :hold, opening: [], revive: :hold, potion: :hold},
+      %{route: :hold, fire: :hold, opening: [], revive: :hold},
       overrides
     )
+  end
+
+  # THE COST OF THE STATUS CURE, and ONLY the cost.
+  #
+  # The simulated world has no negative status — no sleep, no silence, no
+  # freeze to cure — so the bench will never measure this rule's BENEFIT. What
+  # it can and must measure is the price: the breath the potion puts in front
+  # of every chain. Without mirroring it, the bench would measure a hand faster
+  # than the bot's — the rule of #486.
+  describe "the status cure breath" do
+    @limpeza %{
+      combo_key: "r",
+      combo_window_ms: 4_000,
+      cure_enabled: true,
+      cure_settle_ms: 100,
+      heal_skill_enabled: false,
+      heal_pct: 0,
+      heal_skill_cooldown_ms: 0
+    }
+
+    test "the chain leaves one breath AFTER the tick starts" do
+      world = mundo(@barra, %{combo_key: "r", combo_chain_ms: 3_500})
+
+      {_depois, hands} =
+        Hands.obey(world, ordens(%{fire: :free, opening: ["r"]}), Hands.new(), @limpeza)
+
+      assert [{"r", at}] = hands.firing
+      assert at == world.clock + 100
+    end
+
+    test "with no cleaning the chain leaves on the tick" do
+      world = mundo(@barra, %{combo_key: "r", combo_chain_ms: 3_500})
+      config = %{@limpeza | cure_enabled: false}
+
+      {depois, hands} =
+        Hands.obey(world, ordens(%{fire: :free, opening: ["r"]}), Hands.new(), config)
+
+      assert hands.firing == []
+      assert World.combo_left_ms(depois, 4_000) > 0
+    end
   end
 
   describe "o prefixo do resgate" do

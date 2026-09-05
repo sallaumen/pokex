@@ -2096,7 +2096,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
       send(view.pid, {:combat, %{counters: %{fights: 42, captures: 0, failures: 0}}})
       send(view.pid, {:catcher, %{counters: %{captures: 18, throws: 30, ignored: 2}}})
-      send(view.pid, {:game, %{counters: %{rescues: 7, heals: 3, potions: 1}}})
+      send(view.pid, {:game, %{counters: %{rescues: 7, heals: 3}}})
       running!(view, 600_000)
 
       assert view |> element("#resumo-lutas") |> render() =~ "42"
@@ -2296,7 +2296,7 @@ defmodule PokexWeb.CavebotLiveTest do
       Pokex.SettingsStash.stash!(
         rescue_enabled: false,
         heal_skill_enabled: true,
-        potion_enabled: false
+        status_cure_enabled: false
       )
 
       :ok
@@ -2307,7 +2307,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
       assert view |> element("#safety-rescue") |> render() =~ "resgate desligado"
       assert view |> element("#safety-heal") |> render() =~ "cura armada"
-      assert view |> element("#safety-potion") |> render() =~ "poção desligada"
+      assert view |> element("#safety-cure") |> render() =~ "limpeza de status desligada"
     end
 
     test "arms the rescue from the hunt page", %{conn: conn} do

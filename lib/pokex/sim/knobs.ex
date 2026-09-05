@@ -37,9 +37,11 @@ defmodule Pokex.Sim.Knobs do
     shield_pct: :pokemon_hp_shield_pct,
     shield_skill_cooldown_ms: :shield_skill_cooldown_ms,
     shield_on_mob: :shield_on_mob_enabled,
-    potion_enabled: :potion_enabled,
-    potion_pct: :pokemon_hp_potion_pct,
-    potion_cooldown_ms: :potion_cooldown_ms,
+    # …and the BREATH of the status cure. The simulated world has no status to
+    # cure, so only the cost crosses over: without it the bench measures a hand
+    # faster than the bot's.
+    cure_enabled: :status_cure_enabled,
+    cure_settle_ms: :status_cure_settle_ms,
     # …e o prefixo do resgate: o stun de área guardado pra este momento, e os
     # milissegundos que o pokémon fica em campo DEPOIS dele, tanqueando, pra que
     # a pilha esteja mesmo dormindo antes de o campo esvaziar.

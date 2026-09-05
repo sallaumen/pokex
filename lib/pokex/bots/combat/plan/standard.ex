@@ -77,6 +77,12 @@ defmodule Pokex.Bots.Combat.Plan.Standard do
   @impl true
   def tab?(_ctx), do: false
 
+  # One cleaning per fight, for the same reason as Economy: here the rotation
+  # presses the whole bar key by key, and a prefix on every burst would cost
+  # more breath than damage.
+  @impl true
+  def cure_policy(_ctx), do: :opening
+
   # --- lendo o contexto ------------------------------------------------------
   #
   # As duas metades do bot guardam os knobs com nomes diferentes — o cérebro

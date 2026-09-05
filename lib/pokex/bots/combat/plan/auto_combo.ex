@@ -122,6 +122,14 @@ defmodule Pokex.Bots.Combat.Plan.AutoCombo do
   @impl true
   def tab?(_ctx), do: false
 
+  # ONE CLEANING PER CHAIN. A fight here has several — chain, the 4s window,
+  # the revive, chain again, "quantas vezes precisarmos até matar o shiny" —
+  # and the status that kills is exactly the one that arrives in the middle of
+  # that. The window already caps the prefix at ~15 presses a minute, and with
+  # no status the potion is a no-op: the cost is the breath, and nothing more.
+  @impl true
+  def cure_policy(_ctx), do: :always
+
   # A TECLA NÃO DEPENDE DO POKÉMON, e é isso que ela é: um atalho do CLIENTE,
   # como as posturas. Um pokémon sem skills classificadas ainda aperta a
   # corrente — o que ele perde é o ciclo do revive, que precisa da barra pra

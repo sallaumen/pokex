@@ -140,7 +140,7 @@ defmodule Pokex.Sim.Calibrate do
   @doc """
   How fast health falls, per monster on screen, in percent per second.
 
-  Only DROPS count: a potion, a revive and a swap all move the bar the other
+  Only DROPS count: a heal, a revive and a swap all move the bar the other
   way, and folding them in would report a hunt that heals itself. Attributed
   per enemy because that is the shape the knob has — one monster biting is the
   unit, and a pile of four is four of them.

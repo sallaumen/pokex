@@ -1,7 +1,7 @@
 defmodule Pokex.Bots.PlayerSupport.Worker do
   @moduledoc """
-  The player-SUPPORT worker: keeps the main Pokémon alive (survival combo at `:critical`, potion
-  out of combat) independently of the fishing/combat bots. It reads the HP every tick, distributes
+  The player-SUPPORT worker: keeps the main Pokémon alive (survival combo at `:critical`, heal
+  skill and defence aura) independently of the fishing/combat bots. It reads the HP every tick, distributes
   it on the `"game"` PubSub topic, and acts when the respective toggles are enabled — so you can
   play MANUALLY, with every bot off, and still be protected.
 
@@ -10,8 +10,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   mouse-to-corner like everything else; re-arm via Iniciar bot or by touching a support toggle).
   It reloads the calibration each tick, so a fresh HP calibration takes effect without a restart.
   WHEN to revive is the `Engine`'s call (`orders.revive`, gated only by the `rescue_enabled`
-  toggle); the pure `PlayerSupport.Logic` still owns HOW — the atomic combo, the heal/potion
-  ladder above it, and the fallen/death detection, none of which the engine touches.
+  toggle); the pure `PlayerSupport.Logic` still owns HOW — the atomic combo, the heal ladder
+  above it, and the fallen/death detection, none of which the engine touches.
   """
   use GenServer
 
@@ -21,6 +21,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.Combat.Combo
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.Combat.Plan
+  alias Pokex.Bots.StatusCure
   alias Pokex.Bots.Focus
   alias Pokex.Bots.HuntMode
   alias Pokex.Bots.{BotSupervisor, Logout, ReviveLedger, SkillClock}
@@ -29,7 +30,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Logic
   alias Pokex.Calibration
-  alias Pokex.Perception.Interpret
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
   alias Pokex.Vision
@@ -41,7 +41,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # needs to see twice). One night that was 272 lost ticks and a character alarm at 4%.
   @default_counters %{
     rescues: 0,
-    potions: 0,
     heals: 0,
     reads: 0,
     failures: 0,
@@ -93,17 +92,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       last_seen_hp: nil,
       last_faint_at: nil,
       fainted?: false,
-      last_potion_at: nil,
-      # the pokémon's OWN healing skill — the rung above the potion, and the only
+      # the pokémon's OWN healing skill — the rung below the revive, and the only
       # one that works while it is being hit
       last_heal_at: nil,
       # the defence aura: the rung above the heal, and the note that keeps the feed from
       # repeating why it did not fire
       last_shield_at: nil,
       shield_note: nil,
-      # first monotonic ms of the CURRENT battle-free streak of potion-gate reads
-      # (nil = last read saw combat, or the potion isn't due so nobody is watching)
-      battle_clear_since: nil,
       # reposition: a battle was seen since the last reposition (something to undo)
       reposition_pending?: false,
       reposition_clear_since: nil,
@@ -133,10 +128,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   def halt(server \\ __MODULE__), do: GenServer.call(server, :halt)
 
   @doc """
-  Manually drink a potion NOW — the panel button. Deliberate user intent, so no combat/threshold
-  gates apply; it still stamps the cooldown so the automatic sip doesn't double up mid-channel.
+  CLEAR THE STATUS NOW — the panel button. His own intent, no gates: if he
+  pressed it, he saw the pokémon asleep before the bot did.
   """
-  def use_potion(server \\ __MODULE__), do: GenServer.call(server, :use_potion)
+  def clear_status(server \\ __MODULE__), do: GenServer.call(server, :clear_status)
 
   @doc """
   Emergency escape: click-to-walk to the calibrated `escape_point` (a walkable
@@ -177,8 +172,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     {:reply, :ok, state}
   end
 
-  def handle_call(:use_potion, _from, state) do
-    state = fire_potion(state, "🧪 poção (manual)")
+  def handle_call(:clear_status, _from, state) do
+    state = fire_cure(state, "🧴 limpando status (manual)")
     broadcast(state)
     {:reply, :ok, state}
   end
@@ -228,7 +223,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   end
 
   # While the fishing mini-game is being played, the Body is gated — this worker cannot revive
-  # or potion anyway — so its HP capture every 120ms is pure waste that
+  # anyway — so its HP capture every 120ms is pure waste that
   def handle_info(:tick, state) do
     if Pokex.Perception.mini_game_playing?() do
       handle_mini_game_tick(state)
@@ -353,8 +348,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                       last_seen_hp: hp,
                       fainted?: false,
                       counters: bump(state.counters, :reads)
-                  }),
-                  calib
+                  })
                 )
 
               # The region doesn't look like the bar (minimized party window, or no Pokémon out
@@ -598,8 +592,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   # The always-on monitor keeps READING the HP even while actuation is gated (so the panel and
   # the resume are accurate), but it never ACTS through a closed gate: the panic corner and a
-  # defocused game must stop revive AND potion, not just have the Rig silently swallow them.
-  defp act(state, calib) do
+  # defocused game must stop the revive, not just have the Rig silently swallow it.
+  defp act(state) do
     if InputGate.allowed?() do
       # rescuing?
       state = unlatch_stale_rescue(state)
@@ -610,7 +604,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
           |> warn_switch_off()
           |> maybe_shield_skill()
           |> maybe_heal_skill()
-          |> maybe_potion(calib)
 
         decision ->
           fire_rescue(%{state | gate: nil}, decision == :rescue)
@@ -744,12 +737,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # The rung ABOVE the potion, and the only one that works mid-fight.
+  # THE HEAL, and it works in the middle of a fight.
   #
-  # No combat gate on purpose: the potion is a channel the game cancels the
-  # moment something hits, which is why it only ever fires out of battle — and
-  # that leaves HP falling DURING a fight with nothing between the full bar and
-  # the revive. A skill is one press.
+  # No combat gate on purpose: HP falling DURING a fight is what kills the
+  # pokémon, and between the full bar and the revive there was nothing else. A
+  # skill is one press.
   #
   # WHICH key comes from `/time` (the `:heal` job of whoever is on the field), so
   # a pokémon with none classified simply never gets here. Cooling keys are
@@ -911,22 +903,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     }
   end
 
-  # The combat read costs a screen capture, so it only happens when a potion is otherwise due.
-  defp maybe_potion(state, calib) do
-    if Logic.potion_wanted?(potion_input(state)) do
-      case interrupt?(state, calib) do
-        {:ok, false} ->
-          potion_after_clear_window(state)
-
-        # The sip is DUE and the read says a heal would be interrupted.
-        _interrupted_or_unknown ->
-          %{state | battle_clear_since: nil, gate: :potion_in_combat}
-      end
-    else
-      %{state | battle_clear_since: nil}
-    end
-  end
-
   # After every battle, send the Pokémon back to its calibrated strategic tile with a MIDDLE
   # click (the game's "step here" command) — battles drag it off the spot where it hits several
   # enemies at once.
@@ -964,7 +940,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       at - since < Settings.get(:reposition_battle_clear_ms) ->
         state
 
-      # post-fight order policy — same wait as the potion, same fail-open cap
+      # post-fight order policy — the same fail-open cap
       capture_busy?(state) ->
         state
 
@@ -1024,89 +1000,19 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  defp potion_after_clear_window(state) do
-    at = now()
-    since = state.battle_clear_since || at
-    state = %{state | battle_clear_since: since}
-
-    cond do
-      at - since < Settings.get(:potion_battle_clear_ms) ->
-        state
-
-      # post-fight order policy: the window elapsed but the catcher still has
-      # corpse work — keep the satisfied clock and sip the moment it frees up
-      capture_busy?(state) ->
-        state
-
-      true ->
-        %{fire_potion(state, "🧪 poção — vida em #{state.hp_pct}%") | battle_clear_since: nil}
-    end
+  # THE STATUS POTION PRESS goes through the `Body` at `:high`, like the
+  # revive: it is his order, and his order does not queue behind a burst. The
+  # counting event belongs to `StatusCure`; the voice lives here.
+  defp fire_cure(state, log_text) do
+    Body.perform([{:press, StatusCure.key()}], :high, state.body)
+    Pokex.Engine.Events.record(:cure, %{key: StatusCure.key()})
+    broadcast_log(:macro, log_text)
+    %{state | last_action: %{text: "limpeza de status", at: now()}}
   end
-
-  defp potion_input(state) do
-    %{
-      hp_pct: state.hp_pct,
-      prev_hp_pct: state.prev_hp_pct,
-      threshold_pct: Settings.get(:pokemon_hp_potion_pct),
-      enabled?: Settings.get(:potion_enabled),
-      cooldown_ms: Settings.get(:potion_cooldown_ms),
-      last_potion_at: state.last_potion_at,
-      now: now()
-    }
-  end
-
-  # Would a heal be interrupted right now?
-  defp interrupt?(state, calib) do
-    if taking_damage?(state) do
-      {:ok, true}
-    else
-      case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now()) do
-        {:ok, obs} -> {:ok, locked?(obs)}
-        _stale_or_missing -> direct_battle_read(calib)
-      end
-    end
-  catch
-    kind, reason -> {:error, {kind, reason}}
-  end
-
-  # A confirmed drop, not a single garbage frame: prev and current are both real
-  # readings (the reader clears both to nil on an unrecognized bar), and any drop
-  # only RESETS the clear window — the fail-safe direction, so a spurious dip
-  # costs one delayed sip, never a missed interrupt.
-  defp taking_damage?(%{hp_pct: hp, prev_hp_pct: prev})
-       when is_integer(hp) and is_integer(prev),
-       do: hp < prev
-
-  defp taking_damage?(_no_pair), do: false
-
-  defp direct_battle_read(calib) do
-    with {:ok, frame} <- Capture.frame(calib.battle_region, "potion_battle.raw") do
-      {:ok, locked?(Interpret.battle(frame, calib, Settings.all()))}
-    end
-  end
-
-  defp locked?(obs), do: obs[:locked?] == true
 
   # Reposition keeps the BROADER notion — "any enemy nearby" — on purpose: it sends the Pokémon
   # back to its tile only when things are truly quiet, and a
   defp engaged?(obs), do: obs[:locked?] == true or (obs[:enemies] || []) != []
-
-  # Stamp last_potion_at BEFORE dispatch (same rationale as the combo): if the press errors, the
-  # cooldown still holds and a glitch loop can't chug the whole potion stack.
-  defp fire_potion(state, log_text) do
-    at = now()
-    Body.perform([{:press, Settings.get(:potion_key)}], :high, state.body)
-
-    state = %{
-      state
-      | last_potion_at: at,
-        counters: bump(state.counters, :potions),
-        last_action: %{text: "poção", at: at}
-    }
-
-    broadcast_log(:macro, log_text)
-    state
-  end
 
   # THE ENGINE IS THE ONLY VOICE on WHEN it is tactically worth reviving — the whole point of
   # R3: a health percentage alone cannot tell a live pile with every
@@ -1434,19 +1340,17 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   defp gate_text(:unfocused), do: "jogo fora de foco — nada é digitado até você voltar pra ele"
   defp gate_text(:panic_corner), do: "parado pelo canto de pânico"
-  defp gate_text(:potion_in_combat), do: "poção devida, mas a leitura diz que há luta"
   defp gate_text(:mini_game), do: "minigame em jogo — retoma quando o overlay sair"
   defp gate_text(_none), do: nil
 
   # The capture wait only shows while something is actually due (a bare pending
   # count with nothing to do isn't a hold).
   defp clock_reason(state) do
-    waiting? = state.battle_clear_since != nil or state.reposition_pending?
+    waiting? = state.reposition_pending?
 
     reasons =
       Enum.reject(
         [
-          if(state.battle_clear_since != nil, do: "poção esperando batalha limpa"),
           if(state.reposition_pending?, do: "reposição esperando fim da luta"),
           if(waiting? and capture_busy?(state), do: "esperando a captura terminar")
         ],
@@ -1457,7 +1361,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   end
 
   # The post-fight ORDER policy (ball → support): with the toggle on, a
-  # due potion/reposition also waits for the catcher's pending corpses to hit
+  # due reposition also waits for the catcher's pending corpses to hit
   # zero. The cap bails the wait so a stuck detector can never starve the heal.
   defp capture_busy?(state) do
     Settings.get(:support_waits_capture) and state.capture_pending > 0 and

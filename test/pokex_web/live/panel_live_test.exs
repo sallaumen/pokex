@@ -343,46 +343,6 @@ defmodule PokexWeb.PanelLiveTest do
     refute render(view) =~ "Não achei o HUD"
   end
 
-  # The revive RECALLS the Pokémon and puts it back; the potion just heals. HP
-  # falls through the higher number first, so a revive threshold ABOVE the
-  # potion's means the potion can NEVER fire and the Pokémon is pulled out of
-  # every fight. Lucas ran an hour with revive 65 / potion 50 (2026-08-07) —
-  # nothing fished, nothing fought — and read it as "o bot não faz nada certo".
-  # The bot was doing exactly what the numbers said; nothing on screen said so.
-  test "o ⚙️ avisa quando o revive dispara antes da poção", %{conn: conn} do
-    antes = %{
-      rescue: Pokex.Settings.get(:pokemon_hp_rescue_pct),
-      potion: Pokex.Settings.get(:pokemon_hp_potion_pct),
-      rescue_on: Pokex.Settings.get(:rescue_enabled),
-      potion_on: Pokex.Settings.get(:potion_enabled)
-    }
-
-    on_exit(fn ->
-      Pokex.Settings.put(:pokemon_hp_rescue_pct, antes.rescue)
-      Pokex.Settings.put(:pokemon_hp_potion_pct, antes.potion)
-      Pokex.Settings.put(:rescue_enabled, antes.rescue_on)
-      Pokex.Settings.put(:potion_enabled, antes.potion_on)
-    end)
-
-    Pokex.Settings.put(:rescue_enabled, true)
-    Pokex.Settings.put(:potion_enabled, true)
-
-    # os números dele: o revive pega primeiro e a poção nunca acontece
-    Pokex.Settings.put(:pokemon_hp_rescue_pct, 65)
-    Pokex.Settings.put(:pokemon_hp_potion_pct, 50)
-
-    {:ok, view, _html} = live(conn, ~p"/config/editores")
-    assert has_element?(view, "#rescue-above-potion")
-    assert render(view) =~ "recolhido em toda luta"
-
-    # invertidos pro jeito certo, o aviso some
-    Pokex.Settings.put(:pokemon_hp_rescue_pct, 20)
-    Pokex.Settings.put(:pokemon_hp_potion_pct, 70)
-
-    {:ok, ok_view, _html} = live(conn, ~p"/config/editores")
-    refute has_element?(ok_view, "#rescue-above-potion")
-  end
-
   # Os dois números da MORTE moravam só no arquivo de settings — inúteis
   # justamente na noite em que ele está calibrando o que é morte e o que é
   # janela coberta (2026-08-14).
@@ -407,29 +367,17 @@ defmodule PokexWeb.PanelLiveTest do
   # faixa do dashboard. Lendo "revive < 65%" no ⚙️ sem um liga/desliga do lado,
   # a conclusão honesta é que não dá mais. E um revive que ele não consegue
   # parar é um revive em loop num Pokémon que não vai voltar.
-  test "revive e poção se desligam ao lado do próprio número, no ⚙️", %{conn: conn} do
-    antes = %{
-      rescue: Pokex.Settings.get(:rescue_enabled),
-      potion: Pokex.Settings.get(:potion_enabled)
-    }
-
-    on_exit(fn ->
-      Pokex.Settings.put(:rescue_enabled, antes.rescue)
-      Pokex.Settings.put(:potion_enabled, antes.potion)
-    end)
+  test "the revive switches off beside its own number, in the ⚙️", %{conn: conn} do
+    before = Pokex.Settings.get(:rescue_enabled)
+    on_exit(fn -> Pokex.Settings.put(:rescue_enabled, before) end)
 
     {:ok, view, _html} = live(conn, ~p"/config/editores")
 
     view |> element("#rescue-enabled-toggle") |> render_click()
-    refute Pokex.Settings.get(:rescue_enabled) == antes.rescue
+    refute Pokex.Settings.get(:rescue_enabled) == before
 
-    view |> element("#potion-enabled-toggle") |> render_click()
-    refute Pokex.Settings.get(:potion_enabled) == antes.potion
-
-    # e um não arrasta o outro
     view |> element("#rescue-enabled-toggle") |> render_click()
-    assert Pokex.Settings.get(:rescue_enabled) == antes.rescue
-    refute Pokex.Settings.get(:potion_enabled) == antes.potion
+    assert Pokex.Settings.get(:rescue_enabled) == before
   end
 
   # Lucas asked for the switch to sit "junto da parte de captura, em Settings"
@@ -567,7 +515,7 @@ defmodule PokexWeb.PanelLiveTest do
          hp_pct: nil,
          enabled?: false,
          last_rescue_at: nil,
-         counters: %{rescues: 0, potions: 0, reads: 0, failures: 0, repositions: 0},
+         counters: %{rescues: 0, reads: 0, failures: 0, repositions: 0},
          error: "leitura de vida falhou"
        }}
     )
@@ -872,7 +820,7 @@ defmodule PokexWeb.PanelLiveTest do
       hp_pct: 80,
       enabled?: false,
       last_rescue_at: nil,
-      counters: %{rescues: 0, potions: 0, reads: 1, failures: 0, repositions: 0},
+      counters: %{rescues: 0, reads: 1, failures: 0, repositions: 0},
       error: nil
     }
 
@@ -1408,38 +1356,6 @@ defmodule PokexWeb.PanelLiveTest do
     assert Pokex.Settings.get(:rescue_cooldown_ms) == 2_000
   end
 
-  test "saves the potion threshold + cooldown and toggles the auto-potion", %{conn: conn} do
-    pct = Pokex.Settings.get(:pokemon_hp_potion_pct)
-    cooldown = Pokex.Settings.get(:potion_cooldown_ms)
-    enabled = Pokex.Settings.get(:potion_enabled)
-
-    on_exit(fn ->
-      Pokex.Settings.put(:pokemon_hp_potion_pct, pct)
-      Pokex.Settings.put(:potion_cooldown_ms, cooldown)
-      Pokex.Settings.put(:potion_enabled, enabled)
-    end)
-
-    {:ok, view, _} = live(conn, ~p"/config/editores")
-
-    view
-    |> form("#potion-cfg-form", %{"potion_pct" => "65", "potion_cooldown_s" => "8"})
-    |> render_change()
-
-    assert Pokex.Settings.get(:pokemon_hp_potion_pct) == 65
-    assert Pokex.Settings.get(:potion_cooldown_ms) == 8_000
-    assert has_element?(view, ~s(#potion-pct[value="65"]))
-
-    view
-    |> form("#potion-cfg-form", %{"potion_pct" => "0", "potion_cooldown_s" => "700"})
-    |> render_change()
-
-    assert Pokex.Settings.get(:pokemon_hp_potion_pct) == 65
-    assert Pokex.Settings.get(:potion_cooldown_ms) == 8_000
-
-    view |> element(~s(#quick-potion)) |> render_click()
-    refute Pokex.Settings.get(:potion_enabled) == enabled
-  end
-
   @tag :tmp_dir
   test "the 'Ler' button reads the skill bar on demand", %{conn: conn, tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
@@ -1832,17 +1748,17 @@ defmodule PokexWeb.PanelLiveTest do
         {:game,
          %{
            state: :monitoring,
-           counters: %{rescues: 27, potions: 194, failures: 0},
+           counters: %{rescues: 27, failures: 0},
            error: nil,
            hp_pct: 100,
-           last_action: %{text: "poção", at: System.monotonic_time(:millisecond)}
+           last_action: %{text: "limpeza de status", at: System.monotonic_time(:millisecond)}
          }}
       )
 
       row = view |> element(~s([data-testid="support-pill"])) |> render()
 
       assert row =~ "monitorando"
-      assert row =~ "27 revive · 194 poção"
+      assert row =~ "27 revive"
       refute row =~ ~s(class="min-w-0 flex-1 text-pk-body text-pk-text-2 truncate)
     end
 

@@ -79,6 +79,12 @@ defmodule Pokex.Bots.Combat.Plan.Economy do
   @impl true
   def tab?(_ctx), do: true
 
+  # ONE CLEANING PER FIGHT. Here a burst leaves almost every tick, and cleaning
+  # before all of them would become one `e` per second — the opening covers the
+  # pokémon that arrived asleep, the common case on the cheap route.
+  @impl true
+  def cure_policy(_ctx), do: :opening
+
   defp area(%Loadout{aoe: aoe}), do: aoe
   defp area(_no_loadout), do: []
 

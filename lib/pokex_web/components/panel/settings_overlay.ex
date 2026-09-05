@@ -21,8 +21,6 @@ defmodule PokexWeb.Panel.SettingsOverlay do
     required: true,
     doc: "pct, cooldown_s, mode, combo, stun_settle_ms, fainted_*, enabled"
 
-  attr :potion_cfg, :map, required: true, doc: "pct, cooldown_s, enabled"
-
   attr :fishing_cfg, :map,
     required: true,
     doc: "require_cooldowns, require_pokemon_hp, hook_skills, hp_pct"
@@ -85,7 +83,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           <p class="text-pk-body leading-tight text-pk-text-2">
             Aqui moram os ajustes que você faz uma vez. O que muda por sessão
-            (pesca, luta, captura, loot, revive, poção) ficou na faixa do dashboard.
+            (pesca, luta, captura, loot, revive, status) ficou na faixa do dashboard.
           </p>
 
           <%!-- Without this, "mudei aqui e o outro personagem mudou junto?" can
@@ -242,61 +240,6 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               </form>
             </div>
 
-            <form
-              id="potion-cfg-form"
-              phx-change="save_potion_cfg"
-              class="flex items-center gap-1 border-b border-pk-line px-3 py-2.5 font-mono text-pk-meta text-pk-text-3"
-            >
-              <input
-                id="potion-enabled-toggle"
-                type="checkbox"
-                class="toggle toggle-success toggle-sm shrink-0"
-                checked={@potion_cfg.enabled}
-                phx-click="toggle_potion"
-                aria-label="Ligar ou desligar a poção automática"
-              />
-              <label for="potion-pct">poção &lt;</label>
-              <input
-                id="potion-pct"
-                name="potion_pct"
-                type="number"
-                aria-label="Vida mínima para poção, em por cento"
-                min="1"
-                max="99"
-                value={@potion_cfg.pct}
-                phx-debounce="500"
-                class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-              />
-              <span>% · a cada</span>
-              <input
-                id="potion-cooldown"
-                name="potion_cooldown_s"
-                type="number"
-                aria-label="Intervalo mínimo entre poções, em segundos"
-                min="1"
-                max="600"
-                value={@potion_cfg.cooldown_s}
-                phx-debounce="500"
-                class="h-8 w-14 rounded border border-pk-line-strong bg-pk-bg px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-              />
-              <span>s</span>
-            </form>
-
-            <%!-- The revive RECALLS the Pokémon and puts it back; the potion just
-                  heals. HP falls through the higher number first, so a revive
-                  threshold ABOVE the potion's means the potion can NEVER fire and
-                  the Pokémon is pulled out of every fight. Lucas ran an hour with
-                  revive 65 / potion 50 (2026-08-07) and read it as "o bot não faz
-                  nada certo" — the bot was doing exactly what the numbers said. --%>
-            <p
-              :if={@rescue_cfg.enabled and @potion_cfg.enabled and @rescue_cfg.pct >= @potion_cfg.pct}
-              id="rescue-above-potion"
-              class="mx-3 mb-2 rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1.5 text-pk-body text-pk-warn"
-            >
-              ⚠️ O revive ({@rescue_cfg.pct}%) dispara ANTES da poção ({@potion_cfg.pct}%) —
-              a vida passa pelo número maior primeiro. Assim a poção nunca acontece e o Pokémon é
-              recolhido em toda luta. O revive é o socorro caro: deixe-o BEM abaixo da poção.
-            </p>
             <.automation_row
               id="automation-support-waits-capture"
               title="Suporte espera a captura"

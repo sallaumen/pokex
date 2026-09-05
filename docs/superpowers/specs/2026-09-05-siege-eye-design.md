@@ -314,31 +314,39 @@ decisão leva o veredito no nome. As linhas `🚑` do suporte não mudam.
 Pedido de Lucas: "quando pararmos de andar, clicar com o botão do meio em 1
 dos 4 tiles próximos ao meu personagem, com pelo menos 1 bloco de distância,
 pra garantir que possamos ver todos os monstros que estão realmente atacando
-meu pokémon". O pokémon segue o personagem a ~2 tiles; parado, a pilha fecha
-em cima dele, longe do centro e da câmera. Com o pokémon a 1 tile do
-personagem, a pilha fica no centro da tela, onde o olho lê melhor e onde a
-marca `pet` tem um lugar previsível pra estar.
+meu pokémon". O pokémon segue o personagem e para onde estava; a pilha fecha
+em cima dele, longe do centro e da câmera. Com o pokémon a **2 tiles** do
+personagem — um tile VAZIO entre os dois — a pilha fica perto do centro da
+tela, onde o olho lê melhor e onde a marca `pet` tem um lugar previsível pra
+estar. Dois, e não um, por regra do jogo: "se ele ficar muito perto eu ocupo
+um dos espaços, e ele passa a só conseguir lutar com 7 monstros de cada vez
+ao invés de 8". As oito bocas em volta do pokémon têm que ficar livres.
 
 - **Quando:** na primeira ordem `route: :hold` com inimigo na lista (a parada
   do `sizing`/`bunching`/segurado), uma vez por parada. Não em paradas por
   escada, tropeço ou bloqueio.
-- **Onde:** um dos quatro vizinhos ortogonais do personagem, a
-  `cavebot_park_on_stop_tiles` (1) de distância, **do lado de onde a pilha
-  vem** (o centróide dos inimigos da leitura, arredondado ao vizinho mais
-  próximo); sem leitura, o tile de trás (o oposto ao último passo), que é
-  por onde o pokémon já vem seguindo.
-- **Como:** a mesma tubulação que já existe pro estacionar do fim da mobada:
-  `Cavebot.Logic` devolve `{:park, {:tiles, {dx, dy}}}`, o `Worker` traduz
-  por `Calibration.tile_point/2` e `park_click/2` (botão do meio nativo,
+- **Onde:** um dos quatro tiles ortogonais a 2 de distância do personagem
+  (`@park_gap_tiles 2`, constante: é regra do jogo, não ajuste), **do lado de
+  onde a pilha vem** (o centróide dos inimigos da leitura, arredondado ao
+  eixo mais próximo); sem leitura, o tile de trás (o oposto ao último passo),
+  que é por onde o pokémon já vem seguindo.
+- **Como:** só o clique é reaproveitado: `Cavebot.Logic` devolve
+  `{:park, {dx, dy}}` em tiles, o `Worker` traduz por
+  `Calibration.tile_point/2` e `park_click/2` (botão do meio nativo,
   `cavebot_park_clicks` vezes).
-- **Prova:** o olho confirma (`pet.tiles == 1` nas leituras seguintes) e o
-  cartão mostra; a bancada modela o clique (7.1) e mede a mesma pergunta com
-  o estacionar ligado e desligado.
-- **Uma dúvida que a bancada responde:** com o pokémon a 1 tile, a pilha fica
-  a 1–2 tiles do personagem, e a guarda da recolhida se mede a partir dele —
-  quem está dormindo não conta, mas um solto que chega já chega perto. O
-  cenário `straggler-at-recall` roda nos dois modos e o número decide se 1
-  tile é o certo ou se 2 compra segurança sem perder a câmera.
+- **O estacionar antigo é apagado, não estendido.** Lucas: "nem sei o que era,
+  definitivamente não conto com isso nas minhas runs". Saem: a marca de
+  estacionar por canto (`Route.park_spot/2`, `set_park_tiles/3`,
+  `set_park_point/3`, os campos `park_point`/`park_tiles` do waypoint e o
+  `Recording.mark_park/4` que os gravava), o disparo na chegada ao
+  `lure_end` (`Cavebot.Logic.on_arrival/2`, `default_park/1`), as chaves
+  `cavebot_park_tiles_x`/`_y` (aposentadas pelo mesmo caminho do #492) e o
+  que a Central mostra disso. Rotas gravadas com esses campos carregam sem
+  eles e são salvas limpas. `cavebot_park_clicks` e `cavebot_park_gap_ms`
+  ficam: são do clique.
+- **Prova:** o olho confirma (`pet.tiles == 2` nas leituras seguintes) e o
+  cartão mostra; a bancada modela o clique (7.1) e roda o cenário da morte
+  das 16:20 com o estacionar ligado e desligado.
 
 ## 6. O cartão do cerco
 
@@ -396,10 +404,11 @@ vida, sono. Sem zoom: o cartão é a tela do jogo.
 - Física que falta: `stragglers` (spawn a 6–8 tiles que acorda N ms depois da
   corrente); `player_bite_pct` (a mordida pesada NO PERSONAGEM durante a
   recolhida; 96 nas dungeons com caveira: a morte de 100% → 4% num golpe); e
-  **o estacionar** — `Sim.Hands` passa a obedecer `{:park, {:tiles, {dx, dy}}}`
-  como o clique do botão do meio: o pokémon anda até o tile pedido a
+  **o estacionar** — `Sim.Hands` passa a obedecer `{:park, {dx, dy}}` como o
+  clique do botão do meio: o pokémon anda até o tile pedido a
   `pet_ms_per_tile` e fica lá até o personagem andar de novo (aí volta a
-  seguir). O alvo já muda pro personagem quando o pokémon está na bola
+  seguir). Com ele a 2 tiles, as oito casas em volta ficam livres e a pilha
+  fecha inteira: é o que a bancada tem que mostrar com o estacionar ligado. O alvo já muda pro personagem quando o pokémon está na bola
   (`target_of/2`).
 
 A bancada entrega `inputs.crowd` passando as marcas por `CrowdScan.place/3`;
@@ -412,8 +421,7 @@ o `Siege.build` é chamado pelo `Logic.tick`, então não existe cópia
 - `straggler-at-recall` — a morte das 16:20: pilha de 3, corrente mata 2, um
   chega de fora com a barra gasta. Promessas: `:no_recall_with_awake_in_guard`,
   `:alive`, e mortos por hora ≥ 90% do cenário sem straggler. Roda com o
-  estacionar (5.4) ligado e desligado, e com o tile a 1 e a 2: é o número
-  que decide onde o pokémon para.
+  estacionar (5.4) ligado e desligado.
 - `asleep-pile-plus-loner` — pilha dormindo + um solto a 3 tiles: segura,
   controle sai, recolhe dentro da cobertura; `:alive`.
 - `nine-on-top` (já existe como `nove-em-cima`; renomeado) — barras empilhadas
@@ -455,8 +463,8 @@ O enxame de 4 sementes × 1 h com a config dele (`lotavanon`), olho desligado
 | `engine_recall_guard_tiles` | 4 | /config, 0..10 | guarda do revive em área COM caveira; 0 = o olho não segura nada |
 | `engine_recall_guard_light_tiles` | 2 | /config, 0..10 | a guarda em área sem caveira |
 | `engine_revive_desperate_pct` | 15 | /config, 0..34 | abaixo disso o vermelho revive com gap fechado |
-| `cavebot_park_on_stop` | true | /config | estacionar o pokémon ao lado do personagem em toda parada com bicho |
-| `cavebot_park_on_stop_tiles` | 1 | travada, 1..2 | a que distância do personagem (a bancada decide entre 1 e 2) |
+| `cavebot_park_on_stop` | true | /config | estacionar o pokémon a 2 tiles do personagem em toda parada com bicho |
+| `cavebot_park_tiles_x` / `_y` | — | **aposentadas** | o estacionar antigo por canto vai embora com o código |
 | `crowd_scan_radius_tiles` | 6 → 8 | travada (já existe) | a caixa cobre a tela do jogo inteira |
 | `crowd_scan_every_ms` | 250 | travada | cadência em luta (1 s andando) |
 | `crowd_fact_max_age_ms` | 600 | travada | foto mais velha = sem olho |
@@ -479,8 +487,9 @@ Cada um inteiro, testado, com bancada verde e mergeável sozinho.
    olho diria: …" sem mandar em nada**. Uma noite assim mostra onde ele
    discordaria do bot antes de ganhar a chave. **O estacionar (5.4) entra
    aqui**: primeiro o modelo na bancada e o cenário nos dois modos, depois o
-   clique no jogo atrás de `cavebot_park_on_stop` — é a única mudança física
-   antes do PR 3, e o olho do PR 1 é quem prova que o pokémon foi.
+   clique no jogo atrás de `cavebot_park_on_stop`, e o estacionar antigo sai
+   no mesmo PR — é a única mudança física antes do PR 3, e o olho do PR 1 é
+   quem prova que o pokémon foi.
 3. **O cérebro obedece.** As quatro regras da seção 5.2 atrás de
    `engine_recall_guard_tiles > 0`; bancada antes × depois; merge. As chaves
    de guarda nascem neste PR, já com o padrão 4/2: nos PRs 1 e 2 não existe
@@ -494,7 +503,8 @@ Cada um inteiro, testado, com bancada verde e mergeável sozinho.
 - balão de fala esconde barra (a dele sumiu na foto);
 - se 4 tiles de guarda bastam pra velocidade real dos monstros com caveira;
 - (PR 2) o clique do meio leva o pokémon pro tile pedido, e ele fica lá até o
-  personagem andar — o olho mostra `pet.tiles == 1` nas leituras seguintes.
+  personagem andar — o olho mostra `pet.tiles == 2` nas leituras seguintes, e
+  as oito casas em volta dele ficam livres.
 
 ## 10. Riscos e perguntas abertas
 
@@ -515,7 +525,8 @@ Cada um inteiro, testado, com bancada verde e mergeável sozinho.
 `PokexWeb.SiegeComponents.siege_card/1`, `Pokex.Sim.World.marks/1`,
 `Pokex.Sim.World.siege_truth/1`; campos `stun_cover`, `heavy_area?`,
 `recall_gap_ok?`, `pinned`, `covered`, `loose`, `unseen`, `skull?`, `pet?`;
-ação do cavebot `{:park, {:tiles, {dx, dy}}}` (`park_beside/2`); cenários
+ação do cavebot `{:park, {dx, dy}}` (`park_beside/2`, `@park_gap_tiles 2`);
+cenários
 `straggler-at-recall`, `asleep-pile-plus-loner`, `nine-on-top`,
 `skull-less-easy`, `blind-eye`; promessas `:no_recall_with_awake_in_guard`,
 `:recall_flows`, `:eye_agrees`.

@@ -1,30 +1,28 @@
 defmodule Pokex.Bots.Timers.Worker do
   @moduledoc """
-  Fires the scheduled actions: the aura a few seconds into a mob stretch, the
-  berry every so many minutes.
+  Fires the scheduled actions: the aura a few seconds into a mob stretch, the berry every so
+  many minutes.
 
-  Idle until `run/1`, like every other worker — nothing presses a key because a
-  clock ran while the fleet is stopped.
+  Idle until `run/1`, like every other worker: nothing presses a key because a clock ran while
+  the fleet is stopped.
 
   ## Where the mob clock comes from
 
-  Nowhere new. The hunt already publishes `:posture` on the blackboard every
-  tick, and `:hold_fire` IS "está mobando" — so this worker watches that fact
-  and stamps the moment it turned on. No message, no coupling, and it inherits
-  the ageing for free: a hunt that dies stops refreshing the fact, the posture
-  reads `:free_fight`, and the mob clock clears itself.
+  Nowhere new. The hunt already publishes `:posture` on the blackboard every tick, and
+  `:hold_fire` IS "gathering right now", so this worker watches that fact and stamps the moment
+  it turned on. No message, no coupling, and it inherits the ageing for free: a hunt that dies
+  stops refreshing the fact, the posture reads `:free_fight`, and the mob clock clears itself.
 
   ## Why the press goes through the Body
 
-  Unlike combat — which owns its own direct keyboard path because it presses on
-  every battle frame — a timer fires rarely and has no reason to cut in front of
-  a cast or a step. The Body serialises it with everything else, and its
-  InputGate is what keeps a berry from being typed into a browser when the game
-  is not frontmost.
+  Unlike combat, which owns its own direct keyboard path because it presses on every battle
+  frame, a timer fires rarely and has no reason to cut in front of a cast or a step. The Body
+  serialises it with everything else, and its InputGate is what keeps a berry from being typed
+  into a browser when the game is not frontmost.
 
-  `Body.perform/2` is a `:infinity` call, so it is dispatched OFF the tick: a
-  press queued behind a long sequence would otherwise stall this worker's clock
-  and, with it, every other timer.
+  `Body.perform/2` is an `:infinity` call, so it is dispatched OFF the tick: a press queued
+  behind a long sequence would otherwise stall this worker's clock and, with it, every other
+  timer.
   """
   use GenServer
   require Logger

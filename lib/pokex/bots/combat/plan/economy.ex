@@ -45,8 +45,8 @@ defmodule Pokex.Bots.Combat.Plan.Economy do
 
   @impl true
   def sustained(loadout, ctx) do
-    case prontas(single(loadout, ctx), ctx) do
-      [] -> prontas(area(loadout), ctx)
+    case ready_keys(single(loadout, ctx), ctx) do
+      [] -> ready_keys(area(loadout), ctx)
       baratas -> baratas
     end
   end
@@ -85,7 +85,7 @@ defmodule Pokex.Bots.Combat.Plan.Economy do
   # Leitura ausente é CEGA, e cega aperta: segurar dano por causa de uma barra
   # que ninguém conseguiu ler é o pior lado de errar — a mesma regra que o
   # `Plan.Standard` já segue.
-  defp prontas(keys, ctx) do
+  defp ready_keys(keys, ctx) do
     case Map.get(ctx, :ready_keys) do
       nil -> keys
       ready -> Enum.filter(keys, &(&1 in ready))

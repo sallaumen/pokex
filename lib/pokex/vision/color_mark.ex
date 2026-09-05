@@ -77,21 +77,21 @@ defmodule Pokex.Vision.ColorMark do
     bins =
       frame
       |> patch(x, y, raio)
-      |> Enum.reject(&sem_matiz?/1)
+      |> Enum.reject(&hueless?/1)
       |> Enum.group_by(&faixa/1)
 
     clicado = Frame.at(frame, x, y)
 
     faixa_do_clique =
-      if sem_matiz?(clicado), do: nil, else: Map.get(bins, faixa(clicado))
+      if hueless?(clicado), do: nil, else: Map.get(bins, faixa(clicado))
 
     case faixa_do_clique || maior_faixa(bins) do
       nil -> :none
-      pixels -> {:ok, mediana(pixels)}
+      pixels -> {:ok, median(pixels)}
     end
   end
 
-  defp sem_matiz?({r, g, b}) do
+  defp hueless?({r, g, b}) do
     mx = max(r, max(g, b))
     mx - min(r, min(g, b)) < @pick_min_delta or mx < @pick_min_value
   end
@@ -114,7 +114,7 @@ defmodule Pokex.Vision.ColorMark do
         do: Frame.at(frame, px, py)
   end
 
-  defp mediana(pixels) do
+  defp median(pixels) do
     meio = div(length(pixels), 2)
 
     {

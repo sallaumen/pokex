@@ -66,12 +66,12 @@ defmodule Pokex.Bots.Combat.Combo do
   def left_ms(mode, now \\ now())
 
   def left_ms(:auto_combo, now) do
-    janela = window_ms()
-    tecla = key()
+    window = window_ms()
+    combo_key = key()
 
-    if tecla == "" or not is_integer(janela) or janela <= 0,
+    if combo_key == "" or not is_integer(window) or window <= 0,
       do: 0,
-      else: restante(SkillClock.pressed_at(tecla), janela, now)
+      else: remaining(SkillClock.pressed_at(combo_key), window, now)
   end
 
   def left_ms(_no_combo, _now), do: nil
@@ -90,12 +90,12 @@ defmodule Pokex.Bots.Combat.Combo do
   def since_end_ms(mode, now \\ now())
 
   def since_end_ms(:auto_combo, now) do
-    janela = window_ms()
-    tecla = key()
+    window = window_ms()
+    combo_key = key()
 
-    if tecla == "" or not is_integer(janela) or janela <= 0,
+    if combo_key == "" or not is_integer(window) or window <= 0,
       do: nil,
-      else: desde(SkillClock.pressed_at(tecla), janela, now)
+      else: desde(SkillClock.pressed_at(combo_key), window, now)
   end
 
   def since_end_ms(_no_combo, _now), do: nil
@@ -114,11 +114,11 @@ defmodule Pokex.Bots.Combat.Combo do
     end
   end
 
-  defp desde(at, janela, now) when is_integer(at), do: max(now - (at + janela), 0)
-  defp desde(_nunca_saiu, _janela, _now), do: nil
+  defp desde(at, window, now) when is_integer(at), do: max(now - (at + window), 0)
+  defp desde(_never_pressed, _janela, _now), do: nil
 
-  defp restante(at, janela, now) when is_integer(at), do: max(at + janela - now, 0)
-  defp restante(_nunca_saiu, _janela, _now), do: 0
+  defp remaining(at, window, now) when is_integer(at), do: max(at + window - now, 0)
+  defp remaining(_never_pressed, _janela, _now), do: 0
 
   defp now, do: System.monotonic_time(:millisecond)
 end

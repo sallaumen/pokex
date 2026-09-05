@@ -168,14 +168,14 @@ defmodule Pokex.Bots.CrowdWatch do
 
   defp line(%{read?: true} = reading, near, listed) do
     "👀 perto: #{near} de #{listed || "?"} a ≤#{@reach_tiles} tile (vi #{reading.seen}, " <>
-      "medido do #{origem(reading.anchor)}, #{reading.took_ms}ms)"
+      "medido do #{origin_label(reading.anchor)}, #{reading.took_ms}ms)"
   end
 
   defp line(reading, _near, _listed),
     do: "👀 sem leitura ao redor (#{inspect(Map.get(reading, :reason))})"
 
-  defp origem(:pokemon), do: "pokémon"
-  defp origem(_character), do: "personagem"
+  defp origin_label(:pokemon), do: "pokémon"
+  defp origin_label(_character), do: "personagem"
 
   # -- a foto da abertura ------------------------------------------------------
 

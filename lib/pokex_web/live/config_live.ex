@@ -131,8 +131,7 @@ defmodule PokexWeb.ConfigLive do
           key: :pokemon_hp_rescue_pct,
           kind: :pct,
           label: "Revive abaixo de",
-          hint:
-            "Vida do pokémon abaixo disto pede revive. Deixe bem abaixo da poção: a vida passa pelo número maior primeiro.",
+          hint: "Vida do pokémon abaixo disto pede revive.",
           keywords: "revive vida limiar pct"
         },
         %{
@@ -201,7 +200,7 @@ defmodule PokexWeb.ConfigLive do
       id: "cura",
       icon: "hero-beaker",
       tint: :ok,
-      title: "Cura, defesa e poção",
+      title: "Cura, defesa e limpeza de status",
       rows: [
         %{
           key: :shield_skill_enabled,
@@ -246,25 +245,28 @@ defmodule PokexWeb.ConfigLive do
           keywords: "cura heal vida limiar"
         },
         %{
-          key: :potion_enabled,
+          key: :status_cure_enabled,
           kind: :bool,
-          label: "Poção automática",
-          hint: "A poção é um canal que o jogo cancela apanhando, então só sai fora de luta.",
-          keywords: "poção potion automática"
+          label: "Limpar status antes de atacar",
+          hint:
+            "Aperta a Status Potion antes do ataque, curando sono, silêncio, congelamento e o " <>
+              "resto. Sem status a poção não é gasta. No Auto Combo sai antes de cada corrente; " <>
+              "nos outros modos, uma vez por luta.",
+          keywords: "status poção sono silêncio congelado dormindo limpeza cure"
         },
         %{
-          key: :potion_key,
+          key: :status_cure_key,
           kind: :key,
-          label: "Tecla da poção",
-          hint: "Onde a poção está no atalho (ex.: e).",
-          keywords: "poção tecla key"
+          label: "Tecla da Status Potion",
+          hint: "Onde a Status Potion está no atalho (ex.: e).",
+          keywords: "status poção tecla key"
         },
         %{
-          key: :pokemon_hp_potion_pct,
-          kind: :pct,
-          label: "Poção abaixo de",
-          hint: "Vida do pokémon abaixo disto usa a poção, fora de luta.",
-          keywords: "poção vida limiar"
+          key: :status_cure_settle_ms,
+          kind: :ms,
+          label: "Respiro depois da poção",
+          hint: "Quanto o jogo ganha pra aplicar a poção antes de o ataque sair.",
+          keywords: "status poção respiro delay ms"
         }
       ]
     },

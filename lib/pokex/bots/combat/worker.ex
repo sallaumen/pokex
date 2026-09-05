@@ -122,9 +122,9 @@ defmodule Pokex.Bots.Combat.Worker do
        # and who has already been named for it
        suspects: SkillSuspect.new(),
        accused: [],
-       # ESTA LUTA JÁ FOI LIMPA? A Status Potion na frente do ataque
-       # (`StatusCure`). Nasce falso a cada `run/3` — um engajamento, uma
-       # limpeza — e só os modos de política `:opening` o consultam.
+       # WAS THIS FIGHT ALREADY CLEANED? The Status Potion in front of the
+       # attack (`StatusCure`). Born false on every `run/3` — one engagement,
+       # one cleaning — and only `:opening` modes ever read it.
        cured?: false
      }}
   end
@@ -574,7 +574,7 @@ defmodule Pokex.Bots.Combat.Worker do
   defp cooldowns(_no_loadout), do: %{}
 
   # Reading his pokémon's HP bar IS the proof it is out of its ball — the same
-  # bar PlayerSupport potions and revives from. With it out, a battle list of
+  # bar PlayerSupport revives from. With it out, a battle list of
   # exactly ONE row is almost certainly that pokémon, and the slow three-hunt
   # scenery dance is the wrong tool (Lucas, 2026-08-10: "está muito lento!!!").
   defp own_pokemon_out?,
@@ -666,26 +666,30 @@ defmodule Pokex.Bots.Combat.Worker do
         {state, :skipped}
 
       true ->
-        parent = self()
-        confirm? = Settings.get(:combat_confirm_skills) and state.retry_ok?
-
-        # Is this burst worth measuring the AREA with? Only a cast that actually
-        # contained an area key can say how far an area key reaches.
-        area? = AreaProbe.on?() and area_key?(state.loadout, keys)
-
-        chain = combo_chain(state, keys)
-        special? = special_key?(state, keys)
-        cure? = cure?(state, keys)
-
-        {%{
-           state
-           | burst_pid:
-               spawn(fn -> tap_keys(keys, parent, confirm?, area?, chain, special?, cure?) end),
-             last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
-             retry_ok?: true,
-             cured?: state.cured? or cure?
-         }, :sent}
+        {spawn_burst(state, keys), :sent}
     end
+  end
+
+  defp spawn_burst(state, keys) do
+    parent = self()
+    confirm? = Settings.get(:combat_confirm_skills) and state.retry_ok?
+
+    # Is this burst worth measuring the AREA with? Only a cast that actually
+    # contained an area key can say how far an area key reaches.
+    area? = AreaProbe.on?() and area_key?(state.loadout, keys)
+
+    chain = combo_chain(state, keys)
+    special? = special_key?(state, keys)
+    cure? = cure?(state, keys)
+
+    %{
+      state
+      | burst_pid:
+          spawn(fn -> tap_keys(keys, parent, confirm?, area?, chain, special?, cure?) end),
+        last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
+        retry_ok?: true,
+        cured?: state.cured? or cure?
+    }
   end
 
   # O POKÉMON NÃO ESTÁ EM CAMPO. O revive TIRA o pokémon e devolve — "esperando
@@ -768,12 +772,12 @@ defmodule Pokex.Bots.Combat.Worker do
   defp special_key?(%{mode: :auto_combo}, keys), do: Combo.key() in keys
   defp special_key?(_outro_modo, _keys), do: false
 
-  # A STATUS POTION NA FRENTE DESTE ATAQUE — ver `Pokex.Bots.StatusCure`.
+  # THE STATUS POTION IN FRONT OF THIS ATTACK — see `Pokex.Bots.StatusCure`.
   #
-  # Quem responde com que frequência este modo limpa é o PLANO, como toda outra
-  # pergunta sobre a mão: no Auto Combo é antes de cada corrente (o status que
-  # mata chega no meio da mobada, entre a primeira e a terceira), nos outros
-  # modos é uma vez por luta.
+  # How often a mode cleans is the PLAN's answer, like every other question
+  # about the hand: Auto Combo cleans before each chain (the status that kills
+  # arrives mid-mob, between the first chain and the third), the other modes
+  # clean once per fight.
   defp cure?(state, keys) do
     ctx = %{enemies: nil, ready_keys: nil, config: config(state)}
 
@@ -784,7 +788,7 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   defp config(%{logic: %Logic{config: config}}), do: config
-  defp config(_sem_logica), do: %{}
+  defp config(_no_logic), do: %{}
 
   defp let_go(false), do: :ok
 
@@ -794,10 +798,9 @@ defmodule Pokex.Bots.Combat.Worker do
     :exit, _sem_body -> :ok
   end
 
-  # LIMPAR NUNCA SEGURA UM ATAQUE. Um rig que recusou o `e` (jogo fora de foco,
-  # portão fechado) não pode transformar uma comodidade em rajada perdida, então
-  # `StatusCure.press/0` é sempre `:ok` e este `with` nunca desvia por causa
-  # dela.
+  # CLEANING NEVER HOLDS AN ATTACK. A rig that refused the `e` (game out of
+  # focus, gate closed) must not turn a convenience into a lost burst, so
+  # `StatusCure.press/0` is always `:ok` and this `with` never branches on it.
   defp cure(false), do: :ok
 
   defp cure(true) do
@@ -810,7 +813,7 @@ defmodule Pokex.Bots.Combat.Worker do
     :ok
   end
 
-  defp settle(_sem_respiro), do: :ok
+  defp settle(_no_breath), do: :ok
 
   defp tap_keys(keys, parent, confirm?, area?, chain, special?, cure?) do
     before = if confirm?, do: Perception.ready_skills()
@@ -824,10 +827,10 @@ defmodule Pokex.Bots.Combat.Worker do
 
     with :ok <- Perception.mini_game_gate(),
          :ok <- let_go(special?),
-         # A STATUS POTION, e ela vem DEPOIS de soltar as setas: o `e` é um
-         # aperto como qualquer outro, e as setas são estado do `Body` que a
-         # rajada não enxerga (a lição do #495). Vem antes do carimbo porque o
-         # carimbo tem que marcar o instante em que a rajada VAI sair.
+         # THE STATUS POTION, and it comes AFTER letting go of the arrows: the
+         # `e` is a press like any other, and the arrows are `Body` state the
+         # burst cannot see (the lesson of #495). It comes before the stamp
+         # because the stamp must mark the instant the burst WILL leave.
          :ok <- cure(cure?),
          # O RELÓGIO DAS TECLAS, CARIMBADO ANTES DA RAJADA SAIR.
          #

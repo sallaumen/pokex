@@ -79,9 +79,9 @@ defmodule Pokex.Bots.Combat.Plan.Economy do
   @impl true
   def tab?(_ctx), do: true
 
-  # UMA LIMPEZA POR LUTA. Aqui a rajada sai quase a cada tique, e limpar antes
-  # de todas viraria um `e` por segundo — a abertura cobre o pokémon que já
-  # chegou dormindo, que é o caso comum na rota barata.
+  # ONE CLEANING PER FIGHT. Here a burst leaves almost every tick, and cleaning
+  # before all of them would become one `e` per second — the opening covers the
+  # pokémon that arrived asleep, the common case on the cheap route.
   @impl true
   def cure_policy(_ctx), do: :opening
 

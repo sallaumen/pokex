@@ -285,9 +285,6 @@ defmodule Pokex.Settings.Locked do
     heal_skill_cooldown_ms:
       {"Revive (mecânica)", "anti-spam da cura; se está pronta é a barra que diz"},
     support_tick_ms: {"Revive (mecânica)", "a vida do pokémon é lida a cada 120ms"},
-    potion_cooldown_ms: {"Revive (mecânica)", "uma poção a cada 10s no máximo"},
-    potion_battle_clear_ms:
-      {"Revive (mecânica)", "2s fora de luta antes da poção (o canal cancela apanhando)"},
     reposition_battle_clear_ms: {"Revive (mecânica)", "2s fora de luta antes de reposicionar"},
     support_capture_wait_max_ms:
       {"Revive (mecânica)", "o suporte espera a captura no máximo 10s"},

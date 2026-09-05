@@ -1157,19 +1157,20 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   # DEPOIS dele, dentro da mesma janela cega que o portão da largada respeita,
   # quase sempre com a tela já vazia. A cerca (`halt?` do `press_many`) é o
   # mesmo veredito, votado antes de cada tecla.
-  # A STATUS POTION ANTES DO ATAQUE (05/09).
+  # THE STATUS POTION IN FRONT OF THE ATTACK (2026-09-05).
   #
   # "Meu pokémon pode estar sob efeito de status negativo antes de usar o auto
-  # combo": dormindo ou silenciado, a corrente vira tecla morta — nenhuma skill
-  # sai, a barra não gasta, e o bot insiste contra a mobada. A poção do slot E
-  # cura tudo e é no-op sem status, então o prefixo custa só o respiro.
-  describe "a limpeza de status" do
-    defp indice(chamada), do: Enum.find_index(Fake.calls(), &(&1 == chamada))
+  # combo": asleep or silenced, the chain is a dead key — no skill leaves, the
+  # bar is not spent, and the bot keeps pressing at the mob. The E slot potion
+  # cures all of it and is a no-op without status, so the prefix costs only the
+  # breath.
+  describe "the status cure" do
+    defp call_at(call), do: Enum.find_index(Fake.calls(), &(&1 == call))
 
-    defp poções, do: Enum.count(presses(), &(&1 == "e"))
+    defp potions, do: Enum.count(presses(), &(&1 == "e"))
 
     @tag :tmp_dir
-    test "a poção sai na frente da corrente", %{worker: worker} do
+    test "the potion leaves in front of the chain", %{worker: worker} do
       SettingsStash.stash!(
         auto_combo_key: "r",
         auto_combo_window_ms: 5_000,
@@ -1183,15 +1184,15 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       abre_o_fogo(worker)
       assert eventually(fn -> "r" in presses() end), "a corrente não saiu: #{inspect(presses())}"
 
-      assert indice({:press, "e"}) < indice({:press, "r"}),
+      assert call_at({:press, "e"}) < call_at({:press, "r"}),
              "a corrente saiu antes da poção: #{inspect(Fake.calls())}"
     end
 
-    # O `e` é um aperto de tecla como qualquer outro, e as setas são estado do
-    # `Body`: sem soltar antes, ele sairia com o personagem andando — o mesmo
-    # defeito que o #495 consertou pro `r`.
+    # The `e` is a key press like any other, and the arrows are `Body` state:
+    # without letting go first it would leave with the character walking — the
+    # same defect #495 fixed for the `r`.
     @tag :tmp_dir
-    test "a poção espera as setas serem soltas", %{worker: worker} do
+    test "the potion waits for the arrows to be released", %{worker: worker} do
       SettingsStash.stash!(
         auto_combo_key: "r",
         auto_combo_window_ms: 5_000,
@@ -1207,15 +1208,15 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       abre_o_fogo(worker)
       assert eventually(fn -> "e" in presses() end), "a poção não saiu: #{inspect(presses())}"
 
-      assert indice({:key_up, "up"}) < indice({:press, "e"}),
+      assert call_at({:key_up, "up"}) < call_at({:press, "e"}),
              "a poção saiu com a seta segurada: #{inspect(Fake.calls())}"
     end
 
-    # UMA LUTA TEM VÁRIAS CORRENTES, e o status que mata é o que chega no meio
-    # da mobada — entre a primeira corrente e a terceira. Por isso o Auto Combo
-    # limpa em TODA corrente, e não uma vez por luta.
+    # A FIGHT HAS SEVERAL CHAINS, and the status that kills is the one arriving
+    # in the middle of the mob — between the first chain and the third. That is
+    # why Auto Combo cleans before EVERY chain, not once per fight.
     @tag :tmp_dir
-    test "a segunda corrente da mesma luta também leva a poção", %{worker: worker} do
+    test "the same fight's second chain also carries the potion", %{worker: worker} do
       SettingsStash.stash!(
         auto_combo_key: "r",
         auto_combo_window_ms: 500,
@@ -1231,22 +1232,24 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
       SkillClock.reset()
 
+      # UMA espera só, pelos dois: a poção sai, o respiro passa e a corrente
+      # vem atrás. Cobrar um depois do outro com esperas separadas mede o
+      # relógio da máquina — a poção da segunda corrente já apareceu enquanto
+      # a corrente ainda dormia o respiro.
       assert eventually(
                fn ->
                  world!(worker, battle_obs(enemies: [0, 1, 2]))
-                 Enum.count(presses(), &(&1 == "r")) > 1
+                 potions() > 1 and Enum.count(presses(), &(&1 == "r")) > 1
                end,
-               3_000
+               6_000
              ),
-             "a corrente não voltou: #{inspect(presses())}"
-
-      assert poções() > 1, "a segunda corrente saiu sem limpar: #{inspect(presses())}"
+             "a segunda corrente não saiu limpando: #{inspect(presses())}"
     end
 
-    # No Econômico a rajada sai quase a cada tique: limpar antes de todas seria
-    # um `e` por segundo. A abertura da luta basta.
+    # In Economy a burst leaves almost every tick: cleaning before all of them
+    # would be one `e` per second. The fight's opening is enough.
     @tag :tmp_dir
-    test "no Econômico só a abertura limpa", %{worker: worker} do
+    test "in Economy only the opening cleans", %{worker: worker} do
       SettingsStash.stash!(status_cure_enabled: true, status_cure_key: "e")
 
       abre_o_fogo(worker)
@@ -1259,14 +1262,14 @@ defmodule Pokex.Bots.Combat.WorkerTest do
         Worker.status(worker)
       end
 
-      refute eventually(fn -> poções() > 1 end, 500),
+      refute eventually(fn -> potions() > 1 end, 500),
              "limpou mais de uma vez na mesma luta: #{inspect(presses())}"
 
-      assert poções() == 1, "a abertura não limpou: #{inspect(presses())}"
+      assert potions() == 1, "a abertura não limpou: #{inspect(presses())}"
     end
 
     @tag :tmp_dir
-    test "desligada, nenhuma poção sai", %{worker: worker} do
+    test "switched off, no potion leaves", %{worker: worker} do
       SettingsStash.stash!(
         auto_combo_key: "r",
         auto_combo_window_ms: 5_000,
@@ -1279,13 +1282,13 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       abre_o_fogo(worker)
       assert eventually(fn -> "r" in presses() end), "a corrente não saiu: #{inspect(presses())}"
 
-      assert poções() == 0, "limpou com a limpeza desligada: #{inspect(presses())}"
+      assert potions() == 0, "limpou com a limpeza desligada: #{inspect(presses())}"
     end
 
-    # O `e` não é skill: não tem cooldown na barra, e carimbá-lo faria o relógio
-    # das teclas mentir sobre uma tecla que a barra nunca mostra.
+    # The `e` is not a skill: it has no cooldown on the bar, and stamping it
+    # would make the key clock lie about a key the bar never shows.
     @tag :tmp_dir
-    test "a poção não carimba o relógio das teclas", %{worker: worker} do
+    test "the potion does not stamp the key clock", %{worker: worker} do
       SettingsStash.stash!(
         auto_combo_key: "r",
         auto_combo_window_ms: 5_000,

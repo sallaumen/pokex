@@ -391,9 +391,9 @@ defmodule Pokex.Sim.BenchTest do
     assert result.outcome.ran_for_ms >= 60_000
   end
 
-  # A escada do suporte tem três degraus e este banco só modelava o terceiro.
+  # A escada do suporte tem dois degraus e este banco só modelava o segundo.
   # `PlayerSupport.Logic` é pura, então quem decide é ela mesma — não uma cópia.
-  describe "os dois degraus baratos da escada" do
+  describe "o degrau barato da escada" do
     alias Pokex.Bots.Combat.Loadout
 
     @curador %Loadout{name: "Curador", aoe: ["3"], single: ["4"], heal: ["7"]}
@@ -418,37 +418,6 @@ defmodule Pokex.Sim.BenchTest do
       %{metrics: sem} = curando(%{@curador | heal: []})
 
       assert com.min_hp > sem.min_hp
-    end
-
-    # A poção é um CANAL e a batalha cancela ela — o mesmo portão que o worker
-    # guarda. A prova está nos dois números juntos: a vida mais baixa da corrida
-    # é a MESMA com e sem poção (nenhuma foi bebida com a pilha viva) e só o
-    # final muda, depois que a tela limpou.
-    test "e a poção só depois, com a tela limpa" do
-      # sem revive nenhum: ele devolve a vida cheia, e o que está sendo medido
-      # aqui é a POÇÃO
-      # …e a rajada de graça: com ela custando tempo, esta pilha nem chega a
-      # machucar o suficiente pra haver poção a beber, e o teste passaria a
-      # medir o preço da rajada em vez do canal da poção.
-      # …e sem o revive de PREPARO (R11, 27/08): com a tela limpa ele sai, e
-      # como o revive devolve vida cheia os dois lados terminariam em 100 — o
-      # teste passaria a medir o revive em vez da poção.
-      seco = %{
-        engage_from: 1,
-        reset_revive: false,
-        prepare_revive: false,
-        crowd_from: 99,
-        skill_gap_ms: 0
-      }
-
-      drinking =
-        Map.merge(seco, %{potion_enabled: true, potion_pct: 95, potion_cooldown_ms: 3_000})
-
-      com = Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: drinking)
-      sem = Bench.run(Scenario.get("pilha-que-fecha"), duration_ms: 60_000, config: seco)
-
-      assert com.metrics.min_hp == sem.metrics.min_hp
-      assert com.outcome.hp_at_end > sem.outcome.hp_at_end
     end
   end
 

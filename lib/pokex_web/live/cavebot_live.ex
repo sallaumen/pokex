@@ -2130,7 +2130,7 @@ defmodule PokexWeb.CavebotLive do
     %{
       rescue?: Settings.get(:rescue_enabled),
       heal?: Settings.get(:heal_skill_enabled),
-      potion?: Settings.get(:potion_enabled),
+      cure?: Settings.get(:status_cure_enabled),
       block_retries: Settings.get(:cavebot_block_retries),
       block_retry_ms: Settings.get(:cavebot_block_retry_ms)
     }
@@ -2197,7 +2197,7 @@ defmodule PokexWeb.CavebotLive do
 
   defp safety_key("rescue"), do: :rescue_enabled
   defp safety_key("heal"), do: :heal_skill_enabled
-  defp safety_key("potion"), do: :potion_enabled
+  defp safety_key("cure"), do: :status_cure_enabled
   defp safety_key(_unknown), do: nil
 
   defp safety_notice(:rescue_enabled, true),
@@ -2206,8 +2206,8 @@ defmodule PokexWeb.CavebotLive do
   defp safety_notice(:rescue_enabled, false), do: "resgate desligado — ninguém revive o pokémon"
   defp safety_notice(:heal_skill_enabled, true), do: "cura armada"
   defp safety_notice(:heal_skill_enabled, false), do: "cura desligada"
-  defp safety_notice(:potion_enabled, true), do: "poção armada"
-  defp safety_notice(:potion_enabled, false), do: "poção desligada"
+  defp safety_notice(:status_cure_enabled, true), do: "limpeza de status armada"
+  defp safety_notice(:status_cure_enabled, false), do: "limpeza de status desligada"
 
   defp comeback_notice(0, _seconds),
     do: "volta automática desligada — um tropeço local encerra a caçada"
@@ -3679,12 +3679,12 @@ defmodule PokexWeb.CavebotLive do
                 off="cura desligada"
               />
               <.safety_toggle
-                id="safety-potion"
-                key="potion"
-                armed?={@safety.potion?}
+                id="safety-cure"
+                key="cure"
+                armed?={@safety.cure?}
                 icon="hero-beaker"
-                on="poção armada"
-                off="poção desligada"
+                on="limpeza de status armada"
+                off="limpeza de status desligada"
               />
             </div>
 

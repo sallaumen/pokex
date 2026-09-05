@@ -64,9 +64,9 @@ defmodule Pokex.Engine.Tally do
           kills_per_min: per_min(length(kills), minutes),
           revives: revives(decisions),
           revives_per_min: per_min(revives(decisions), minutes),
-          # A Status Potion na frente do ataque. Ela não é uma decisão do
-          # cérebro — é a mão limpando dentro da própria rajada —, então a
-          # única testemunha dela é o aperto que ela mesma registra.
+          # The Status Potion in front of the attack. It is not a decision of
+          # the brain — it is the hand cleaning inside its own burst — so the
+          # only witness to it is the press it records itself.
           cures: length(cures),
           cures_per_min: per_min(length(cures), minutes),
           down_pct: share(vitals, &(&1["out"] != true)),

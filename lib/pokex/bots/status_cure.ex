@@ -1,62 +1,62 @@
 defmodule Pokex.Bots.StatusCure do
   @moduledoc """
-  A STATUS POTION ANTES DO ATAQUE — quando vale gastar 100ms limpando.
+  THE STATUS POTION IN FRONT OF THE ATTACK — when 100ms of cleaning is worth it.
 
   "Meu pokémon pode estar sob efeito de status negativo antes de usar o auto
   combo (…) a tecla `e` usa o Status potion, que cura qualquer status negativo"
-  (Lucas, 05/09). Dormindo, silenciado ou congelado, a corrente vira tecla
-  morta: as skills não saem, a barra não gasta, e o bot insiste de quatro em
-  quatro segundos contra uma mobada que continua batendo.
+  (Lucas, 2026-09-05). Asleep, silenced or frozen, the chain is a dead key: no
+  skill leaves, the bar is not spent, and the bot keeps pressing every four
+  seconds at a mob that keeps hitting back.
 
-  ## Por que a limpeza é cega, e pode ser
+  ## Why the cleaning is blind, and why it can be
 
-  Nenhum leitor de tela reconhece status hoje, então não há como perguntar
-  antes. Mas ele confirmou que a poção **não é consumida quando não há status**:
-  o uso vira no-op e o item fica na bag. Isso tira o dinheiro da conta e deixa
-  só o tempo — aí a resposta certa é limpar por profilaxia, sempre que o custo
-  couber.
+  No reader recognizes status on screen today, so there is no asking first. But
+  he confirmed the potion is **not consumed when there is no status**: the use
+  is a no-op and the item stays in the bag. That takes money out of the account
+  and leaves only time — and then the right answer is prophylaxis, every time
+  the cost fits.
 
-  ## Este módulo não aperta nada
+  ## This module presses nothing
 
-  Ele responde SE vale apertar; quem aperta é o `Combat.Worker`, dentro da
-  mesma rajada e depois de soltar as setas. Duas mãos apertando em paralelo é
-  a corrida que já custou uma noite inteira (#480).
+  It answers WHETHER cleaning is worth it; the `Combat.Worker` presses, inside
+  the same burst and after letting go of the arrows. Two hands pressing in
+  parallel is the race that once cost a whole night (#480).
   """
 
   alias Pokex.Engine.Events
   alias Pokex.Settings
 
-  @typedoc "Com que frequência um modo de caça limpa — ver `Combat.Plan.cure_policy/1`."
+  @typedoc "How often a hunt mode cleans — see `Combat.Plan.cure_policy/1`."
   @type policy :: :always | :opening
 
-  @doc "A tecla da Status Potion. `\"\"` é 'ele não configurou nenhuma'."
+  @doc "The Status Potion key. `\"\"` means he configured none."
   @spec key() :: String.t()
   def key, do: Settings.get(:status_cure_key) |> to_string() |> String.trim()
 
-  @doc "A limpeza está ligada?"
+  @doc "Whether cleaning is on."
   @spec enabled?() :: boolean
   def enabled?, do: Settings.get(:status_cure_enabled) == true
 
   @doc """
-  Quanto o jogo ganha pra aplicar a poção antes de a rajada sair.
+  How long the game gets to apply the potion before the burst leaves.
 
-  Zero é uma resposta legítima ("não precisa de respiro"), e é também o que sai
-  de uma configuração corrompida: um respiro que não dá pra entender nunca vira
-  uma espera indefinida no meio de uma luta.
+  Zero is a legitimate answer ("no breath needed"), and it is also what a
+  corrupt setting reads as: a breath nobody can parse must never become an open
+  ended wait in the middle of a fight.
   """
   @spec settle_ms() :: non_neg_integer
   def settle_ms do
     case Settings.get(:status_cure_settle_ms) do
       ms when is_integer(ms) and ms > 0 -> ms
-      _sem_respiro -> 0
+      _no_breath -> 0
     end
   end
 
   @doc """
-  Esta rajada merece uma limpeza na frente?
+  Does this burst deserve a cleaning in front of it?
 
-  `cured?` é "esta luta já foi limpa" — o worker o zera a cada engajamento, e
-  ele só importa na política `:opening`.
+  `cured?` is "this fight was already cleaned" — the worker clears it on every
+  engagement, and it only matters under the `:opening` policy.
   """
   @spec due?(policy, [String.t()], boolean) :: boolean
   def due?(policy, keys, cured?) do
@@ -64,21 +64,22 @@ defmodule Pokex.Bots.StatusCure do
   end
 
   @doc """
-  APERTA A POÇÃO — o aperto avulso, e o único lugar que sabe registrá-lo.
+  PRESSES THE POTION — the standalone press, and the only place that knows how
+  to record it.
 
-  Sempre `:ok`, mesmo quando nada saiu: quem chama é uma rajada no meio de uma
-  luta ou um botão do painel, e nenhum dos dois pode virar erro porque o jogo
-  estava fora de foco. Sem tecla configurada não toca no teclado — um `press("")`
-  chegaria ao rig como combinação vazia.
+  Always `:ok`, even when nothing left the hand: the callers are a burst in the
+  middle of a fight and a panel button, and neither may become an error because
+  the game was out of focus. With no key configured it does not touch the
+  keyboard — a `press("")` would reach the rig as an empty combination.
   """
   @spec press() :: :ok
   def press do
-    tecla = key()
+    key = key()
 
-    if enabled?() and tecla != "" do
-      case Pokex.Rig.impl().press(tecla) do
-        :ok -> Events.record(:cure, %{key: tecla})
-        _recusado -> :ok
+    if enabled?() and key != "" do
+      case Pokex.Rig.impl().press(key) do
+        :ok -> Events.record(:cure, %{key: key})
+        _refused -> :ok
       end
     end
 
@@ -87,12 +88,12 @@ defmodule Pokex.Bots.StatusCure do
 
   defp worth?(:always, _cured?), do: true
   defp worth?(:opening, cured?), do: not cured?
-  defp worth?(_sem_politica, _cured?), do: false
+  defp worth?(_no_policy, _cured?), do: false
 
-  # MIRAR E TROCAR DE POSTURA NÃO É ATACAR. Nem o Tab nem o `shift+N` põem o
-  # pokémon pra conjurar coisa alguma, e as duas coisas saem em rajada PRÓPRIA:
-  # sem esta cerca a primeira poção da luta era gasta na troca de postura, e o
-  # ataque que vinha logo atrás saía sem limpeza nenhuma.
+  # TARGETING AND CHANGING STANCE ARE NOT ATTACKING. Neither Tab nor `shift+N`
+  # makes the pokémon cast anything, and both leave in a burst of their OWN:
+  # without this fence the fight's first potion was spent on the stance change,
+  # and the attack right behind it went out with no cleaning at all.
   defp attack?(keys), do: Enum.any?(keys, &(&1 not in bystanders()))
 
   defp bystanders do

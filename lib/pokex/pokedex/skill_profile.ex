@@ -22,9 +22,9 @@ defmodule Pokex.Pokedex.SkillProfile do
       marked: a single-target skill only works while a target is locked. Before the
       target lock it presses into nothing.
     * `:heal` - when the pokémon's life asks for it. Reactive, never a step in an
-      order: `Pokex.Bots.PlayerSupport` presses it a rung ABOVE the potion, because a
-      skill is one press and a potion is a channel combat cancels, so it is the only
-      one of the two that works mid-fight.
+      order: `Pokex.Bots.PlayerSupport` presses it a rung BELOW the revive, because a
+      skill is one press and costs nothing, so it is what stands between the full bar
+      and recalling the pokémon.
     * `:crowd` (control) - RESERVED for the moment before an auto-revive, the stun that
       buys the recall its time, practically never for anything else. Spending it in an
       ordinary fight is the failure, so it is barred from the combo by construction:

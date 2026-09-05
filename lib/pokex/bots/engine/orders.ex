@@ -62,7 +62,6 @@ defmodule Pokex.Bots.Engine.Orders do
           fire: :hold | :free,
           opening: [String.t()],
           revive: :hold | :now | :prepare,
-          potion: :hold | :now,
           why: String.t()
         }
 
@@ -111,7 +110,6 @@ defmodule Pokex.Bots.Engine.Orders do
       fire: Keyword.fetch!(opts, :fire),
       opening: Keyword.get(opts, :opening, []),
       revive: Keyword.get(opts, :revive, :hold),
-      potion: Keyword.get(opts, :potion, :hold),
       why: why
     }
   end

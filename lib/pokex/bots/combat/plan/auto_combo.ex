@@ -122,11 +122,11 @@ defmodule Pokex.Bots.Combat.Plan.AutoCombo do
   @impl true
   def tab?(_ctx), do: false
 
-  # UMA LIMPEZA POR CORRENTE. Uma luta aqui tem várias — corrente, os 4s da
-  # janela, o revive, corrente de novo, "quantas vezes precisarmos até matar o
-  # shiny" — e o status que mata é justamente o que chega no meio disso. A
-  # janela já limita o prefixo a ~15 apertos por minuto, e sem status a poção é
-  # no-op: o custo é o respiro, e só.
+  # ONE CLEANING PER CHAIN. A fight here has several — chain, the 4s window,
+  # the revive, chain again, "quantas vezes precisarmos até matar o shiny" —
+  # and the status that kills is exactly the one that arrives in the middle of
+  # that. The window already caps the prefix at ~15 presses a minute, and with
+  # no status the potion is a no-op: the cost is the breath, and nothing more.
   @impl true
   def cure_policy(_ctx), do: :always
 

@@ -9,7 +9,7 @@ defmodule Pokex.Sim.Hands do
 
   They drifted, and the drift was invisible because each half had its own tests.
   On 2026-08-25 the live tab — the one he actually plays in — had no support
-  ladder at all: nothing healed, nothing drank a potion, and the only first aid
+  ladder at all: nothing healed, and the only first aid
   in the world was a revive on a sixty-second floor. He watched the health bar
   fall the whole way down and the pokémon die without a single press.
 
@@ -23,11 +23,11 @@ defmodule Pokex.Sim.Hands do
     * **Revive** — `revive: :now`, which is R3 in one key: it heals AND zeroes
       every cooldown. Modelling only the healing would make the engine look
       wrong about when to spend it.
-    * **The support ladder** — the two cheap rungs the engine never orders
-      because they were never its call: the pokémon's own healing skill (free,
-      works mid-fight) and the potion (costs money, only out of combat).
-      `PlayerSupport.Logic` decides both, and it is called here rather than
-      copied, for the same reason `Engine.Logic` is.
+    * **The support ladder** — the cheap rungs the engine never orders because
+      they were never its call: the pokémon's own defence aura and its healing
+      skill, both free and both working mid-fight. `PlayerSupport.Logic`
+      decides them, and it is called here rather than copied, for the same
+      reason `Engine.Logic` is.
   """
 
   alias Pokex.Bots.PlayerSupport.Logic, as: Support
@@ -37,7 +37,6 @@ defmodule Pokex.Sim.Hands do
             prev_hp: nil,
             last_heal_at: nil,
             last_shield_at: nil,
-            last_potion_at: nil,
             # o resgate em duas partes: o stun já saiu e o revive sai em
             # `revive_at` — ver `rescue/3`
             revive_at: nil,
@@ -288,10 +287,17 @@ defmodule Pokex.Sim.Hands do
         {world, hands}
 
       prontas ->
+        # THE STATUS-CURE BREATH, and only its COST: the simulated world has
+        # no negative status to cure, so the bench never measures the benefit —
+        # but without charging the breath it would measure a hand faster than
+        # the bot's (the rule of #486). Only the chain: in the other modes the
+        # cleaning happens once per FIGHT, and the bench has no such boundary.
+        breath = cure_settle(world, prontas, config)
+
         plan =
           prontas
           |> Enum.with_index()
-          |> Enum.map(fn {key, idx} -> {key, world.clock + idx * gap} end)
+          |> Enum.map(fn {key, idx} -> {key, world.clock + breath + idx * gap} end)
 
         # O ESPELHO DO `let_go` DO COMBATE: a tecla do combo solta as setas
         # antes de sair (`Body.release/0` no bot). Só ela — a rajada comum anda
@@ -306,6 +312,12 @@ defmodule Pokex.Sim.Hands do
   defp fire(world, _holding, hands, _config), do: {world, hands}
 
   defp gap(config), do: Map.get(config, :skill_gap_ms, 0)
+
+  defp cure_settle(world, keys, config) do
+    if Map.get(config, :cure_enabled, false) and Enum.any?(keys, &World.combo_key?(world, &1)),
+      do: Map.get(config, :cure_settle_ms, 0),
+      else: 0
+  end
 
   # A TECLA DO COMBO não está no teclado do mundo (é um atalho do cliente, não
   # uma skill), então ela passa por OUTRAS duas perguntas — as mesmas que o bot
@@ -417,8 +429,7 @@ defmodule Pokex.Sim.Hands do
   # when it happens (`orders.revive`), which is the whole reason it exists.
   defp support(world, orders, hands, config) do
     {world, hands} = shield_skill(world, orders, hands, config)
-    {world, hands} = heal_skill(world, hands, config)
-    potion(world, hands, config)
+    heal_skill(world, hands, config)
   end
 
   # A AURA DE DEFESA, o espelho do degrau novo do suporte (02/09): abaixo do
@@ -479,18 +490,6 @@ defmodule Pokex.Sim.Hands do
     end
   end
 
-  # A potion is a CHANNEL and combat cancels it — the same gate the worker
-  # keeps, and the reason the heal skill exists at all.
-  defp potion(world, hands, config) do
-    if clear?(world) and Support.potion_wanted?(potion_input(world, hands, config)) do
-      {World.potion(world), %{hands | last_potion_at: world.clock}}
-    else
-      {world, hands}
-    end
-  end
-
-  defp clear?(world), do: World.observe(world, :battle).enemies in [[], nil]
-
   defp heal_input(world, hands, config) do
     %{
       hp_pct: hp(world),
@@ -499,18 +498,6 @@ defmodule Pokex.Sim.Hands do
       enabled?: config.heal_skill_enabled,
       cooldown_ms: config.heal_skill_cooldown_ms,
       last_heal_at: hands.last_heal_at,
-      now: world.clock
-    }
-  end
-
-  defp potion_input(world, hands, config) do
-    %{
-      hp_pct: hp(world),
-      prev_hp_pct: hands.prev_hp,
-      threshold_pct: config.potion_pct,
-      enabled?: config.potion_enabled,
-      cooldown_ms: config.potion_cooldown_ms,
-      last_potion_at: hands.last_potion_at,
       now: world.clock
     }
   end

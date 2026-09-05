@@ -17,7 +17,7 @@ defmodule Pokex.Modes do
     * `reposition_enabled` - after a fight the support middle-clicks the calibrated tile.
       On a spot that is going home; walking, it undoes the walk.
 
-  Looting, revive, potion, the escape and the support itself are right in both modes and stay
+  Looting, revive, the escape and the support itself are right in both modes and stay
   out. So do the fishing gates (`require_cooldowns`, `require_pokemon_hp`): with no rod running
   they have nothing to hold back, and flipping them would be theatre.
   """

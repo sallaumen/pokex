@@ -77,9 +77,9 @@ defmodule Pokex.Bots.Combat.Plan.Standard do
   @impl true
   def tab?(_ctx), do: false
 
-  # Uma limpeza por luta, pelo mesmo motivo do Econômico: aqui a rotação
-  # aperta a barra inteira tecla por tecla, e um prefixo em cada rajada
-  # custaria mais respiro do que dano.
+  # One cleaning per fight, for the same reason as Economy: here the rotation
+  # presses the whole bar key by key, and a prefix on every burst would cost
+  # more breath than damage.
   @impl true
   def cure_policy(_ctx), do: :opening
 

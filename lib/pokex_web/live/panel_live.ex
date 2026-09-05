@@ -164,7 +164,7 @@ defmodule PokexWeb.PanelLive do
        stun_settle_ms: Settings.get(:rescue_stun_settle_ms),
        fainted_below_pct: Settings.get(:pokemon_hp_fainted_below_pct),
        fainted_cooldown_s: div(Settings.get(:fainted_revive_cooldown_ms), 1000),
-       potion_enabled: Settings.get(:potion_enabled),
+       status_cure_enabled: Settings.get(:status_cure_enabled),
        reposition_enabled: Settings.get(:reposition_enabled),
        support_waits_capture: Settings.get(:support_waits_capture),
        shiny_guard_enabled: Settings.get(:shiny_guard_enabled),
@@ -190,8 +190,6 @@ defmodule PokexWeb.PanelLive do
        shiny_px: nil,
        shiny_min_px: shiny_min_px(),
        shiny_log: ShinyLog.entries(),
-       potion_pct: Settings.get(:pokemon_hp_potion_pct),
-       potion_cooldown_s: div(Settings.get(:potion_cooldown_ms), 1000),
        hook_skills: Enum.join(Settings.get(:hook_skill_keys), " "),
        presets: Settings.list_presets(),
        mode_overrides: mode_override_keys(),
@@ -265,8 +263,7 @@ defmodule PokexWeb.PanelLive do
       stun_settle_ms: Settings.get(:rescue_stun_settle_ms),
       fainted_below_pct: Settings.get(:pokemon_hp_fainted_below_pct),
       fainted_cooldown_s: div(Settings.get(:fainted_revive_cooldown_ms), 1000),
-      potion_enabled: Settings.get(:potion_enabled),
-      potion_pct: Settings.get(:pokemon_hp_potion_pct),
+      status_cure_enabled: Settings.get(:status_cure_enabled),
       reposition_enabled: Settings.get(:reposition_enabled),
       support_waits_capture: Settings.get(:support_waits_capture),
       corpse_match_pct: round(Settings.get(:corpse_match_min_similarity) * 100),
@@ -849,7 +846,7 @@ defmodule PokexWeb.PanelLive do
         support_keys = [
           :require_pokemon_hp,
           :rescue_enabled,
-          :potion_enabled,
+          :status_cure_enabled,
           :reposition_enabled
         ]
 
@@ -1050,11 +1047,11 @@ defmodule PokexWeb.PanelLive do
     {:noreply, socket}
   end
 
-  def handle_event("toggle_potion", _params, socket) do
-    value = not Settings.get(:potion_enabled)
-    Settings.put(:potion_enabled, value)
+  def handle_event("toggle_status_cure", _params, socket) do
+    value = not Settings.get(:status_cure_enabled)
+    Settings.put(:status_cure_enabled, value)
     if value, do: arm_support()
-    {:noreply, assign(socket, potion_enabled: value)}
+    {:noreply, assign(socket, status_cure_enabled: value)}
   end
 
   def handle_event("toggle_reposition", _params, socket) do
@@ -1138,22 +1135,8 @@ defmodule PokexWeb.PanelLive do
     {:noreply, socket}
   end
 
-  def handle_event("save_potion_cfg", params, socket) do
-    socket =
-      socket
-      |> save_int(params["potion_pct"], 1..99, :pokemon_hp_potion_pct, :potion_pct)
-      |> save_seconds(
-        params["potion_cooldown_s"],
-        1..600,
-        :potion_cooldown_ms,
-        :potion_cooldown_s
-      )
-
-    {:noreply, socket}
-  end
-
-  def handle_event("use_potion", _params, socket) do
-    PlayerSupport.Worker.use_potion()
+  def handle_event("clear_status", _params, socket) do
+    PlayerSupport.Worker.clear_status()
     {:noreply, socket}
   end
 
@@ -1582,7 +1565,7 @@ defmodule PokexWeb.PanelLive do
   defp catcher_label(:manual), do: "manual"
   defp catcher_label(other), do: state_word(other)
 
-  # 🚑 Suporte (PlayerSupport): revive + poção. Halts on panic/Stop like every worker.
+  # 🚑 Suporte (PlayerSupport): revive + limpeza de status. Halts on panic/Stop like every worker.
   defp support_label(:monitoring), do: "monitorando"
   defp support_label(:idle), do: "parado"
   defp support_label(other), do: state_word(other)
@@ -1998,7 +1981,7 @@ defmodule PokexWeb.PanelLive do
   defp worker_job(:combat), do: "luta"
   defp worker_job(:catcher), do: "saque e captura"
   defp worker_job(:mini_game), do: "mini game"
-  defp worker_job(:player_support), do: "revive e poção"
+  defp worker_job(:player_support), do: "revive e limpeza"
   defp worker_job(:cavebot), do: "anda a rota e luta"
   defp worker_job(:timers), do: "ações no relógio"
 
@@ -2097,7 +2080,7 @@ defmodule PokexWeb.PanelLive do
          player_mode,
          capture_enabled,
          rescue_enabled,
-         potion_enabled,
+         status_cure_enabled,
          sweep_enabled
        ) do
     [
@@ -2105,7 +2088,7 @@ defmodule PokexWeb.PanelLive do
       active?(combat.state),
       capture_enabled and player_mode == "still",
       rescue_enabled,
-      potion_enabled,
+      status_cure_enabled,
       sweep_enabled and player_mode == "still"
     ]
     |> Enum.count(& &1)
@@ -2148,7 +2131,6 @@ defmodule PokexWeb.PanelLive do
   end
 
   defp rescue_count(game), do: get_in(game, [:counters, :rescues]) || 0
-  defp potion_count(game), do: get_in(game, [:counters, :potions]) || 0
   defp catcher_captures(catcher), do: get_in(catcher, [:counters, :captures]) || 0
 
   # The scoreboard that turns "I think it's not working" into a number: how
@@ -2790,8 +2772,8 @@ defmodule PokexWeb.PanelLive do
                 state={@game.state}
                 active?={@game.state == :monitoring}
                 label={support_label(@game.state)}
-                counters={"#{rescue_count(@game)} revive · #{potion_count(@game)} poção"}
-                title="revive + poção — protege o Pokémon principal, até jogando manual"
+                counters={"#{rescue_count(@game)} revive"}
+                title="revive + limpeza de status — protege o Pokémon principal, até jogando manual"
                 snapshot={@game}
                 now_ms={@now_ms}
               />
@@ -2986,7 +2968,7 @@ defmodule PokexWeb.PanelLive do
                     @player_mode,
                     @capture_enabled,
                     @rescue_enabled,
-                    @potion_enabled,
+                    @status_cure_enabled,
                     @sweep_enabled
                   )}/6 on
                 </span>
@@ -3024,10 +3006,10 @@ defmodule PokexWeb.PanelLive do
                   event="toggle_rescue"
                 />
                 <.quick_toggle
-                  id="quick-potion"
-                  label="Poção"
-                  active={@potion_enabled}
-                  event="toggle_potion"
+                  id="quick-status-cure"
+                  label="Status"
+                  active={@status_cure_enabled}
+                  event="toggle_status_cure"
                 />
               </div>
               <.link
@@ -3056,8 +3038,8 @@ defmodule PokexWeb.PanelLive do
               <%!-- The thresholds moved (⚙️): here they became a READOUT — you
                    see what is in force without bumping a number mid-hunt. --%>
               <div class="mt-2 flex items-center justify-between font-mono text-pk-meta text-pk-text-3">
-                <span>revive &lt; {@rescue_pct}% · poção &lt; {@potion_pct}%</span>
-                <span>{rescue_count(@game)} revives · {potion_count(@game)} poções</span>
+                <span>revive &lt; {@rescue_pct}%</span>
+                <span>{rescue_count(@game)} revives</span>
               </div>
 
               <%!-- A vida do PERSONAGEM — a barra vermelha do painel "Pokémon"
@@ -3072,11 +3054,11 @@ defmodule PokexWeb.PanelLive do
                 <span class={player_hp_class(@game)}>{player_hp(@game)}%</span>
               </div>
               <button
-                id="use-potion"
-                phx-click="use_potion"
+                id="clear-status"
+                phx-click="clear_status"
                 class="mt-2.5 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-pk-line-strong text-pk-body font-semibold text-pk-text-2 transition hover:border-pk-ok/60 hover:bg-pk-raised hover:text-white active:scale-[0.99]"
               >
-                <.icon name="hero-beaker" class="size-3.5" /> Usar poção agora
+                <.icon name="hero-beaker" class="size-3.5" /> Limpar status agora
               </button>
 
               <div class="mt-3 border-t border-pk-line pt-2.5">
@@ -3382,7 +3364,6 @@ defmodule PokexWeb.PanelLive do
             enabled: @rescue_enabled
           }
         }
-        potion_cfg={%{pct: @potion_pct, cooldown_s: @potion_cooldown_s, enabled: @potion_enabled}}
         fishing_cfg={
           %{
             require_cooldowns: @require_cooldowns,

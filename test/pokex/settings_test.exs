@@ -439,18 +439,18 @@ defmodule Pokex.SettingsTest do
       server = preset_server(tmp)
 
       :ok = Settings.put(:skill_keys, ["9", "0"], server)
-      :ok = Settings.put(:potion_enabled, true, server)
+      :ok = Settings.put(:rescue_enabled, true, server)
       assert {:ok, "charizard"} = Settings.save_preset("Charizard!", server)
 
       :ok = Settings.put(:skill_keys, ["1"], server)
-      :ok = Settings.put(:potion_enabled, false, server)
+      :ok = Settings.put(:rescue_enabled, false, server)
 
       assert {:ok, %{slug: "charizard", applied: applied}} =
                Settings.apply_preset("charizard", server)
 
       assert applied == length(Settings.preset_keys())
       assert Settings.get(:skill_keys, server) == ["9", "0"]
-      assert Settings.get(:potion_enabled, server) == true
+      assert Settings.get(:rescue_enabled, server) == true
     end
 
     @tag :tmp_dir
@@ -485,7 +485,7 @@ defmodule Pokex.SettingsTest do
         Path.join(tmp, "presets/misto.json"),
         JSON.encode!(%{
           "skill_keys" => ["7"],
-          "potion_enabled" => "sim",
+          "rescue_enabled" => "sim",
           "glow_threshold" => 1,
           "hacked" => true
         })
@@ -495,7 +495,7 @@ defmodule Pokex.SettingsTest do
       assert {:ok, %{applied: 1}} = Settings.apply_preset("misto", server)
 
       assert Settings.get(:skill_keys, server) == ["7"]
-      assert Settings.get(:potion_enabled, server) == Settings.defaults()[:potion_enabled]
+      assert Settings.get(:rescue_enabled, server) == Settings.defaults()[:rescue_enabled]
       assert Settings.get(:glow_threshold, server) == glow_before
     end
 
@@ -579,6 +579,25 @@ defmodule Pokex.SettingsTest do
   # por engano e levou quatro ajustes dele, entre eles `revive_stock`, que é o
   # orçamento de revives inteiro. A noite de 27→28/08 já tinha mostrado o preço
   # de ficar sem ele: quatro horas e meia moendo com o pokémon no chão.
+  # THE HP POTION, RETIRED (2026-09-05). The `E` slot of his client holds a
+  # Status Potion, not an HP potion — and both pointed at the same key. With
+  # `potion_enabled` switched on by mistake, the bot would drink Status Potions
+  # on an HP threshold; the trap only goes away with the keys.
+  test "the HP potion keys no longer exist" do
+    for morta <- ~w(
+          potion_enabled
+          potion_key
+          pokemon_hp_potion_pct
+          potion_cooldown_ms
+          potion_battle_clear_ms
+        ) do
+      refute Map.has_key?(Settings.defaults(), String.to_atom(morta)),
+             "#{morta} continua no crachá desta build"
+    end
+
+    assert Map.has_key?(Settings.defaults(), :status_cure_key)
+  end
+
   describe "as chaves que esta build não conhece" do
     @tag :tmp_dir
     test "sobrevivem ao heal do boot, intactas", %{tmp_dir: tmp} do

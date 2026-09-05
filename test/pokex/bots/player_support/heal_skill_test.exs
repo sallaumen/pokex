@@ -1,10 +1,10 @@
 defmodule Pokex.Bots.PlayerSupport.HealSkillTest do
   @moduledoc """
-  The pokémon's own healing skill — the rung above the potion.
+  The pokémon's own healing skill — the rung below the revive.
 
-  It exists because of a hole the potion cannot cover: a potion is a CHANNEL and
-  combat cancels it, so the sip only ever happens out of battle. HP falling
-  WHILE the pokémon fights had nothing between the full bar and the revive.
+  It exists because HP falling WHILE the pokémon fights had nothing between the
+  full bar and recalling it. A skill is one press, so it is the rung that works
+  mid-fight.
   """
   use ExUnit.Case, async: true
 
@@ -34,8 +34,8 @@ defmodule Pokex.Bots.PlayerSupport.HealSkillTest do
       refute Logic.heal_wanted?(input(%{hp_pct: 70, prev_hp_pct: 40}))
     end
 
-    # The same rule the revive and the potion follow: one torn frame must not
-    # spend anything.
+    # The same rule the revive follows: one torn frame must not spend
+    # anything.
     test "a single low frame is not enough — the previous read must agree" do
       refute Logic.heal_wanted?(input(%{hp_pct: 30, prev_hp_pct: 90}))
       refute Logic.heal_wanted?(input(%{hp_pct: 30, prev_hp_pct: nil}))
@@ -55,34 +55,6 @@ defmodule Pokex.Bots.PlayerSupport.HealSkillTest do
 
     test "having never fired, nothing holds it back" do
       assert Logic.heal_wanted?(input(%{last_heal_at: nil}))
-    end
-  end
-
-  # The two rungs are separate decisions on the same bar, and their order is
-  # the whole design: free and always available first, the costlier second.
-  # The revive used to be a third rung here — it is the engine's call now
-  # (Engine.Logic, orders.revive), not a threshold this module still holds.
-  describe "the ladder" do
-    test "at 65% only the skill wants to go; at 55% the potion joins too" do
-      # his real thresholds: heal 70, potion 60
-      at = fn hp ->
-        {
-          Logic.heal_wanted?(input(%{hp_pct: hp, prev_hp_pct: hp, threshold_pct: 70})),
-          Logic.potion_wanted?(%{
-            hp_pct: hp,
-            prev_hp_pct: hp,
-            threshold_pct: 60,
-            enabled?: true,
-            cooldown_ms: 0,
-            last_potion_at: nil,
-            now: 0
-          })
-        }
-      end
-
-      assert at.(65) == {true, false}
-      assert at.(55) == {true, true}
-      assert at.(80) == {false, false}
     end
   end
 end

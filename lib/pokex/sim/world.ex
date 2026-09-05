@@ -236,14 +236,12 @@ defmodule Pokex.Sim.World do
     #
     # Both are measurable in the game with a stopwatch and should be. The
     # authority is `Settings`, not this map — see `Bench.world_knobs/0`.
-    # THE TWO CHEAP RUNGS of the support ladder, both invented: how much one
-    # press of the pokemon's own healing skill gives back, and how much one
-    # potion does. `PlayerSupport.Logic` documents the ladder — heal skill is
-    # free and works in combat, the potion costs money and only out of it, the
-    # revive is the last resort — and this world modelled only the last one,
-    # which is what made every hurt run look like a revive treadmill.
+    # THE CHEAP RUNG of the support ladder, invented: how much one press of the
+    # pokemon's own healing skill gives back. `PlayerSupport.Logic` documents
+    # the ladder — the heal is free and works in combat, the revive is the last
+    # resort — and this world modelled only the last one, which is what made
+    # every hurt run look like a revive treadmill.
     heal_skill_pct: 25,
-    potion_heal_pct: 40,
     # O STUN, que é a metade do revive que este mundo nunca teve. "Com o revive e
     # stun em área antes de usar o revive tudo se resolve" (Lucas, 2026-08-25) —
     # e ele está certo: o preço do revive é o campo vazio, e uma pilha dormindo
@@ -1182,17 +1180,6 @@ defmodule Pokex.Sim.World do
   defp damage(world, _key, _no_damage), do: world
 
   defp boost(world), do: put_in(world.own.boost_until, world.clock + world.knobs.aura_boost_ms)
-
-  @doc """
-  THE SECOND RUNG: a potion. Costs money, is a channel, and so only ever
-  happens out of combat — the caller owns that gate, exactly as
-  `PlayerSupport` does.
-  """
-  @spec potion(t) :: t
-  def potion(%__MODULE__{own: %{out?: true}} = world),
-    do: %{world | own: mend(world.own, world.knobs.potion_heal_pct)}
-
-  def potion(world), do: world
 
   defp mend(own, amount), do: %{own | hp_pct: min(own.hp_pct + amount, 100)}
 

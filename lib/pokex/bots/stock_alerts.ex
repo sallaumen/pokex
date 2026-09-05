@@ -4,7 +4,7 @@ defmodule Pokex.Bots.StockAlerts do
 
   A low slot must keep screaming until he acts — an empty slot gets the
   character killed mid-hunt. So this watches the four slots that keep him
-  alive and hunting — F1 and F2 (balls), E (potion) and S+Q — and fires ONE
+  alive and hunting — F1 and F2 (balls), E (Status Potion) and S+Q — and fires ONE
   alarm per crossing, re-arming only when the stock climbs back above its
   threshold. An alarm that repeats every 500ms
   is an alarm he learns to ignore.
@@ -31,7 +31,7 @@ defmodule Pokex.Bots.StockAlerts do
   @slots [
     {:f1, "F1", :stock_alert_f1},
     {:f2, "F2", :stock_alert_f2},
-    {:e, "E", :stock_alert_e},
+    {:e, "E (Status Potion)", :stock_alert_e},
     {:s_q, "S+Q", :stock_alert_s_q}
   ]
 

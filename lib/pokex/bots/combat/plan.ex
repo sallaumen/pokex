@@ -70,17 +70,17 @@ defmodule Pokex.Bots.Combat.Plan do
   @callback tab?(ctx) :: boolean
 
   @doc """
-  COM QUE FREQUÊNCIA ESTE MODO LIMPA STATUS — a Status Potion na frente do
-  ataque (`Pokex.Bots.StatusCure`).
+  HOW OFTEN THIS MODE CLEANS STATUS — the Status Potion in front of the attack
+  (`Pokex.Bots.StatusCure`).
 
-  `:always` é uma limpeza antes de cada rajada; `:opening`, uma por luta.
+  `:always` is one cleaning before every burst; `:opening`, one per fight.
 
-  A resposta é do modo porque a cadência do modo é que decide o custo. No Auto
-  Combo a corrente sai no máximo a cada 4s (a janela), então `:always` custa
-  ~15 apertos por minuto — e é o único jeito de cobrir o status que chega no
-  MEIO da mobada, entre a primeira corrente e a terceira. Nos outros modos as
-  rajadas saem quase a cada tique, e a mesma resposta viraria um `e` por
-  segundo por um ganho que a abertura já entrega.
+  The answer belongs to the mode because the mode's cadence decides the cost.
+  In Auto Combo the chain leaves at most every 4s (the window), so `:always`
+  costs ~15 presses a minute — and it is the only way to cover the status that
+  arrives in the MIDDLE of the mob, between the first chain and the third. In
+  the other modes bursts leave almost every tick, and the same answer would
+  become one `e` per second for a gain the opening already delivers.
   """
   @callback cure_policy(ctx) :: StatusCure.policy()
 

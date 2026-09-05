@@ -161,6 +161,40 @@ defmodule PokexWeb.SimLiveTest do
            "a página tem que dizer COMO medir a quarta, e com qual tecla"
   end
 
+  # THE NIGHT STRIP RENDERS ONLY WITH A TRAIL, so every one of its readouts —
+  # the status cure's included — is behind an `:if` no other test walks into.
+  # The cleaning is not a decision of the brain (it is the hand pressing inside
+  # its own burst), so the trail is the only place that counts it.
+  @tag :tmp_dir
+  test "the night strip renders every readout, cures included", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(&Pokex.TestHome.restore/0)
+
+    File.mkdir_p!(Path.join(tmp, "events"))
+
+    File.write!(
+      Path.join(tmp, "events/#{Date.utc_today()}.jsonl"),
+      Enum.map_join(
+        [
+          %{"kind" => "vitals", "at" => 0, "enemies" => 2, "ready" => 3, "out" => true},
+          %{"kind" => "kill", "at" => 20_000, "n" => 1},
+          %{"kind" => "cure", "at" => 30_000, "key" => "e"},
+          %{"kind" => "vitals", "at" => 60_000, "enemies" => 0, "ready" => 3, "out" => true}
+        ],
+        "\n",
+        &JSON.encode!/1
+      )
+    )
+
+    {:ok, _live, html} = live(conn, ~p"/sim")
+
+    for label <- ["mortos/min", "revives/min", "limpezas/min", "no chão", "sem cooldown"] do
+      assert html =~ label, "faltou o mostrador de #{label}"
+    end
+
+    assert html =~ "1 Status Potion"
+  end
+
   # A mesa pedia dano de uma tecla de buff e listava "0" antes do "1", sem dizer
   # o que cada tecla faz. "Não tá se adequando ao meu pokémon" (Lucas, 25/08).
   test "a mesa mostra a barra do pokémon, com o trabalho de cada tecla", %{conn: conn} do

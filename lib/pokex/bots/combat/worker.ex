@@ -543,6 +543,18 @@ defmodule Pokex.Bots.Combat.Worker do
   # Map.get, not a pattern: a missing key must read as "none", never crash.
   defp orders_of(fact), do: Map.get(fact, :orders) || []
 
+  # ONE LINE PER FIGHT, and only the first. In Auto Combo the potion leaves
+  # every chain — around fifteen times a minute — and narrating each one would
+  # bury the feed the cleaning exists to keep readable. The rest of them are in
+  # the trail (`Engine.Events` `:cure`), where the night's count comes from.
+  defp log_first_cure do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:combat_log, :macro, "🧴 limpando status antes de atacar"}
+    )
+  end
+
   defp log_loadout(loadout) do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
@@ -681,6 +693,7 @@ defmodule Pokex.Bots.Combat.Worker do
     chain = combo_chain(state, keys)
     special? = special_key?(state, keys)
     cure? = cure?(state, keys)
+    if cure? and not state.cured?, do: log_first_cure()
 
     %{
       state
@@ -1171,7 +1184,12 @@ defmodule Pokex.Bots.Combat.Worker do
       scenery: logic.scenery_rows || 0,
       hold_reason: hold_reason(logic, state),
       last_action: state.last_action,
-      loadout: state.loadout_view
+      loadout: state.loadout_view,
+      # WHICH MODE this fight is actually running as, and whether it has already
+      # cleaned status once. Both were private, and both are what a "why did the
+      # potion not go out" question needs first.
+      mode: state.mode,
+      cured?: state.cured?
     }
 
   # WHO the running fight thinks it is fighting as, and what that decides. The

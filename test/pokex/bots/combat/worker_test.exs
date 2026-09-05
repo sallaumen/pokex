@@ -73,6 +73,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     })
 
     {:ok, _} = Fake.start_link(%{})
+    clean_rig!()
     worker = start_supervised!({Worker, name: nil})
     :ok = Worker.run(worker)
     %{worker: worker}
@@ -102,6 +103,34 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     seq = Process.get(:world_seq, 0) + 5
     Process.put(:world_seq, seq)
     System.monotonic_time(:millisecond) + seq
+  end
+
+  # A CLEAN SHEET, and why the Auto Combo tests have to buy one.
+  #
+  # A burst is a SPAWNED process: it outlives the worker that started it, so one
+  # left over from the previous test still presses into the shared rig and still
+  # stamps the shared key clock. The stamp is the worse half — a stamped combo
+  # key opens the combo window, and an open window makes THIS test's worker skip
+  # every dispatch it decides, so nothing it wanted to press ever leaves. (The
+  # same leak is what turns the rig into a `:noproc` when a test restarts it.)
+  #
+  # So: wait for the rig to fall quiet, then start from zero.
+  defp clean_rig! do
+    wait_for_silence(length(Fake.calls()), now_ms() + 2_000)
+    Agent.stop(Fake)
+    {:ok, _} = Fake.start_link(%{})
+    SkillClock.wipe()
+  end
+
+  defp wait_for_silence(seen, deadline) do
+    Process.sleep(120)
+    current = length(Fake.calls())
+
+    cond do
+      current == seen -> :ok
+      now_ms() >= deadline -> :ok
+      true -> wait_for_silence(current, deadline)
+    end
   end
 
   defp presses do
@@ -1181,6 +1210,11 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       SkillClock.wipe()
       :ok = Worker.run(worker, 5_000, :auto_combo)
 
+      assert Pokex.Bots.StatusCure.enabled?()
+      assert Pokex.Bots.StatusCure.key() == "e"
+      assert Pokex.Bots.StatusCure.due?(:always, ["r"], false)
+      assert Pokex.Bots.Combat.Plan.AutoCombo.cure_policy(%{}) == :always
+
       abre_o_fogo(worker)
       assert eventually(fn -> "r" in presses() end), "a corrente não saiu: #{inspect(presses())}"
 
@@ -1206,7 +1240,9 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       :ok = Worker.run(worker, 5_000, :auto_combo)
 
       abre_o_fogo(worker)
-      assert eventually(fn -> "e" in presses() end), "a poção não saiu: #{inspect(presses())}"
+
+      assert eventually(fn -> "e" in presses() end),
+             "a poção não saiu: #{inspect(Fake.calls())}"
 
       assert call_at({:key_up, "up"}) < call_at({:press, "e"}),
              "a poção saiu com a seta segurada: #{inspect(Fake.calls())}"
@@ -1283,6 +1319,51 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       assert eventually(fn -> "r" in presses() end), "a corrente não saiu: #{inspect(presses())}"
 
       assert potions() == 0, "limpou com a limpeza desligada: #{inspect(presses())}"
+    end
+
+    # ONE LINE PER FIGHT, and only the first. In Auto Combo the potion leaves
+    # every chain — around fifteen times a minute — and narrating each one
+    # would bury the feed the cleaning exists to keep readable.
+    @tag :tmp_dir
+    test "the feed says it when the fight opens", %{worker: worker} do
+      SettingsStash.stash!(
+        auto_combo_key: "r",
+        auto_combo_window_ms: 5_000,
+        status_cure_enabled: true,
+        status_cure_key: "e"
+      )
+
+      SkillClock.wipe()
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      abre_o_fogo(worker)
+
+      assert eventually(fn -> "e" in presses() end),
+             "a poção não saiu: #{inspect(Fake.calls())}"
+
+      assert eventually(fn -> logged?("limpando status") end)
+    end
+
+    # …and it does not say it again. Economy is where this is deterministic: it
+    # cleans once per fight, so every burst after the opening is silent by the
+    # rule itself.
+    @tag :tmp_dir
+    test "and never again in the same fight", %{worker: worker} do
+      SettingsStash.stash!(status_cure_enabled: true, status_cure_key: "e")
+      SkillClock.wipe()
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      abre_o_fogo(worker)
+      assert eventually(fn -> "e" in presses() end), "a poção não saiu: #{inspect(presses())}"
+      assert eventually(fn -> logged?("limpando status") end)
+
+      for _ <- 1..8 do
+        world!(worker, battle_obs(enemies: [0, 1, 2]))
+        Worker.status(worker)
+      end
+
+      refute logged?("limpando status"), "narrou de novo na mesma luta"
     end
 
     # The `e` is not a skill: it has no cooldown on the bar, and stamping it

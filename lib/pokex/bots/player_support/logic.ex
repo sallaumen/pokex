@@ -65,25 +65,24 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   def heal_wanted?(input), do: rung_wanted?(input, :last_heal_at)
 
   @doc """
-  A AURA DE DEFESA, o degrau acima da cura.
+  THE DEFENCE AURA, the rung above the heal.
 
-  "Quando o pokémon chega abaixo de 85% da HP quer dizer que já tem gente
-  batendo nele o suficiente e vale usar o buff de defesa" (Lucas, 02/09). A
-  mesma escada da cura: duas leituras abaixo do limiar, e o cooldown aqui é só
-  anti-spam — se a aura está pronta é a BARRA que diz, e quem aperta pergunta.
+  His rule: below 85% HP enough enemies are hitting the pokémon to be worth the defence buff.
+  The same ladder as the heal: two readings below the threshold, and the cooldown here is only
+  anti-spam. Whether the aura is ready is the BAR's answer, and whoever presses asks it.
 
-  Expects `:hp_pct`, `:prev_hp_pct`, `:threshold_pct`, `:enabled?`,
-  `:cooldown_ms`, `:last_shield_at` and `:now`.
+  Expects `:hp_pct`, `:prev_hp_pct`, `:threshold_pct`, `:enabled?`, `:cooldown_ms`,
+  `:last_shield_at` and `:now`.
   """
   @spec shield_wanted?(map) :: boolean
   def shield_wanted?(input), do: rung_wanted?(input, :last_shield_at)
 
   @doc """
-  A aura ANTES da corrente: o cérebro parado com a pilha fechando (`:bunching`)
-  é o momento em que os monstros já estão em cima e a corrente ainda não saiu.
-  Medido em 02/09: o revive devolve 100% a cada corrente, a vida nunca chegou
-  aos 85% e a aura só saía pela mão dele. O cooldown aqui é o mesmo anti-spam
-  da escada; se a aura está pronta é a barra que diz.
+  The aura BEFORE the chain: the brain standing with the pile closing (`:bunching`) is the
+  moment the mobs are already on top and the chain has not fired yet. Measured: the revive gives
+  100% back on every chain, HP never reached 85%, and the aura only ever fired from his own
+  hand. The cooldown here is the ladder's same anti-spam; whether the aura is ready is the bar's
+  answer.
 
   Expects `:enabled?`, `:phase`, `:cooldown_ms`, `:last_shield_at` and `:now`.
   """
@@ -113,22 +112,19 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
   end
 
   @doc """
-  Everything he still has in hand when the stun did NOT go out — the last
-  thing tried before the field is given up.
+  Everything he still has in hand when the stun did NOT go out: the last thing tried before the
+  field is given up.
 
-  "Stun não confirmado: se não tem mais outras skills pra usar, pra tentar dar
-  aquele último dano, daí recolhe" (Lucas, 2026-08-14). Recalling with a full
-  hand is the worst of both worlds: the pokémon leaves, the pile stays awake,
-  and the character is the one standing there. So a refused stun escalates
-  instead — another control key may put the pile down, and damage may simply
-  end it.
+  His rule for an unconfirmed stun: if there are no other skills left to try for that last bit
+  of damage, then recall. Recalling with a full hand is the worst of both worlds: the pokémon
+  leaves, the pile stays awake, and the character is the one standing there. So a refused stun
+  escalates instead. Another control key may put the pile down, and damage may simply end it.
 
-  Order IS the priority: `crowd` first (it is what the stun was for), then
-  `aoe` (a gathered pile is a crowd by definition), then `single`. Keys already
-  pressed drop out — pressing again what just failed to fire buys nothing.
-  `ready` filters against the skill bar, and `nil` (no reading) keeps
-  everything: the same fail-open rule as `stun_prefix/2`, because in this
-  moment a blind press beats no press at all.
+  Order IS the priority: `crowd` first (it is what the stun was for), then `aoe` (a gathered
+  pile is a crowd by definition), then `single`. Keys already pressed drop out: pressing again
+  what just failed to fire buys nothing. `ready` filters against the skill bar, and `nil` (no
+  reading) keeps everything, the same fail-open rule as `stun_prefix/2`, because in this moment
+  a blind press beats no press at all.
   """
   @spec last_resort_keys(map | nil, [String.t()], [String.t()] | nil, boolean) :: [String.t()]
   def last_resort_keys(loadout, tried, ready, single_target? \\ false)
@@ -180,22 +176,20 @@ defmodule Pokex.Bots.PlayerSupport.Logic do
     do: now - last >= cooldown
 
   @doc """
-  The revive, as a Body action list: an optional STUN PREFIX (`stun_steps`,
-  already-compiled `{:press, _}`/`{:wait, _}` actions — see `stun_prefix/2`),
-  the lead wait its sleep still needs to LAND (`settle_ms`), and the key.
+  The revive, as a Body action list: an optional STUN PREFIX (`stun_steps`, already-compiled
+  `{:press, _}`/`{:wait, _}` actions, see `stun_prefix/2`), the lead wait its sleep still needs
+  to LAND (`settle_ms`), and the key.
 
-  One press is the whole revive in this client (Lucas, 2026-08-24: "é só
-  apertar o botão F4" — it recalls, revives and puts the pokémon back on the
-  field by itself). The client before it needed a choreography: recall, cursor
-  onto the portrait, max-revive, release, cursor home — five steps nothing
-  could interrupt, which is why they rode inside ONE `Body.perform`.
+  One press is the whole revive in this client (his words: it is just pressing F4, which
+  recalls, revives and puts the pokémon back on the field by itself). The client before it
+  needed a choreography: recall, cursor onto the portrait, max-revive, release, cursor home,
+  five steps nothing could interrupt, which is why they rode inside ONE `Body.perform`.
 
-  The prefix still rides inside that same perform, for the reason it was born:
-  nothing may wedge itself between the pile falling asleep and the pokémon
-  leaving the field (2026-07-30, and 2026-08-14 when a rescue exposed the
-  character himself). The exposure survived the client change — the pokémon is
-  still away for a moment (Lucas, 2026-08-24) — so the prefix stays available,
-  off by default, for the hunt that turns out to need it.
+  The prefix still rides inside that same perform, for the reason it was born: nothing may wedge
+  itself between the pile falling asleep and the pokémon leaving the field, a gap that once
+  exposed the character himself. The exposure survived the client change, since the pokémon is
+  still away for a moment, so the prefix stays available, off by default, for the hunt that
+  turns out to need it.
   """
   # And it is born with `:still` in front: the Body releases the arrows before anything on
   # this list fires. Reviving while walking is forbidden (mobs still on screen make the revive

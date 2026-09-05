@@ -4,33 +4,31 @@ defmodule Pokex.Bots.HuntMode do
 
   Two of them, and they are about different game problems:
 
-    * `:auto_combo` — the strong-monster hunt. The client already chains every
-      offensive skill behind ONE key, so the bot presses it once, treats the
-      combo as running for a window, and spends that window on the only two
-      things left: the revive that resets the bar and the safety ladder.
-    * `:economy` — the cheap route. Tab, one single-target key, a short wait,
-      and the area key only when it is still needed.
+    * `:auto_combo` - the strong-monster hunt. The client already chains every offensive
+      skill behind ONE key, so the bot presses it once, treats the combo as running for
+      a window, and spends that window on the only two things left: the revive that
+      resets the bar and the safety ladder.
+    * `:economy` - the cheap route. Tab, one single-target key, a short wait, and the
+      area key only when it is still needed.
 
   ## Why a module instead of a setting read
 
-  The mode has to be asked in four places that must never disagree inside one
-  tick — the brain composing the hand, the fight pressing it, the bench
-  measuring it and the page showing it. A setting read in four places is four
-  chances to read a different value, which is the shape of defect that
-  `Engine.Config` and `Engine.Inputs` were both born to close.
+  The mode has to be asked in four places that must never disagree inside one tick: the brain
+  composing the hand, the fight pressing it, the bench measuring it and the page showing it. A
+  setting read in four places is four chances to read a different value, which is the shape of
+  defect that `Engine.Config` and `Engine.Inputs` were both born to close.
 
   So: one list, one resolution order, one label table.
 
   ## The resolution order is route FIRST
 
-  "O mesmo Pokex pode ser usado em diferentes tipos de rota" — so the mode
-  belongs to the hunt profile, with the global setting as the floor underneath
-  it. It is the same order `Route.gather_wait/3` already uses for the huddle
-  ruler, and for the same reason: what is true of one dungeon is not true of
-  the next.
+  The same bot is used on different kinds of route, so the mode belongs to the hunt profile,
+  with the global setting as the floor underneath it. It is the same order `Route.gather_wait/3`
+  already uses for the huddle ruler, and for the same reason: what is true of one dungeon is not
+  true of the next.
 
-  `nil` on the route is ABSENCE, never a mode: it means "use the default", and
-  the page says so instead of pretending the route chose.
+  `nil` on the route is ABSENCE, never a mode: it means "use the default", and the page says so
+  instead of pretending the route chose.
   """
 
   alias Pokex.Settings
@@ -86,28 +84,26 @@ defmodule Pokex.Bots.HuntMode do
 
   @doc """
   The engine knobs this mode CHANGES, by the name the decision calls them
-  (`Pokex.Bots.Engine.Config`) — `%{}` only for a value that names no mode.
+  (`Pokex.Bots.Engine.Config`); `%{}` only for a value that names no mode.
 
-  ## Sobreposição, nunca escrita
+  ## An overlay, never a write
 
-  This is merged over `Config.in_force/0` in memory and never written to
-  `settings.json`. Writing is how "um modo não afeta a config do outro" would
-  quietly become false — and how his settings got eaten once already.
+  This is merged over `Config.in_force/0` in memory and never written to `settings.json`.
+  Writing is how "one mode does not affect another mode's config" would quietly become false,
+  and how his settings got eaten once already.
 
-  ## Só knobs TÁTICOS
+  ## TACTICAL knobs only
 
-  Nothing here may reach a safety path: the health bands, the revive budget,
-  the give-up brake, the logout, the alarms. A mode decides how a fight is
-  fought, never whether the character is protected — `hunt_mode_test.exs`
-  fails on any key outside `Config.knobs/0` and on any key in the forbidden
-  list.
+  Nothing here may reach a safety path: the health bands, the revive budget, the give-up brake,
+  the logout, the alarms. A mode decides how a fight is fought, never whether the character is
+  protected. `hunt_mode_test.exs` fails on any key outside `Config.knobs/0` and on any key in
+  the forbidden list.
 
-  ## E só o que o CÉREBRO decide
+  ## And only what the BRAIN decides
 
-  Whether the fight uses Tab, and whether it presses single-target keys, are not
-  knobs at all any more: they are what a mode IS (`Combat.Plan`). A switch that
-  could contradict the mode is the invalid combination this whole split exists
-  to make impossible.
+  Whether the fight uses Tab, and whether it presses single-target keys, are not knobs at all
+  any more: they are what a mode IS (`Combat.Plan`). A switch that could contradict the mode is
+  the invalid combination this whole split exists to make impossible.
   """
   @spec engine_overrides(t) :: %{atom => term}
   def engine_overrides(:economy) do

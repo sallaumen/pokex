@@ -1,29 +1,27 @@
 defmodule Pokex.Bots.ActiveBar do
   @moduledoc """
-  The skill bar of whoever is on the field: where it is, how many slots it has,
-  and the per-slot READY references.
+  The skill bar of whoever is on the field: where it is, how many slots it has, and the per-slot
+  READY references.
 
-  "seria legal se pudéssemos calibrar uma barra de skills para cada pokémon (…)
-  e agora depende do nome do pokémon" (Lucas, 2026-08-12). He is right, and for
-  a reason stronger than the layout: the READY references ARE the skill icons.
-  A set captured with one pokémon out is a set of the WRONG PICTURES the moment
-  he swaps — every cooldown then scores against art that is not on the bar.
+  He asked for one calibrated skill bar per pokémon, keyed by the pokémon's name. He is right,
+  and for a reason stronger than the layout: the READY references ARE the skill icons. A set
+  captured with one pokémon out is a set of the WRONG PICTURES the moment he swaps, and every
+  cooldown then scores against art that is not on the bar.
 
-  The number of slots is the visible half of the same problem: his pokémon do
-  not all carry nine moves.
+  The number of slots is the visible half of the same problem: his pokémon do not all carry nine
+  moves.
 
-  ## There is no shared bar anymore
+  ## There is no shared bar any more
 
-  There used to be one: a pokémon without its own bar fell back to the screen
-  calibration's. The fallback is what made 2026-08-24 possible — the shared
-  rectangle was re-marked over eight slots while its count stayed at four, and
-  since nothing on the field owned it, nothing contradicted it: the screen
-  ruler read the doubled slot as a screen 1.9× the reference and rescaled 21
-  settings by it. "Só deveria aceitar barra skill calibrada por pokemon, nada
-  de barra global mais" (Lucas, 2026-08-24).
+  There used to be one: a pokémon without its own bar fell back to the screen calibration's. The
+  fallback is what made one bad day possible. The shared rectangle was re-marked over eight
+  slots while its count stayed at four, and since nothing on the field owned it, nothing
+  contradicted it: the screen ruler read the doubled slot as a screen 1.9x the reference and
+  rescaled 21 settings by it. His rule after that was to accept only a per-pokémon bar, with no
+  global bar at all.
 
-  So the answer is the active pokémon's bar or NOTHING, and `Pokex.Preflight`
-  refuses to start a bot that would read a bar nobody owns.
+  So the answer is the active pokémon's bar or NOTHING, and `Pokex.Preflight` refuses to start a
+  bot that would read a bar nobody owns.
   """
 
   alias Pokex.Pokedex.Team

@@ -507,28 +507,25 @@ defmodule Pokex.Vision.Glyphs do
   @digitos ~w(0 1 2 3 4 5 6 7 8 9)
 
   @doc """
-  Quais dígitos faltam no atlas, POR ALTURA de glifo.
+  Which digits are missing from the atlas, BY GLYPH HEIGHT.
 
-  O buraco que ninguém tinha como ver, e que custou caro em 27/08: o jogo dele em
-  `1088, 1409, 5` e o painel em `1066, 1409`. O atlas tinha 8 em duas alturas e
-  nenhum na de 8 linhas, que é a da faixa dele. Sem um 8 pra concorrer, o 8 da
-  tela casa com o 6 ou o 9 mais parecido, e casa com MARGEM, porque o certo nunca
-  esteve na disputa. "Às vezes ele acha que é 9, às vezes que é 6, mas ele nunca
-  acha que é 8" — nunca ia achar.
+  The hole nobody could see, and it cost dearly once: his game read `1088, 1409, 5` and the
+  panel `1066, 1409`. The atlas had an 8 at two heights and none at the 8-line height, which is
+  his band's. With no 8 to compete, the 8 on screen matches whichever 6 or 9 looks closest, and
+  it matches WITH MARGIN, because the right answer was never in the running. He described it
+  exactly: sometimes it thinks it is a 9, sometimes a 6, but never an 8. It never would.
 
-  A regra da margem em `nearest_within/1` protege contra AMBIGUIDADE e não tem
-  como proteger contra AUSÊNCIA: ela compara o que está no atlas com o que está
-  no atlas. Só quem olha o alfabeto inteiro enxerga um dígito que nunca foi
-  ensinado — e é isso que esta função mostra, antes de um número errado virar um
-  salto no mapa.
+  The margin rule in `nearest_within/1` protects against AMBIGUITY and cannot protect against
+  ABSENCE: it compares what is in the atlas with what is in the atlas. Only someone looking at
+  the whole alphabet can see a digit that was never taught, and that is what this function
+  shows, before a wrong number becomes a jump on the map.
 
-  Agrupa por ALTURA e não por forma porque é assim que uma fonte funciona: todos
-  os dígitos dela têm a mesma altura, e larguras diferentes — o `1` é estreito e
-  o `4` é largo por desenho, não por falta. Agrupar por forma acusaria falta de
-  `1` em toda largura que não fosse a dele.
+  It groups by HEIGHT and not by shape because that is how a font works: all its digits share a
+  height and differ in width, since `1` is narrow and `4` is wide by design, not by absence.
+  Grouping by shape would report a missing `1` at every width that was not its own.
 
-  Só relata alturas que já têm algum dígito: uma altura que só ensinou vírgula
-  não está incompleta, está fora do assunto.
+  It only reports heights that already have some digit: a height that only ever taught a comma
+  is not incomplete, it is off topic.
   """
   @spec missing_digits() :: %{pos_integer => [String.t()]}
   def missing_digits do

@@ -747,7 +747,7 @@ defmodule Pokex.Settings do
 
   def defaults, do: @seed_settings
 
-  @doc "Esta chave é uma constante — existe, aparece, e o arquivo não manda nela?"
+  @doc "Is this key a constant: it exists, it shows, and the file does not rule it?"
   @spec locked?(atom) :: boolean
   defdelegate locked?(key), to: Locked
 
@@ -796,7 +796,7 @@ defmodule Pokex.Settings do
     sweep_side: ~w(square right left)
   }
 
-  @doc "Os valores válidos de um ajuste de enum fechado — [] pra quem não é enum."
+  @doc "The valid values of a closed enum setting; [] for anything that is not an enum."
   @spec enum_values(atom) :: [String.t()]
   def enum_values(key), do: Map.get(@enums, key, [])
 
@@ -1277,25 +1277,21 @@ defmodule Pokex.Settings do
   end
 
   @doc """
-  Esta build é mais VELHA que o arquivo que ela acabou de ler?
+  Is this build OLDER than the file it has just read?
 
-  Verdadeiro quando o arquivo declara chave que esta build não conhece E
-  conhece todas as desta — quem escreveu por último sabia tudo que esta sabe e
-  mais. Nesse caso ela lê e não escreve: quem não conhece o alfabeto não pode
-  decidir o que é lixo.
+  True when the file declares a key this build does not know AND knows every key this one has:
+  whoever wrote last knew everything this build knows and more. In that case it reads and does
+  not write, because a build that does not know the alphabet cannot decide what is rubbish.
 
-  Chave desconhecida SOZINHA não acusa: chaves se aposentam (#485 e #492
-  tiraram doze do código em 02/09), e o arquivo escrito antes disso as declara
-  para sempre. Com a regra antiga, a build NOVA se achou velha por causa delas
-  e parou de gravar em silêncio — tudo que ele mudou no /config de 02/09 a
-  03/09 valeu só até o restart seguinte ("minha config é 4", e o arquivo dizia
-  6). Uma build que conhece chaves que o arquivo não tem é, por definição,
-  mais nova em alguma coisa — e as chaves que ela não conhece viajam intactas
-  na escrita (`foreign_keys/1`), que é a rede de verdade.
+  An unknown key ALONE does not accuse: keys retire (twelve left the code in one cleanup), and a
+  file written before that declares them forever. Under the old rule the NEW build thought
+  itself old because of them and stopped writing in silence, so everything he changed in /config
+  over two days lasted only until the next restart. A build that knows keys the file does not
+  have is, by definition, newer at something, and the keys it does not know travel untouched in
+  the write (`foreign_keys/1`), which is the real net.
 
-  Um arquivo sem crachá (o primeiro boot depois desta mudança, ou um escrito à
-  mão) responde FALSO: ninguém é velho por falta de prova, e a preservação de
-  chaves desconhecidas continua sendo a rede debaixo dessa.
+  A file with no badge (the first boot after this change, or one written by hand) answers FALSE:
+  nobody is old for lack of proof, and preserving unknown keys is still the net underneath that.
   """
   @spec older_build?(String.t()) :: boolean
   def older_build?(path) do
@@ -1309,7 +1305,7 @@ defmodule Pokex.Settings do
     end
   end
 
-  @doc "Esta sessão está gravando no arquivo? Falso quando a build se declarou mais velha que ele."
+  @doc "Is this session writing to the file? False when the build declared itself older than it."
   @spec read_only?(GenServer.server()) :: boolean
   def read_only?(server \\ __MODULE__), do: GenServer.call(server, :read_only?)
 

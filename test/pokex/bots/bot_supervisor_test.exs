@@ -412,7 +412,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   # dos 5s: o `exit` do timeout subia por aqui, `stop_all` nunca rodava, e a
   # frota seguia caçando ao lado do shiny que disparou a fuga.
   @tag :tmp_dir
-  test "emergency_escape para a frota mesmo quando a fuga não responde", %{tmp_dir: tmp} do
+  test "emergency_escape stops the fleet even when the escape does not answer", %{tmp_dir: tmp} do
     alias Pokex.Bots.InputGate
 
     Application.put_env(:pokex, :home_dir, tmp)

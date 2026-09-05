@@ -206,7 +206,7 @@ defmodule Pokex.Bots.BodyTest do
   # pra uma tecla que nunca saiu, e a rotação recusava tecla boa depois
   # ("a IA acha que usou uma skill e marca o cooldown, mas ela não saiu",
   # 28/08). O carimbo agora pergunta ao portão.
-  test "um press com o portão fechado NÃO carimba o relógio das teclas", %{body: body} do
+  test "a press with the gate closed does NOT stamp the key clock", %{body: body} do
     alias Pokex.Bots.SkillClock
     SkillClock.wipe()
 
@@ -403,7 +403,7 @@ defmodule Pokex.Bots.BodyTest do
   # de minimapa sem nenhuma razão física. A prioridade só reordena a FILA:
   # `dequeue/1` só é alcançado quando a sequência em voo termina, então nem
   # `:critical` fura o que já está rodando.
-  test "uma tecla crítica sai enquanto uma sequência de MOUSE está em voo" do
+  test "a critical key fires while a MOUSE sequence is in flight" do
     body = with_slow_mouse(:body_test_lanes_body, :body_lanes)
 
     # o mouse fica preso dentro do move
@@ -425,7 +425,7 @@ defmodule Pokex.Bots.BodyTest do
   # e espera as duas. É o que mantém `move → wait → press` inteiro — a vara e a
   # bola miram com o cursor e disparam NELE, e um segundo dono do mouse entre a
   # mira e o tiro joga a pokébola em coordenada vazia.
-  test "uma sequência que toca os dois atuadores espera as DUAS pistas" do
+  test "a sequence touching both actuators waits for BOTH lanes" do
     body = with_slow_mouse(:body_test_both_lanes_body, :body_both)
 
     spawn(fn -> Body.perform([{:move, {5, 5}}], :normal, body) end)
@@ -455,7 +455,7 @@ defmodule Pokex.Bots.BodyTest do
   # aconteceu — toda primitiva está sendo engolida — e a espera vira atraso puro
   # segurando uma pista. O `escape_walk_wait_ms` da fuga (5s, um `Process.sleep`
   # inteiro) era o teto real da janela do pânico por causa disso.
-  test "uma espera longa é abandonada quando o portão fecha", %{body: body} do
+  test "a long wait is abandoned when the gate closes", %{body: body} do
     # O portão é uma tabela ETS GLOBAL: reabrir só no `on_exit` deixa uma janela
     # entre a saída do processo de teste e o callback, e o arquivo seguinte
     # herda um portão fechado.
@@ -473,7 +473,7 @@ defmodule Pokex.Bots.BodyTest do
 
   # E o portão ABERTO não encurta nada: uma espera é atômica dentro da
   # sequência por design (a vara arma e só então clica na água).
-  test "com o portão aberto a espera é paga inteira", %{body: body} do
+  test "with the gate open the wait is paid in full", %{body: body} do
     {us, :ok} = :timer.tc(fn -> Body.perform([{:wait, 250}], :normal, body) end)
 
     assert div(us, 1000) >= 250

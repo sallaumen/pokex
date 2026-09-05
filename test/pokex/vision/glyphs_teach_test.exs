@@ -71,7 +71,7 @@ defmodule Pokex.Vision.GlyphsTeachTest do
   # parecido que está. A regra da margem compara o atlas com o atlas — só quem
   # olha o alfabeto inteiro enxerga um dígito que nunca foi ensinado.
   describe "o alfabeto que falta" do
-    test "acusa o dígito que falta na altura da fonte, e cala quando ele é ensinado" do
+    test "accuses the digit missing at the font height, and goes quiet when it is taught" do
       assert %{"8" => faltam_em} =
                Glyphs.missing_digits()
                |> Enum.reduce(%{}, fn {altura, faltam}, acc ->
@@ -86,7 +86,7 @@ defmodule Pokex.Vision.GlyphsTeachTest do
       refute "8" in Map.get(Glyphs.missing_digits(), altura, [])
     end
 
-    test "uma altura sem dígito nenhum não está incompleta, está fora do assunto" do
+    test "a height without any digit is not incomplete, it is off topic" do
       virgula = [[0, 1], [1, 0]]
       assert {:ok, _total} = Glyphs.teach(Glyphs.signature(virgula), ",")
 

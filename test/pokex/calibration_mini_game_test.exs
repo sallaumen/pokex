@@ -73,15 +73,15 @@ defmodule Pokex.CalibrationMiniGameTest do
       }
     end
 
-    test "reproduz EXATAMENTE a faixa que ele marcou e validou" do
+    test "reproduces EXACTLY the band he marked and validated" do
       assert Calibration.derived_mini_game_region(his_screen()) == {1707, 673, 24, 474}
     end
 
-    test "sem marca à mão é ela que o bot observa — a página não precisa mediar" do
+    test "without a hand mark the bot observes it: the page need not mediate" do
       assert Calibration.mini_game_region(his_screen()) == {1707, 673, 24, 474}
     end
 
-    test "a mão continua ganhando da sugestão" do
+    test "the hand still beats the suggestion" do
       marcada = %Calibration{his_screen() | mini_game_region: {10, 20, 30, 40}}
 
       assert Calibration.mini_game_region(marcada) == {10, 20, 30, 40}
@@ -90,7 +90,7 @@ defmodule Pokex.CalibrationMiniGameTest do
       assert Calibration.derived_mini_game_region(marcada) == {1707, 673, 24, 474}
     end
 
-    test "acompanha o personagem — é isso que sobrevive à troca de resolução" do
+    test "follows the character: that is what survives a resolution change" do
       andou = %Calibration{his_screen() | player_point: {900, 400}}
 
       assert Calibration.derived_mini_game_region(andou) == {900, 384, 24, 474}
@@ -99,7 +99,7 @@ defmodule Pokex.CalibrationMiniGameTest do
     # Dois palpites de faixa já falharam no campo (a caixa de meia-tela e a
     # caixa por tiles, que leu tronco escuro + flores azuis como "barra +
     # cápsula"). O centro da TELA como âncora seria o terceiro.
-    test "sem personagem MARCADO não há sugestão: nil, e o vigia fica cego" do
+    test "without a MARKED character there is no suggestion: nil, and the watcher goes blind" do
       sem_personagem = %Calibration{his_screen() | player_point: nil}
 
       assert Calibration.derived_mini_game_region(sem_personagem) == nil

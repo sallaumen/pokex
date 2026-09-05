@@ -18,7 +18,7 @@ defmodule Pokex.Bots.BodyStillTest do
     %{body: pid}
   end
 
-  test ":still solta as setas antes da sequência sair", %{body: body} do
+  test ":still releases the arrows before the sequence fires", %{body: body} do
     :ok = Body.hold(["up", "left"], body)
     assert :ok = Body.perform([:still, {:press, "f4"}], :critical, body)
 
@@ -31,7 +31,7 @@ defmodule Pokex.Bots.BodyStillTest do
     assert Body.held(body) == []
   end
 
-  test "sem :still a sequência sai com as setas como estão", %{body: body} do
+  test "without :still the sequence fires with the arrows as they are", %{body: body} do
     :ok = Body.hold(["up"], body)
     assert :ok = Body.perform([{:press, "3"}], :high, body)
 

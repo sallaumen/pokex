@@ -97,7 +97,7 @@ defmodule Pokex.Bots.GuardianTest do
   # ao Rig com 1500ms de teto cada. Passa dos 5s sem nem tocar no osascript — e
   # aí o canto de matar deixa de ser vigiado exatamente durante o
   # congestionamento para o qual ele existe.
-  test "um corpo que não responde não mata o vigia: ele segue perguntando", %{
+  test "a body that does not answer does not kill the watcher: it keeps asking", %{
     on_panic: on_panic
   } do
     {:ok, body} = FakeBody.start_link({:mute, self()})
@@ -610,7 +610,7 @@ defmodule Pokex.Bots.GuardianTest do
   # parar — mas com a janela de batalha cheia, o comando agora grita a
   # exposição na saída.
   describe "parar com bicho na tela grita a exposição" do
-    test "com a janela de batalha cheia, o aviso sai" do
+    test "with the battle window full, the warning goes out" do
       Pokex.Perception.WorldState.put(
         :battle,
         %{enemies: [0, 1, 2, 3, 4]},
@@ -627,7 +627,7 @@ defmodule Pokex.Bots.GuardianTest do
       assert aviso =~ "EXPOSTO"
     end
 
-    test "tela limpa ou leitura velha: silêncio" do
+    test "clean screen or old reading: silence" do
       Pokex.Perception.WorldState.put(
         :battle,
         %{enemies: []},

@@ -26,7 +26,7 @@ defmodule Pokex.Bots.ReviveLedgerTest do
     refute ReviveLedger.landed_within?(60_000)
   end
 
-  test "cada despacho desce a conta, nunca abaixo de zero" do
+  test "every dispatch lowers the count, never below zero" do
     assert ReviveLedger.remaining() == 20
 
     Enum.each(1..3, fn _ -> ReviveLedger.note() end)
@@ -37,7 +37,7 @@ defmodule Pokex.Bots.ReviveLedgerTest do
     assert ReviveLedger.remaining() == 0
   end
 
-  test "digitar um estoque novo zera a conta — é o botão de repor" do
+  test "typing a new stock resets the count: it is the restock button" do
     Enum.each(1..8, fn _ -> ReviveLedger.note() end)
     assert ReviveLedger.remaining() == 12
 
@@ -47,7 +47,7 @@ defmodule Pokex.Bots.ReviveLedgerTest do
     assert ReviveLedger.remaining() == 50
   end
 
-  test "estoque em zero é 'não contei': orçamento desligado, conta nenhuma" do
+  test "stock at zero is 'not counted': budget off, no count at all" do
     Pokex.Settings.put(:revive_stock, 0)
 
     ReviveLedger.note()
@@ -57,7 +57,7 @@ defmodule Pokex.Bots.ReviveLedgerTest do
   # A testemunha que o HandWatch consulta: o reset do :rescue_done apaga o
   # carimbo do F4 do bot, e um drain atrasado precisa de OUTRA prova de que
   # aquele F4 já tem dono — a hora do último despacho fica no caderninho.
-  test "noted_within? lembra a hora do último despacho, e o reset esquece" do
+  test "noted_within? remembers the last dispatch time, and reset forgets it" do
     refute ReviveLedger.noted_within?(5_000)
 
     ReviveLedger.note()

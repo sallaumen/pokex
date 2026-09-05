@@ -20,7 +20,7 @@ defmodule Pokex.Vision.PlayerHpTest do
     frame
   end
 
-  test "lê 95% onde o jogo escreve 683/720 (94,9%)" do
+  test "reads 95% where the game writes 683/720 (94.9%)" do
     assert Pokex.Vision.hp_fill_pct(frame!()) == 95
   end
 

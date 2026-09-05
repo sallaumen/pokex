@@ -218,7 +218,7 @@ defmodule Pokex.Perception.FeedTest do
   describe "quem não responde" do
     @describetag :tmp_dir
 
-    test "um processo ocupado conta como olhando; um que não existe, como zero" do
+    test "a busy process counts as looking; one that does not exist, as zero" do
       ocupado =
         spawn(fn ->
           receive do

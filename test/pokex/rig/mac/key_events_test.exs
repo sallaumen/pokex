@@ -40,7 +40,7 @@ defmodule Pokex.Rig.Mac.KeyEventsTest do
   # A postura como UMA sequência nativa: o pedido leva os modificadores e o
   # respiro, e o helper faz shift-baixo → tecla → shift-cima sem ninguém no meio.
   @tag :tmp_dir
-  test "a tecla com modificador vai num pedido só, com os modificadores e o respiro", %{
+  test "a key with a modifier goes in a single request, with the modifiers and the settle", %{
     tmp_dir: tmp
   } do
     log = Path.join(tmp, "requests.log")
@@ -65,7 +65,7 @@ defmodule Pokex.Rig.Mac.KeyEventsTest do
 
   @tag :tmp_dir
   @tag :capture_log
-  test "sem helper pronto, a tecla com modificador degrada pro osascript", %{tmp_dir: tmp} do
+  test "without the helper ready, a key with a modifier degrades to osascript", %{tmp_dir: tmp} do
     stub = write_stub!(tmp, trusted: false)
     pid = start_supervised!({KeyEvents, name: nil, executable: stub})
 

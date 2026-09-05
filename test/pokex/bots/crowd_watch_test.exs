@@ -63,7 +63,7 @@ defmodule Pokex.Bots.CrowdWatchTest do
   end
 
   @tag :tmp_dir
-  test "a mesma leitura não repete a linha", %{watch: watch} do
+  test "the same reading does not repeat the line", %{watch: watch} do
     orders!(:bunching)
     battle!(6)
 
@@ -75,7 +75,7 @@ defmodule Pokex.Bots.CrowdWatchTest do
   end
 
   @tag :tmp_dir
-  test "andando, lutando ou revivendo, não fotografa", %{watch: watch} do
+  test "walking, fighting or reviving, it does not photograph", %{watch: watch} do
     battle!(6)
 
     for phase <- [:travelling, :engaged, :resetting, :recovering, :skipping] do
@@ -86,7 +86,7 @@ defmodule Pokex.Bots.CrowdWatchTest do
   end
 
   @tag :tmp_dir
-  test "desligado no /config, não fotografa nem esperando", %{watch: watch} do
+  test "off in /config, it does not photograph even while waiting", %{watch: watch} do
     SettingsStash.stash!(crowd_watch_enabled: false)
     orders!(:bunching)
     battle!(6)
@@ -97,7 +97,7 @@ defmodule Pokex.Bots.CrowdWatchTest do
   end
 
   @tag :tmp_dir
-  test "na abertura, guarda a última foto da espera", %{watch: watch, tmp_dir: tmp} do
+  test "at the opening, it keeps the last photo of the wait", %{watch: watch, tmp_dir: tmp} do
     orders!(:bunching)
     battle!(6)
     :ok = CrowdWatch.look_now(watch)

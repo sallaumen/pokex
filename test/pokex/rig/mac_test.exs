@@ -25,14 +25,14 @@ defmodule Pokex.Rig.MacTest do
 
     defp steps(combos), do: Enum.flat_map(combos, &[{:press, &1}, {:pause, 0}])
 
-    test "sem cerca, a rajada inteira sai" do
+    test "without a fence, the whole burst fires" do
       {agent, press} = recorder()
 
       assert {:ok, ~w(a b c)} = Mac.walk_burst(steps(~w(a b c)), nil, press)
       assert pressed(agent) == ~w(a b c)
     end
 
-    test "cerca fechada desde a largada segura tudo — nenhuma prensa acontece" do
+    test "a fence closed from the start holds everything: no press happens" do
       {agent, press} = recorder()
 
       assert {:halted, []} = Mac.walk_burst(steps(~w(a b c)), fn -> true end, press)
@@ -42,7 +42,7 @@ defmodule Pokex.Rig.MacTest do
     # O caso da noite: o F4 aterrissa no MEIO da dormida do gap. As teclas já
     # apertadas ficam apertadas — uma prensa nunca é cancelada no meio — e a
     # cauda para no ar.
-    test "a cerca fecha no meio e só a cauda fica no ar" do
+    test "the fence closes midway and only the tail stays in the air" do
       {agent, press} = recorder()
       fence = fn -> length(Agent.get(agent, & &1)) >= 2 end
 

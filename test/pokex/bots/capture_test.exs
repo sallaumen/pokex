@@ -541,7 +541,7 @@ defmodule Pokex.Bots.CaptureTest do
   # config/test.exs forces capture_backend: :screencapture, which SCK's enabled?/0 rejects —
   # an isolated instance with no fake SCK module deterministically starts on :rig.
   @tag :tmp_dir
-  test "frame_with_path_uncached NUNCA serve do cache — o laço do minigame depende disso",
+  test "frame_with_path_uncached NEVER serves from the cache: the mini-game loop depends on it",
        %{tmp_dir: tmp} do
     first = png!(tmp, "a.png", {10, 20, 30})
     second = png!(tmp, "b.png", {90, 80, 70})

@@ -23,6 +23,7 @@ defmodule Pokex.Bots.StatusCure do
   a corrida que já custou uma noite inteira (#480).
   """
 
+  alias Pokex.Engine.Events
   alias Pokex.Settings
 
   @typedoc "Com que frequência um modo de caça limpa — ver `Combat.Plan.cure_policy/1`."
@@ -60,6 +61,28 @@ defmodule Pokex.Bots.StatusCure do
   @spec due?(policy, [String.t()], boolean) :: boolean
   def due?(policy, keys, cured?) do
     enabled?() and key() != "" and attack?(keys) and worth?(policy, cured?)
+  end
+
+  @doc """
+  APERTA A POÇÃO — o aperto avulso, e o único lugar que sabe registrá-lo.
+
+  Sempre `:ok`, mesmo quando nada saiu: quem chama é uma rajada no meio de uma
+  luta ou um botão do painel, e nenhum dos dois pode virar erro porque o jogo
+  estava fora de foco. Sem tecla configurada não toca no teclado — um `press("")`
+  chegaria ao rig como combinação vazia.
+  """
+  @spec press() :: :ok
+  def press do
+    tecla = key()
+
+    if enabled?() and tecla != "" do
+      case Pokex.Rig.impl().press(tecla) do
+        :ok -> Events.record(:cure, %{key: tecla})
+        _recusado -> :ok
+      end
+    end
+
+    :ok
   end
 
   defp worth?(:always, _cured?), do: true

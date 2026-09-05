@@ -40,6 +40,22 @@ defmodule Pokex.Engine.TallyTest do
     assert card.kills_per_min == 2.0
   end
 
+  # A LIMPEZA DE STATUS é um aperto, não uma decisão: quem manda o `e` é a mão,
+  # dentro da rajada, e a única forma de saber quantas saíram na noite é contar
+  # os eventos que ela deixa.
+  test "the status cures come from the hand's own trail" do
+    card =
+      Tally.card([
+        vitals(0),
+        %{"kind" => "cure", "at" => 10_000, "key" => "e"},
+        %{"kind" => "cure", "at" => 40_000, "key" => "e"},
+        vitals(60_000)
+      ])
+
+    assert card.cures == 2
+    assert card.cures_per_min == 2.0
+  end
+
   test "floor time is the pokemon off the field, not low HP" do
     card =
       Tally.card([

@@ -47,6 +47,7 @@ defmodule Pokex.Engine.Tally do
     decisions = Enum.filter(events, &(&1["kind"] == "decision"))
     kills = Enum.filter(events, &(&1["kind"] == "kill"))
     receipts = Enum.filter(events, &(&1["kind"] == "receipt"))
+    cures = Enum.filter(events, &(&1["kind"] == "cure"))
 
     case window(events) do
       nil ->
@@ -63,6 +64,11 @@ defmodule Pokex.Engine.Tally do
           kills_per_min: per_min(length(kills), minutes),
           revives: revives(decisions),
           revives_per_min: per_min(revives(decisions), minutes),
+          # A Status Potion na frente do ataque. Ela não é uma decisão do
+          # cérebro — é a mão limpando dentro da própria rajada —, então a
+          # única testemunha dela é o aperto que ela mesma registra.
+          cures: length(cures),
+          cures_per_min: per_min(length(cures), minutes),
           down_pct: share(vitals, &(&1["out"] != true)),
           stalled_pct: share(vitals, &stalled?/1),
           piles: piles(vitals),

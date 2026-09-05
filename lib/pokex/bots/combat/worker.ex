@@ -795,16 +795,14 @@ defmodule Pokex.Bots.Combat.Worker do
   end
 
   # LIMPAR NUNCA SEGURA UM ATAQUE. Um rig que recusou o `e` (jogo fora de foco,
-  # portão fechado) não pode transformar uma comodidade em rajada perdida: o
-  # `:ok` é incondicional de propósito, e o respiro só acontece quando a poção
-  # de fato saiu.
+  # portão fechado) não pode transformar uma comodidade em rajada perdida, então
+  # `StatusCure.press/0` é sempre `:ok` e este `with` nunca desvia por causa
+  # dela.
   defp cure(false), do: :ok
 
   defp cure(true) do
-    case Pokex.Rig.impl().press(StatusCure.key()) do
-      :ok -> settle(StatusCure.settle_ms())
-      _recusado -> :ok
-    end
+    StatusCure.press()
+    settle(StatusCure.settle_ms())
   end
 
   defp settle(ms) when is_integer(ms) and ms > 0 do

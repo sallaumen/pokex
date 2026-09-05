@@ -14,6 +14,7 @@ defmodule Pokex.Bots.StatusCureTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.StatusCure
+  alias Pokex.Rig.Fake
   alias Pokex.SettingsStash
 
   setup do
@@ -73,6 +74,33 @@ defmodule Pokex.Bots.StatusCureTest do
     test "trocar de postura não é atacar" do
       refute StatusCure.due?(:opening, ["shift+3"], false)
       refute StatusCure.due?(:always, ["shift+1"], false)
+    end
+  end
+
+  describe "o aperto" do
+    setup do
+      {:ok, _} = Fake.start_link(%{})
+      :ok
+    end
+
+    test "aperta a tecla configurada" do
+      assert StatusCure.press() == :ok
+      assert Fake.calls() == [press: "e"]
+    end
+
+    # Sem tecla não há o que apertar, e um `press("")` chegaria ao rig como uma
+    # combinação vazia — um aperto que o jogo não entende e que o vigia de
+    # teclado ainda teria que explicar.
+    test "sem tecla configurada, não toca no teclado" do
+      SettingsStash.stash!(status_cure_key: "  ")
+      assert StatusCure.press() == :ok
+      assert Fake.calls() == []
+    end
+
+    test "desligada, não toca no teclado" do
+      SettingsStash.stash!(status_cure_enabled: false)
+      assert StatusCure.press() == :ok
+      assert Fake.calls() == []
     end
   end
 

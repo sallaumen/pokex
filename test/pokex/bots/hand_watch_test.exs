@@ -107,13 +107,18 @@ defmodule Pokex.Bots.HandWatchTest do
     defmodule ScriptedRig do
       use Pokex.RigDouble
 
-      # Como o helper de verdade: cada chamada esvazia o buffer. A PRIMEIRA
-      # devolve o backlog (aqui, vazio — o vigia a descarta de propósito) e a
-      # seguinte devolve o roteiro do teste.
+      # Like the real helper, every call empties the buffer: the FIRST returns the backlog
+      # (empty here; the watcher discards it on purpose) and the next one returns the
+      # test's script. The table dies with the test process while a `:drain` may still be
+      # queued in the watcher, so a missing table is an empty buffer, never a crash.
       def key_watch(_codes) do
-        case :ets.take(:hand_watch_test_script, :events) do
-          [{:events, events}] -> {:ok, events}
-          [] -> {:ok, []}
+        if :ets.whereis(:hand_watch_test_script) == :undefined do
+          {:ok, []}
+        else
+          case :ets.take(:hand_watch_test_script, :events) do
+            [{:events, events}] -> {:ok, events}
+            [] -> {:ok, []}
+          end
         end
       end
     end

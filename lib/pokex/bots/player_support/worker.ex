@@ -35,14 +35,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Vision
 
   @topic "game"
-  # A CHAVE QUE FALTAVA CUSTOU DUAS MORTES. Desde o #498 o `press_shield/3`
-  # fecha com `bump(state.counters, :shields)`, e `:shields` não existia aqui:
-  # toda aura que saía estourava o tique, o `catch` engolia o erro
-  # (`{:badkey, :shields}`, visível no painel) e o TRABALHO DAQUELE TIQUE IA
-  # EMBORA — a leitura da vida, o `prev_hp_pct`, o passo do juiz do revive e o
-  # `player_low_streak` que o alarme do personagem precisa ver duas vezes. Em
-  # 03/09 foram 272 auras numa caçada de 25 minutos, ou seja 272 tiques do
-  # guardião jogados fora, e o alarme da vida dele só saiu com 4%.
+  # The `:shields` counter must exist: every aura press bumps it, and a missing key blew up
+  # the guardian tick, whose `catch` swallowed the error and threw away that tick's work (the
+  # HP reading, `prev_hp_pct`, the revive judge, the `player_low_streak` the character alarm
+  # needs to see twice). One night that was 272 lost ticks and a character alarm at 4%.
   @default_counters %{
     rescues: 0,
     potions: 0,
@@ -62,10 +58,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
     state = %{
       body: Keyword.get(opts, :body, Body),
-      # PORTA DE ENTRADA, como todo irmão desta família tem. O env estava sendo
-      # lido CRU aqui dentro, então na suíte era impossível optar por voltar: o
-      # arranque automático — a via que protege o jogador antes do preflight —
-      # não tinha como ser exercitado em teste nenhum.
+      # Entry door, like every sibling in this family. The env used to be read RAW in
+      # here, so the suite could never opt back in, and the automatic start (the path that
+      # protects the player before the preflight) was untestable.
       auto_monitor?:
         Keyword.get(
           opts,
@@ -78,15 +73,15 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       running?: false,
       hp_pct: nil,
       prev_hp_pct: nil,
-      # o juiz de EFEITO do revive: pagou e a vida não voltou? (01/09, a bag seca)
+      # the revive EFFECT judge: paid and the HP did not come back? (the dry bag)
       revive_judge: ReviveEffect.new(),
-      # A VIDA DO PERSONAGEM — a barra vermelha do painel "Pokémon", que apesar do nome é dele,
-      # não do bicho.
+      # The CHARACTER's HP: the red bar of the "Pokémon" panel, which despite its name is
+      # his, not the pokémon's.
       player_hp: nil,
       player_low_streak: 0,
       player_alarmed?: false,
       last_rescue_at: nil,
-      # A ÚLTIMA VEZ QUE O CÉREBRO PEDIU UM REVIVE E A CHAVE DELE ESTAVA DESLIGADA.
+      # The last time the brain asked for a revive while his switch was off.
       last_switch_warn_at: nil,
       # true from the moment a combo is dispatched until {:rescue_done, _, _}
       # reports back — see act/2's re-entry guard.
@@ -102,8 +97,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # the pokémon's OWN healing skill — the rung above the potion, and the only
       # one that works while it is being hit
       last_heal_at: nil,
-      # a aura de defesa (02/09): o degrau acima da cura, e a nota que evita
-      # repetir no feed por que ela não saiu
+      # the defence aura: the rung above the heal, and the note that keeps the feed from
+      # repeating why it did not fire
       last_shield_at: nil,
       shield_note: nil,
       # first monotonic ms of the CURRENT battle-free streak of potion-gate reads
@@ -176,7 +171,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   def handle_call(:halt, _from, state) do
     state = cancel_timer(%{state | running?: false})
-    # A SENTINELA: parar o bot fecha as mãos, nunca os olhos.
+    # The sentinel: stopping the bot closes the hands, never the eyes.
     state = if state.auto_monitor?, do: reschedule(state, @sentinel_ms), else: state
     broadcast(state)
     {:reply, :ok, state}
@@ -226,7 +221,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # A late tick after a halt (the timer fired before the cancel landed) must NOT resurrect the
   # loop — the running? flag is the source of truth, not the timer.
   def handle_info(:tick, %{running?: false} = state) do
-    # o passo da sentinela (ver :halt): só os olhos na vida do PERSONAGEM
+    # the sentinel step (see :halt): only the eyes on the CHARACTER's HP
     if state.auto_monitor?,
       do: {:noreply, sentinel_tick(state)},
       else: {:noreply, state}
@@ -261,14 +256,14 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state =
       case outcome do
         :ok ->
-          # O REVIVE ZERA TODOS OS COOLDOWNS (R3, medida no vídeo dele). Sem
-          # isto o relógio das teclas seguraria por 45s uma barra que o jogo
-          # acabou de devolver inteira — e a decisão que MAIS depende do relógio
-          # é justamente a de gastar um revive pra zerar a barra.
+          # The revive resets EVERY cooldown (R3, measured on his video). Without this
+          # the key clock would hold for 45s a bar the game just gave back whole, and
+          # the decision that depends most on the clock is exactly spending a revive
+          # to reset the bar.
           SkillClock.reset()
-          # …e AQUI, no fim do combo, é a hora que a janela cega conta: o F4
-          # saiu agora — o `note/0` do despacho antecede este instante pelo
-          # settle inteiro, e uma janela contada de lá mirava o lugar errado.
+          # …and HERE, at the end of the combo, is where the blind window counts from:
+          # the F4 just left. The dispatch's `note/0` precedes this instant by the
+          # whole settle, and a window counted from there aimed at the wrong place.
           ReviveLedger.landed()
           broadcast_log(:macro, "🚑 revive despachado — as teclas saíram")
           %{state | last_action: %{text: "revive despachado", at: now()}}
@@ -291,8 +286,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   # The fallen revive reporting back.
   def handle_info({:fallen_done, :ok}, state) do
-    # O caído também abre a janela cega: o pokémon volta agora e leva os
-    # mesmos ~2s até conjurar.
+    # A fainted pokémon also opens the blind window: it comes back now and takes the same
+    # ~2s to cast.
     ReviveLedger.landed()
     broadcast_log(:macro, "💚 revive do caído despachado — ele volta pro campo")
     {:noreply, state}
@@ -322,9 +317,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     {:noreply, reschedule(state, Settings.get(:support_tick_ms))}
   end
 
-  # Um tique de sentinela: lê a barra do personagem (alarme do piso + logout
-  # moram em `guard_player/1`), publica o fato, e nada mais. O custo é uma
-  # captura pequena a cada #{@sentinel_ms}ms.
+  # A sentinel tick: reads the character's bar (floor alarm + logout live in
+  # `guard_player/1`), publishes the fact, nothing else. Costs one small capture every
+  # #{@sentinel_ms}ms.
   defp sentinel_tick(state) do
     state =
       case Calibration.load() do
@@ -420,18 +415,16 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
        |> reschedule(Settings.get(:support_tick_ms))}
   end
 
-  # --- a vida do PERSONAGEM ---------------------------------------------------
+  # --- the CHARACTER's HP -----------------------------------------------------
   #
-  # A barra VERMELHA do painel "Pokémon" é a vida DELE, não do bicho — o nome do
-  # painel é a armadilha que já custou dois dias de leitura errada (26/08). Até
-  # 28/08 NINGUÉM olhava pra ela: o personagem apanha com o pokémon no chão (a
-  # noite de 4,9h) e nada media, nada avisava, nada agia.
+  # The RED bar of the "Pokémon" panel is HIS HP, not the pokémon's: the panel name is the
+  # trap that once cost two days of wrong readings. Nobody used to look at it: the character
+  # got hit with the pokémon down and nothing measured, warned or acted.
   #
-  # A leitura usa os MESMOS leitores da Pokebar (`hp_region_plausible?` +
-  # `hp_fill_pct`): o preenchimento vermelho é "quente" pro leitor de coluna do
-  # mesmo jeito que o verde, o trilho vazio (56,71,71) é apagado, e o texto
-  # 683/720 por cima já é descontado por desenho. Medido na foto real dele:
-  # leitura 95% contra 683/720 = 94,9%.
+  # The reading uses the SAME readers as the Pokebar (`hp_region_plausible?` + `hp_fill_pct`):
+  # the red fill is "hot" to the column reader like the green, the empty rail (56,71,71) is
+  # off, and the 683/720 text on top is discounted by design. Measured on his real frame: 95%
+  # read against 683/720 = 94.9%.
   defp watch_player(state, calib) do
     case calib.player_hp_region do
       region when is_tuple(region) -> watch_player_at(state, region)
@@ -469,14 +462,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  # O GUARDIÃO: duas leituras seguidas abaixo do piso — nunca um frame só, a
-  # mesma disciplina que protege o revive — e ele grita UMA vez por episódio.
-  # O episódio fecha quando a vida volta acima do piso com folga de 10 pontos,
-  # pra barra oscilando no piso não virar sirene intermitente.
+  # The GUARDIAN: two consecutive readings below the floor, never a single frame (the same
+  # discipline that protects the revive), and it shouts ONCE per episode. The episode closes
+  # when HP climbs 10 points above the floor, so a bar hovering at the floor is not an
+  # intermittent siren.
   #
-  # A ação forte é opcional (`player_hp_logout`): o logout é o único socorro
-  # que o jogo dá pro personagem — sem pokémon em pé, fugir andando só muda
-  # onde ele apanha.
+  # The strong action is optional (`player_hp_logout`): logout is the only help the game gives
+  # the character. Without a pokémon standing, running away only changes where he gets hit.
   defp guard_player(state) do
     floor = Settings.get(:player_hp_floor_pct)
 
@@ -495,7 +487,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # O JUIZ DE EFEITO DO REVIVE, cobrado a cada leitura de vida.
+  # The revive EFFECT judge, charged on every HP reading.
   defp judge_revive_effect(state) do
     {judge, veredito} = ReviveEffect.tick(state.revive_judge, state.hp_pct, now())
     scream_if_dead(%{state | revive_judge: judge}, veredito)
@@ -507,8 +499,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     n = ReviveEffect.streak(state.revive_judge)
     acao = Settings.get(:revive_dry_action)
 
-    # :mortal fura o mudo POR CONSTRUÇÃO: não é um setor da lista fechada (`AlarmCategories`),
-    # então nunca entra em `alarm_muted_categories`.
+    # :mortal pierces the mute BY CONSTRUCTION: it is not a sector of the closed list
+    # (`AlarmCategories`), so it never enters `alarm_muted_categories`.
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       @topic,
@@ -527,8 +519,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state
   end
 
-  # A BAG SECA É UMA EMERGÊNCIA COM RESPOSTA PRÓPRIA, e ela não podia depender de
-  # `player_hp_logout` — aquele botão é sobre a vida do PERSONAGEM, e as duas mortes
+  # A dry bag is an emergency with its own answer, and it must not depend on
+  # `player_hp_logout`: that switch is about the CHARACTER's HP.
   defp dry_act("logout", motivo), do: Logout.request(motivo)
   defp dry_act("stop", motivo), do: BotSupervisor.stop_all(motivo)
   defp dry_act(_alarm_ou_desconhecido, _motivo), do: :ok
@@ -542,8 +534,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       @topic,
-      # :mortal, não :hp — vida do PERSONAGEM não tem botão de mudo (01/09:
-      # o grito de 49% saiu com a categoria hp silenciada, e ele morreu sem ouvir).
+      # :mortal, not :hp: the CHARACTER's HP has no mute button (a 49% shout once went out
+      # with the hp category muted, and he died without hearing it).
       {:rule_alarm, :mortal,
        "⚠️ VOCÊ está com #{state.player_hp}% de vida — o personagem, não o pokémon"}
     )
@@ -630,7 +622,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # O PEDIDO QUE MORRE NA CHAVE.
+  # The request that dies at the switch.
   @switch_warn_every_ms 300_000
   defp warn_switch_off(state) do
     if engine_revive() == :now and not Settings.get(:rescue_enabled) and
@@ -785,14 +777,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # A AURA DE DEFESA, o degrau acima da cura. "Quando o pokémon chega abaixo de
-  # 85% já tem gente batendo nele o suficiente e vale usar o buff de defesa,
-  # se o cooldown estiver disponível, pra não ficar em loop" (02/09).
+  # The defence aura, the rung above the heal: below 85% enough enemies are hitting the
+  # pokémon to be worth the buff, when its cooldown allows.
   #
-  # Três cercas, ditas no feed uma vez cada: a corrente do combo (uma tecla no
-  # meio dela corta a corrente), o pokémon voltando do revive (a barra mente
-  # nesse segundo), e a barra dizendo que a aura esfria. Sem tecla classificada
-  # como aura de defesa no /time, ela diz isso e não faz nada.
+  # Three fences, each said once in the feed: the combo chain (a key in the middle cuts it),
+  # the pokémon returning from the revive (the bar lies in that second), and the bar saying
+  # the aura is cooling. Without a key classified as defence aura in /time it says so and does
+  # nothing.
   defp maybe_shield_skill(state) do
     cond do
       Logic.shield_wanted?(shield_input(state)) ->
@@ -879,8 +870,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     }
   end
 
-  # Três segundos sem reconhecer a barra (25 leituras a 120ms) é dito UMA vez
-  # por episódio — o painel Pokémon saiu do lugar, ou a calibração envelheceu.
+  # Three seconds without recognising the bar (25 readings at 120ms) is said ONCE per episode:
+  # the Pokémon panel moved, or the calibration aged.
   @unreadable_said_at 25
 
   defp say_unreadable(%{unreadable_streak: @unreadable_said_at} = state) do
@@ -1228,8 +1219,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # field.
   defp crowd_control(_body, :off), do: {[], 0}
 
-  # O CONTROLE JÁ SAIU — pelo cérebro, como prefixo deste revive ("controle primeiro, revive na
-  # sequência").
+  # The control has already gone out, by the brain, as the prefix of this revive ("control
+  # first, revive right after").
   defp crowd_control(_body, {:recent, pressed_at}) do
     settle = settle_remaining(pressed_at)
 
@@ -1354,8 +1345,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       else: "🚑 sem controle pronto no pokémon — revivendo direto"
   end
 
-  # O MODO DA CAÇADA, lido como fato com idade igual a todo o resto. Sem caçada
-  # rodando (a pesca) cai no padrão global — a mesma resposta que o cérebro dá.
+  # The hunt mode, read as a fact with an age like everything else. With no hunt running
+  # (fishing) it falls back to the global default, the same answer the brain gives.
   defp hunt_mode do
     case WorldState.get(:hunt, Settings.get(:engine_hunt_max_age_ms), now()) do
       {:ok, %{mode: mode}} -> HuntMode.in_force(mode)
@@ -1363,10 +1354,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
-  # A janela é a mesma do R10 (`engine_stun_window_ms`): o revive é PRA vir
-  # atrás de um controle recente, e um controle mais velho que ela já não
-  # segura bolo nenhum. A testemunha é o carimbo (`SkillClock.pressed_at/1` —
-  # o eco sobrevive ao reset do próprio revive).
+  # The window is R10's (`engine_stun_window_ms`): the revive is meant to follow a recent
+  # control, and a control older than that holds no pile any more. The witness is the stamp
+  # (`SkillClock.pressed_at/1`: the echo survives the revive's own reset).
   defp recent_or_cold(crowd) do
     window = Settings.get(:engine_stun_window_ms)
     agora = now()

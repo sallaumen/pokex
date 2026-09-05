@@ -74,8 +74,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # fighting with nobody to fight — see `translate/2`.
   @dangerous_blocks [:floor_changed, :combat_preflight_failed, :revive_dead, :brain_gone]
 
-  # The night's tally: corners and steps are progress, the other three are the
-  # INCIDENTS — "o que ocorreu" is unanswerable in the morning without them.
+  # The night's tally: corners and steps are progress, the other three are the INCIDENTS,
+  # without which the morning question "what happened" has no answer.
   @zero_counters %{waypoints: 0, steps: 0, aborts: 0, comebacks: 0, blocks: 0}
 
   @config_keys %{
@@ -112,8 +112,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
       logic: nil,
       timer: nil,
       attached?: false,
-      # quando este worker viu o cérebro publicando pela última vez (ver
-      # `brain_gone?/3`) — nil enquanto ele nunca apareceu
+      # when this worker last saw the brain publishing (see `brain_gone?/3`); nil while it
+      # never showed up
       brain_seen_at: nil,
       feed_ref: nil,
       reattach_attempts: 0,
@@ -137,9 +137,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
       # gives them all back (see note_arrival/3)
       block_retries: 0,
       counters: @zero_counters,
-      # O RELÓGIO DA NOITE, em hora de parede (`system_time`), não monotônica: quem lê isto é
-      # uma tela que quer dizer "desde 22:14" além de "há 6h12", e a monotônica não sabe que
-      # horas são.
+      # The night clock in wall time (`system_time`), not monotonic: the reader is a
+      # screen that wants to say "since 22:14" as well as "for 6h12", and the monotonic
+      # clock does not know the time of day.
       started_at: nil,
       ended_at: nil,
       last_action: nil,
@@ -273,7 +273,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   def handle_info(:comeback, state) do
     cond do
-      # "panic/Stop nunca são revertidos automaticamente": the Guardian may have latched while
+      # panic/Stop are never reverted automatically: the Guardian may have latched while
       # this hunt was waiting, and a timer fired from before must never be what undoes it.
       InputGate.panic_latched?() ->
         log(:macro, "não retomo: o pânico está travado — solte pelo painel")
@@ -405,10 +405,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
         wp_index: logic.wp_index,
         waypoints: length(logic.route.waypoints),
         recovering?: logic.recovering?,
-        # O MODO É RESOLVIDO UMA VEZ, AQUI. Quem escolhe é a rota que ESTA
-        # caçada está andando, e daqui ele viaja como fato: o cérebro lê o
-        # mesmo valor que o combate recebeu no arranque, então os dois não
-        # podem discordar no meio de um tique.
+        # The mode is resolved ONCE, here. The route THIS hunt walks chooses it, and
+        # from here it travels as a fact: the brain reads the same value combat received
+        # at start, so the two cannot disagree mid-tick.
         mode: HuntMode.in_force(logic.route.mode)
       },
       now
@@ -458,21 +457,18 @@ defmodule Pokex.Bots.Cavebot.Worker do
     if pos, do: {world, %{state | pos: pos, pos_at: now}}, else: {world, state}
   end
 
-  # O CÉREBRO MUDO, e por que isto virou freio.
+  # The mute brain, and why it became a brake.
   #
-  # 03/09, 14:17:01: o `Engine.Worker` publicou o último quadro e parou. A
-  # caçada seguiu OITO MINUTOS sem ele — sem segurar a estrada na mobada, sem
-  # pedir revive, sem o freio do `:stranded` — até o pokémon cair às 14:19:52 e
-  # o personagem morrer sozinho na frente da pilha. Nada avisou: o comentário
-  # aqui embaixo dizia que "um cérebro que morre atrasa a caçada em no máximo um
-  # tique", e isso era verdade quando ninguém obedecia as ordens dele. Hoje ele
-  # é quem manda o revive.
+  # The brain once stopped publishing mid-hunt and the hunt went on for eight minutes without
+  # it (no road hold in the mob, no revive request, no `:stranded` brake) until the pokémon
+  # fell and the character died alone in front of the pile. Nothing warned: a dead brain only
+  # delayed the hunt by a tick back when nobody obeyed its orders; today it is who sends the
+  # revive.
   #
-  # A memória é do WORKER e não do fato: o que assina a morte é a TRANSIÇÃO —
-  # eu vi o cérebro nesta caçada e ele calou. Caçada que nunca teve cérebro
-  # (engine desligado) segue como sempre.
-  # `engine_asks/1` responde um mapa VAZIO quando não há cérebro publicando —
-  # por isso a pergunta é pela ausência da chave, e não por `engine?: false`.
+  # The memory is the WORKER's, not the fact's: what signs the death is the TRANSITION (this
+  # hunt saw the brain, and it went silent). A hunt that never had a brain (engine off) goes
+  # on as always. `engine_asks/1` answers an EMPTY map when no brain publishes, hence the
+  # question is the absence of the key, not `engine?: false`.
   defp remember_brain(state, %{engine?: true}, now), do: %{state | brain_seen_at: now}
   defp remember_brain(state, _sem_cerebro, _now), do: state
 
@@ -492,16 +488,16 @@ defmodule Pokex.Bots.Cavebot.Worker do
       %{
         engine?: true,
         route_hold?: Map.get(orders, :route) == :hold,
-        # A RETIRADA (R7 cercada): a barra gasta recua pelo chão já limpo em vez
-        # de colecionar spawn novo pela frente — ver `Logic.retreat/3`.
+        # The retreat (fenced R7): the spent bar backs off over ground already cleared
+        # instead of collecting fresh spawn ahead; see `Logic.retreat/3`.
         route_back?: Map.get(orders, :route) == :back,
-        # O CÉREBRO DESISTIU DO REVIVE (fase :stranded): não é uma espera, é o
-        # fim da noite — a Logic transforma isso num bloqueio PERIGOSO, que para
-        # a frota e não volta sozinho. Ver `Engine.Logic`, o freio do chão.
+        # The brain gave up on the revive (phase :stranded): not a wait but the end of
+        # the night. Logic turns it into a DANGEROUS block that stops the fleet and does
+        # not come back on its own; see `Engine.Logic`, the floor brake.
         stranded?: Map.get(orders, :phase) == :stranded,
-        # ESPERAR COOLDOWN NÃO É TRAVAR: com a barra gasta a tela fica idêntica
-        # por dezenas de segundos, e o relógio do empate não pode contar isso
-        # como luta parada — ver `Logic.stall_or_wait/5`.
+        # Waiting for cooldown is not a stall: with the bar spent the screen stays
+        # identical for tens of seconds, and the stalemate clock must not count that as
+        # a stalled fight; see `Logic.stall_or_wait/5`.
         bar_spent?: Map.get(picture, :spent?) == true,
         reset_worth?: reset_worth?(picture),
         reset_note: reset_note(picture)
@@ -514,8 +510,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # A revive does two jobs — it heals AND it clears every cooldown — so it is worth spending
   # when either one is actually needed.
   defp reset_worth?(picture) do
-    # O ORÇAMENTO NA ESQUINA: uma esquina de reset é conveniência, e com a
-    # conta na reserva os últimos revives pertencem à emergência e ao caído.
+    # The budget at the corner: a reset corner is convenience, and with the count in the
+    # reserve the last revives belong to the emergency and the fainted.
     if reserve_reached?(picture), do: false, else: reset_useful?(picture)
   end
 
@@ -683,7 +679,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
         state
 
       {:error, messages} ->
-        # O MOTIVO VAI JUNTO.
+        # The reason travels along.
         Logger.warning("Cavebot: combate recusou o arranque (#{inspect(messages)})")
         translate(state, {:block, {:combat_preflight_failed, messages}})
     end
@@ -702,13 +698,14 @@ defmodule Pokex.Bots.Cavebot.Worker do
       else: local_block(state, reason)
   end
 
-  # O motivo pode vir SOZINHO (`:floor_changed`) ou com o que precisa ser
-  # consertado junto (`{:combat_preflight_failed, mensagens}`). O que decide a
-  # gravidade é o nome, não a forma — e antes disto a forma nova teria caído
-  # calada no bloqueio local, sem trava e sem parar a frota.
-  # O MODO VIAJA COM O ARRANQUE. A rota é quem escolhe, e o combate guarda a
-  # escolha pelo tempo da luta: assim a mão e o cérebro (que lê o mesmo modo no
-  # fato `:hunt`) não podem discordar no meio de um tique.
+  # The reason may come ALONE (`:floor_changed`) or with what needs fixing
+  # (`{:combat_preflight_failed, messages}`). The name decides the severity, not the shape;
+  # before this a new shape fell silently into the local block, with no latch and without
+  # stopping the fleet.
+  #
+  # The mode travels with the start. The route chooses, and combat keeps the choice for the
+  # length of the fight, so the hand and the brain (which reads the same mode from the `:hunt`
+  # fact) cannot disagree mid-tick.
   defp safe_combat_run(state) do
     Combat.Worker.run(state.combat, state.combat_run_timeout_ms, hunt_mode(state))
   catch
@@ -746,8 +743,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     |> schedule_comeback()
   end
 
-  # The night is the product ("ele vai estar lá a madrugada inteira farmando"), and a one-tile
-  # obstacle used to end it: the hunt stopped and waited for a human until morning.
+  # The night is the product, and a one-tile obstacle used to end it: the hunt stopped and
+  # waited for a human until morning.
   defp schedule_comeback(state) do
     budget = Settings.get(:cavebot_block_retries)
 
@@ -896,8 +893,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     times = Settings.get(:cavebot_park_clicks)
     gap = Settings.get(:cavebot_park_gap_ms)
 
-    # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que mandar algumas
-    # vezes, umas 4x, pra ter certeza" (Lucas, 2026-08-11).
+    # One press is not enough: the game sometimes ignores the click, so it is sent a few
+    # times (about 4) to be sure.
     clicks = List.duplicate({:click, :middle, point}, times)
     actions = Enum.intersperse(clicks, {:wait, gap})
     body = state.body
@@ -1487,7 +1484,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     }
   end
 
-  # O relógio começa no `run` e só no `run`: o reentro herda a noite.
+  # The clock starts at `run` and only at `run`: re-entry inherits the night.
   defp start_clock(state), do: %{state | started_at: wall_now(), ended_at: nil}
 
   defp wall_now, do: System.system_time(:millisecond)

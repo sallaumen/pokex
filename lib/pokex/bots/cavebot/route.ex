@@ -271,11 +271,9 @@ defmodule Pokex.Bots.Cavebot.Route do
   @doc """
   Where the active pokémon is PARKED at this waypoint, in screen pixels.
 
-  "Quando a gente termina de mobar, a gente normalmente manda o pokémon ficar
-  em algum lugar da tela específico para facilitar um grupo ao redor dele —
-  eu geralmente clico com o botão do meio do mouse em um ponto da minha tela"
-  (Lucas, 2026-08-11). The recorder captures the point from his own middle
-  click; the hunt reproduces it on arrival, and the pile closes in around the
+  When he finishes gathering he usually sends the pokémon to a specific spot on screen so the
+  pile closes around it, and he does that with a middle click. The recorder captures the point
+  from his own click; the hunt reproduces it on arrival, and the pile closes in around the
   pokémon instead of around him.
   """
   @spec set_park_point(t, non_neg_integer, {integer, integer} | nil) :: t
@@ -330,17 +328,15 @@ defmodule Pokex.Bots.Cavebot.Route do
   @doc """
   What HE did at this waypoint, measured from his own hands.
 
-  `fight_ms` is how long the kill took (shift+1 to shift+3 — "shift+3 é pq eu
-  já terminei de matar tudo, shift+1 é por que vou matar monstro"),
-  `gather_ms` how long he waited between parking the pokémon and firing the
-  first skill (the huddle, measured instead of guessed at four seconds), and
-  `combo` the skills he actually pressed there, in order.
+  `fight_ms` is how long the kill took (shift+1 to shift+3: shift+1 means he is going to kill,
+  shift+3 that he has finished killing), `gather_ms` how long he waited between parking the
+  pokémon and firing the first skill (the huddle, measured instead of guessed at four seconds),
+  and `combo` the skills he actually pressed there, in order.
 
-  Learning material, not orders: since 2026-08-12 the hunt no longer obeys
-  `gather_ms` — the eight kill spots of Meganium 1 measured anywhere from 569ms
-  to 4534ms, which is a lottery and not a ruler. What the hunt obeys is
-  `gather_wait/3`; the measurement is only what the screen offers as a starting
-  point. The strategy engine will read `combo`.
+  Learning material, not orders: the hunt no longer obeys `gather_ms`, because the eight kill
+  spots of one route measured anywhere from 569ms to 4534ms, which is a lottery and not a ruler.
+  What the hunt obeys is `gather_wait/3`; the measurement is only what the screen offers as a
+  starting point. The strategy engine will read `combo`.
   """
   @spec set_timing(t, non_neg_integer, keyword) :: t
   def set_timing(%__MODULE__{waypoints: waypoints} = route, index, fields) do
@@ -367,10 +363,9 @@ defmodule Pokex.Bots.Cavebot.Route do
   @doc """
   Turns one stop action on or off at `index`.
 
-  Stops are a SECOND axis, not more jobs: the waypoint where a gathered pile
-  dies is exactly the one worth reviving at, and it is already carrying "até
-  aqui". Making them compete for one slot would make the most useful
-  combination the impossible one.
+  Stops are a SECOND axis, not more jobs: the waypoint where a gathered pile dies is exactly the
+  one worth reviving at, and it is already carrying the kill-spot mark. Making them compete for
+  one slot would make the most useful combination the impossible one.
 
   An index nobody has, or an action nobody knows, leaves the route untouched.
   """
@@ -501,15 +496,13 @@ defmodule Pokex.Bots.Cavebot.Route do
   @doc """
   Is the leg LEAVING the waypoint at `index` walked while luring?
 
-  The leg out of a waypoint carries that waypoint's job: arriving at "mobar
-  daqui" is what starts the gathering, arriving at "até aqui" is what ends it.
-  So the answer is "which mark comes last, at or before this waypoint" — read
-  BACKWARDS around the loop, because the route is a loop and a stretch may well
-  wrap past the first waypoint.
+  The leg out of a waypoint carries that waypoint's job: arriving at "gather from here" is what
+  starts the gathering, arriving at the kill spot is what ends it. So the answer is "which mark
+  comes last, at or before this waypoint", read BACKWARDS around the loop, because the route is
+  a loop and a stretch may well wrap past the first waypoint.
 
-  A `:lure_start` nobody closed therefore lures the whole route. That is the
-  honest reading of the marks, and `lure_issue/1` is how the editor warns
-  about it.
+  A `:lure_start` nobody closed therefore lures the whole route. That is the honest reading of
+  the marks, and `lure_issue/1` is how the editor warns about it.
   """
   @spec lure_leg?([waypoint], non_neg_integer) :: boolean
   def lure_leg?(waypoints, index) when is_list(waypoints) and is_integer(index) do
@@ -526,15 +519,13 @@ defmodule Pokex.Bots.Cavebot.Route do
   end
 
   @doc """
-  `nil` unless a gathering can never END — the one mark that actually breaks
-  the hunt.
+  `nil` unless a gathering can never END: the one mark that actually breaks the hunt.
 
-  Counting starts against ends was too crude, and cried wolf on shapes that
-  are perfectly fine: two kill spots in a row (two piles at the same corner)
-  and two gatherings closing on one end are both legitimate, and both were
-  being reported. An EXTRA "até aqui" costs nothing — it just marks another
-  kill spot. A "mobar daqui" that never closes costs everything: the hunt
-  walks the whole route refusing to fight.
+  Counting starts against ends was too crude, and cried wolf on shapes that are perfectly fine:
+  two kill spots in a row (two piles at the same corner) and two gatherings closing on one end
+  are both legitimate, and both were being reported. An EXTRA kill spot costs nothing, it just
+  marks another one. A gathering that never closes costs everything: the hunt walks the whole
+  route refusing to fight.
   """
   @spec lure_issue(t) :: nil | :start_without_end
   def lure_issue(%__MODULE__{waypoints: waypoints}) do
@@ -633,24 +624,21 @@ defmodule Pokex.Bots.Cavebot.Route do
   end
 
   @doc """
-  The leg LEAVING `index`, when it is a staircase step — `{:stair, sx, sy}` with
-  the direction to press, `nil` otherwise.
+  The leg LEAVING `index`, when it is a staircase step: `{:stair, sx, sy}` with the direction to
+  press, `nil` otherwise.
 
-  Taking a staircase is ONE key that moves TWO tiles: the step and the tile past
-  it. "se fui de um ponto X para um ponto Y à minha esquerda, a coordenada Y vai
-  subir em 2 pontos, 1 bloco da escada e 1 bloco de depois da escada, com 1
-  passo só" (Lucas, 2026-08-12). He marks the corner right before and the one
-  right after, so the pair describes the whole staircase.
+  Taking a staircase is ONE key that moves TWO tiles: the step and the tile past it. As he
+  measured it, going from one point to another on his left makes the coordinate rise by two, one
+  block for the staircase and one for the block after it, in a single step. He marks the corner
+  right before and the one right after, so the pair describes the whole staircase.
 
-  The signature is therefore exact and narrow: the floor changes AND one axis
-  moved exactly two tiles while the other did not move at all. Seven of the
-  fourteen floor changes in the three recorded routes the tests assert —
-  Meganium 1, Xatu easy, Azumaril easy — match it; the other seven have extra
-  walking folded into the same corner and are left to the ring search, which is
-  what that search is for.
+  The signature is therefore exact and narrow: the floor changes AND one axis moved exactly two
+  tiles while the other did not move at all. Seven of the fourteen floor changes in the three
+  recorded routes the tests assert match it; the other seven have extra walking folded into the
+  same corner and are left to the ring search, which is what that search is for.
 
-  Same leg convention as `lure_leg?/2` and `floor_change/2`: the closing leg of
-  the loop is a real leg — his Azumaril takes its stairs there.
+  Same leg convention as `lure_leg?/2` and `floor_change/2`: the closing leg of the loop is a
+  real leg, and one of his routes takes its stairs there.
   """
   @spec stair_leg([waypoint], non_neg_integer) :: {:stair, -1..1, -1..1} | nil
   def stair_leg(waypoints, index) when is_list(waypoints) and is_integer(index) do

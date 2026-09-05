@@ -120,15 +120,15 @@ defmodule Pokex.Bots.Capture do
   @doc """
   The same answer as `display_points/1`, read WITHOUT queueing on the broker.
 
-  This GenServer serializes every capture, so a `call` waits out whatever scan
-  is running — seconds, sometimes. That is the right price for a worker that
-  needs the truth and the wrong one for a page that only wants to draw "esta
-  calibração é de outra tela": mounting a LiveView must never sit in the
-  capture queue (the 2026-07-31 lesson, a panel frozen behind the Catcher).
+  This GenServer serializes every capture, so a `call` waits out whatever scan is running,
+  sometimes for seconds. That is the right price for a worker that needs the truth and the wrong
+  one for a page that only wants to draw "this calibration belongs to another screen": mounting
+  a LiveView must never sit in the capture queue, which is the lesson of a panel once frozen
+  behind the Catcher.
 
-  The display's size changes when a monitor is plugged, not between frames, so
-  the last value the broker computed is as good as a fresh one. `:unknown`
-  keeps meaning "no proof" — never "the screen changed".
+  The display's size changes when a monitor is plugged in, not between frames, so the last value
+  the broker computed is as good as a fresh one. `:unknown` keeps meaning "no proof", never "the
+  screen changed".
   """
   def display_points_cached, do: :persistent_term.get(@display_key, :unknown)
 
@@ -258,13 +258,12 @@ defmodule Pokex.Bots.Capture do
   end
 
   @doc """
-  `frame_with_path/3` sem o cache — o quadro é SEMPRE novo.
+  `frame_with_path/3` without the cache: the frame is ALWAYS new.
 
-  O laço de jogo do mini-game precisa disto: ele carimba a hora ANTES da
-  captura pra que o piloto extrapole a latência real, e um frame servido do
-  cache faz esse carimbo mentir. Medido em 2026-08-05: com tick de ~80ms e TTL
-  de 75ms, metade dos ticks vinha do cache (cap_ms 0) — o piloto via 6 quadros
-  novos por segundo achando que via 12.
+  The mini-game's play loop needs this: it stamps the time BEFORE the capture so the pilot can
+  extrapolate the real latency, and a frame served from the cache makes that stamp lie.
+  Measured: with a ~80ms tick and a 75ms TTL, half the ticks came from the cache (cap_ms 0), so
+  the pilot saw 6 new frames a second while believing it saw 12.
   """
   def frame_with_path_uncached(region, filename, server \\ __MODULE__) do
     with {:ok, path} <- grab_uncached(region, filename, server),

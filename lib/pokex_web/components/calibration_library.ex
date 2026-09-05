@@ -1,17 +1,16 @@
 defmodule PokexWeb.CalibrationLibrary do
   @moduledoc """
-  Os dois acervos ensinados, desenhados como TABELA e não como linha de texto.
+  The two taught collections, drawn as a TABLE and not as a line of text.
 
-  O que estava quebrado: cada linha era um `flex-wrap` — o input do nome nascia
-  com os 320px que o daisyUI dá a `.input`, e o número de amostras (1, 2 ou 3)
-  empurrava o switch pra uma coluna diferente em cada linha. Medido na tela
-  dele: o mesmo botão "na mira" caía em x=953, x=1001 e x=1049, e a linha de 3
-  amostras estourava pra 69px de altura enquanto as outras tinham 40.
+  What was broken: each row was a `flex-wrap`, the name input was born with the 320px daisyUI
+  gives `.input`, and the sample count (1, 2 or 3) pushed the switch into a different column on
+  every row. Measured on his screen: the same "aimed" button landed at x=953, x=1001 and x=1049,
+  and the three-sample row blew up to 69px tall while the others were 40.
 
-  Com grade de colunas fixas, o switch de 25 corpos nasce no mesmo x — que é o
-  que faz o olho varrer a coluna inteira de uma vez em vez de caçar botão por
-  botão. Cada célula existe SEMPRE (o selo "×N nesta sessão" vira um vão vazio
-  quando não há contagem), senão a linha seguinte escorrega uma coluna.
+  With fixed grid columns, the switch of 25 corpses is born at the same x, which is what lets
+  the eye scan the whole column at once instead of hunting button by button. Every cell ALWAYS
+  exists (the "xN this session" badge becomes an empty gap when there is no count), otherwise
+  the next row slides one column over.
   """
   use PokexWeb, :html
 
@@ -22,11 +21,10 @@ defmodule PokexWeb.CalibrationLibrary do
   attr :counts, :map, default: %{}
 
   @doc """
-  O acervo de corpos: a mira da captura.
+  The corpse collection: the capture's aim.
 
-  Ordenado por estado — quem está na mira primeiro, vetados no fim, cada grupo
-  em ordem alfabética. O veto (#253) é uma decisão que vale a pena ver junta:
-  espalhado no meio da lista, ninguém lembra quem desligou.
+  Ordered by state, aimed first and vetoed last, each group alphabetical. The veto is a decision
+  worth seeing together: scattered through the list, nobody remembers who turned what off.
   """
   def taught_corpses(assigns) do
     assigns = assign(assigns, :entries, sort_by_state(assigns.entries))
@@ -123,8 +121,8 @@ defmodule PokexWeb.CalibrationLibrary do
   attr :entries, :list, required: true
 
   @doc """
-  O acervo do pokémon dele — mesma grade, uma coluna a menos (não há veto: o
-  rastreio olha todos os ângulos que existirem).
+  His pokémon's collection: the same grid, one column fewer, because there is no veto (the
+  tracker looks at every angle that exists).
   """
   def taught_pokemon(assigns) do
     ~H"""

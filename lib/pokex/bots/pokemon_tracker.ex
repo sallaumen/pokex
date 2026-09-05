@@ -1,24 +1,22 @@
 defmodule Pokex.Bots.PokemonTracker do
   @moduledoc """
-  Where his pokémon actually IS on screen, and whether that is where the bot
-  expected it.
+  Where his pokémon actually IS on screen, and whether that is where the bot expected it.
 
-  The bot has been assuming: it middle-clicks a spot, and from then on every
-  rule that depends on the pokémon being there — above all the corpse sweep,
-  which centres on that spot — trusts a click nobody confirmed. "confirmar que o
-  pokémon chegou no ponto" was the open question; this answers it by looking.
+  The bot has been assuming: it middle-clicks a spot, and from then on every rule that depends
+  on the pokémon being there, above all the corpse sweep which centres on that spot, trusts a
+  click nobody confirmed. Confirming that the pokémon reached the point was the open question;
+  this answers it by looking.
 
   ## Cheap by construction
 
-  The search is a `Pokex.Vision.Finder` sweep over a SMALL square around the
-  point in question, not over the arena: asking "is it here?" costs a fraction
-  of asking "where is it?". `look_around/2` takes the radius, so a caller that
-  knows roughly where to look pays roughly nothing.
+  The search is a `Pokex.Vision.Finder` sweep over a SMALL square around the point in question,
+  not over the arena: asking "is it here?" costs a fraction of asking "where is it?".
+  `look_around/2` takes the radius, so a caller that knows roughly where to look pays roughly
+  nothing.
 
-  Nothing here decides anything. It reports `%{point, score, off_by}` or a
-  reason it could not tell, and the caller — which knows whether a missing
-  pokémon means "wait", "click again" or "sweep anyway" — decides. A tracker
-  that guessed would be the assumption it exists to remove.
+  Nothing here decides anything. It reports `%{point, score, off_by}` or a reason it could not
+  tell, and the caller, which knows whether a missing pokémon means "wait", "click again" or
+  "sweep anyway", decides. A tracker that guessed would be the assumption it exists to remove.
   """
 
   alias Pokex.Bots.{Capture, PokemonSprites}

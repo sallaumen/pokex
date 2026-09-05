@@ -559,11 +559,11 @@ defmodule Pokex.Bots.BotSupervisorTest do
     after_stop = Session.generation()
     assert after_stop > antes
 
-    on_exit(fn -> BotSupervisor.stop_all() end)
+    on_exit(&stop_global_fleet!/0)
     _result = BotSupervisor.start_all()
     assert Session.generation() > after_stop
 
-    :ok = BotSupervisor.stop_all()
+    stop_global_fleet!()
   end
 
   @tag :tmp_dir
@@ -596,7 +596,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
   test "start_all/0 stops refusing once the simulator is disarmed" do
     on_exit(fn ->
       :persistent_term.erase({Pokex.Sim.Fence, :arm_state})
-      BotSupervisor.stop_all()
+      stop_global_fleet!()
     end)
 
     :persistent_term.put({Pokex.Sim.Fence, :arm_state}, %{rig: Pokex.Rig.Fake})
@@ -608,6 +608,24 @@ defmodule Pokex.Bots.BotSupervisorTest do
       :ok -> :ok
       {:error, messages} -> refute Enum.any?(messages, &(&1 =~ "simulador"))
     end
+  end
+
+  # `stop_all/0` is BEST EFFORT: `safe_halt` gives up after 1s and leaves the halt sitting
+  # in the worker's mailbox. In test env the global fleet runs against a Fake sensor that
+  # dies with the test process, so a worker still mid-tick then calls a dead Agent, crashes
+  # with :noproc and prints a terminate outside the capture window (the gate reports it as
+  # an escaped log, and it took CI down). Waiting for the worker to be REALLY idle is what
+  # makes the stop deterministic: the status call queues behind the halt, so it can only
+  # answer once the halt has been handled.
+  defp stop_global_fleet! do
+    :ok = BotSupervisor.stop_all()
+    wait_for(&global_fishing_idle?/0, 300)
+  end
+
+  defp global_fishing_idle? do
+    Pokex.Bots.Fishing.Worker.status().state == :idle
+  catch
+    :exit, _not_running -> true
   end
 
   defp wait_for(fun, tries \\ 100) do

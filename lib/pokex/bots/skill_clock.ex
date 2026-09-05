@@ -1,44 +1,39 @@
 defmodule Pokex.Bots.SkillClock do
   @moduledoc """
-  O relógio das teclas: o que o bot apertou, quando, e o que isso implica.
+  The key clock: what the bot pressed, when, and what that implies.
 
-  Até 27/08/2026 a única resposta para "essa tecla está pronta?" vinha da TELA
-  (`Perception.ready_skills/1`, o fato `:skill_bar`). Isso tem três buracos que
-  ele descreveu de uma vez:
+  Until this module existed the only answer to "is this key ready?" came from the SCREEN
+  (`Perception.ready_skills/1`, the `:skill_bar` fact). That has three holes:
 
-    * **Leitura ruim = rotação cega.** O fato falha OPEN de propósito — nada
-      pode parar de atacar por causa de um pixel — então uma barra ilegível
-      devolve `nil` e o combate volta a apertar tudo em ordem, incluindo o que
-      acabou de sair.
-    * **Ninguém escreveu o cooldown de nada.** O bot não tinha onde saber que a
-      área dele leva 45s e a de alvo único 8s, então não havia como preferir uma
-      ordem, nem como dizer "acabou tudo".
-    * **O revive virava um botão de reset barato.** Ele custa uma bola e um
-      tempo; gastá-lo com metade da barra pronta é pagar caro por pouco.
+    * **A bad reading means blind rotation.** The fact fails OPEN on purpose (nothing
+      may stop attacking because of a pixel), so an unreadable bar answers `nil` and
+      combat goes back to pressing everything in order, including what just fired.
+    * **Nobody had written down any cooldown.** The bot had no way to know the area
+      skill takes 45s and the single-target one 8s, so it could not prefer an order
+      nor say "everything is spent".
+    * **The revive became a cheap reset button.** It costs an item and time; spending
+      it with half the bar ready is paying a lot for little.
 
-  Este módulo é a metade que faltava: quem aperta CARIMBA aqui, e quem decide
-  pergunta aqui. O carimbo mora em `Pokex.Bots.Body`, o único portão por onde
-  uma tecla sai (`execute({:press, key})`), então não existe caminho que aperte
-  sem o relógio saber.
+  This module is the missing half: whoever presses STAMPS here, and whoever decides asks here.
+  The stamp lives in `Pokex.Bots.Body`, the only gate a key leaves through
+  (`execute({:press, key})`), so no path can press without the clock knowing.
 
-  ## A tela continua mandando quando discorda
+  ## The screen still wins when the two disagree
 
-  `ready/4` cruza as duas fontes e a regra é conservadora dos dois lados: uma
-  tecla só está pronta se a tela não disser que não E um cooldown ESCRITO não
-  disser que não. A tela é o jogo falando (ela sabe de coisas que ninguém
-  escreveu: um silence, um cooldown global); o relógio é o que a gente sabe ter
-  apertado (e ele sabe de coisas que a tela demora a mostrar — o fato tem idade,
-  e uma foto de 400ms atrás ainda mostra pronta a tecla que já saiu).
+  `ready/4` crosses both sources and is conservative on both sides: a key is ready only if the
+  screen does not say no AND a WRITTEN cooldown does not say no. The screen is the game speaking
+  (it knows things nobody wrote down: a silence, a global cooldown); the clock is what we know
+  we pressed (and it knows things the screen is slow to show, since the fact has an age and a
+  400ms-old photo still shows a key that has already fired as ready).
 
-  Com a tela ilegível, o relógio responde sozinho — que é o ganho grande: em vez
-  de rotação cega, o bot segue sabendo o que gastou.
+  With the screen unreadable the clock answers alone, which is the big win: instead of blind
+  rotation, the bot still knows what it spent.
 
-  ## O revive zera tudo
+  ## The revive resets everything
 
-  É a regra R3 do jogo dele, medida em vídeo: o revive devolve o pokémon com
-  todos os cooldowns em zero. `reset/1` existe para o worker carimbar isso, e é
-  o que torna o relógio fiel depois de um reset — sem ele, o relógio seguraria
-  teclas que o jogo já devolveu.
+  That is rule R3 of his game, measured on video: the revive brings the pokémon back with every
+  cooldown at zero. `reset/1` exists for the worker to stamp that, and it is what keeps the
+  clock honest after a reset; without it the clock would hold keys the game already gave back.
   """
 
   @table :pokex_skill_clock
@@ -47,7 +42,7 @@ defmodule Pokex.Bots.SkillClock do
   # configured).
   @assumed_ms 45_000
 
-  @doc "O cooldown assumido pra tecla sem número escrito."
+  @doc "The cooldown assumed for a key with no written number."
   @spec assumed_ms() :: pos_integer
   def assumed_ms, do: @assumed_ms
 
@@ -69,7 +64,7 @@ defmodule Pokex.Bots.SkillClock do
     ArgumentError -> :ok
   end
 
-  @doc "Carimba que `key` saiu agora."
+  @doc "Stamps that `key` fired just now."
   @spec pressed(String.t(), integer) :: :ok
   def pressed(key, at \\ now()) when is_binary(key) do
     ensure_table()
@@ -77,7 +72,7 @@ defmodule Pokex.Bots.SkillClock do
     :ok
   end
 
-  @doc "Quando `key` saiu pela última vez, ou nil."
+  @doc "When `key` last fired, or nil."
   @spec last_press(String.t()) :: integer | nil
   def last_press(key) when is_binary(key) do
     ensure_table()
@@ -89,22 +84,19 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  Carimba que a TELA MENTIU sobre `key`: o bot apertou, e a barra continuou
-  dizendo que a tecla está pronta.
+  Stamps that the SCREEN LIED about `key`: the bot pressed, and the bar kept saying the key is
+  ready.
 
-  É o recibo (`Pokex.Bots.SkillReceipt`) falando — `missed` só sai quando a
-  tecla estava pronta ANTES e continua pronta DEPOIS. O jogo não reagiu, e a
-  única explicação que sobra é a barra: a leitura de prontidão compara um pixel
-  de referência com o que a calibração guardou, e uma referência tirada com a
-  skill carregando casa justamente com o estado carregando.
+  This is the receipt (`Pokex.Bots.SkillReceipt`) speaking: `missed` only fires when the key was
+  ready BEFORE and is still ready AFTER. The game did not react, and the only explanation left
+  is the bar, whose readiness reading compares a reference pixel with what the calibration
+  stored, and a reference taken while the skill was charging matches exactly the charging state.
 
-  MEDIDO na captura dele de 2026-08-27, 19:07: o jogo escrevia `12`, `32` e `32`
-  em cima das teclas 3, 4 e 5, e a leitura respondia "3 e 5 prontas". A rotação
-  gastou dezenove segundos apertando as duas.
+  MEASURED on one of his captures: the game was writing `12`, `32` and `32` over keys 3, 4 and 5
+  while the reading answered "3 and 5 ready". The rotation spent nineteen seconds pressing both.
 
-  A partir daqui a tela deixa de responder por essa tecla até o relógio dizer
-  que ela voltou. É estreito de propósito: vale só para a tecla que o jogo
-  provou ignorar, e passa sozinho.
+  From here on the screen stops answering for that key until the clock says it is back. Narrow
+  on purpose: it holds only for the key the game proved it ignores, and it lifts by itself.
   """
   @spec denied(String.t(), integer) :: :ok
   def denied(key, at \\ now()) when is_binary(key) do
@@ -114,8 +106,8 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  Quanto falta, em ms, até a TELA voltar a responder por `key`. Zero quando
-  ninguém pegou a barra mentindo sobre ela.
+  How long, in ms, until the SCREEN answers for `key` again. Zero when nobody caught the bar
+  lying about it.
   """
   @spec deaf_ms(String.t(), %{optional(String.t()) => pos_integer}, integer) :: non_neg_integer
   def deaf_ms(key, cooldowns, now \\ now()) do
@@ -128,24 +120,21 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  Esquece tudo — o que o revive faz no jogo, e o que um personagem novo pede.
+  Forgets everything: what the revive does in the game, and what a new character needs.
 
-  Mas o que o revive apaga é o COOLDOWN, não o fato de a tecla ter sido
-  apertada. Cada carimbo vira um ECO com a mesma hora: ninguém lê eco como
-  cooldown, e ele existe pra responder uma pergunta só — "esse aperto que o
-  vigia acabou de VER pela janela foi nosso?".
+  But what the revive erases is the COOLDOWN, not the fact that the key was pressed. Every stamp
+  becomes an ECHO with the same timestamp: nobody reads an echo as a cooldown, and it exists to
+  answer one question, "was that press the watcher just SAW through the window ours?".
 
-  Sem o eco, a noite de 29/08 rodou assim: o bot disparava 3, 4 e 5, pagava um
-  revive pra zerar a barra, este `reset` apagava os carimbos, e aí o
-  `HandWatch` drenava os apertos que o PRÓPRIO BOT tinha acabado de fazer,
-  não achava carimbo nenhum e concluía "foi a mão do Lucas" — recarimbando o
-  cooldown 340ms depois do revive. A barra voltava fria, o R3b dizia "paguei
-  um revive e a barra não voltou" e se desarmava por 600s. Foram 235 apertos
-  atribuídos à mão dele em 242 revives, e 97% deles caíam em cima de uma
-  rajada do bot na mesma tecla.
+  Without the echo one night ran like this: the bot fired 3, 4 and 5, paid a revive to reset the
+  bar, this `reset` erased the stamps, and then `HandWatch` drained the presses the BOT ITSELF
+  had just made, found no stamp and concluded it was his hand, re-stamping the cooldown 340ms
+  after the revive. The bar came back cold, R3b said "I paid a revive and the bar did not come
+  back" and disarmed for 600s. That was 235 presses attributed to his hand in 242 revives, 97%
+  of them landing on top of a bot burst on the same key.
 
-  O eco não é lido por ninguém depois de `@own_window_ms`, então ele não
-  precisa expirar: o `reset` seguinte o substitui.
+  Nobody reads the echo after `@own_window_ms`, so it does not need to expire: the next `reset`
+  replaces it.
   """
   @spec reset() :: :ok
   def reset do
@@ -159,10 +148,9 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  Esquece DE VERDADE, ecos inclusive — troca de personagem e mesa de teste.
-  O `reset/0` de um revive preserva o eco de propósito; este não preserva
-  nada, porque as teclas de outro personagem não são testemunha de coisa
-  nenhuma.
+  Forgets FOR REAL, echoes included: a character switch, and the test bench. A revive's
+  `reset/0` preserves the echo on purpose; this one preserves nothing, because another
+  character's keys are witness to nothing.
   """
   @spec wipe() :: :ok
   def wipe do
@@ -172,10 +160,10 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  A hora do último aperto de `key` que um `reset/0` apagou, ou nil.
+  The time of the last press of `key` that a `reset/0` erased, or nil.
 
-  NÃO é cooldown: uma tecla com eco está pronta. Ver `pressed_at/1`, que é
-  quem responde a pergunta inteira.
+  NOT a cooldown: a key with an echo is ready. See `pressed_at/1`, which answers the whole
+  question.
   """
   @spec echo(String.t()) :: integer | nil
   def echo(key) when is_binary(key) do
@@ -188,25 +176,24 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  Quando NÓS apertamos `key` pela última vez — sobreviva ou não o cooldown.
+  When WE last pressed `key`, whether or not the cooldown survived.
 
-  `last_press/1` responde "quando começou o cooldown que ainda está correndo", e
-  some quando o revive zera a barra. Esta responde "esse aperto foi nosso?", que
-  é outra pergunta e não deve ser apagada por um reset: é o que separa o CGEvent
-  do próprio bot voltando pela janela do `HandWatch` de um aperto da mão dele.
+  `last_press/1` answers "when did the cooldown that is still running start", and it vanishes
+  when the revive resets the bar. This one answers "was that press ours?", which is a different
+  question and must not be erased by a reset: it is what tells the bot's own CGEvent coming back
+  through the `HandWatch` window from a press of his hand.
   """
   @spec pressed_at(String.t()) :: integer | nil
   def pressed_at(key) when is_binary(key), do: last_press(key) || echo(key)
 
   @doc """
-  Solta UMA tecla: apaga o carimbo dela, como se ninguém tivesse apertado.
+  Frees ONE key: erases its stamp, as if nobody had pressed it.
 
-  É a voz da TELA corrigindo o relógio (`Pokex.Bots.SkillTruth`): quando o jogo
-  mostra uma tecla pronta que o relógio insiste em segurar, uma das duas mentiu
-  — e entre um carimbo (o que a gente ACHA que saiu) e o jogo escrevendo a
-  prontidão na tela, o jogo ganha. Sem isto, um aperto engolido pelo foco, um
-  cooldown escrito maior que o real, ou um revive que o bot não viu (F4 na mão
-  dele) seguram tecla boa por até 50s.
+  This is the SCREEN correcting the clock (`Pokex.Bots.SkillTruth`): when the game shows a key
+  as ready and the clock insists on holding it, one of the two lied, and between a stamp (what
+  we THINK fired) and the game writing readiness on the screen, the game wins. Without this, a
+  press swallowed by focus, a written cooldown longer than the real one, or a revive the bot did
+  not see (an F4 from his hand) holds a good key for up to 50s.
   """
   @spec release(String.t()) :: :ok
   def release(key) when is_binary(key) do
@@ -216,11 +203,11 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  As teclas de `keys` que o RELÓGIO considera prontas — com o assumido valendo
-  para as que ninguém mediu.
+  The keys of `keys` the CLOCK considers ready, with the assumed cooldown standing in for the
+  ones nobody measured.
 
-  Só é usado quando a TELA não respondeu: é aí que o palpite de 45s vale mais
-  que o nada que existia antes.
+  Only used when the SCREEN did not answer: that is where the 45s guess is worth more than the
+  nothing that existed before.
   """
   @spec ready_by_clock([String.t()], %{optional(String.t()) => pos_integer}, integer) ::
           [String.t()]
@@ -229,8 +216,8 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  Quanto falta para `key` voltar, em ms, pelo cooldown ASSUMIDO quando não há um
-  escrito. Zero quando está pronta.
+  How long until `key` is back, in ms, by the ASSUMED cooldown when there is no written one.
+  Zero when it is ready.
   """
   @spec assumed_cooling_ms(String.t(), %{optional(String.t()) => pos_integer}, integer) ::
           non_neg_integer
@@ -239,8 +226,8 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  Quanto falta para `key` voltar, em ms. Zero quando está pronta ou quando
-  ninguém escreveu o cooldown dela.
+  How long until `key` is back, in ms. Zero when it is ready or when nobody wrote its cooldown
+  down.
   """
   @spec cooling_ms(String.t(), %{optional(String.t()) => pos_integer}, integer) ::
           non_neg_integer
@@ -254,29 +241,26 @@ defmodule Pokex.Bots.SkillClock do
   end
 
   @doc """
-  As teclas prontas de verdade: a leitura da tela cruzada com o relógio.
+  The keys that are really ready: the screen reading crossed with the clock.
 
-  * tela com lista → ela manda, menos as teclas que um cooldown ESCRITO diz
-    estarem esfriando (a foto tem idade: uma tecla que saiu há 200ms ainda
-    aparece pronta nela);
-  * tela `nil` (ilegível, velha, ausente) → o relógio responde sozinho, e aí o
-    assumido de 45s vale — é o ponto deste módulo, porque antes uma leitura
-    ruim deixava o combate cego;
-  * sem teclas conhecidas e sem tela → `nil`, o desconhecido de sempre, pra
-    quem lê continuar falhando OPEN como sempre fez.
+    * screen with a list -> it rules, minus the keys a WRITTEN cooldown says are
+      cooling (the photo has an age: a key that fired 200ms ago still shows as ready);
+    * screen `nil` (unreadable, old, absent) -> the clock answers alone, and there the
+      45s assumption applies. That is the point of this module, because before a bad
+      reading left combat blind;
+    * no known keys and no screen -> `nil`, the usual unknown, so readers keep failing
+      OPEN as they always did.
 
-  ## Por que o ASSUMIDO não derruba o que a tela viu — a não ser que ela minta
+  ## Why the ASSUMED cooldown does not override what the screen saw, unless it lies
 
-  Um palpite não desmente uma observação. Mas `missed` não é palpite: é o jogo
-  respondendo que não reagiu, e uma tecla pronta que não sai não existe. Aí o
-  assumido vale, para essa tecla só, até ela voltar — ver `denied/2`.
+  A guess does not disprove an observation. But `missed` is not a guess: it is the game
+  answering that it did not react, and a ready key that does not fire does not exist. There the
+  assumption applies, for that key only, until it comes back. See `denied/2`.
 
-
-  Um cooldown escrito é medição dele e pode contradizer uma foto velha. Um
-  cooldown assumido é palpite: se a skill volta em 8s e a gente chuta 45, vetar
-  a tela faria o bot deixar de usar a tecla mais rápida da barra por 37
-  segundos, e ninguém veria por quê. Palpite preenche buraco; não desmente
-  observação.
+  A written cooldown is his own measurement and may contradict an old photo. An assumed cooldown
+  is a guess: if the skill comes back in 8s and we guess 45, vetoing the screen would make the
+  bot stop using the fastest key on the bar for 37 seconds, and nobody would see why. A guess
+  fills a hole; it does not disprove an observation.
   """
   @spec ready([String.t()] | nil, [String.t()], %{optional(String.t()) => pos_integer}, integer) ::
           [String.t()] | nil

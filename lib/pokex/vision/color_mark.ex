@@ -1,23 +1,22 @@
 defmodule Pokex.Vision.ColorMark do
   @moduledoc """
-  Presença de COR num frame: "existe mancha desta cor aqui?"
+  Presence of a COLOUR in a frame: "is there a blob of this colour here?"
 
-  É o olho do shiny/chefe do Poké Alliance (docs/shiny/plano-shiny-por-cor.md):
-  no PA um shiny é um RECOLOR — mesmo sprite, paleta trocada — e o sprite
-  aparece em qualquer pose (o Electrode rola de ponta-cabeça no rollout), então
-  casar crop ensinado exigiria uma amostra por pose. O MATIZ não: o shading do
-  jogo varia brilho e saturação, mas o tom fica — por isso a comparação vive em
-  HSV com o cone apertado no H e folgado em S/V.
+  This is the eye for the shiny and boss colours (docs/shiny/plano-shiny-por-cor.md). In this
+  client a shiny is a RECOLOUR, the same sprite with a swapped palette, and the sprite shows up
+  in any pose (an Electrode rolls upside down in rollout), so matching a taught crop would need
+  one sample per pose. The HUE does not: the game's shading varies brightness and saturation,
+  but the tone stays, which is why the comparison lives in HSV with a tight cone on H and slack
+  on S/V.
 
-  A contagem é por CÉLULAS (precedente: `corpse_cell_px`): uma passada única no
-  binário soma pixels casados por célula de `cell_px`, e mancha é um grupo de
-  células vizinhas acima de `min_cell_px`. É o que separa "25px concentrados
-  num cabelo diferente" de "25px de ruído espalhados pela grama" — sensível sem
-  ser nervoso.
+  Counting is by CELLS (precedent: `corpse_cell_px`): a single pass over the binary sums matched
+  pixels per `cell_px` cell, and a blob is a group of neighbouring cells above `min_cell_px`.
+  That is what tells "25px concentrated on a differently coloured crest" from "25px of noise
+  spread over the grass": sensitive without being nervous.
 
-  Puro e sem processo, como o `SpriteLibrary`: recebe um `Frame`, devolve um
-  mapa. Coordenadas de saída são PIXELS DO FRAME — quem capturou sabe a região
-  e a escala, e converte pra pontos de tela.
+  Pure and processless, like `SpriteLibrary`: it takes a `Frame` and answers a map. Output
+  coordinates are FRAME PIXELS; whoever captured knows the region and the scale, and converts to
+  screen points.
   """
 
   alias Pokex.Vision.Frame
@@ -29,10 +28,10 @@ defmodule Pokex.Vision.ColorMark do
   @type spec :: {h :: 0..359, s :: 0..255, v :: 0..255, tol_h :: pos_integer, tol_sv :: 0..255}
 
   @doc """
-  Compila cores `%{rgb: {r, g, b}, tol_h: graus, tol_sv: pct}` para a varredura.
+  Compiles colours `%{rgb: {r, g, b}, tol_h: degrees, tol_sv: pct}` for the scan.
 
-  `tol_h` é a meia-largura do cone de matiz em graus; `tol_sv` é a folga de
-  saturação/brilho em PORCENTO (convertida pra escala 0..255 aqui, uma vez).
+  `tol_h` is the half-width of the hue cone in degrees; `tol_sv` is the saturation and
+  brightness slack in PERCENT (converted to the 0..255 scale here, once).
   """
   def compile(colors) when is_list(colors) do
     Enum.map(colors, fn %{rgb: {r, g, b}} = color ->
@@ -44,28 +43,26 @@ defmodule Pokex.Vision.ColorMark do
   end
 
   @doc """
-  O CONTA-GOTAS do ensino: a cor dominante de um quadradinho ao redor de
-  `{x, y}` — o que o clique dele na foto vira.
+  The teaching EYEDROPPER: the dominant colour of a small square around `{x, y}`, which is what
+  his click on the photo becomes.
 
-  Um clique cai num pixel, e um pixel de sprite é anti-aliasing tanto quanto
-  cor: pegar o pixel cru ensinaria a mistura dele com o chão. Então o patch
-  inteiro vota — cinza e quase-preto fora (não têm matiz pra ensinar), o resto
-  agrupado por FAIXA DE MATIZ, e a maior faixa devolve a MEDIANA de cada canal.
-  Mediana e não média: a média entre dois tons vizinhos inventa um terceiro que
-  não está na tela.
+  A click lands on one pixel, and a sprite pixel is as much anti-aliasing as colour: taking the
+  raw pixel would teach its blend with the ground. So the whole patch votes. Grey and near-black
+  are out (they have no hue to teach), the rest is grouped by HUE BAND, and the largest band
+  answers the MEDIAN of each channel. Median and not mean: the mean between two neighbouring
+  tones invents a third that is not on the screen.
 
-  `:none` quando não há cor nenhuma ali (ele clicou na pedra do chão) — quem
-  ensina precisa ouvir isso em vez de receber um cinza silencioso.
+  `:none` when there is no colour there at all (he clicked on the rock floor): whoever is
+  teaching needs to hear that instead of receiving a silent grey.
 
-  ## O pixel clicado manda (02/09)
+  ## The clicked pixel rules
 
-  A votação do patch inteiro perdia o DETALHE: a crista azul-escura do Shiny
-  Feraligatr tem uns poucos pixels, e num patch de 5×5 o corpo ciano em volta
-  ganhava a votação — o clique em cima da crista devolvia o tom do corpo, e a
-  regra nunca separava o shiny do comum ("não consigo clicar no ponto de cor
-  dele"). Então, quando o pixel clicado É uma cor (tem matiz), a faixa DELE é
-  a que vale, e o patch só corrige o anti-aliasing dentro dessa faixa. A
-  votação inteira fica pro clique que cai numa borda sem cor.
+  Voting with the whole patch lost the DETAIL: a shiny's dark crest is only a few pixels, and in
+  a 5x5 patch the cyan body around it won the vote. Clicking right on the crest answered the
+  body's tone, and the rule never separated the shiny from the common one. So when the clicked
+  pixel IS a colour (it has a hue), ITS band is the one that counts, and the patch only corrects
+  anti-aliasing inside that band. The full vote is left for the click that lands on a hueless
+  edge.
   """
   @pick_min_delta 25
   @pick_min_value 30
@@ -125,15 +122,14 @@ defmodule Pokex.Vision.ColorMark do
   end
 
   @doc """
-  Varre o frame atrás das cores compiladas.
+  Scans the frame for the compiled colours.
 
-  Opções: `cell_px` (#{@default_cell_px}), `min_cell_px` (#{@default_min_cell_px}
-  pixels casados numa célula pra ela contar), `forbidden` (caixas
-  `{left, top, right, bottom}` em px do frame — o PRÓPRIO pokémon dele mora
-  numa; ver a armadilha nº 1 do plano).
+  Options: `cell_px` (#{@default_cell_px}), `min_cell_px` (#{@default_min_cell_px} matched
+  pixels in a cell for it to count), `forbidden` (boxes `{left, top, right, bottom}` in frame
+  px; HIS OWN pokémon lives in one).
 
-  Devolve `%{px: total_casado, manchas: [%{point: {x, y}, px: n, cells: n}]}` —
-  manchas em ordem decrescente de tamanho, `point` no centro de massa.
+  Answers `%{px: total_matched, manchas: [%{point: {x, y}, px: n, cells: n}]}`, blobs in
+  decreasing order of size, `point` at the centre of mass.
   """
   def scan(%Frame{width: w, height: h, rgba: rgba}, specs, opts \\ []) when is_list(specs) do
     cell = Keyword.get(opts, :cell_px, @default_cell_px)

@@ -255,21 +255,19 @@ defmodule Pokex.Bots.Cavebot.Logic do
   @doc """
   Is the hunt walking a MOB stretch right now?
 
-  The leg being walked is the one LEAVING the previous waypoint — `wp_index` is
-  where the character is heading, not where it stands — so arriving at "mobar
-  daqui" starts the gathering and arriving at "até aqui" ends it, both on the
-  tick of the arrival. Read around the loop, because the route is a loop.
+  The leg being walked is the one LEAVING the previous waypoint (`wp_index` is where the
+  character is heading, not where it stands), so arriving at "gather from here" starts the
+  gathering and arriving at the kill spot ends it, both on the tick of the arrival. Read around
+  the loop, because the route is a loop.
 
-  The Worker turns this into the `:posture` fact Combat obeys; only a `:walking`
-  hunt gathers, and a hunt that is fighting or stuck is doing something else.
+  The Worker turns this into the `:posture` fact Combat obeys; only a `:walking` hunt gathers,
+  and a hunt that is fighting or stuck is doing something else.
 
-  Searching for a staircase counts — for ONE lap of the ring. A step usually
-  takes two or three probes, and interrupting the gathering for those would
-  waste the whole stretch. A full lap without finding it means the hunt is not
-  gathering any more, it is stuck at a door: the fire is released, because
-  standing still holding it while a pile hits him is the worst of both, and
-  because a mob standing ON the step is the commonest reason it cannot be
-  taken.
+  Searching for a staircase counts, for ONE lap of the ring. A step usually takes two or three
+  probes, and interrupting the gathering for those would waste the whole stretch. A full lap
+  without finding it means the hunt is not gathering any more, it is stuck at a door: the fire
+  is released, because standing still holding it while a pile hits him is the worst of both, and
+  because a mob standing ON the step is the commonest reason it cannot be taken.
   """
   @spec luring?(t) :: boolean
   def luring?(%__MODULE__{state: :stairs, probe_steps: steps}) when steps > length(@stair_ring),
@@ -285,19 +283,18 @@ defmodule Pokex.Bots.Cavebot.Logic do
   @doc """
   Should Combat hold its fire right now?
 
-  His rule, 2026-08-11: "se não tá lutando, ele tá no modo mobado, onde ele não
-  deveria atacar NUNCA usando a tecla tab — só quando parar de andar e realmente
-  entrar no modo de luta". Every fight is a STOP on the route, so the fire is
-  free in exactly one state — `:fighting` — and held everywhere else: walking
-  (marked as a gathering or not), searching for a staircase, standing on a stop.
-  A hunt walking past a pokémon no longer collects a fight it never chose.
+  His rule: while not fighting the character is in the gathering stance, where it should never
+  attack, and Tab belongs only to the moment it stops walking and really enters the fight. Every
+  fight is a STOP on the route, so the fire is free in exactly one state (`:fighting`) and held
+  everywhere else: walking (marked as a gathering or not), searching for a staircase, standing
+  on a stop. A hunt walking past a pokémon no longer collects a fight it never chose.
 
-  Holding also outlives the walking: after arriving at "até aqui" the pile is
-  still closing in, and hitting the first straggler wastes the gathering
-  (`gathering?/2`) — that one applies even in `:fighting`.
+  Holding also outlives the walking: after arriving at the kill spot the pile is still closing
+  in, and hitting the first straggler wastes the gathering (`gathering?/2`). That one applies
+  even in `:fighting`.
 
-  `cavebot_fight_only_at_stops: false` goes back to the old rule, where only a
-  marked mob stretch held the fire.
+  `cavebot_fight_only_at_stops: false` goes back to the old rule, where only a marked mob
+  stretch held the fire.
   """
   @spec hold_fire?(t, integer) :: boolean
   def hold_fire?(%__MODULE__{} = logic, now) do
@@ -314,13 +311,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
   @doc """
   Is the pile still walking in?
 
-  "Quando termino de mobar, eu geralmente dá quatro segundos até todos os
-  bichos se agruparem ao redor do meu para daí eu voltar a mobar e matar todo
-  mundo" (Lucas, 2026-08-11). When he stops at "até aqui" the pile is BEHIND
-  him, strung out along the way he came — attacking the first one to arrive
-  throws away everything the gathering was for. So the fire stays held for
-  `gather_wait_ms` after arriving, and THEN the area damage lands on a crowd
-  instead of on a straggler.
+  When he finishes gathering it takes about four seconds for every mob to group around his
+  pokémon before he goes back to killing them all. When he stops at the kill spot the pile is
+  BEHIND him, strung out along the way he came, and attacking the first one to arrive throws
+  away everything the gathering was for. So the fire stays held for `gather_wait_ms` after
+  arriving, and THEN the area damage lands on a crowd instead of on a straggler.
 
   The Worker keeps publishing `:hold_fire` while this is true.
   """
@@ -333,13 +328,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
   end
 
   @doc """
-  The combo HE recorded at the kill spot the hunt is standing on, as intent
-  (consecutive mashing collapsed) — `[]` anywhere else.
+  The combo HE recorded at the kill spot the hunt is standing on, as intent (consecutive mashing
+  collapsed); `[]` anywhere else.
 
-  The Worker publishes it with the posture, and Combat fires it the moment the
-  fire is released: "quando você fica tentando matar de um em um, ele é
-  extremamente mais lento" (Lucas, 2026-08-11). The pile is around the pokémon
-  and the area damage has to land on all of it at once.
+  The Worker publishes it with the posture, and Combat fires it the moment the fire is released,
+  because killing one mob at a time is extremely slower. The pile is around the pokémon and the
+  area damage has to land on all of it at once.
   """
   @spec combo(t) :: [String.t()]
   def combo(%__MODULE__{since: since} = logic) do

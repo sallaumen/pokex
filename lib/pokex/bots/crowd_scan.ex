@@ -2,48 +2,45 @@ defmodule Pokex.Bots.CrowdScan do
   @moduledoc """
   How many creatures are CLOSE, how close, and close to WHAT.
 
-  The battle list has always answered "how many exist" — that is where
-  `world.enemies` comes from, and it is the count every rule in
-  `Pokex.Bots.Engine.Logic` reasons with. It cannot answer "how many are within
-  reach of an area skill", and that gap is the waste he named: "não adianta a
-  gente otimizar ele ter mais cooldowns pra usar com Revives se ele não espera
-  os pokémons estarem próximos pra realmente usar as skills e aí desperdiçam as
-  skills todas" (2026-08-26).
+  The battle list has always answered "how many exist", which is where `world.enemies` comes
+  from and the count every rule in `Pokex.Bots.Engine.Logic` reasons with. It cannot answer "how
+  many are within reach of an area skill", and that gap is the waste he named: there is no point
+  optimising for more cooldowns via revives if the bot does not wait for the mobs to be close,
+  because then all the skills are wasted.
 
   ## Measured from the pokémon, not the trainer
 
-  An area skill leaves the POKÉMON. The first version of this measured from the
-  character because that is the point the calibration knows, and on his screen
-  the two sit two tiles apart routinely — every distance carried that error.
+  An area skill leaves the POKÉMON. The first version of this measured from the character
+  because that is the point the calibration knows, and on his screen the two sit two tiles apart
+  routinely: every distance carried that error.
 
-  The fix needed no sprite taught: the game draws HIS pokémon's name in green,
-  so the same pass that finds the red hostiles finds the green anchor.
-  `Pokex.Bots.PokemonTracker` could have answered too, but only for pokémon he
-  has photographed — on 2026-08-26 his library held two he no longer plays.
+  The fix needed no sprite taught: the game draws HIS pokémon's name in green, so the same pass
+  that finds the red hostiles finds the green anchor. `Pokex.Bots.PokemonTracker` could have
+  answered too, but only for pokémon he has photographed, and his library held two he no longer
+  plays.
 
-  When the green label is covered, the reading falls back to the character and
-  SAYS SO in `:anchor`. A distance whose origin is unknown is worse than no
-  distance, because it looks the same as a good one.
+  When the green label is covered, the reading falls back to the character and SAYS SO in
+  `:anchor`. A distance whose origin is unknown is worse than no distance, because it looks the
+  same as a good one.
 
   ## It shows its work
 
-  "ainda BEM impreciso" — and a number cannot say whether it was the detector,
-  the anchor or the ruler. `look/1` with `evidence: true` returns the picture it
-  read with boxes on what it found and a cross on what it measured from.
+  He called the reading still very imprecise, and a number cannot say whether it was the
+  detector, the anchor or the ruler. `look/1` with `evidence: true` returns the picture it read
+  with boxes on what it found and a cross on what it measured from.
 
   ## Cost
 
-  One capture (~0.28s serialized through `Pokex.Bots.Capture`, raw pixels — see
-  `capture_format_test.exs`) plus a row scan of the box (14-31ms). That is a
-  per-DECISION cost, not a per-tick one; nothing here is wired into a feed.
+  One capture (~0.28s serialized through `Pokex.Bots.Capture`, raw pixels, see
+  `capture_format_test.exs`) plus a row scan of the box (14-31ms). That is a per-DECISION cost,
+  not a per-tick one; nothing here is wired into a feed.
 
   ## Reads low, never high
 
-  A creature standing under a bright spell effect loses its label to the effect,
-  and a yellow skill banner lands in the same band as the names — measured in
-  the field: four hostiles on screen, the two with uncovered names counted. So
-  `seen` is a floor, and a rule that gates on "enough of them are close" gets
-  more cautious under effects rather than more reckless.
+  A creature standing under a bright spell effect loses its label to the effect, and a yellow
+  skill banner lands in the same band as the names. Measured in the field: four hostiles on
+  screen, the two with uncovered names counted. So `seen` is a floor, and a rule that gates on
+  "enough of them are close" gets more cautious under effects rather than more reckless.
   """
 
   alias Pokex.Bots.Capture

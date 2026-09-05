@@ -1,47 +1,41 @@
 defmodule Pokex.Bots.SkillTruth do
   @moduledoc """
-  A tela corrigindo o relógio das teclas, um frame por vez.
+  The screen correcting the key clock, one frame at a time.
 
-  O carimbo do `Pokex.Bots.SkillClock` é uma PREVISÃO: "apertei, então esfria
-  por Xs". Ele erra de três jeitos que a caçada dele já pagou (28/08, a hunt
-  com o Gyarados: "a IA acha que usou uma skill e marca o cooldown, mas na
-  verdade ela não saiu"):
+  A `Pokex.Bots.SkillClock` stamp is a PREDICTION: "I pressed, so it cools for Xs". It is wrong
+  in three ways his hunt has already paid for, and his own words for it were that the bot thinks
+  it used a skill and marks the cooldown when the skill never fired:
 
-    * o aperto foi ENGOLIDO — o portão de foco suprime o input e responde `:ok`,
-      e o carimbo nasce sem tecla nenhuma ter saído;
-    * o cooldown ESCRITO é maior que o real — o relógio segura uma tecla que o
-      jogo já devolveu;
-    * um revive que o bot não despachou (o F4 da mão dele) zerou a barra
-      inteira, e o relógio não estava lá pra ver.
+    * the press was SWALLOWED. The focus gate suppresses the input and answers `:ok`,
+      and the stamp is born without a key ever leaving;
+    * the WRITTEN cooldown is longer than the real one, so the clock holds a key the
+      game has already given back;
+    * a revive the bot did not dispatch (an F4 from his hand) reset the whole bar, and
+      the clock was not there to see it.
 
-  Nos três casos a assinatura é a mesma: **a tela mostra a tecla PRONTA e o
-  relógio tem um carimbo dizendo que não**. Este módulo olha cada frame fresco
-  da barra (o feed `:skill_bar`, ~400ms) e, quando a discordância persiste,
-  apaga o carimbo — `SkillClock.release/1`. A direção contrária não existe
-  aqui de propósito: quem carimba aperto que o bot não deu é o
-  `Pokex.Bots.HandWatch`, lendo o teclado de verdade, não um pixel.
+  In all three the signature is the same: **the screen shows the key READY and the clock has a
+  stamp saying it is not**. This module looks at every fresh bar frame (the `:skill_bar` feed,
+  ~400ms) and, when the disagreement persists, erases the stamp (`SkillClock.release/1`). The
+  opposite direction deliberately does not exist here: stamping a press the bot did not make is
+  `Pokex.Bots.HandWatch`'s job, reading the real keyboard rather than a pixel.
 
-  ## As três guardas antes de soltar
+  ## The three guards before freeing
 
-    * **Carência** (`@grace_ms`): o efeito de uma skill leva ~800ms-1s pra
-      aparecer ("sempre que usa uma skill, ele leva uns 800ms, um segundo pra
-      fazer o efeito" — ele, 28/08). Um carimbo mais novo que isso ainda não
-      teve tempo de virar contagem na tela; soltá-lo seria desfazer um aperto
-      legítimo.
-    * **Dois frames seguidos** (`@frames_to_free`): um frame só é uma foto, e
-      foto tem ruído. A mesma discordância em dois frames é o jogo insistindo.
-    * **Tecla surda fica fora** (`deaf_ms`): quando o jogo já provou que a
-      barra MENTE sobre uma tecla (`SkillClock.denied/2`), "pronta na tela" é
-      exatamente o estado mentiroso — não desmente nada.
+    * **Grace** (`@grace_ms`): a skill's effect takes about 800ms to a second to show, so
+      a stamp younger than that has not had time to become a count on screen, and
+      freeing it would undo a legitimate press.
+    * **Two consecutive frames** (`@frames_to_free`): one frame is a photo, and a photo
+      has noise. The same disagreement in two frames is the game insisting.
+    * **A deaf key stays out** (`deaf_ms`): once the game has proved the bar LIES about a
+      key (`SkillClock.denied/2`), "ready on screen" is exactly the lying state, and it
+      disproves nothing.
 
-  Soltar é sempre seguro: no pior caso o combate oferece uma tecla que o jogo
-  recusa, o recibo (`SkillReceipt`) pega o `missed`, e a cadeia se corrige.
-  Segurar tecla boa é o erro caro — foi ele que travou a rotação por 19s em
-  27/08.
+  Freeing is always safe: at worst combat offers a key the game refuses, the receipt
+  (`SkillReceipt`) catches the `missed`, and the chain corrects itself. Holding a good key is
+  the expensive mistake, and it is what froze the rotation for 19s once.
 
-  A narração só sai quando o carimbo ainda era jovem o bastante pra estar
-  MUTANDO a tecla (menos que o cooldown assumido): carimbo velho expirado é
-  faxina silenciosa, não notícia.
+  The narration only fires when the stamp was still young enough to be MUTING the key (younger
+  than the assumed cooldown): an old expired stamp is silent housekeeping, not news.
   """
 
   alias Pokex.Bots.SkillClock
@@ -56,7 +50,7 @@ defmodule Pokex.Bots.SkillTruth do
   @doc false
   def table, do: @table
 
-  @doc "Garante a tabela dos streaks. Idempotente — mesmo molde do SkillClock."
+  @doc "Ensures the streak table. Idempotent, in the SkillClock mould."
   @spec ensure_table() :: :ok
   def ensure_table do
     if :ets.whereis(@table) == :undefined do
@@ -69,11 +63,11 @@ defmodule Pokex.Bots.SkillTruth do
   end
 
   @doc """
-  Olha um frame FRESCO da barra (a observação que `Interpret.skills/3` acabou
-  de montar) e corrige o relógio. Devolve as teclas que soltou.
+  Looks at a FRESH bar frame (the observation `Interpret.skills/3` has just built) and corrects
+  the clock. Answers the keys it freed.
 
-  `ready_keys: nil` (barra ilegível) não corrige nada — a tela que não fala
-  não desmente ninguém.
+  `ready_keys: nil` (an unreadable bar) corrects nothing: a screen that does not speak disproves
+  nobody.
   """
   @spec observe(map, integer) :: [String.t()]
   def observe(obs, now \\ System.monotonic_time(:millisecond))

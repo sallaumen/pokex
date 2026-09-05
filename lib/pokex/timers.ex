@@ -2,30 +2,27 @@ defmodule Pokex.Timers do
   @moduledoc """
   Things the bot presses because a CLOCK said so, not because the screen did.
 
-  Two shapes, both his: "usar 8 segundos depois de começar a mobar" and "algumas
-  berries no jogo que terei que ter ele usando a cada 55 minutos" (2026-08-11).
-  They look different and are the same machine — an action, a clock it watches,
-  and how far into that clock it goes off:
+  Two shapes, both his: a key eight seconds after the gathering starts, and a berry every 55
+  minutes. They look different and are the same machine: an action, a clock it watches, and how
+  far into that clock it goes off:
 
-    * `:every` — the clock is its own last firing (the session start, the first
-      time round). A berry every 55 minutes.
-    * `:after_mob` — the clock is the moment the hunt started gathering, and it
-      fires ONCE per stretch. The aura, eight seconds in.
+    * `:every` - the clock is its own last firing (the session start, the first time
+      round). A berry every 55 minutes.
+    * `:after_mob` - the clock is the moment the hunt started gathering, and it fires ONCE
+      per stretch. The aura, eight seconds in.
 
   ## What it presses
 
-  Either literal keys, or a JOB from `Pokex.Pokedex.SkillProfile`. The job is
-  the point of having classified them: "a aura" is `:buffs` on whatever pokémon
-  is on the field, so the same timer survives a swap. A berry is a key, because
-  a berry is not a skill.
+  Either literal keys, or a JOB from `Pokex.Pokedex.SkillProfile`. The job is the point of
+  having classified them: "the aura" is `:buffs` on whatever pokémon is on the field, so the
+  same timer survives a swap. A berry is a key, because a berry is not a skill.
 
-  A job with nobody on the field, or a pokémon that has none of it, resolves to
-  no keys — and a timer with nothing to press does not fire at all, rather than
-  pressing something else.
+  A job with nobody on the field, or a pokémon that has none of it, resolves to no keys, and a
+  timer with nothing to press does not fire at all rather than pressing something else.
 
-  Nothing here touches the clock or the keyboard: `Pokex.Timers.Schedule`
-  decides what is due and `Pokex.Bots.Timers.Worker` performs it, which is what
-  makes "does this go off now?" answerable without a game running.
+  Nothing here touches the clock or the keyboard: `Pokex.Timers.Schedule` decides what is due
+  and `Pokex.Bots.Timers.Worker` performs it, which is what makes "does this go off now?"
+  answerable without a game running.
   """
 
   alias Pokex.Bots.Combat.Loadout
@@ -74,8 +71,8 @@ defmodule Pokex.Timers do
   def keys_for(%Timer{category: category}, loadout), do: Loadout.keys(loadout, category)
 
   @doc """
-  One line describing what a timer does: `"aura na mobada · 8s depois de
-  começar a mobar · aura"`.
+  One line describing what a timer does, in the panel's own words:
+  `"aura na mobada · 8s depois de começar a mobar · aura"`.
   """
   @spec describe(Timer.t()) :: String.t()
   def describe(%Timer{} = timer) do

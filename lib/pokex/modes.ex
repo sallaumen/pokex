@@ -1,26 +1,25 @@
 defmodule Pokex.Modes do
   @moduledoc """
-  The ways Lucas plays, as data: standing on a fishing spot, walking around
-  hunting by hand, or letting the cavebot walk a route (caçada).
+  The ways he plays, as data: standing on a fishing spot (`still`), walking around hunting by
+  hand (`moving`), or letting the cavebot walk a route (`hunt`).
 
-  A mode is a BUILT-IN PRESET, not a second owner of the truth. `Settings`
-  stays the only place a value lives; this module only says which values a mode
-  stands for, applies them, and reports which ones currently diverge. That last
-  part is what lets the panel show "manual: off" on a line instead of leaving
-  him to guess why the bot behaves differently from what the mode promises.
+  A mode is a BUILT-IN PRESET, not a second owner of the truth. `Settings` stays the only place
+  a value lives; this module only says which values a mode stands for, applies them, and reports
+  which ones currently diverge. That last part is what lets the panel show "manual: off" on a
+  line instead of leaving him to guess why the bot behaves differently from what the mode
+  promises.
 
-  The bundle is deliberately SMALL. Only what genuinely has a different right
-  answer per mode belongs here:
+  The bundle is deliberately SMALL. Only what genuinely has a different right answer per mode
+  belongs here:
 
-    * `capture_enabled` — the ball is aimed from a ground baseline learned while
-      standing still. Walking, there is no such baseline.
-    * `reposition_enabled` — after a fight the support middle-clicks the
-      calibrated tile. On a spot that is going home; walking, it undoes the walk.
+    * `capture_enabled` - the ball is aimed from a ground baseline learned while standing
+      still. Walking, there is no such baseline.
+    * `reposition_enabled` - after a fight the support middle-clicks the calibrated tile.
+      On a spot that is going home; walking, it undoes the walk.
 
-  Looting, revive, potion, the escape and the support itself are right in both
-  modes and stay out. So do the fishing gates (`require_cooldowns`,
-  `require_pokemon_hp`): with no rod running they have nothing to hold back, and
-  flipping them would be theatre.
+  Looting, revive, potion, the escape and the support itself are right in both modes and stay
+  out. So do the fishing gates (`require_cooldowns`, `require_pokemon_hp`): with no rod running
+  they have nothing to hold back, and flipping them would be theatre.
   """
 
   alias Pokex.Settings
@@ -81,11 +80,10 @@ defmodule Pokex.Modes do
   @doc """
   Does `mode` watch for the fishing mini-game?
 
-  The capsule only ever appears over a rod, so the whole mini-game apparatus —
-  the watcher, the fact, and every peer that holds itself on it — belongs to
-  the fishing mode and nowhere else. Asking the MODE (instead of trusting that
-  the watcher happens not to be up) is what makes "não existe minigame fora da
-  pesca" (Lucas, 2026-08-25) a property of the bot rather than a coincidence of
+  The capsule only ever appears over a rod, so the whole mini-game apparatus (the watcher, the
+  fact, and every peer that holds itself on it) belongs to the fishing mode and nowhere else.
+  Asking the MODE, instead of trusting that the watcher happens not to be up, is what makes
+  "there is no mini-game outside fishing" a property of the bot rather than a coincidence of
   which workers were started.
   """
   def watches_mini_game?(mode \\ current()), do: :mini_game in workers(mode)

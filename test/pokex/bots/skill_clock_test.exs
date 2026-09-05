@@ -20,7 +20,7 @@ defmodule Pokex.Bots.SkillClockTest do
   end
 
   describe "o que ele apertou" do
-    test "uma tecla apertada fica em cooldown pelo tempo escrito dela, e volta" do
+    test "a pressed key cools for its written time, and comes back" do
       SkillClock.pressed("4", 0)
 
       assert SkillClock.cooling_ms("4", @cds, 1_000) == 39_000
@@ -29,7 +29,7 @@ defmodule Pokex.Bots.SkillClockTest do
       assert SkillClock.cooling_ms("4", @cds, 90_000) == 0
     end
 
-    test "cada tecla tem o SEU tempo — era um número só pra barra inteira" do
+    test "each key has ITS OWN time: it used to be one number for the whole bar" do
       SkillClock.pressed("4", 0)
       SkillClock.pressed("5", 0)
 
@@ -38,7 +38,7 @@ defmodule Pokex.Bots.SkillClockTest do
 
     # Um cooldown que ninguém escreveu não pode virar espera inventada: o bot
     # tem que seguir se comportando como antes desta tabela existir.
-    test "tecla sem cooldown escrito não é vetada pelo relógio" do
+    test "a key without a written cooldown is not vetoed by the clock" do
       SkillClock.pressed("9", 0)
 
       assert SkillClock.cooling_ms("9", @cds, 1) == 0
@@ -47,7 +47,7 @@ defmodule Pokex.Bots.SkillClockTest do
   end
 
   describe "a tela cruzada com o relógio" do
-    test "a tela manda quando diz que NÃO — ela sabe de coisas que ninguém escreveu" do
+    test "the screen rules when it says NO: it knows things nobody wrote" do
       assert SkillClock.ready(["5"], ~w(4 5), @cds, 100_000) == ["5"]
       refute "4" in SkillClock.ready(["5"], ~w(4 5), @cds, 100_000)
     end
@@ -55,19 +55,19 @@ defmodule Pokex.Bots.SkillClockTest do
     # A foto tem idade (`skill_bar_fact_max_age_ms`): uma tecla que saiu agora
     # ainda aparece pronta nela, e era assim que a rajada re-apertava o que
     # acabou de gastar.
-    test "o relógio manda quando diz que NÃO, mesmo com a tela dizendo que sim" do
+    test "the clock rules when it says NO, even with the screen saying yes" do
       SkillClock.pressed("4", 0)
 
       assert SkillClock.ready(["4", "5"], ~w(4 5), @cds, 1_000) == ["5"]
     end
 
-    test "com a tela ilegível o relógio responde sozinho, em vez de cegar o bot" do
+    test "with the screen unreadable the clock answers alone instead of blinding the bot" do
       SkillClock.pressed("4", 0)
 
       assert SkillClock.ready(nil, ~w(4 5), @cds, 1_000) == ["5"]
     end
 
-    test "sem tela e sem tecla conhecida, o desconhecido de sempre" do
+    test "no screen and no known key: the usual unknown" do
       assert SkillClock.ready(["1", "2"], [], %{}, 0) == ["1", "2"]
       assert SkillClock.ready(nil, [], %{}, 0) == nil
     end
@@ -77,14 +77,14 @@ defmodule Pokex.Bots.SkillClockTest do
   # (27/08). 45s é a média das duas famílias que o vídeo mediu: 40s nas teclas
   # 1-3 e 50s nas 4-6.
   describe "o cooldown assumido" do
-    test "sem tela, uma tecla sem número escrito espera os 45 segundos" do
+    test "no screen, a key without a written number waits the 45 seconds" do
       SkillClock.pressed("7", 0)
 
       assert SkillClock.ready(nil, ~w(7), %{}, 44_999) == []
       assert SkillClock.ready(nil, ~w(7), %{}, 45_000) == ["7"]
     end
 
-    test "o que ELE escreveu vence o assumido" do
+    test "what HE wrote beats the assumed" do
       SkillClock.pressed("5", 0)
 
       assert SkillClock.ready(nil, ~w(5), @cds, 8_000) == ["5"]
@@ -93,7 +93,7 @@ defmodule Pokex.Bots.SkillClockTest do
     # Palpite preenche buraco; não desmente observação. Se a skill volta em 8s e
     # a gente chuta 45, vetar a tela tiraria a tecla mais rápida da barra por 37
     # segundos — e ninguém veria por quê.
-    test "o assumido NÃO derruba a tela: só o cooldown escrito faz isso" do
+    test "the assumed does NOT overrule the screen: only a written cooldown does" do
       SkillClock.pressed("7", 0)
 
       assert SkillClock.ready(["7"], ~w(7), %{}, 1_000) == ["7"]
@@ -103,7 +103,7 @@ defmodule Pokex.Bots.SkillClockTest do
   # R3: o revive devolve o pokémon com a barra inteira. Sem isto o relógio
   # seguraria por 40s teclas que o jogo acabou de liberar — e a decisão que MAIS
   # depende dele é justamente a de gastar um revive pra zerar a barra.
-  test "o revive zera o relógio" do
+  test "the revive resets the clock" do
     SkillClock.pressed("4", 0)
     assert SkillClock.cooling_ms("4", @cds, 1_000) > 0
 
@@ -115,14 +115,14 @@ defmodule Pokex.Bots.SkillClockTest do
   describe "quando a tela mente" do
     # MEDIDO na captura dele de 27/08 19:07: o jogo escrevia 12, 32 e 32 em cima
     # das teclas 3, 4 e 5, e a leitura de prontidão respondia "3 e 5 prontas".
-    test "a tecla que o jogo ignorou sai da lista mesmo com a tela oferecendo" do
+    test "the key the game ignored leaves the list even with the screen offering it" do
       SkillClock.pressed("5", 0)
       SkillClock.denied("5", 1_300)
 
       assert SkillClock.ready(["3", "5"], [], @cds, 2_000) == ["3"]
     end
 
-    test "ela volta quando o cooldown ESCRITO dela termina" do
+    test "it comes back when its WRITTEN cooldown ends" do
       SkillClock.denied("5", 0)
 
       assert SkillClock.deaf_ms("5", @cds, 7_999) == 1
@@ -130,20 +130,20 @@ defmodule Pokex.Bots.SkillClockTest do
       assert SkillClock.ready(["5"], [], @cds, 8_000) == ["5"]
     end
 
-    test "sem cooldown escrito, o assumido é quem devolve a tecla" do
+    test "without a written cooldown, the assumed is what returns the key" do
       SkillClock.denied("9", 0)
 
       assert SkillClock.ready(["9"], [], %{}, 44_999) == []
       assert SkillClock.ready(["9"], [], %{}, 45_000) == ["9"]
     end
 
-    test "a mentira é por tecla — nenhuma outra é calada junto" do
+    test "the lie is per key: no other key is silenced along" do
       SkillClock.denied("5", 0)
 
       assert SkillClock.ready(["3", "4", "5", "9"], [], %{}, 1_000) == ["3", "4", "9"]
     end
 
-    test "o revive devolve tudo, inclusive a confiança na tela" do
+    test "the revive returns everything, including trust in the screen" do
       SkillClock.denied("5", 0)
       SkillClock.reset()
 
@@ -161,7 +161,7 @@ defmodule Pokex.Bots.SkillClockTest do
   # voltou". 235 atribuições falsas em 242 revives, 97% delas em cima de uma
   # rajada do bot na mesma tecla.
   describe "o eco que sobrevive ao reset" do
-    test "depois do reset a tecla está PRONTA — o eco não é cooldown" do
+    test "after the reset the key is READY: the echo is not a cooldown" do
       SkillClock.reset()
       SkillClock.pressed("4")
       SkillClock.reset()
@@ -170,7 +170,7 @@ defmodule Pokex.Bots.SkillClockTest do
       assert SkillClock.cooling_ms("4", %{"4" => 50_000}) == 0
     end
 
-    test "…e mesmo assim o aperto continua sendo NOSSO" do
+    test "…and the press is still OURS" do
       SkillClock.reset()
       agora = System.monotonic_time(:millisecond)
       SkillClock.pressed("4", agora)
@@ -180,7 +180,7 @@ defmodule Pokex.Bots.SkillClockTest do
              "o reset apagou a prova de que fomos nós que apertamos a 4"
     end
 
-    test "tecla que ninguém apertou não ganha eco" do
+    test "a key nobody pressed gets no echo" do
       SkillClock.reset()
       SkillClock.pressed("4")
       SkillClock.reset()
@@ -188,7 +188,7 @@ defmodule Pokex.Bots.SkillClockTest do
       assert SkillClock.pressed_at("5") == nil
     end
 
-    test "um aperto novo vale mais que o eco" do
+    test "a new press is worth more than the echo" do
       SkillClock.reset()
       SkillClock.pressed("4", 1_000)
       SkillClock.reset()

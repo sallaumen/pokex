@@ -606,7 +606,7 @@ defmodule Pokex.SettingsTest do
     end
 
     @tag :tmp_dir
-    test "sobrevivem também ao PRIMEIRO ajuste salvo, não só ao boot", %{tmp_dir: tmp} do
+    test "they also survive the FIRST saved tweak, not only the boot", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       File.write!(path, JSON.encode!(%{"ajuste_de_uma_build_futura" => 700}))
 
@@ -622,7 +622,7 @@ defmodule Pokex.SettingsTest do
     end
 
     @tag :tmp_dir
-    test "uma chave CONHECIDA continua sendo curada, não preservada", %{tmp_dir: tmp} do
+    test "a KNOWN key keeps being healed, not preserved", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       # `tick_ms_watching` no valor do seed não é override e tem que sumir
       File.write!(path, JSON.encode!(%{"tick_ms_watching" => 150}))
@@ -633,7 +633,7 @@ defmodule Pokex.SettingsTest do
     end
 
     @tag :tmp_dir
-    test "null no arquivo é corrupção e não é preservado", %{tmp_dir: tmp} do
+    test "null in the file is corruption and is not preserved", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       File.write!(path, JSON.encode!(%{"futuro_nulo" => nil, "futuro_bom" => 1}))
 
@@ -646,7 +646,7 @@ defmodule Pokex.SettingsTest do
     end
 
     @tag :tmp_dir
-    test "uma chave que voltou a existir é da build que a conhece", %{tmp_dir: tmp} do
+    test "a key that exists again belongs to the build that knows it", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       File.write!(path, JSON.encode!(%{"glow_threshold" => 99.0}))
 
@@ -675,7 +675,7 @@ defmodule Pokex.SettingsTest do
   # diário (fonte `config`), pra ser relida quando algo se perde.
   describe "cada mudança vai pro diário" do
     @tag :tmp_dir
-    test "a chave, o valor de antes e o de depois; o mesmo valor não é mudança", %{
+    test "the key, the value before and after; the same value is not a change", %{
       tmp_dir: tmp
     } do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "settings")
@@ -692,7 +692,7 @@ defmodule Pokex.SettingsTest do
 
   describe "o crachá do arquivo" do
     @tag :tmp_dir
-    test "toda escrita carimba o alfabeto que a build conhecia", %{tmp_dir: tmp} do
+    test "every write stamps the alphabet the build knew", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       {:ok, server} = Settings.start_link(name: nil, path: path)
       :ok = Settings.put(:tile_px, 48, server)
@@ -709,7 +709,9 @@ defmodule Pokex.SettingsTest do
       do: Enum.map(Map.keys(Settings.defaults()), &Atom.to_string/1) ++ ["ajuste_do_futuro"]
 
     @tag :tmp_dir
-    test "um arquivo que conhece tudo desta build e mais denuncia a build velha", %{tmp_dir: tmp} do
+    test "a file that knows everything this build knows and more denounces the old build", %{
+      tmp_dir: tmp
+    } do
       path = Path.join(tmp, "settings.json")
       File.write!(path, JSON.encode!(%{"tile_px" => 48, "__keys__" => alfabeto_do_futuro()}))
 
@@ -720,7 +722,7 @@ defmodule Pokex.SettingsTest do
     # as declarava, a build NOVA se achou velha e parou de gravar em silêncio —
     # "minha config é 4" na tela, 6 no arquivo, e cada restart apagando tudo.
     @tag :tmp_dir
-    test "chave aposentada no crachá não acusa: a build que sabe algo a mais grava", %{
+    test "a key retired from the badge does not accuse: the build that knows more writes", %{
       tmp_dir: tmp
     } do
       path = Path.join(tmp, "settings.json")
@@ -740,7 +742,7 @@ defmodule Pokex.SettingsTest do
     end
 
     @tag :tmp_dir
-    test "sem crachá ninguém é velho — a falta de prova não acusa", %{tmp_dir: tmp} do
+    test "without a badge nobody is old: missing proof does not accuse", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       File.write!(path, ~s({"tile_px": 48}))
 
@@ -749,7 +751,7 @@ defmodule Pokex.SettingsTest do
 
     @tag :capture_log
     @tag :tmp_dir
-    test "a build velha LÊ e não escreve — nem no boot, nem ao salvar", %{tmp_dir: tmp} do
+    test "the old build READS and does not write, neither at boot nor on save", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
 
       # o arquivo de uma build mais nova: um ajuste dele e um alfabeto maior
@@ -782,7 +784,7 @@ defmodule Pokex.SettingsTest do
   # manual que eu tinha feito por sorte.
   describe "o backup de cada escrita" do
     @tag :tmp_dir
-    test "guarda o conteúdo anterior antes de sobrescrever", %{tmp_dir: tmp} do
+    test "keeps the previous content before overwriting", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       File.write!(path, ~s({"tile_px": 48}))
 
@@ -803,7 +805,7 @@ defmodule Pokex.SettingsTest do
     end
 
     @tag :tmp_dir
-    test "e mantém no máximo dez", %{tmp_dir: tmp} do
+    test "and keeps at most ten", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       {:ok, server} = Settings.start_link(name: nil, path: path)
 
@@ -827,7 +829,7 @@ defmodule Pokex.SettingsTest do
   # Nada no código impede alguém de subir a confirmação por cima da espera de
   # novo, e a falha é silenciosa: nenhum log diz "a espera deu zero". Este
   # teste é o aviso.
-  test "a espera do controle é maior que a confirmação, senão ela dá zero" do
+  test "the control wait is longer than the confirmation, otherwise it gives zero" do
     settle = Settings.get(:rescue_stun_settle_ms)
     confirm = Settings.get(:rescue_confirm_ms)
 
@@ -842,7 +844,7 @@ defmodule Pokex.SettingsTest do
     @locked :rescue_blackout_ms
 
     @tag :tmp_dir
-    test "uma travada no arquivo não é carregada", %{tmp_dir: tmp} do
+    test "a locked key in the file is not loaded", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       File.write!(path, JSON.encode!(%{Atom.to_string(@locked) => 1, "revive_stock" => 7}))
 
@@ -853,7 +855,7 @@ defmodule Pokex.SettingsTest do
     end
 
     @tag :tmp_dir
-    test "um put em memória vale na sessão e não vai pro disco", %{tmp_dir: tmp} do
+    test "an in-memory put holds for the session and does not reach the disk", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       {:ok, pid} = Settings.start_link(path: path, name: nil)
 

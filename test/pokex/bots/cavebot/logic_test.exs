@@ -68,7 +68,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       %{Logic.new(route(), @cfg) | state: :fighting, combat_running?: true, wp_index: wp_index}
     end
 
-    test "recua andando na direção do waypoint anterior" do
+    test "retreats walking towards the previous waypoint" do
       # alvo atual é o wp 1 (20,10); o anterior é o wp 0 (10,10); ele está em (18,10)
       assert {%{state: :fighting}, {:walk, dx, dy}} =
                Logic.step(fighting(1), retreating({18, 10, 7}), 0)
@@ -82,20 +82,20 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     # O preço é duplo: anda pra trás sobre o chão limpo e depois anda de novo
     # pra frente sobre o MESMO chão. "Vários locais do mapa ficam sem monstro
     # sendo morto" (ele, 29/08).
-    test "chegar no anterior ENCERRA o recuo, e o índice fica onde estava" do
+    test "reaching the previous one ENDS the retreat, and the index stays put" do
       {l, :none} = Logic.step(fighting(1), retreating({10, 10, 7}), 0)
 
       assert l.wp_index == 1, "a retirada rebobinou a rota"
     end
 
-    test "e daí ela não encadeia pro anterior do anterior" do
+    test "and then it does not chain to the previous of the previous" do
       # em cima do wp 0, com a ordem de recuar de pé: não há mais pra onde
       {_l, acao} = Logic.step(fighting(1), retreating({10, 10, 7}), 0)
 
       assert acao == :none, "continuou recuando depois de chegar"
     end
 
-    test "não recua escada: waypoint anterior de outro andar segura no lugar" do
+    test "does not retreat down stairs: a previous waypoint on another floor holds in place" do
       {:ok, r} = Route.append(Route.new("escada"), {10, 10, 6})
       {:ok, r} = Route.append(r, {20, 10, 7})
       l = %{Logic.new(r, @cfg) | state: :fighting, combat_running?: true, wp_index: 1}
@@ -103,7 +103,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert {_l, :none} = Logic.step(l, retreating({18, 10, 7}), 0)
     end
 
-    test "sem a ordem, a luta com rota liberada segue pra FRENTE como sempre" do
+    test "without the order, a fight with the route free goes FORWARD as always" do
       mundo =
         world({18, 10, 7}, 5)
         |> Map.put(:engine?, true)
@@ -117,7 +117,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
   # O cérebro desistiu do revive (fase :stranded): não é espera, é o fim da
   # noite — bloqueio PERIGOSO, em qualquer estado da caçada.
-  test "o cérebro desistindo do revive bloqueia a caçada, andando ou lutando" do
+  test "the brain giving up on the revive blocks the hunt, walking or fighting" do
     andando = Logic.new(route(), @cfg)
 
     assert {%{state: :blocked}, {:block, :revive_dead}} =
@@ -132,7 +132,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
   # O CÉREBRO SUMIU. Pior que desistir: caçar sem ele é caçar sem revive, sem
   # segurar a estrada na mobada e sem o freio do chão. Em 03/09 o cérebro parou
   # às 14:17:01 e a caçada seguiu oito minutos sozinha até o personagem morrer.
-  test "o cérebro mudo bloqueia a caçada, andando ou lutando" do
+  test "the mute brain blocks the hunt, walking or fighting" do
     andando = Logic.new(route(), @cfg)
 
     assert {%{state: :blocked}, {:block, :brain_gone}} =
@@ -482,7 +482,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       l
     end
 
-    test "o segundo tropeço na mesma tile bloqueia em ~5s, sem marchar a rota" do
+    test "the second stumble on the same tile blocks in ~5s, without marching the route" do
       pos = {5, 10, 7}
       l = skipped_once_at(pos)
       assert l.skip_pos == pos
@@ -503,7 +503,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert l.skips == 1, "um pulo só antes do bloqueio — a rota não marchou"
     end
 
-    test "pular de uma tile e travar NOUTRA é esquina queimada: pula de novo" do
+    test "jumping from one tile and getting stuck on ANOTHER is a burned corner: jumps again" do
       l = skipped_once_at({5, 10, 7})
 
       # andou uma tile (o alerta limpa) e travou de novo mais adiante
@@ -534,7 +534,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert l.skip_pos == nil
     end
 
-    test "numa perna de eixo único o desvio tenta os DOIS lados da parede" do
+    test "on a single-axis leg the detour tries BOTH sides of the wall" do
       pos = {5, 10, 7}
       {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world(pos), 0)
       {l, {:walk, 5, 0}} = Logic.step(l, world(pos), 10)
@@ -912,7 +912,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     # andando sete waypoints por cima da ordem. "Vários monstros na tela e ele
     # não parar de andar (…) muito perigoso." No trecho o pé anda enquanto o
     # cérebro conta; quando ele diz que a pilha fechou, o pé para.
-    test "no trecho de mob, o cérebro pedindo pra segurar ganha do 'andar através'" do
+    test "on the mob stretch, the brain asking to hold beats walk-through" do
       mundo = %{pos: {5, 0, 7}, enemies: 5, combat_state: :idle, engine?: true}
 
       {_logic, andando} = Logic.step(walking_toward(2), Map.put(mundo, :route_hold?, false), 100)
@@ -1796,7 +1796,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       Map.merge(%{pos: {5, 10, 7}, enemies: 3, combat_state: :fighting}, overrides)
     end
 
-    test "com a ordem de andar, o pé segue a rota mesmo com bicho travado" do
+    test "with the walk order, the foot follows the route even with a mob locked" do
       {logic, action} =
         Logic.step(lutando(), mundo(%{engine?: true, route_hold?: false}), 100)
 
@@ -1804,7 +1804,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :fighting, "andar juntando não é deixar a luta"
     end
 
-    test "com a ordem de parar, ela para — que é estourar a área" do
+    test "with the stop order, it stops, which is firing the area" do
       {_logic, action} =
         Logic.step(lutando(), mundo(%{engine?: true, route_hold?: true}), 100)
 
@@ -1813,7 +1813,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
     # Sem cérebro nenhum a estrada não pode sair andando: `route_hold?` é falso
     # tanto quando ele manda andar quanto quando ele não existe.
-    test "e sem cérebro nenhum, o comportamento é o de sempre: parar e lutar" do
+    test "and with no brain at all, the behaviour is the usual: stop and fight" do
       {_logic, action} = Logic.step(lutando(), mundo(%{}), 100)
 
       assert action == :none
@@ -1822,7 +1822,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
     # Andando, quem reclama é o guarda da ROTA: um pé que não sai do lugar é
     # `:stuck`, e o relógio do travamento da luta — que mede uma luta parada que
     # não termina — fica zerado até a estrada parar de novo.
-    test "andando, quem reclama de não sair do lugar é o guarda da rota" do
+    test "walking, the one complaining about not moving is the route guard" do
       andando = mundo(%{engine?: true, route_hold?: false, enemies: 3})
 
       {logic, _} = Logic.step(lutando(), andando, 0)
@@ -1831,7 +1831,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :stuck
     end
 
-    test "e parada de novo, a janela do travamento começa do zero" do
+    test "and stopped again, the stall window starts from zero" do
       andando = mundo(%{engine?: true, route_hold?: false})
       parada = mundo(%{engine?: true, route_hold?: true})
 
@@ -1874,7 +1874,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       )
     end
 
-    test "com a barra gasta, a tela idêntica NÃO vira empate" do
+    test "with the bar spent, an identical screen does NOT become a stalemate" do
       logic = lutando(1_000)
 
       {logic, _} = Logic.step(logic, lutando_parado(%{bar_spent?: true}), 5_000)
@@ -1882,7 +1882,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.state == :fighting
     end
 
-    test "sem a barra gasta, ela vira — a regra de sempre" do
+    test "without the bar spent, it does: the usual rule" do
       logic = lutando(1_000)
 
       {logic, _} = Logic.step(logic, lutando_parado(%{bar_spent?: false}), 5_000)

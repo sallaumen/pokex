@@ -33,20 +33,20 @@ defmodule Pokex.Bots.SkillRackTest do
   defp tile(tiles, key), do: Enum.find(tiles, &(&1.key == key))
 
   describe "a ordem da fileira" do
-    test "é a da barra, com o zero por último" do
+    test "is the bar's order, with zero last" do
       loadout = %{@loadout | opening: ["4", "0", "3"], reserved: ["2"], buffs: [], single: []}
 
       assert SkillRack.order(loadout) == ["2", "3", "4", "0"]
     end
 
-    test "uma tecla que não é slot vai pro fim em vez de derrubar a página" do
+    test "a key that is not a slot goes last instead of crashing the page" do
       assert SkillRack.order(%{opening: ["f4", "2"]}) == ["2", "f4"]
     end
 
     # `reserved` é a lista de EXCLUSÃO da rotação: controle E escudo. Numa tela
     # de diagnóstico, chamar o escudo de controle mente sobre a coisa exata que
     # ela existe pra mostrar.
-    test "o escudo é escudo, não controle guardado" do
+    test "the shield is a shield, not a pocketed control" do
       loadout = Map.put(@loadout, :shield, ["2"])
 
       assert SkillRack.job_of("2", loadout) == "escudo"
@@ -55,7 +55,7 @@ defmodule Pokex.Bots.SkillRackTest do
 
     # A rotação não usa alvo único desde 27/08, e uma tecla que some da tela é
     # uma tecla que ele não sabe que tem.
-    test "as de alvo único aparecem, com o trabalho dizendo que estão fora" do
+    test "the single-target keys show up, with the job saying they are out" do
       tiles = SkillRack.build(@loadout, ["6"], 0)
 
       assert tile(tiles, "6").job == "alvo único (fora da rotação)"
@@ -63,7 +63,7 @@ defmodule Pokex.Bots.SkillRackTest do
   end
 
   describe "o que a peça diz" do
-    test "tela e relógio concordando é uma tecla pronta, sem barulho" do
+    test "screen and clock agreeing is a ready key, without noise" do
       peca = SkillRack.build(@loadout, ~w(1 2 3 4 5), 0) |> tile("3")
 
       assert peca.state == :ready
@@ -72,7 +72,7 @@ defmodule Pokex.Bots.SkillRackTest do
       assert peca.left_ms == 0
     end
 
-    test "apertada agora, ela conta o cooldown escrito dela pra trás" do
+    test "pressed now, it counts its written cooldown down" do
       SkillClock.pressed("4", 0)
 
       peca = SkillRack.build(@loadout, ~w(1 2 3 5), 10_000) |> tile("4")
@@ -85,7 +85,7 @@ defmodule Pokex.Bots.SkillRackTest do
 
     # O DEFEITO DE 27/08, agora visível: a barra oferecendo a tecla que o jogo
     # está contando na tela.
-    test "a tela dizendo pronta com o relógio contando é uma discordância marcada" do
+    test "the screen saying ready with the clock counting is a marked disagreement" do
       SkillClock.pressed("5", 0)
 
       peca = SkillRack.build(@loadout, ~w(1 2 3 4 5), 18_000) |> tile("5")
@@ -98,7 +98,7 @@ defmodule Pokex.Bots.SkillRackTest do
       assert peca.left_ms == 32_000
     end
 
-    test "a tecla que o jogo ignorou aparece calada, e diz até quando" do
+    test "the key the game ignored shows up silenced, and says until when" do
       SkillClock.denied("6", 0)
 
       peca = SkillRack.build(@loadout, ~w(6), 5_000) |> tile("6")
@@ -109,7 +109,7 @@ defmodule Pokex.Bots.SkillRackTest do
       assert peca.left_ms == SkillClock.assumed_ms() - 5_000
     end
 
-    test "sem número escrito e sem aperto, o relógio diz que não sabe" do
+    test "without a written number and without a press, the clock says it does not know" do
       peca = SkillRack.build(@loadout, ~w(6 7), 0) |> tile("7")
 
       assert peca.clock == :unknown
@@ -118,7 +118,7 @@ defmodule Pokex.Bots.SkillRackTest do
     end
 
     # Não saber e estar fria são fatos opostos, e não podem virar a mesma cor.
-    test "barra ilegível é desconhecida, não é discordância" do
+    test "an unreadable bar is unknown, not a disagreement" do
       SkillClock.pressed("3", 0)
 
       tiles = SkillRack.build(@loadout, nil, 1_000)
@@ -131,7 +131,7 @@ defmodule Pokex.Bots.SkillRackTest do
       assert tile(tiles, "7").state == :ready
     end
 
-    test "o revive devolve a barra inteira, e a fileira mostra isso" do
+    test "the revive returns the whole bar, and the row shows it" do
       SkillClock.pressed("4", 0)
       SkillClock.pressed("5", 0)
       SkillClock.reset()
@@ -143,23 +143,23 @@ defmodule Pokex.Bots.SkillRackTest do
   end
 
   describe "o trilho que enche" do
-    test "cheio quando a tecla está pronta" do
+    test "full when the key is ready" do
       assert SkillRack.recovered_pct(%{state: :ready, left_ms: 0}) == 100
     end
 
     # Uma fração inventada é pior que um traço: ela parece medida.
-    test "não existe quando ninguém escreveu quanto a tecla demora" do
+    test "absent when nobody wrote how long the key takes" do
       peca = %{state: :cooling, left_ms: 3_000, written_ms: nil, muted?: false}
 
       assert SkillRack.recovered_pct(peca) == nil
     end
 
-    test "não existe quando a tela diz fria e ninguém sabe quanto falta" do
+    test "absent when the screen says cold and nobody knows how much is left" do
       assert SkillRack.recovered_pct(%{state: :cooling, left_ms: 0}) == nil
     end
   end
 
-  test "sem pokémon escolhido a fileira é vazia, não é um erro" do
+  test "without a chosen pokemon the row is empty, not an error" do
     assert SkillRack.build(nil, ~w(1 2), 0) == []
   end
 end

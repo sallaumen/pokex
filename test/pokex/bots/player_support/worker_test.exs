@@ -227,7 +227,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # …mas só o monitor de verdade: a suíte inteira roda com auto_monitor
     # desligado, e um halt nela tem que continuar sendo silêncio total.
     @tag :tmp_dir
-    test "sem o arranque automático, o halt é silêncio como sempre foi", %{
+    test "without the automatic start, halt is silence as it always was", %{
       body: body,
       red: red
     } do
@@ -257,7 +257,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "duas leituras abaixo do piso gritam UMA vez, nomeando o personagem", %{
+    test "two readings below the floor shout ONCE, naming the character", %{
       body: body,
       red: red
     } do
@@ -276,7 +276,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "acima do piso, silêncio", %{body: body, red: red} do
+    test "above the floor, silence", %{body: body, red: red} do
       {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(18)}]})
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
@@ -287,7 +287,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "com player_hp_logout ligado, o aviso diz que o logout foi pedido", %{
+    test "with player_hp_logout on, the warning says the logout was requested", %{
       body: body,
       red: red
     } do
@@ -303,7 +303,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "sem a região marcada, nada é lido e nada grita", %{body: body, red: red} do
+    test "without the region marked, nothing is read and nothing shouts", %{body: body, red: red} do
       {:ok, calib} = Calibration.load()
       :ok = Calibration.save(%{calib | player_hp_region: nil})
       {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(6)}]})
@@ -367,7 +367,10 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # `player_low_streak` que o alarme do personagem precisa ver duas vezes.
     # Em 03/09 foram 272 auras numa caçada de 25 minutos.
     @tag :tmp_dir
-    test "a aura não derruba o tique: sem erro, e o contador anda", %{tmp: tmp, body: body} do
+    test "the aura does not crash the tick: no error, and the counter moves", %{
+      tmp: tmp,
+      body: body
+    } do
       classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
       low = hp_png(tmp, "low_shield_ok.png", 12)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
@@ -394,7 +397,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "acima de 85% não aperta nada", %{tmp: tmp, body: body} do
+    test "above 85% presses nothing", %{tmp: tmp, body: body} do
       classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
       ok = hp_png(tmp, "ok_shield.png", 19)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, ok}]})
@@ -410,7 +413,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # Com a pilha fechando (o cérebro em `:bunching`) e a aura pronta, ela sai
     # antes da corrente, vida cheia ou não.
     @tag :tmp_dir
-    test "com a pilha fechando, a aura sai antes da corrente mesmo com a vida cheia", %{
+    test "with the pile closing, the aura fires before the chain even at full HP", %{
       tmp: tmp,
       body: body
     } do
@@ -427,7 +430,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "andando com a vida cheia, a aura fica guardada", %{tmp: tmp, body: body} do
+    test "walking at full HP, the aura stays in the pocket", %{tmp: tmp, body: body} do
       classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
       ok = hp_png(tmp, "full_walk.png", 19)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, ok}]})
@@ -441,7 +444,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "com o knob da pilha desligado, só a vida manda", %{tmp: tmp, body: body} do
+    test "with the pile knob off, only HP decides", %{tmp: tmp, body: body} do
       Settings.put(:shield_on_mob_enabled, false)
       classify!("Venusaur", %{"2" => :shield, "3" => :aoe})
       ok = hp_png(tmp, "full_mob_off.png", 19)
@@ -456,7 +459,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "sem aura classificada, nada sai", %{tmp: tmp, body: body} do
+    test "without a classified aura, nothing fires", %{tmp: tmp, body: body} do
       classify!("Venusaur", %{"3" => :aoe})
       low = hp_png(tmp, "low_noshield.png", 12)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
@@ -691,14 +694,14 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # decide isso era lido CRU dentro do `init/1`, então na suíte inteira era
   # impossível optar por voltar: nenhum teste jamais viu esse arranque.
   @tag :tmp_dir
-  test "com o arranque automático ligado, ele já nasce monitorando", %{tmp: _tmp, body: body} do
+  test "with the automatic start on, it is born monitoring", %{tmp: _tmp, body: body} do
     worker = start_supervised!({Worker, name: nil, body: body, auto_monitor: true})
 
     assert Worker.status(worker).state == :monitoring
   end
 
   @tag :tmp_dir
-  test "e desligado ele espera o run/1, que é como a suíte inteira roda", %{
+  test "and off it waits for run/1, which is how the whole suite runs", %{
     tmp: _tmp,
     body: body
   } do
@@ -717,7 +720,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # processo e o supervisor é `:one_for_one`. Poção e cura seguem saindo, o
   # painel parece saudável, e cada emergência seguinte custa uma morte.
   @tag :tmp_dir
-  test "um resgate cuja tarefa morre não desliga o resgate pro resto da noite", %{tmp: tmp} do
+  test "a rescue whose task dies does not disable rescues for the rest of the night", %{tmp: tmp} do
     low = hp_png(tmp, "low_latch.png", 6)
     {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
     orders!(:now)
@@ -789,7 +792,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # propósito: quem a gasta é a corrente do jogo, que termina em stun
   # (confirmado por ele em 01/09). Apertá-la aqui seria pagar duas vezes pelo
   # mesmo sono e deixar o controle gelado pro combo seguinte.
-  test "no Auto Combo o resgate revive direto — a corrente já dormiu a pilha", %{
+  test "in Auto Combo the rescue revives directly: the chain already put the pile to sleep", %{
     tmp: tmp,
     body: body
   } do
@@ -1141,7 +1144,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # que este bot faz sem contar: em 27/08 a engine pediu revive 556 vezes num
     # dia inteiro, e nenhuma tecla saiu porque `rescue_enabled` nasce desligado.
     @tag :tmp_dir
-    test "e ela AVISA, em vez de engolir o pedido", %{tmp: tmp, body: body} do
+    test "and it WARNS instead of swallowing the request", %{tmp: tmp, body: body} do
       Settings.put(:rescue_enabled, false)
       low = hp_png(tmp, "engine_switch_warn.png", 6)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
@@ -1156,7 +1159,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "com a chave ligada não há aviso nenhum", %{tmp: tmp, body: body} do
+    test "with the switch on there is no warning", %{tmp: tmp, body: body} do
       Settings.put(:rescue_enabled, true)
       low = hp_png(tmp, "engine_switch_quiet.png", 6)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
@@ -1340,7 +1343,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # impedir. `maybe_revive_fallen` já limpa o rastro depois de si mesma, pelo
     # mesmo motivo e com o mesmo comentário.
     @tag :tmp_dir
-    test "o revive que deu certo não é lido como morte dois tiques depois", %{
+    test "a revive that worked is not read as a death two ticks later", %{
       tmp: tmp,
       body: body
     } do
@@ -1425,7 +1428,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # noite, porque ninguém perguntava de novo. Quem pergunta é o cérebro — é o
     # único que sabe se o corpo voltou (`:downed`).
     @tag :tmp_dir
-    test "e um revive que não saiu é pedido de novo, quando o cérebro insiste", %{
+    test "and a revive that did not fire is requested again when the brain insists", %{
       tmp: tmp,
       body: body
     } do
@@ -1446,7 +1449,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "mas calado o cérebro não é permissão: sem ordem, segue sendo um por morte", %{
+    test "but a silent brain is not permission: without an order it stays one per death", %{
       tmp: tmp,
       body: body
     } do
@@ -1805,7 +1808,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # `stop_all` NUNCA roda — a frota segue caçando ao lado do shiny que disparou
   # a fuga.
   @tag :tmp_dir
-  test "a fuga responde na hora, mesmo com o corpo andando por segundos", %{tmp: _tmp} do
+  test "the escape answers at once, even with the body walking for seconds", %{tmp: _tmp} do
     {:ok, calib} = Calibration.load()
     Calibration.save(%{calib | escape_point: {620, 240}})
 
@@ -2152,7 +2155,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # controle estava gelado e o F4 saía com settle 0 na cara da pilha acordada.
   describe "o preparo não gasta o controle, e o controle gelado escala" do
     @tag :tmp_dir
-    test ":prepare é a tecla nua — o controle fica guardado pro revive perigoso",
+    test ":prepare is the bare key: the control stays in the pocket for the dangerous revive",
          %{tmp: tmp, body: body} do
       Settings.put(:rescue_stun_first, true)
       classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})
@@ -2172,7 +2175,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "controle classificado e GELADO escala o que sobrou, nunca recolhe nu",
+    test "a classified and COLD control escalates what is left, never recalls bare",
          %{tmp: tmp, body: body} do
       Settings.put(:rescue_stun_first, true)
       classify!("Gardevoir", %{"1" => :crowd, "3" => :aoe})
@@ -2204,7 +2207,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # carimbo do aperto é a testemunha (o eco sobrevive ao reset), e a espera
     # conta DAQUELE aperto.
     @tag :tmp_dir
-    test "controle apertado há pouco NÃO escala — o bolo já está dormindo",
+    test "a control pressed a moment ago does NOT escalate: the pile is already asleep",
          %{tmp: tmp, body: body} do
       Settings.put(:rescue_stun_first, true)
       # janela larga: numa suíte carregada, subir o worker pode custar mais
@@ -2258,7 +2261,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     # que têm os testes deles; o que não existia era a bag seca ter voz própria
     # em vez de depender do botão da vida do PERSONAGEM.
     @tag :tmp_dir
-    test "o padrão DESLOGA — o único socorro que existe sem revive", %{tmp: tmp, body: body} do
+    test "the default LOGS OUT: the only help there is without a revive", %{tmp: tmp, body: body} do
       Settings.put(:revive_dry_action, "logout")
       low = hp_png(tmp, "bag_seca_logout.png", 6)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
@@ -2275,7 +2278,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "em “alarm” ele só grita — e diz que só está gritando", %{tmp: tmp, body: body} do
+    test "in alarm mode it only shouts, and says it is only shouting", %{tmp: tmp, body: body} do
       Settings.put(:revive_dry_action, "alarm")
       low = hp_png(tmp, "bag_seca_alarme.png", 6)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})

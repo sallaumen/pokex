@@ -42,7 +42,7 @@ defmodule Pokex.Bots.SkillMeterTest do
   defp bar(count), do: %{locked_row: 0, hp: [count]}
 
   describe "uma tecla, uma medida" do
-    test "a queda da barra travada é o dano, em fração" do
+    test "the locked bar's drop is the damage, as a fraction" do
       # 100 → 60 é 40% da barra.
       opts = scripted([bar(100), bar(100), bar(60)])
 
@@ -51,7 +51,7 @@ defmodule Pokex.Bots.SkillMeterTest do
       assert shot.took_pct == 40.0
     end
 
-    test "QUANDO ela cai é o atraso — o número que ele viu antes de medir" do
+    test "WHEN it drops is the delay: the number he saw before measuring" do
       # "a spell 4 leva tipo 1s para realmente dar dano e às vezes ele sai
       # apertando 4, 5, 6. Na prática a spell 4 já mataria mas parece que ele
       # não sabe." Dez polls de 100ms é o segundo que ele descreveu.
@@ -61,7 +61,7 @@ defmodule Pokex.Bots.SkillMeterTest do
       assert delay >= 1_000
     end
 
-    test "barra parada até o fim é :no_drop, nunca dano zero" do
+    test "a bar still until the end is :no_drop, never zero damage" do
       # Zero é uma medida; "não vi" não é. Guardar zero ensinaria que a tecla
       # não faz nada, que é o oposto do que uma leitura perdida quer dizer.
       opts = scripted([bar(100)])
@@ -69,7 +69,7 @@ defmodule Pokex.Bots.SkillMeterTest do
       assert {:error, :no_drop} = SkillMeter.watch("4", opts)
     end
 
-    test "um tremor da leitura não é dano" do
+    test "a reading tremor is not damage" do
       # A barra é contada em pixels; um ou dois a menos é ruído do quadro.
       opts = scripted([bar(100), bar(99)])
 
@@ -84,7 +84,7 @@ defmodule Pokex.Bots.SkillMeterTest do
       assert {:error, :target_changed} = SkillMeter.watch("4", opts)
     end
 
-    test "sem alvo travado não há o que medir" do
+    test "without a locked target there is nothing to measure" do
       opts = scripted([%{locked_row: nil, hp: [100]}])
 
       assert {:error, :no_target} = SkillMeter.watch("4", opts)
@@ -92,7 +92,7 @@ defmodule Pokex.Bots.SkillMeterTest do
   end
 
   describe "o que as amostras dizem" do
-    test "sem nada medido, o resumo é vazio — não um chute" do
+    test "with nothing measured, the summary is empty, not a guess" do
       assert SkillMeter.summary() == %{}
     end
 
@@ -102,7 +102,7 @@ defmodule Pokex.Bots.SkillMeterTest do
       assert %{"4" => %{shots: 3, took_pct: 34.0}} = SkillMeter.summary()
     end
 
-    test "é MEDIANA porque o dano de outro jogador entra na conta" do
+    test "it is the MEDIAN because another player's damage enters the count" do
       # Uma média com o 90 dentro diria 51% e nunca mais largaria esse dano
       # alheio; a mediana o ignora.
       file("4", [30.0, 34.0, 90.0])
@@ -110,7 +110,7 @@ defmodule Pokex.Bots.SkillMeterTest do
       assert SkillMeter.summary()["4"].took_pct == 34.0
     end
 
-    test "quantos tiros pra matar — a pergunta dele inteira" do
+    test "how many shots to kill: his whole question" do
       # "se ele se identificar aqui com a skill 4 sozinha, ele já mata, ele não
       # precisa ficar usando 4, 5, 6 sempre"
       file("4", [100.0])
@@ -120,7 +120,7 @@ defmodule Pokex.Bots.SkillMeterTest do
       assert SkillMeter.summary()["5"].to_kill == 4
     end
 
-    test "zerar esquece tudo — outro pokémon tem outras teclas" do
+    test "reset forgets everything: another pokemon has other keys" do
       file("4", [50.0])
       SkillMeter.clear()
 
@@ -128,14 +128,14 @@ defmodule Pokex.Bots.SkillMeterTest do
     end
   end
 
-  test "o modo é DESLIGADO até ele ligar" do
+  test "the mode is OFF until he turns it on" do
     refute SkillMeter.on?()
     Pokex.SettingsStash.stash!(skill_meter_enabled: true)
     assert SkillMeter.on?()
   end
 
   describe "a tecla que MATA" do
-    test "a barra zerando é 100%, não um erro" do
+    test "the bar hitting zero is 100%, not an error" do
       # É a medida mais valiosa que existe aqui, e a que mais fácil se perderia
       # por parecer falha: um bicho morto sai da lista.
       opts = scripted([bar(100), bar(0)])
@@ -143,13 +143,13 @@ defmodule Pokex.Bots.SkillMeterTest do
       assert {:ok, %{took_pct: 100.0}} = SkillMeter.watch("4", opts)
     end
 
-    test "a linha travada sumindo da lista também" do
+    test "the locked row leaving the list too" do
       opts = scripted([bar(100), %{locked_row: 0, hp: []}])
 
       assert {:ok, %{took_pct: 100.0}} = SkillMeter.watch("4", opts)
     end
 
-    test "mas PERDER o alvo não é matar" do
+    test "but LOSING the target is not killing" do
       # A lista pode andar por qualquer motivo. Chamar isso de morte inventaria
       # um 100% — exatamente o tipo de número que este módulo existe pra apagar.
       opts = scripted([bar(100), %{locked_row: nil, hp: [100]}])

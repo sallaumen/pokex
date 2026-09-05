@@ -1,36 +1,34 @@
 defmodule Pokex.Vision.SkillDigits do
   @moduledoc """
-  A contagem que o JOGO escreve em cima da tecla em cooldown — lida como o que
-  ela é: a resposta definitiva sobre prontidão.
+  The count the GAME writes on top of a cooling key, read as what it is: the definitive answer
+  about readiness.
 
-  A leitura por referência de cor compara o slot com uma foto tirada na
-  calibração, e ela falhou nas DUAS direções em dois dias seguidos: refs
-  tirados com a skill carregando liam pronta como fria (27/08 de manhã), e
-  refs corretos liam fria como pronta (noite de 27→28/08 — o Poké Alliance só
-  escurece PARTE do ícone, e a distância do estado frio cai dentro do teto).
-  Naquela noite foram 2.372 linhas de "não saiu": todo recibo mentia, o mute
-  calava tecla boa, e o stun do resgate nunca confirmava.
+  Reading by colour reference compares the slot with a photo taken at calibration, and it failed
+  in BOTH directions on two consecutive days: references taken while the skill was charging read
+  ready as cooling, and correct references read cooling as ready (this client only darkens PART
+  of the icon, so the distance from the cold state falls inside the ceiling). One of those
+  nights produced 2,372 "did not fire" lines: every receipt lied, the mute silenced good keys,
+  and the rescue stun never confirmed.
 
-  Enquanto isso o jogo escrevia `32`, `33`, `43`, `44` em cima das teclas — em
-  branco com contorno preto, no topo do slot. Uma tecla esfriando SEMPRE tem
-  esse número; uma pronta nunca tem. Este módulo procura exatamente isso.
+  Meanwhile the game was writing `32`, `33`, `43`, `44` on top of the keys, in white with a
+  black outline, at the top of the slot. A cooling key ALWAYS has that number; a ready one never
+  does. This module looks for exactly that.
 
-  ## O que separa um dígito da arte do ícone (medido na captura real de 27/08)
+  ## What tells a digit from the icon's art (measured on a real capture)
 
-    * **Miolo branco**: `min(r,g,b) >= 180` e saturação <= 40.
-    * **Tamanho de glifo**: 2-10 px de largura, 5-11 de altura (por ponto de
-      escala) — a explosão branca do ícone do slot 8 mede 15×20 e cai fora.
-    * **Contorno preto**: >= 70% dos pixels do aglomerado encostam num vizinho
-      quase-preto (`max(r,g,b) <= 60`). Os dígitos mediram 100%; a arte branca
-      do slot 8, 8%.
-    * **Zona**: a contagem vive na METADE DE CIMA do slot. O rótulo da tecla
-      (1-9) usa a mesma fonte, mas mora embaixo — medido: contagem em y 8-15,
-      rótulo em y 20-28 num frame de 38.
+    * **White core**: `min(r,g,b) >= 180` and saturation <= 40.
+    * **Glyph size**: 2-10 px wide, 5-11 tall (per scale point). The white explosion in
+      one slot's icon measures 15x20 and falls outside.
+    * **Black outline**: >= 70% of the cluster's pixels touch a near-black neighbour
+      (`max(r,g,b) <= 60`). The digits measured 100%; that white art, 8%.
+    * **Zone**: the count lives in the TOP HALF of the slot. The key label (1-9) uses the
+      same font but sits below it: measured, the count at y 8-15 and the label at y 20-28
+      in a 38px frame.
 
-  Só a PRESENÇA decide o estado. O valor (quantos segundos) ficaria bom no
-  painel, mas um `6` lido como `9` vira um relógio errado com cara de medido —
-  e o atlas de glifos ainda não conhece esta fonte. Presença não erra pra esse
-  lado: ou tem um aglomerado com cara de dígito ou não tem.
+  Only PRESENCE decides the state. The value (how many seconds) would look good on the panel,
+  but a `6` read as a `9` becomes a wrong clock that looks measured, and the glyph atlas does
+  not know this font yet. Presence cannot fail that way: either there is a digit-shaped cluster
+  or there is not.
   """
 
   alias Pokex.Vision.Frame
@@ -42,8 +40,8 @@ defmodule Pokex.Vision.SkillDigits do
   @min_outline_ratio 0.7
 
   @doc """
-  Os índices (0-based) dos slots que estão CONTANDO — cooldown escrito pelo
-  próprio jogo. `count` é o número de slots calibrado da barra.
+  The (0-based) indices of the slots that are COUNTING, a cooldown written by the game itself.
+  `count` is the bar's calibrated number of slots.
   """
   @spec counting(Frame.t(), pos_integer) :: MapSet.t(non_neg_integer)
   def counting(%Frame{} = frame, count) when is_integer(count) and count > 0 do
@@ -58,16 +56,14 @@ defmodule Pokex.Vision.SkillDigits do
   end
 
   @doc """
-  Os índices (0-based) dos slots em que há um GLIFO da fonte do jogo — o
-  rótulo da tecla (1-9, 0) que fica embaixo de todo slot, ou a contagem em
-  cima. É a assinatura de "isto É a barra": o jogo desenha o rótulo sempre,
-  com a skill pronta ou fria, e nada mais na tela põe um dígito branco com
-  contorno preto em cada um de nove retângulos iguais lado a lado.
+  The (0-based) indices of the slots that hold a GLYPH of the game's font: the key label (1-9,
+  0) under every slot, or the count above it. This is the signature of "this IS the bar": the
+  game always draws the label, with the skill ready or cooling, and nothing else on screen puts
+  a white digit with a black outline in each of nine identical rectangles side by side.
 
-  Medido em 02/09 nas cinco barras reais que existem (as três fixtures de
-  agosto, a de 11:52 e o recorte justo do Venusaur de 18:37): 9 de 9 slots em
-  todas. Nos seis não-barras (painel claro, mundo, lista de batalha, chat):
-  no máximo 1.
+  Measured on the five real bars that exist (the three August fixtures, one later capture and
+  the tight Venusaur crop): 9 of 9 slots in all of them. On the six non-bars (a bright panel,
+  the world, the battle list, the chat): at most 1.
   """
   @spec labelled_slots(Frame.t(), pos_integer) :: MapSet.t(non_neg_integer)
   def labelled_slots(%Frame{} = frame, count) when is_integer(count) and count > 0 do

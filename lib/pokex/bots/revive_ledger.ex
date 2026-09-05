@@ -1,28 +1,25 @@
 defmodule Pokex.Bots.ReviveLedger do
   @moduledoc """
-  O caderninho do estoque de revives: quantos ele disse ter, quantos já saíram.
+  The revive stock ledger: how many he said he has, how many have gone out.
 
-  O revive é um ITEM, finito, e até 28/08 o bot não tinha noção nenhuma disso.
-  A noite de 27→28/08 mediu o preço: 189 revives despachados em menos de duas
-  horas (~1,7 por minuto), o estoque acabou às 23:43, e dali em diante cada
-  regra que "compra" alguma coisa com um revive — chegar preparado, resetar a
-  barra — pagou com dinheiro que não existia.
+  A revive is an ITEM, finite, and the bot used to have no notion of that. One night measured
+  the price: 189 revives dispatched in under two hours (~1.7 per minute), the stock ran out at
+  23:43, and from then on every rule that "buys" something with a revive (arriving prepared,
+  resetting the bar) paid with money that did not exist.
 
-  O contrato é o mais simples que funciona: **digitar o estoque É o botão de
-  repor**. O ajuste `revive_stock` diz quantos ele tem AGORA no momento em que
-  digita; o caderninho conta cada despacho desde então, e quando o número do
-  ajuste MUDA, a conta zera sozinha (mudou = ele acabou de contar de novo).
-  Zero no ajuste é "não contei" — o orçamento inteiro desliga e nada muda de
-  comportamento.
+  The contract is the simplest thing that works: **typing the stock IS the restock button**. The
+  `revive_stock` setting says how many he has NOW, at the moment he types it; the ledger counts
+  every dispatch since then, and when the setting's number CHANGES the count resets by itself (a
+  change means he has just counted again). Zero in the setting means "not counted": the whole
+  budget switches off and nothing changes behaviour.
 
-  A conta é de DESPACHOS, não de consumo: o bot não lê o inventário, e um
-  aperto que o jogo recusou conta como gasto. Erra pro lado seguro — o
-  caderninho fica pobre antes do bolso — e o freio do chão (`:stranded`) segue
-  sendo a rede pra quando a conta e a realidade divergirem.
+  The count is of DISPATCHES, not of consumption: the bot does not read the inventory, and a
+  press the game refused counts as spent. It errs on the safe side, the ledger runs out before
+  the pocket does, and the floor brake (`:stranded`) is still the net for when the count and
+  reality diverge.
 
-  Quem gasta ANOTA (o `PlayerSupport`, único lugar de onde um revive sai);
-  quem decide PERGUNTA (`remaining/0` viaja no quadro da situação). Mesmo
-  molde ETS do `SkillClock`.
+  Whoever spends NOTES it (`PlayerSupport`, the only place a revive leaves from); whoever
+  decides ASKS (`remaining/0` travels in the situation frame). Same ETS mould as `SkillClock`.
   """
 
   alias Pokex.Settings
@@ -56,12 +53,11 @@ defmodule Pokex.Bots.ReviveLedger do
   end
 
   @doc """
-  Saiu um revive nos últimos `window_ms`? É a pergunta do `HandWatch`: o
-  `SkillClock.reset/0` do revive do bot apaga o carimbo do F4 dele mesmo, então
-  uma sighting de F4 num drain atrasado ficaria SEM DONO — e viraria "mão do
-  Lucas", contando o mesmo item duas vezes e re-zerando um relógio que já tem
-  carimbos novos da rajada pós-revive. O caderninho sabe a hora do último
-  despacho, de qualquer mão, e responde por ele.
+  Has a revive gone out in the last `window_ms`? This is `HandWatch`'s question: the bot's
+  revive calls `SkillClock.reset/0`, which erases the stamp of its own F4, so an F4 sighting in
+  a late drain would be OWNERLESS and be read as his hand, counting the same item twice and
+  re-resetting a clock that already holds fresh stamps from the post-revive burst. The ledger
+  knows the time of the last dispatch, from either hand, and answers for it.
   """
   @spec noted_within?(pos_integer, integer) :: boolean
   def noted_within?(window_ms, now \\ System.monotonic_time(:millisecond)) do
@@ -74,17 +70,15 @@ defmodule Pokex.Bots.ReviveLedger do
   end
 
   @doc """
-  Carimba que o F4 de um combo SAIU DO TECLADO agora — o fim do resgate, não o
-  despacho dele.
+  Stamps that a combo's F4 LEFT THE KEYBOARD just now: the end of the rescue, not its dispatch.
 
-  A diferença é o settle: o combo é stun → espera de 1,5-2s → F4, e o `note/0`
-  (que serve o ESTOQUE) é feito no despacho. A janela cega pós-revive
-  (`rescue_blackout_ms`) contada do despacho fica DESLOCADA settle inteiro pra
-  trás: cobre o settle — quando o pokémon está em campo de propósito, podendo
-  bater — e descobre o 1º-2º segundo pós-F4, que é a janela real. A noite de
-  30/08 mediu o custo do deslocamento: 441 teclas "prontas" que o jogo ignorou,
-  320 delas no primeiro segundo depois do F4 — 46% de falha nas rajadas da
-  luta, cada uma comprando retentativa.
+  The difference is the settle: the combo is stun -> a 1.5-2s wait -> F4, and `note/0` (which
+  serves the STOCK) happens at dispatch. The post-revive blind window (`rescue_blackout_ms`)
+  counted from the dispatch is DISPLACED by the whole settle: it covers the settle, when the
+  pokémon is on the field on purpose and able to hit, and uncovers the first and second second
+  after the F4, which is the real window. One night measured the cost of that displacement: 441
+  keys "ready" that the game ignored, 320 of them in the first second after the F4, a 46%
+  failure rate in the fight's bursts, each one buying a retry.
   """
   @spec landed() :: :ok
   def landed do
@@ -93,7 +87,7 @@ defmodule Pokex.Bots.ReviveLedger do
     :ok
   end
 
-  @doc "O F4 de um combo saiu nos últimos `window_ms`? A pergunta da janela cega."
+  @doc "Has a combo's F4 gone out in the last `window_ms`? The blind window's question."
   @spec landed_within?(pos_integer, integer) :: boolean
   def landed_within?(window_ms, now \\ System.monotonic_time(:millisecond)) do
     ensure_table()
@@ -104,7 +98,7 @@ defmodule Pokex.Bots.ReviveLedger do
     end
   end
 
-  @doc "Quantos já saíram desde a última vez que ele digitou o estoque."
+  @doc "How many have gone out since the last time he typed the stock."
   @spec spent() :: non_neg_integer
   def spent do
     ensure_table()
@@ -113,9 +107,8 @@ defmodule Pokex.Bots.ReviveLedger do
   end
 
   @doc """
-  Quantos ainda restam, ou `nil` com o orçamento desligado (`revive_stock` em
-  zero — "não contei"). Nunca negativo: a conta é aproximada e um número
-  negativo pareceria medição.
+  How many are left, or `nil` with the budget off (`revive_stock` at zero, "not counted"). Never
+  negative: the count is approximate, and a negative number would look like a measurement.
   """
   @spec remaining() :: non_neg_integer | nil
   def remaining do

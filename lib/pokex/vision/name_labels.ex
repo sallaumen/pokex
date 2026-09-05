@@ -1,50 +1,45 @@
 defmodule Pokex.Vision.NameLabels do
   @moduledoc """
-  Where the creatures ARE, read from the name the game itself draws over each
-  one — and WHOSE each one is, read from the colour it draws it in.
+  Where the creatures ARE, read from the name the game itself draws over each one, and WHOSE
+  each one is, read from the colour it draws it in.
 
   ## Why the name and not the sprite
 
-  "eu teria que calibrar cada sprite de monstro acredito" (Lucas, 2026-08-26) —
-  he would not, and the reason is worth writing down. A sprite is a different
-  picture per species, per animation frame and per facing; a name label is the
-  SAME picture always: text the client draws above every creature, fixed colour,
-  fixed height, whatever the species. One rule covers the Pikachus he farms and
-  the Ratatas he has never managed to kill, with nothing to teach.
+  Calibrating a sprite per monster species is what he expected to have to do, and he does not,
+  for a reason worth writing down. A sprite is a different picture per species, per animation
+  frame and per facing; a name label is the SAME picture always: text the client draws above
+  every creature, fixed colour, fixed height, whatever the species. One rule covers the species
+  he farms and the ones he has never managed to kill, with nothing to teach.
 
   ## Two colours, two meanings
 
-  MEASURED on a crop of his own client: a hostile's name is drawn in pure red,
-  HIS OWN pokémon's in green (5, 166, 67). That single fact does two jobs — it
-  keeps his own pokémon out of the pile being counted, and it says where that
-  pokémon is standing.
+  MEASURED on a crop of his own client: a hostile's name is drawn in pure red, HIS OWN pokémon's
+  in green (5, 166, 67). That single fact does two jobs: it keeps his own pokémon out of the
+  pile being counted, and it says where that pokémon is standing.
 
-  The second job matters more than it looks. An area skill leaves the POKÉMON,
-  not the trainer, and on his screen the two are routinely two tiles apart, so
-  distances measured from the character are wrong by however far it has
-  wandered. Reading the green label costs nothing on top of the red pass and
-  needs no sprite taught — `Pokex.Bots.PokemonTracker` can only find pokémon he
-  has photographed, and on 2026-08-26 his library held two he no longer uses.
+  The second job matters more than it looks. An area skill leaves the POKÉMON, not the trainer,
+  and on his screen the two are routinely two tiles apart, so distances measured from the
+  character are wrong by however far it has wandered. Reading the green label costs nothing on
+  top of the red pass and needs no sprite taught, while `Pokex.Bots.PokemonTracker` can only
+  find pokémon he has photographed, and his library held two he no longer uses.
 
   ## Honest about its blind spot
 
-  Measured on his recording, and again on his own screen in the field: a bright
-  spell effect paints over the labels of precisely the creatures it is hitting,
-  and a yellow skill banner ("QUICK ATTACK!", "AGILITY!") lands in the same band
-  as the names. In one field screenshot four hostiles were on screen and only
-  the two whose names were not covered came back.
+  Measured on his recording, and again on his own screen in the field: a bright spell effect
+  paints over the labels of precisely the creatures it is hitting, and a yellow skill banner
+  lands in the same band as the names. In one field screenshot four hostiles were on screen and
+  only the two whose names were not covered came back.
 
-  That blind spot is why this counts DOWN and never up: a hidden label reads as
-  one creature fewer, so a rule that requires a pile fires LESS often under
-  effects, never more.
+  That blind spot is why this counts DOWN and never up: a hidden label reads as one creature
+  fewer, so a rule that requires a pile fires LESS often under effects, never more.
 
   ## Row runs, not a flood fill
 
-  A per-pixel component search over a 1800px box is millions of `binary_part/3`
-  calls. Letters of one word sit on the same rows, so the scan walks sampled
-  ROWS collecting coloured runs (small gaps bridged — the space between letters)
-  and merges runs that touch across rows. Measured 14-31ms on a full screen with
-  40 labels; the capture that feeds it costs ten times that.
+  A per-pixel component search over a 1800px box is millions of `binary_part/3` calls. Letters
+  of one word sit on the same rows, so the scan walks sampled ROWS collecting coloured runs
+  (small gaps bridged, the space between letters) and merges runs that touch across rows.
+  Measured 14-31ms on a full screen with 40 labels; the capture that feeds it costs ten times
+  that.
   """
 
   alias Pokex.Vision.{Frame, Ink}

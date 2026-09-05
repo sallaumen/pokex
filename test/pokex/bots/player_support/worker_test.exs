@@ -168,13 +168,6 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
   defp start_worker(body), do: start_supervised!({Worker, name: nil, body: body})
 
-  # A battle-body PNG big enough to cover every lock band: all dark-red = a locked fight,
-  # all dark = no fight. 100 wide × 400 tall so each 52px band holds thousands of pixels.
-  defp battle_png(dir, name, color) do
-    rows = for _y <- 1..400, do: List.duplicate(color, 100)
-    Pokex.PngFixtures.write!(Path.join(dir, name), rows)
-  end
-
   # A VIDA DO PERSONAGEM — a barra vermelha do painel "Pokémon" do PA, que
   # apesar do nome é a vida DELE. Até 28/08 ninguém a lia: o personagem apanha
   # com o pokémon no chão (a noite de 4,9h) e nada media nem avisava.
@@ -1522,13 +1515,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
   end
 
-  # The support reads the :battle blackboard entry first, so each test pins WorldState:
-  # a stale entry forces the direct capture+interpret fallback; a fresh one is read as-is.
-  defp stale_battle! do
-    at = System.monotonic_time(:millisecond) - 60_000
-    WorldState.put(:battle, %{enemies: [], locked?: false, captured_at: at}, at)
-  end
-
+  # The support reads the :battle blackboard entry to know whether a fight is on
+  # (the reposition asks it), so each test that cares pins WorldState.
   defp fresh_battle!(fields) do
     at = System.monotonic_time(:millisecond)
 

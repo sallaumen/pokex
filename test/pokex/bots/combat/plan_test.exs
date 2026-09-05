@@ -29,6 +29,17 @@ defmodule Pokex.Bots.Combat.PlanTest do
     Map.merge(%{enemies: 1, ready_keys: nil, config: %{}}, overrides)
   end
 
+  # A LIMPEZA DE STATUS É DO MODO, e é por isso que ela mora aqui e não num `if`
+  # solto no worker. No Auto Combo uma luta tem VÁRIAS correntes (corrente → 4s
+  # → revive → corrente), e o status que mata é o que chega no meio da mobada,
+  # entre a primeira e a terceira. Nos outros modos as rajadas saem muito mais
+  # rápido e "toda vez" viraria um `e` por segundo.
+  test "cure_policy/1 cleans before every chain, and once per fight elsewhere" do
+    assert Plan.AutoCombo.cure_policy(ctx()) == :always
+    assert Plan.Economy.cure_policy(ctx()) == :opening
+    assert Standard.cure_policy(ctx()) == :opening
+  end
+
   test "for/1 answers a plan for every mode, and for none" do
     assert Plan.for(:auto_combo) == Plan.AutoCombo
     assert Plan.for(:economy) == Plan.Economy

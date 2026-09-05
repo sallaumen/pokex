@@ -24,6 +24,7 @@ defmodule Pokex.Bots.Combat.Worker do
   alias Pokex.Bots.SkillMeter
   alias Pokex.Bots.SkillReceipt
   alias Pokex.Bots.SkillSuspect
+  alias Pokex.Bots.StatusCure
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
   alias Pokex.Pokedex.Team
@@ -120,7 +121,11 @@ defmodule Pokex.Bots.Combat.Worker do
        # who keeps missing while never being seen on cooldown (SkillSuspect),
        # and who has already been named for it
        suspects: SkillSuspect.new(),
-       accused: []
+       accused: [],
+       # ESTA LUTA JÁ FOI LIMPA? A Status Potion na frente do ataque
+       # (`StatusCure`). Nasce falso a cada `run/3` — um engajamento, uma
+       # limpeza — e só os modos de política `:opening` o consultam.
+       cured?: false
      }}
   end
 
@@ -156,7 +161,8 @@ defmodule Pokex.Bots.Combat.Worker do
               feed_ref: ref,
               reattach_attempts: 0,
               held?: false,
-              last_action: nil
+              last_action: nil,
+              cured?: false
           }
           |> put_loadout(Loadout.current())
 
@@ -669,12 +675,15 @@ defmodule Pokex.Bots.Combat.Worker do
 
         chain = combo_chain(state, keys)
         special? = special_key?(state, keys)
+        cure? = cure?(state, keys)
 
         {%{
            state
-           | burst_pid: spawn(fn -> tap_keys(keys, parent, confirm?, area?, chain, special?) end),
+           | burst_pid:
+               spawn(fn -> tap_keys(keys, parent, confirm?, area?, chain, special?, cure?) end),
              last_action: %{text: "teclas #{Enum.join(keys, "+")}", at: now()},
-             retry_ok?: true
+             retry_ok?: true,
+             cured?: state.cured? or cure?
          }, :sent}
     end
   end
@@ -759,6 +768,24 @@ defmodule Pokex.Bots.Combat.Worker do
   defp special_key?(%{mode: :auto_combo}, keys), do: Combo.key() in keys
   defp special_key?(_outro_modo, _keys), do: false
 
+  # A STATUS POTION NA FRENTE DESTE ATAQUE — ver `Pokex.Bots.StatusCure`.
+  #
+  # Quem responde com que frequência este modo limpa é o PLANO, como toda outra
+  # pergunta sobre a mão: no Auto Combo é antes de cada corrente (o status que
+  # mata chega no meio da mobada, entre a primeira e a terceira), nos outros
+  # modos é uma vez por luta.
+  defp cure?(state, keys) do
+    ctx = %{enemies: nil, ready_keys: nil, config: config(state)}
+
+    state.mode
+    |> Plan.for()
+    |> then(& &1.cure_policy(ctx))
+    |> StatusCure.due?(keys, state.cured?)
+  end
+
+  defp config(%{logic: %Logic{config: config}}), do: config
+  defp config(_sem_logica), do: %{}
+
   defp let_go(false), do: :ok
 
   defp let_go(true) do
@@ -767,7 +794,27 @@ defmodule Pokex.Bots.Combat.Worker do
     :exit, _sem_body -> :ok
   end
 
-  defp tap_keys(keys, parent, confirm?, area?, chain, special?) do
+  # LIMPAR NUNCA SEGURA UM ATAQUE. Um rig que recusou o `e` (jogo fora de foco,
+  # portão fechado) não pode transformar uma comodidade em rajada perdida: o
+  # `:ok` é incondicional de propósito, e o respiro só acontece quando a poção
+  # de fato saiu.
+  defp cure(false), do: :ok
+
+  defp cure(true) do
+    case Pokex.Rig.impl().press(StatusCure.key()) do
+      :ok -> settle(StatusCure.settle_ms())
+      _recusado -> :ok
+    end
+  end
+
+  defp settle(ms) when is_integer(ms) and ms > 0 do
+    Process.sleep(ms)
+    :ok
+  end
+
+  defp settle(_sem_respiro), do: :ok
+
+  defp tap_keys(keys, parent, confirm?, area?, chain, special?, cure?) do
     before = if confirm?, do: Perception.ready_skills()
     started_at = now()
 
@@ -779,6 +826,11 @@ defmodule Pokex.Bots.Combat.Worker do
 
     with :ok <- Perception.mini_game_gate(),
          :ok <- let_go(special?),
+         # A STATUS POTION, e ela vem DEPOIS de soltar as setas: o `e` é um
+         # aperto como qualquer outro, e as setas são estado do `Body` que a
+         # rajada não enxerga (a lição do #495). Vem antes do carimbo porque o
+         # carimbo tem que marcar o instante em que a rajada VAI sair.
+         :ok <- cure(cure?),
          # O RELÓGIO DAS TECLAS, CARIMBADO ANTES DA RAJADA SAIR.
          #
          # A rajada não passa pelo `Body` (ela vai direto no rig pra sair

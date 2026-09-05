@@ -122,6 +122,14 @@ defmodule Pokex.Bots.Combat.Plan.AutoCombo do
   @impl true
   def tab?(_ctx), do: false
 
+  # UMA LIMPEZA POR CORRENTE. Uma luta aqui tem várias — corrente, os 4s da
+  # janela, o revive, corrente de novo, "quantas vezes precisarmos até matar o
+  # shiny" — e o status que mata é justamente o que chega no meio disso. A
+  # janela já limita o prefixo a ~15 apertos por minuto, e sem status a poção é
+  # no-op: o custo é o respiro, e só.
+  @impl true
+  def cure_policy(_ctx), do: :always
+
   # A TECLA NÃO DEPENDE DO POKÉMON, e é isso que ela é: um atalho do CLIENTE,
   # como as posturas. Um pokémon sem skills classificadas ainda aperta a
   # corrente — o que ele perde é o ciclo do revive, que precisa da barra pra

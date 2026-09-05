@@ -363,6 +363,17 @@ defmodule Pokex.Settings do
     # A uniformly DARK strip is a covered window, not an empty bar: every dark pixel used to
     # count as the bar's empty track, so the browser in front of the game read
     pokemon_hp_min_bright_pct: 10,
+    # --- Status cure: the Status Potion in front of every attack --------------------------------
+    # His pokémon can be asleep, silenced or frozen when the chain goes out, and in that state the
+    # combo key does nothing: no skill leaves, the bar is not spent, and the bot keeps pressing at
+    # a mob that keeps hitting. The E slot cures every negative status and is a NO-OP when there is
+    # none to cure, so the prefix costs time and never an item. Auto Combo cleans before every
+    # chain (its 4s window caps it at ~15/min); the other modes clean once per fight — see
+    # `Combat.Plan.cure_policy/1`.
+    status_cure_enabled: true,
+    status_cure_key: "e",
+    # How long the game gets to apply the potion before the attack leaves.
+    status_cure_settle_ms: 100,
     # --- Potion: cheap top-up so the expensive revive rarely fires ------------------------------
     # Below pokemon_hp_potion_pct AND out of combat (the heal channel is interrupted by entering a
     # fight, so an in-combat potion is a wasted potion), press potion_key — the game applies it to
@@ -914,6 +925,7 @@ defmodule Pokex.Settings do
     # (input min/max) are now the owner's rule.
     pokemon_hp_rescue_pct: 1..90,
     pokemon_hp_potion_pct: 1..99,
+    status_cure_settle_ms: 0..2_000,
     pokemon_hp_fishing_pct: 1..90,
     rescue_cooldown_ms: 0..600_000,
     fight_timeout_ms: 1_000..600_000,

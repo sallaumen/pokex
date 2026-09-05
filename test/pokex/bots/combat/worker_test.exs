@@ -30,7 +30,17 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     # medir um bot que não existe.
     # `target_lost_streak: 2` é a semente com que estes testes nasceram ("duas
     # leituras sem o alvo"); o padrão do código virou o dele (1) em 02/09.
-    SettingsStash.stash!(skill_burst_every_ms: 0, hunt_mode: "economy", target_lost_streak: 2)
+    # …e a LIMPEZA DE STATUS desligada, ligada de volta só pelo `describe` que a
+    # mede. Ela põe um respiro de 100ms na frente de cada rajada, e este arquivo
+    # é cheio de "apertou uma vez só" cronometrado contra a rajada anterior: com
+    # ela ligada em todo teste, um respiro a mais vira uma corrida perdida e uma
+    # falha por semente (medido em 05/09, sementes 12256 e 858554).
+    SettingsStash.stash!(
+      skill_burst_every_ms: 0,
+      hunt_mode: "economy",
+      target_lost_streak: 2,
+      status_cure_enabled: false
+    )
 
     SettingsStash.stash_keys!([
       :tab_confirm_ms,
@@ -107,7 +117,10 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     not_skills = [
       Settings.get(:tab_key),
       Settings.get(:attack_mode_key),
-      Settings.get(:defense_mode_key)
+      Settings.get(:defense_mode_key),
+      # A Status Potion vai na frente do ataque e não é skill: não tem cooldown
+      # na barra, não gasta a barra e não é o que mata o bicho.
+      Settings.get(:status_cure_key)
     ]
 
     Enum.reject(presses(), &(&1 in not_skills))
@@ -1144,6 +1157,153 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   # DEPOIS dele, dentro da mesma janela cega que o portão da largada respeita,
   # quase sempre com a tela já vazia. A cerca (`halt?` do `press_many`) é o
   # mesmo veredito, votado antes de cada tecla.
+  # A STATUS POTION ANTES DO ATAQUE (05/09).
+  #
+  # "Meu pokémon pode estar sob efeito de status negativo antes de usar o auto
+  # combo": dormindo ou silenciado, a corrente vira tecla morta — nenhuma skill
+  # sai, a barra não gasta, e o bot insiste contra a mobada. A poção do slot E
+  # cura tudo e é no-op sem status, então o prefixo custa só o respiro.
+  describe "a limpeza de status" do
+    defp indice(chamada), do: Enum.find_index(Fake.calls(), &(&1 == chamada))
+
+    defp poções, do: Enum.count(presses(), &(&1 == "e"))
+
+    @tag :tmp_dir
+    test "a poção sai na frente da corrente", %{worker: worker} do
+      SettingsStash.stash!(
+        auto_combo_key: "r",
+        auto_combo_window_ms: 5_000,
+        status_cure_enabled: true,
+        status_cure_key: "e"
+      )
+
+      SkillClock.wipe()
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      abre_o_fogo(worker)
+      assert eventually(fn -> "r" in presses() end), "a corrente não saiu: #{inspect(presses())}"
+
+      assert indice({:press, "e"}) < indice({:press, "r"}),
+             "a corrente saiu antes da poção: #{inspect(Fake.calls())}"
+    end
+
+    # O `e` é um aperto de tecla como qualquer outro, e as setas são estado do
+    # `Body`: sem soltar antes, ele sairia com o personagem andando — o mesmo
+    # defeito que o #495 consertou pro `r`.
+    @tag :tmp_dir
+    test "a poção espera as setas serem soltas", %{worker: worker} do
+      SettingsStash.stash!(
+        auto_combo_key: "r",
+        auto_combo_window_ms: 5_000,
+        status_cure_enabled: true,
+        status_cure_key: "e"
+      )
+
+      SkillClock.wipe()
+      :ok = Pokex.Bots.Body.hold(["up"])
+      on_exit(fn -> Pokex.Bots.Body.release() end)
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      abre_o_fogo(worker)
+      assert eventually(fn -> "e" in presses() end), "a poção não saiu: #{inspect(presses())}"
+
+      assert indice({:key_up, "up"}) < indice({:press, "e"}),
+             "a poção saiu com a seta segurada: #{inspect(Fake.calls())}"
+    end
+
+    # UMA LUTA TEM VÁRIAS CORRENTES, e o status que mata é o que chega no meio
+    # da mobada — entre a primeira corrente e a terceira. Por isso o Auto Combo
+    # limpa em TODA corrente, e não uma vez por luta.
+    @tag :tmp_dir
+    test "a segunda corrente da mesma luta também leva a poção", %{worker: worker} do
+      SettingsStash.stash!(
+        auto_combo_key: "r",
+        auto_combo_window_ms: 500,
+        status_cure_enabled: true,
+        status_cure_key: "e"
+      )
+
+      SkillClock.wipe()
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      abre_o_fogo(worker)
+      assert eventually(fn -> "r" in presses() end), "a corrente não saiu: #{inspect(presses())}"
+
+      SkillClock.reset()
+
+      assert eventually(
+               fn ->
+                 world!(worker, battle_obs(enemies: [0, 1, 2]))
+                 Enum.count(presses(), &(&1 == "r")) > 1
+               end,
+               3_000
+             ),
+             "a corrente não voltou: #{inspect(presses())}"
+
+      assert poções() > 1, "a segunda corrente saiu sem limpar: #{inspect(presses())}"
+    end
+
+    # No Econômico a rajada sai quase a cada tique: limpar antes de todas seria
+    # um `e` por segundo. A abertura da luta basta.
+    @tag :tmp_dir
+    test "no Econômico só a abertura limpa", %{worker: worker} do
+      SettingsStash.stash!(status_cure_enabled: true, status_cure_key: "e")
+
+      abre_o_fogo(worker)
+
+      assert eventually(fn -> skill_presses() != [] end),
+             "nenhuma skill saiu: #{inspect(presses())}"
+
+      for _ <- 1..6 do
+        world!(worker, battle_obs(enemies: [0, 1, 2]))
+        Worker.status(worker)
+      end
+
+      refute eventually(fn -> poções() > 1 end, 500),
+             "limpou mais de uma vez na mesma luta: #{inspect(presses())}"
+
+      assert poções() == 1, "a abertura não limpou: #{inspect(presses())}"
+    end
+
+    @tag :tmp_dir
+    test "desligada, nenhuma poção sai", %{worker: worker} do
+      SettingsStash.stash!(
+        auto_combo_key: "r",
+        auto_combo_window_ms: 5_000,
+        status_cure_enabled: false
+      )
+
+      SkillClock.wipe()
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      abre_o_fogo(worker)
+      assert eventually(fn -> "r" in presses() end), "a corrente não saiu: #{inspect(presses())}"
+
+      assert poções() == 0, "limpou com a limpeza desligada: #{inspect(presses())}"
+    end
+
+    # O `e` não é skill: não tem cooldown na barra, e carimbá-lo faria o relógio
+    # das teclas mentir sobre uma tecla que a barra nunca mostra.
+    @tag :tmp_dir
+    test "a poção não carimba o relógio das teclas", %{worker: worker} do
+      SettingsStash.stash!(
+        auto_combo_key: "r",
+        auto_combo_window_ms: 5_000,
+        status_cure_enabled: true,
+        status_cure_key: "e"
+      )
+
+      SkillClock.wipe()
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      abre_o_fogo(worker)
+      assert eventually(fn -> "e" in presses() end), "a poção não saiu: #{inspect(presses())}"
+
+      assert SkillClock.pressed_at("e") == nil,
+             "a poção virou cooldown na memória do bot"
+    end
+  end
+
   describe "a cauda da rajada cede ao F4" do
     @tag :tmp_dir
     test "o F4 aterrissa no meio da rajada e a cauda para no ar", %{worker: worker} do

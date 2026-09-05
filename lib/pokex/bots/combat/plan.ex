@@ -39,6 +39,7 @@ defmodule Pokex.Bots.Combat.Plan do
   """
 
   alias Pokex.Bots.Combat.Loadout
+  alias Pokex.Bots.StatusCure
   alias Pokex.Bots.Combat.Plan
   alias Pokex.Bots.HuntMode
 
@@ -67,6 +68,21 @@ defmodule Pokex.Bots.Combat.Plan do
   @callback reserve(Loadout.t() | nil, ctx) :: [String.t()]
   @callback damage_keys(Loadout.t() | nil, ctx) :: [String.t()]
   @callback tab?(ctx) :: boolean
+
+  @doc """
+  COM QUE FREQUÊNCIA ESTE MODO LIMPA STATUS — a Status Potion na frente do
+  ataque (`Pokex.Bots.StatusCure`).
+
+  `:always` é uma limpeza antes de cada rajada; `:opening`, uma por luta.
+
+  A resposta é do modo porque a cadência do modo é que decide o custo. No Auto
+  Combo a corrente sai no máximo a cada 4s (a janela), então `:always` custa
+  ~15 apertos por minuto — e é o único jeito de cobrir o status que chega no
+  MEIO da mobada, entre a primeira corrente e a terceira. Nos outros modos as
+  rajadas saem quase a cada tique, e a mesma resposta viraria um `e` por
+  segundo por um ganho que a abertura já entrega.
+  """
+  @callback cure_policy(ctx) :: StatusCure.policy()
 
   @doc """
   The plan `mode` fights with.

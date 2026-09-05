@@ -77,6 +77,12 @@ defmodule Pokex.Bots.Combat.Plan.Standard do
   @impl true
   def tab?(_ctx), do: false
 
+  # Uma limpeza por luta, pelo mesmo motivo do Econômico: aqui a rotação
+  # aperta a barra inteira tecla por tecla, e um prefixo em cada rajada
+  # custaria mais respiro do que dano.
+  @impl true
+  def cure_policy(_ctx), do: :opening
+
   # --- lendo o contexto ------------------------------------------------------
   #
   # As duas metades do bot guardam os knobs com nomes diferentes — o cérebro

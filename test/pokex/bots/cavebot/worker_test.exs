@@ -209,7 +209,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   # sem segurar a estrada na mobada, sem o freio do chão — até o personagem
   # morrer. O que assina é a TRANSIÇÃO: vi o cérebro nesta caçada, e ele sumiu.
   @tag :capture_log
-  test "o cérebro que cala trava a caçada", %{worker: worker} do
+  test "the brain going silent blocks the hunt", %{worker: worker} do
     SettingsStash.stash!(cavebot_brain_gone_ms: 1_000)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     two_waypoint_route!()
@@ -734,7 +734,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   # mais atualiza o fato `:posture`, o combate lê postura velha como fogo livre
   # e passa a noite lutando sozinho, fora da rota.
   @tag :capture_log
-  test "um combate que demora a arrancar não mata a caçada", %{tmp_dir: _tmp} do
+  test "a combat slow to start does not kill the hunt", %{tmp_dir: _tmp} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     {:ok, slow} = FakeCombat.start_link(self(), :park)
 
@@ -973,7 +973,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     # N" para sempre e o bloqueio final nunca vinha. Só CHEGAR devolve as
     # tentativas — pular e reentrar, não.
     @tag :capture_log
-    test "preso de novo depois da volta GASTA o orçamento em vez de rebobiná-lo",
+    test "stuck again after the comeback SPENDS the budget instead of rewinding it",
          %{worker: worker} do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
       SettingsStash.stash!(cavebot_block_retries: 1)

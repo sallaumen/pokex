@@ -53,7 +53,7 @@ defmodule Pokex.Bots.Cavebot.HpGuardTest do
   # A REGRESSÃO DA RECLAMAÇÃO DELE: vida baixa com pokémon EM PÉ não segura
   # mais nada — nem a rota, nem a mobada. O amarelo do cérebro é quem fecha a
   # rodada e revive; parado esperando 85% era só apanhar de graça.
-  test "vida baixa com pokémon em pé NÃO segura a rota" do
+  test "low HP with the pokemon standing does NOT hold the route" do
     l = %{walking(mob_route()) | wp_index: 1, last_hp: 30}
 
     {l, action} = Logic.step(l, world({12, 10, 7}, 30, 3), 0)

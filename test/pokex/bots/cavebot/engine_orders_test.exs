@@ -71,7 +71,7 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
       logic
     end
 
-    test "a tela limpa encerra a luta mesmo com ordem de andar" do
+    test "a clean screen ends the fight even with a walk order" do
       limpo = world(%{engine?: true, enemies: 0})
 
       # dois tiques porque a tela limpa é carimbada e só então debatida
@@ -82,19 +82,19 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
       assert logic.state == :post_fight
     end
 
-    test "mas com bicho na tela a ordem manda: anda pra juntar, sem encerrar" do
+    test "but with mobs on screen the order rules: walks to gather, without ending" do
       {logic, _} = Logic.step(lutando(logic()), world(%{engine?: true, enemies: 3}), 100)
 
       assert logic.state == :fighting
     end
 
-    test "e cego não é limpo: sem leitura, a luta continua" do
+    test "and blind is not clean: without a reading, the fight goes on" do
       {logic, _} = Logic.step(lutando(logic()), world(%{engine?: true, enemies: nil}), 100)
 
       assert logic.state == :fighting
     end
 
-    test "travado no alvo também não é limpo, mesmo com a lista vazia" do
+    test "locked on a target is not clean either, even with the list empty" do
       {logic, _} =
         Logic.step(
           lutando(logic()),

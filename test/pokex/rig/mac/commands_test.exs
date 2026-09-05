@@ -110,7 +110,7 @@ defmodule Pokex.Rig.Mac.CommandsTest do
   # teclas por mais de um segundo — resgate, poção e setas de fallback atrás
   # dela. A rajada vira PASSOS, e quem paga a pausa é o chamador, entre
   # comandos curtos.
-  test "burst devolve uma tecla por comando e a pausa como passo próprio" do
+  test "burst returns one key per command and the pause as its own step" do
     assert Commands.burst(["1", "2", "shift+space"], tap_count: 1, gap_ms: 25) ==
              [
                {:press, "1"},
@@ -121,7 +121,7 @@ defmodule Pokex.Rig.Mac.CommandsTest do
              ]
   end
 
-  test "burst repete cada tecla tap_count vezes, com pausa entre todas" do
+  test "burst repeats each key tap_count times, with a pause between all of them" do
     assert Commands.burst(["1", "2"], tap_count: 2, gap_ms: 10) ==
              [
                {:press, "1"},
@@ -147,7 +147,7 @@ defmodule Pokex.Rig.Mac.CommandsTest do
   # depois de re-frontar o jogo). O da CADÊNCIA não: um comando de rajada
   # carrega no máximo uma tecla, então não há entre-teclas para esperar dentro
   # do barramento.
-  test "um comando de rajada carrega no máximo uma tecla" do
+  test "a burst command carries at most one key" do
     steps = Commands.burst(["shift+1", "4", "5"], tap_count: 2, gap_ms: 300, jitter_ms: 40)
 
     for {:press, combo} <- steps do

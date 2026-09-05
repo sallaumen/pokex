@@ -266,19 +266,19 @@ defmodule Pokex.VisionSkillStatesTest do
     @dark {20, 20, 20}
     @white {240, 240, 240}
 
-    test "o recorte justo do Venusaur (02/09) e as três barras de agosto passam" do
+    test "the tight Venusaur crop and the three August bars pass" do
       for name <-
             ~w(venusaur_recorte_justo.raw manha.raw quatro_contando.raw tres_contando_ontem.raw) do
         assert Vision.skill_bar_frame?(real(name), 9), name
       end
     end
 
-    test "um painel claro e um pedaço de mundo no lugar da barra não passam" do
+    test "a bright panel and a piece of world in place of the bar do not pass" do
       refute Vision.skill_bar_frame?(real("nao_barra_painel_claro.raw"), 9)
       refute Vision.skill_bar_frame?(real("nao_barra_mundo.raw"), 9)
     end
 
-    test "o rótulo em todos os slots é a barra; em menos de dois terços deles, não é" do
+    test "the label on every slot is the bar; on fewer than two thirds of them, it is not" do
       todos = bar_2d(9, 20, 10, fn _slot, x, y -> if glyph?(x, y), do: @white, else: @dark end)
 
       seis =
@@ -296,7 +296,7 @@ defmodule Pokex.VisionSkillStatesTest do
       refute Vision.skill_bar_frame?(cinco, 9)
     end
 
-    test "cor escura e ícones vivos SEM rótulo não bastam — era o que o portão antigo aceitava" do
+    test "dark colour and live icons WITHOUT a label are not enough: the old gate accepted that" do
       chrome =
         bar_2d(9, 20, 10, fn _slot, x, _y -> if x < 4, do: {10, 10, 10}, else: {40, 180, 80} end)
 

@@ -11,7 +11,7 @@ defmodule Pokex.Settings.LockedTest do
   alias Pokex.Settings
   alias Pokex.Settings.Locked
 
-  test "toda chave travada existe no Settings — travar o que não existe é erro de digitação" do
+  test "every locked key exists in Settings: locking what does not exist is a typo" do
     seeds = Settings.defaults()
 
     for key <- Locked.keys() do
@@ -19,7 +19,7 @@ defmodule Pokex.Settings.LockedTest do
     end
   end
 
-  test "toda travada tem grupo e porquê, e o porquê não é vazio" do
+  test "every locked key has a group and a why, and the why is not empty" do
     for {key, {group, why}} <- Locked.all() do
       assert is_binary(group) and group != "", "#{key} sem grupo"
       assert is_binary(why) and String.length(why) > 8, "#{key} sem porquê"
@@ -28,7 +28,7 @@ defmodule Pokex.Settings.LockedTest do
 
   # As chaves que ele mexe ficam editáveis, sem exceção — nenhuma delas pode
   # estar travada, senão o ajuste dele vira decoração.
-  test "nenhuma chave do personagem ou de preset está travada" do
+  test "no character or preset key is locked" do
     for key <- Settings.character_keys() ++ Settings.preset_keys() do
       refute Locked.locked?(key), "#{key} é dele e está travada"
     end

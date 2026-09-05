@@ -483,7 +483,9 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   # novo no ciclo seguinte, não calar até o próximo Iniciar") passava verde
   # mesmo se alguém a estreitasse pra só re-armar quando `sweep_enabled`.
   @tag :tmp_dir
-  test "a varredura re-arma mesmo desligada: não cala até o próximo Iniciar", %{tmp_dir: _tmp} do
+  test "the sweep re-arms even when off: it does not go quiet until the next Start", %{
+    tmp_dir: _tmp
+  } do
     Settings.put(:sweep_enabled, false)
 
     {:ok, body} = FakeBody.start_link(self())

@@ -91,7 +91,7 @@ defmodule Pokex.Bots.SkillBarTest do
   # com refs que liam tudo como pronta enquanto o jogo escrevia 32/33/43/44 em
   # cima das teclas 1, 3, 4 e 5 — o defeito que fez 2.372 recibos mentirem.
   @tag :tmp_dir
-  test "a tecla com o cooldown escrito pelo jogo é cooldown, digam os refs o que disserem" do
+  test "a key with the cooldown written by the game is cooling, whatever the refs say" do
     {:ok, frame} = Frame.from_file("test/fixtures/skill_bar/quatro_contando.raw")
     on_field({0, 0, frame.width, frame.height}, 9)
 
@@ -114,7 +114,7 @@ defmodule Pokex.Bots.SkillBarTest do
   # Um ref tirado com a contagem na tela é um ref envenenado — e agora a
   # contagem em si diz isso, sem depender do limiar de branco.
   @tag :tmp_dir
-  test "calibrar com uma tecla contando não guarda o ref dela" do
+  test "calibrating with a key counting does not store its ref" do
     {:ok, frame} = Frame.from_file("test/fixtures/skill_bar/quatro_contando.raw")
     on_field({0, 0, frame.width, frame.height}, 9)
 

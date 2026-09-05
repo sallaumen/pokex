@@ -165,7 +165,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
 
   describe "a cadência do piloto (o intervalo é PRAZO, não soneca)" do
     @tag :tmp_dir
-    test "jogando, o trabalho do tick é DESCONTADO do próximo sono" do
+    test "playing, the tick's work is SUBTRACTED from the next nap" do
       SettingsStash.stash!(mini_game_play_tick_ms: 80)
       agora = System.monotonic_time(:millisecond)
 
@@ -180,7 +180,7 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "vigiando, a soneca é cheia — ele DISPUTA a fila com pesca e batalha" do
+    test "watching, the nap is full: it COMPETES for the queue with fishing and battle" do
       SettingsStash.stash!(mini_game_tick_ms: 150, mini_game_play_tick_ms: 80)
       agora = System.monotonic_time(:millisecond)
 
@@ -189,9 +189,10 @@ defmodule Pokex.Bots.MiniGame.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "sem faixa marcada o vigia fica CEGO e declarado — e marcar religa sem restart", %{
-    tmp: tmp
-  } do
+  test "without a marked band the watcher is BLIND and says so, and marking re-arms it without a restart",
+       %{
+         tmp: tmp
+       } do
     # o palpite de região morreu (2026-08-05: caixa ancorada leu tronco + flores
     # azuis como minigame num spot rochoso e flapou 1×/s segurando a frota):
     # sem faixa, NADA é capturado e o motivo é dito uma vez

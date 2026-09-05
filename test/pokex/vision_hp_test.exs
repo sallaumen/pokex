@@ -96,7 +96,7 @@ defmodule Pokex.VisionHpTest do
 
   defp teal_pixel(x, fill_cols), do: if(x < fill_cols, do: @green, else: @teal_track)
 
-  test "o trilho cinza-esverdeado da Pokebar não é vida, e a barra continua plausível" do
+  test "the Pokebar's grey-green rail is not HP, and the bar stays plausible" do
     assert Vision.hp_fill_pct(on_teal(5)) == 25
     assert Vision.hp_fill_pct(on_teal(0)) == 0
     assert Vision.hp_fill_pct(on_teal(20)) == 100
@@ -104,7 +104,7 @@ defmodule Pokex.VisionHpTest do
     assert Vision.hp_region_plausible?(on_teal(0), min_bright_pct: 0)
   end
 
-  test "a Pokebar cheia de 02/09 lê cheia" do
+  test "the full Pokebar reads full" do
     {:ok, frame} = Pokex.Vision.Frame.from_file("test/fixtures/hp/pokebar_cheia.raw")
     assert Vision.hp_fill_pct(frame) == 100
     assert Vision.hp_region_plausible?(frame)

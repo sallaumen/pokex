@@ -273,6 +273,24 @@ defmodule Pokex.VisionSkillStatesTest do
       end
     end
 
+    # THE ROUND-ICON BAR (Torterra, 8 skills, 2026-09-06). He tried twice and the
+    # page refused: "o leitor só encontra o número da tecla em 1 de 8 slots".
+    # Measured on his own capture: all eight digits ARE found, all the right
+    # size, all on the same line — what failed was the black outline. This
+    # client draws the label over the ART of a ROUND icon (cream, gold, tan),
+    # and the outline blends with it: the ratios read 0.20 to 0.83 against a
+    # 0.70 floor, because `dark?` demanded near-black (60).
+    test "the round-icon bar, the label drawn over bright art" do
+      assert Vision.skill_bar_frame?(real("icone_redondo_8.raw"), 8)
+    end
+
+    # …and the looser outline must not turn his LABELS into countdowns: every
+    # skill was ready in this capture, and a label read as a count would make
+    # the hunt skip a key that is up. Measured, not assumed.
+    test "the round-icon labels are not read as cooldowns" do
+      assert real("icone_redondo_8.raw") |> Pokex.Vision.SkillDigits.counting(8) |> Enum.empty?()
+    end
+
     test "a bright panel and a piece of world in place of the bar do not pass" do
       refute Vision.skill_bar_frame?(real("nao_barra_painel_claro.raw"), 9)
       refute Vision.skill_bar_frame?(real("nao_barra_mundo.raw"), 9)

@@ -37,6 +37,39 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     end
   end
 
+  # NOTHING IN THE STRIP IS NOT "A NUMBER I CANNOT READ" (2026-09-06). His
+  # browser sat over the top-right corner of the screen, exactly where the
+  # minimap is, and the hunt said "não sei onde estou — a coordenada do minimapa
+  # não está sendo lida" — the same sentence it says for a glyph the atlas never
+  # learned. He spent the morning looking for a broken reader. This capture is
+  # his own feed at the time: Chrome's bookmarks bar where the map should be.
+  test "a strip with no ink at all is reported as blank, not as unreadable" do
+    {:ok, panel} = Frame.from_file("test/fixtures/screen/minimapa_tapado_pelo_navegador.raw")
+
+    # the coordinate band he calibrated, relative to the minimap crop
+    calib = %Calibration{
+      scale: 1.0,
+      minimap_region: {1324, 62, 176, 200},
+      minimap_coord_region: {1326, 63, 82, 15}
+    }
+
+    assert {obs, _state} = Minimap.interpret(panel, calib, %{}, nil)
+    assert obs.pos == nil
+    assert obs.coord_blank?, "a faixa está vazia e ninguém disse isso"
+  end
+
+  # …and a strip that DOES carry the number is never called blank: the point of
+  # the flag is to separate "covered/moved" from "a glyph I cannot read".
+  test "a strip that carries the coordinate is not blank" do
+    for {name, _} <- @coords do
+      {fix, panel} = located(name)
+      calib = %Calibration{scale: 1.0, layout: fix}
+
+      assert {%{coord_blank?: false}, _state} = Minimap.interpret(panel, calib, %{}, nil),
+             "chamou de vazia uma faixa que lê: #{name}"
+    end
+  end
+
   # A altura é a DOS DÍGITOS, não a do glifo mais alto: nesta captura dele a
   # linha tem dez dígitos de 15 linhas, duas vírgulas de 6 e dois parênteses de
   # 19. Pela mais alta a resposta seria 19 — uma altura em que o atlas está

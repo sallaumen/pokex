@@ -410,6 +410,32 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       refute_receive {:combat_cmd, :run}, 200
       assert Worker.status(worker).hold_reason =~ "não sei onde estou"
     end
+
+    # AN EMPTY STRIP IS NOT AN UNREADABLE ONE, and saying the same sentence for
+    # both cost him a morning (2026-09-06): his browser sat over the top-right
+    # corner of the screen, exactly where the minimap is, and the hunt only ever
+    # said "a coordenada não está sendo lida" — so he went looking for a broken
+    # reader. When the reader says the band has NO ink, the hold says what that
+    # means and what to do about it.
+    test "a blank strip says something is covering the minimap", %{worker: worker} do
+      lure_route!()
+      :ok = Worker.run(worker)
+
+      WorldState.put(
+        :minimap,
+        %{pos: nil, coord_blank?: true},
+        System.monotonic_time(:millisecond)
+      )
+
+      tick!(worker)
+
+      reason = Worker.status(worker).hold_reason
+
+      assert reason =~ "POR CIMA",
+             "a linha tem que dizer que algo está tapando: #{inspect(reason)}"
+
+      assert reason =~ "recalibre", "…e que a outra saída é a janela ter mudado de lugar"
+    end
   end
 
   # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que

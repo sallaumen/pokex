@@ -57,8 +57,43 @@ defmodule Pokex.Perception.Interpret.Minimap do
     state = %{state | gap: gap(read) || state.gap, chute: chute(read) || state[:chute]}
     {obs, state} = accept(read, state)
 
-    {obs |> Map.put(:coord_gap, state.gap) |> Map.put(:coord_guessed, state[:chute]), state}
+    obs =
+      obs
+      |> Map.put(:coord_gap, state.gap)
+      |> Map.put(:coord_guessed, state[:chute])
+      |> Map.put(:coord_blank?, blank?(read, frame, calib, settings, state))
+
+    {obs, state}
   end
+
+  # NOTHING IN THE STRIP is a different answer from "a number I cannot read",
+  # and until 2026-09-06 both came out as the same `nil`. His browser sat over
+  # the top-right corner of the screen — exactly where the minimap is — and the
+  # hunt said "a coordenada do minimapa não está sendo lida", the sentence it
+  # says for a glyph the atlas never learned. He spent a morning looking for a
+  # broken reader.
+  #
+  # Blank is cheap and only asked when the read already failed: no ink in the
+  # band means nothing is drawn there at all — something is on top of the map,
+  # or the window moved and the mark points at furniture.
+  defp blank?(nil, frame, %Calibration{} = calib, settings, state) do
+    case Calibration.minimap_capture_region(calib) do
+      {ox, oy, _w, _h} ->
+        opts = coord_opts(calib, settings)
+
+        [state.band, relative_band(Calibration.minimap_coord_region(calib), ox, oy)]
+        |> Enum.reject(&is_nil/1)
+        |> case do
+          [] -> false
+          bands -> Enum.all?(bands, &(Glyphs.segment(frame, &1, opts) == []))
+        end
+
+      nil ->
+        false
+    end
+  end
+
+  defp blank?(_read_or_no_calib, _frame, _calib, _settings, _state), do: false
 
   # How much of this coordinate is a GUESS: the warning that was missing, and why the glyph
   # screen read "no problem" while the bot walked to an invented place.

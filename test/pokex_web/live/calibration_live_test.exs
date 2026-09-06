@@ -64,6 +64,66 @@ defmodule PokexWeb.CalibrationLiveTest do
     }
   end
 
+  # A captura REAL dele: o painel do minimapa do notebook (1512x982), onde a
+  # coordenada é desenhada a 8px — uma altura que o atlas nunca viu.
+  defp minimapa_dele do
+    {:ok, frame} =
+      Pokex.Vision.Frame.from_file("test/fixtures/screen/minimapa_1512x982_1053_1358_6.raw")
+
+    for y <- 0..(frame.height - 1) do
+      for x <- 0..(frame.width - 1) do
+        {r, g, b} = Pokex.Vision.Frame.at(frame, x, y)
+        {r, g, b, 255}
+      end
+    end
+  end
+
+  # THE DEAD END HE WALKED INTO (2026-09-06). His notebook draws the coordinate
+  # at 8px and the glyph atlas — taught on the ultrawide — knows nothing at that
+  # height: the strip reads "????? ????? ?" with confidence 0. The hand-marking
+  # path then said "NÃO li a coordenada da foto — ajuste a faixa e marque de
+  # novo", which sends him to re-mark a band that is already perfect, forever.
+  # The teaching that fixes it in ONE step was only offered when the automatic
+  # search returned `:unread`, and on his screen it returns `:error`.
+  @tag :tmp_dir
+  test "a hand-marked strip that reads nothing offers the teaching, not another mark", %{
+    conn: conn,
+    tmp_dir: tmp
+  } do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(&Pokex.TestHome.restore/0)
+
+    screen = Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), minimapa_dele())
+
+    {:ok, _} = Fake.start_link(%{capture_screen: List.duplicate({:ok, screen}, 12)})
+    Calibration.save(%Calibration{scale: 1.0, screen_w: 176, screen_h: 200})
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element(~s(button[phx-click="calibrate_minimap"])) |> render_click()
+
+    click = fn x, y ->
+      params = %{"x" => x, "y" => y, "cw" => 176.0, "ch" => 200.0, "nw" => 176.0, "nh" => 200.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    # minimapa (2 cliques) + a cruz do personagem (1) — daí a página vai sozinha
+    # procurar a faixa, e é a busca que falha nesta tela
+    click.(0.0, 0.0)
+    click.(175.0, 199.0)
+    click.(88.0, 100.0)
+
+    # …então ele marca a faixa à mão, que é o caminho que existe hoje
+    view |> element(~s(button[phx-click="coord_manual"])) |> render_click()
+    click.(2.0, 1.0)
+    html = click.(84.0, 16.0)
+
+    assert html =~ "coord-teach-form",
+           "marcou a faixa, o leitor não conhece a fonte, e a página não ofereceu ensinar"
+
+    refute html =~ "marque de novo", "mandou re-marcar uma faixa que já está certa"
+  end
+
   # A CLICK ON THE REVIEW PHOTO USED TO DO NOTHING AT ALL — the failure he hit
   # on 2026-09-05: "clico na tela quando tô tentando mudar uma calibragem e não
   # parece estar funcionando". The confirmation step deliberately takes no

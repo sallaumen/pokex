@@ -2143,14 +2143,7 @@ defmodule PokexWeb.CalibrationLive do
 
         Calibration.save(calib)
 
-        assign(socket,
-          draft: %{},
-          step: nil,
-          screen: nil,
-          calibrated?: true,
-          skillbar_msg:
-            "Posição & minimapa salvos — " <> minimap_read_verdict(socket, calib, coord_region)
-        )
+        after_minimap_saved(socket, calib, coord_region)
 
       {:error, reason} ->
         assign(socket,
@@ -2164,7 +2157,57 @@ defmodule PokexWeb.CalibrationLive do
   # The on-the-spot verdict: reads the coordinate FROM THE SHOT just marked,
   # with the new regions — "read (x, y, z)" proves the calibration before the
   # bot needs it; "couldn't read" says fix the strip now, not on a blind hunt.
-  defp minimap_read_verdict(socket, calib, coord_region) do
+  # THE DEAD END, and why the band is not always the thing to fix.
+  #
+  # His notebook draws the coordinate at 8px, and the glyph atlas — taught on
+  # the ultrawide — knows nothing at that height: the strip reads "????? ?????
+  # ?" with confidence 0. Saying "ajuste a faixa e marque de novo" sends him to
+  # re-mark a band that is already perfect, forever, while the one thing that
+  # fixes it in a single step (typing the number once, so the atlas learns this
+  # font) was only offered when the AUTOMATIC search returned `:unread` — and on
+  # his screen it returns `:error`.
+  #
+  # So: a hand-marked band that finds glyphs and recognises none goes to the
+  # same teaching box, with the same shape the search produces.
+  defp after_minimap_saved(socket, calib, coord_region) do
+    case minimap_read(socket, calib, coord_region) do
+      {:unread, text, glyphs, ink} ->
+        assign(socket,
+          draft: %{},
+          step: :minimap_coord_search,
+          calibrated?: true,
+          coord_search: {:unread, coord_region, ink, text, glyphs},
+          coord_teach_msg: nil,
+          skillbar_msg:
+            "Posição & minimapa salvos — a faixa está marcada, mas eu não conheço a fonte " <>
+              "desta tela. Escreva o número que está no seu minimapa e eu aprendo agora."
+        )
+
+      verdict ->
+        assign(socket,
+          draft: %{},
+          step: nil,
+          screen: nil,
+          calibrated?: true,
+          skillbar_msg: "Posição & minimapa salvos — " <> verdict
+        )
+    end
+  end
+
+  # INK WITH NOTHING RECOGNISED is a font I was never taught, not a band in the
+  # wrong place — and only the first of the two is fixed by typing the number.
+  defp unknown_font_or_bad_band(panel, band, ink) do
+    line = Vision.Glyphs.read_line(panel, band, ink: ink)
+    glyphs = Vision.Glyphs.segment(panel, band, ink: ink)
+
+    if glyphs != [] and line.confidence == 0.0,
+      do: {:unread, line.text, glyphs, ink},
+      else: "mas NÃO li a coordenada da foto — ajuste a faixa do texto e marque de novo."
+  end
+
+  # `{:unread, text, glyphs, ink}` when the strip HAS ink and none of it is
+  # known; a sentence otherwise.
+  defp minimap_read(socket, calib, coord_region) do
     with path when is_binary(path) <- socket.assigns.screen && socket.assigns.screen.path,
          {:ok, frame} <- Vision.Frame.from_png_file(path) do
       # The SAME union the feed captures (PR #180): a band poking outside the
@@ -2184,9 +2227,12 @@ defmodule PokexWeb.CalibrationLive do
           ink: Settings.get(:minimap_coord_ink)
         )
 
+      band = {to_px.(cx - ux), to_px.(cy - uy), to_px.(cw), to_px.(ch)}
+      ink = Settings.get(:minimap_coord_ink)
+
       case read do
         {x, y, z} -> "li a coordenada da foto: (#{x}, #{y}, #{z}) ✓"
-        nil -> "mas NÃO li a coordenada da foto — ajuste a faixa do texto e marque de novo."
+        nil -> unknown_font_or_bad_band(panel, band, ink)
       end
     else
       _no_frame -> "não deu pra reler a foto pra testar — valide no /world."

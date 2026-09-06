@@ -133,6 +133,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
       pos_at: nil,
       # how old the :minimap fact was on the tick that decided — see observe/2
       pos_age: nil,
+      # whether the coordinate strip is EMPTY (something on top of the minimap)
+      # rather than merely unreadable — the two need different words
+      coord_blank?: false,
       # comebacks already spent on local blocks tonight; reaching a waypoint
       # gives them all back (see note_arrival/3)
       block_retries: 0,
@@ -438,7 +441,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     # taken on an 800ms-old position (`cavebot_minimap_fact_max_age_ms`) is a
     # decision taken about where he WAS. Kept on both paths — the blind kick is
     # a decision too, and there the age is the whole story.
-    state = %{state | pos_age: WorldState.age(:minimap, now)}
+    state = %{state | pos_age: WorldState.age(:minimap, now), coord_blank?: coord_blank?(now)}
 
     world = %{
       pos: pos,
@@ -557,6 +560,20 @@ defmodule Pokex.Bots.Cavebot.Worker do
     case Perception.minimap(now) do
       {:ok, %{pos: pos}} -> pos
       :unknown -> nil
+    end
+  end
+
+  # NOTHING IS DRAWN in the coordinate strip — not "a number I cannot read".
+  # The reader tells the two apart (`Interpret.Minimap`), and the hold below is
+  # the only place that can turn the difference into something he can act on.
+  #
+  # Read from the blackboard and NOT through `Perception.minimap/1`: that one
+  # answers "the position, or unknown", so a fact with no position never comes
+  # back through it — and a fact with no position is exactly this question.
+  defp coord_blank?(now) do
+    case WorldState.get(:minimap, Settings.get(:cavebot_minimap_fact_max_age_ms), now) do
+      {:ok, %{coord_blank?: true}} -> true
+      _stale_missing_or_reading -> false
     end
   end
 
@@ -1233,7 +1250,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
         note_hold(state.hold_note),
         step_hold(state.last_step),
         hp_hold(state.logic),
-        blind_hold(state.logic, now)
+        blind_hold(state, now)
       ],
       &is_nil/1
     )
@@ -1270,16 +1287,24 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
-  defp blind_hold(logic, now) do
-    case Logic.blind_ms(logic, now) do
-      nil ->
-        nil
-
-      ms ->
-        {:blind,
-         "não sei onde estou há #{div(ms, 1000)}s — a coordenada do minimapa não está sendo lida"}
+  defp blind_hold(state, now) do
+    case Logic.blind_ms(state.logic, now) do
+      nil -> nil
+      ms -> {:blind, "não sei onde estou há #{div(ms, 1000)}s — #{blind_why(state)}"}
     end
   end
+
+  # A STRIP WITH NO INK AT ALL is a different problem from a digit the atlas
+  # never learned, and until 2026-09-06 both said the same sentence. His browser
+  # sat over the top-right corner of the screen — exactly where the minimap is —
+  # and the line sent him looking for a broken reader instead of at the window
+  # in front of it.
+  defp blind_why(%{coord_blank?: true}),
+    do:
+      "não há número nenhum na faixa do minimapa: alguma janela está POR CIMA dele, " <>
+        "ou o jogo mudou de lugar (aí recalibre)"
+
+  defp blind_why(_reading_something), do: "a coordenada do minimapa não está sendo lida"
 
   # Reaching a waypoint is the hunt's only progress: the Logic already advanced
   # the index, so the one reached is the PREVIOUS waypoint — its number is what
@@ -1506,6 +1531,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
         pos: nil,
         pos_at: nil,
         pos_age: nil,
+        coord_blank?: false,
         counters: @zero_counters,
         last_action: nil,
         hold_note: nil,

@@ -19,8 +19,10 @@ defmodule Pokex.Vision.SkillDigits do
     * **White core**: `min(r,g,b) >= 180` and saturation <= 40.
     * **Glyph size**: 2-10 px wide, 5-11 tall (per scale point). The white explosion in
       one slot's icon measures 15x20 and falls outside.
-    * **Black outline**: >= 70% of the cluster's pixels touch a near-black neighbour
-      (`max(r,g,b) <= 60`). The digits measured 100%; that white art, 8%.
+    * **Dark outline**: >= 70% of the cluster's pixels touch a neighbour DARKER than the
+      glyph (`max(r,g,b) <= 110`, seventy levels below the white floor). Over a dark slot
+      the digits measure 100%; over the bright art of a round icon they fall to 0.20-0.83,
+      which is why the ceiling is not near-black. That white art: 8%.
     * **Zone**: the count lives in the TOP HALF of the slot. The key label (1-9) uses the
       same font but sits below it: measured, the count at y 8-15 and the label at y 20-28
       in a 38px frame.
@@ -35,7 +37,26 @@ defmodule Pokex.Vision.SkillDigits do
 
   @white_floor 180
   @white_max_sat 40
-  @dark_ceiling 60
+  # NOT near-black: DARKER THAN THE GLYPH. The white core floor is 180, so 110
+  # is "at least seventy levels below it" — which is what an outline IS.
+  #
+  # It was 60, and 60 was measured on one client: the label over the DARK part
+  # of a square slot. His Torterra bar draws the same font over the art of a
+  # ROUND icon — cream, gold, tan — and the outline blends into it: the eight
+  # digits were all found, all the right size, all on the same line, and seven
+  # of them died on this one number (ratios 0.20 to 0.83 against a 0.70 floor).
+  # The page refused to save a bar that was perfectly marked, twice.
+  #
+  # Measured over every fixture that exists (2026-09-06), ceiling 60 → 110:
+  #
+  #   round-icon bar (his)      1/8 → 7/8      manhã            8/9 → 9/9
+  #   venusaur (tight crop)     7/9 → 9/9      quatro contando  7/9 → 9/9
+  #   três contando (ontem)     7/9 → 9/9
+  #   NOT a bar: bright panel   0/9 → 0/9      the world        0/9 → 0/9
+  #
+  # Every real bar reads BETTER and neither non-bar moves: 60 was too strict for
+  # all of them, and his was simply the one that fell under the gate.
+  @dark_ceiling 110
   @min_cluster_px 8
   @min_outline_ratio 0.7
 

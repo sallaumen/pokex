@@ -5,6 +5,7 @@ defmodule PokexWeb.DiagnosticsLive do
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.KeyProbe
   alias Pokex.Calibration
+  alias Pokex.GameFocus
   alias Pokex.Perception.Interpret.Minimap
   alias Pokex.Rig
   alias Pokex.Rig.Mac.KeyEvents
@@ -557,15 +558,29 @@ defmodule PokexWeb.DiagnosticsLive do
 
     calib = %{calib | layout: calib.layout || Pokex.Layout.current()}
 
-    {found, skipped} =
-      Enum.reduce(sweep_targets(calib), {[], []}, fn {label, target}, {found, skipped} ->
-        case sweep_one(target) do
-          {:ok, glyphs} -> {found ++ glyphs, skipped}
-          {:skip, why} -> {found, skipped ++ ["#{label} (#{why})"]}
-        end
-      end)
+    # COM O JOGO NA FRENTE, e é isto que faltava numa tela só (06/09).
+    #
+    # Pra clicar em "Ensinar glifos" ele precisa focar o NAVEGADOR, e esta
+    # varredura fotografava direto: media a janela do navegador, não achava
+    # glifo nenhum e concluía "nenhum glifo duvidoso no que deu pra ler" — alta
+    # com a leitura quebrada. "Ele diz pra mim que não tem problema e não me
+    # pede pra calibrar nada, nenhum número novo."
+    #
+    # A foto da calibragem já fazia isso (`grab_screen/0`); esta não. UMA vez
+    # em volta da varredura inteira, não por região: nove idas e voltas de foco
+    # piscariam a tela dele nove vezes.
+    {found, skipped} = GameFocus.with_game_front(fn -> sweep_all(calib) end)
 
     {Enum.uniq_by(found, & &1.signature), skipped}
+  end
+
+  defp sweep_all(calib) do
+    Enum.reduce(sweep_targets(calib), {[], []}, fn {label, target}, {found, skipped} ->
+      case sweep_one(target) do
+        {:ok, glyphs} -> {found ++ glyphs, skipped}
+        {:skip, why} -> {found, skipped ++ ["#{label} (#{why})"]}
+      end
+    end)
   end
 
   # A faixa da coordenada PRIMEIRO: é a que ele lê o dia inteiro, a única que

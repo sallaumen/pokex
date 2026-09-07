@@ -61,7 +61,7 @@ defmodule Pokex.Perception.Interpret.Minimap do
       obs
       |> Map.put(:coord_gap, state.gap)
       |> Map.put(:coord_guessed, state[:chute])
-      |> Map.put(:coord_blank?, blank?(read, frame, calib, settings, state))
+      |> Map.merge(strip_trouble(read, frame, calib, settings, state))
 
     {obs, state}
   end
@@ -76,24 +76,51 @@ defmodule Pokex.Perception.Interpret.Minimap do
   # Blank is cheap and only asked when the read already failed: no ink in the
   # band means nothing is drawn there at all — something is on top of the map,
   # or the window moved and the mark points at furniture.
-  defp blank?(nil, frame, %Calibration{} = calib, settings, state) do
+  # WHY the strip did not read, when it did not — and there are two answers with
+  # different cures. NOTHING DRAWN means something is on top of the map or the
+  # window moved. INK THAT MATCHES NOTHING means a font the atlas was never
+  # taught, and the cure is one line typed on /calibration.
+  #
+  # The second one bit him on 2026-09-06: his notebook draws the coordinate at
+  # 8px, the atlas HAS 8-row glyphs (from the old client) so `missing_digits/0`
+  # accused no hole, and every one of them failed to match. The hunt only said
+  # "a coordenada não está sendo lida", so he re-validated a calibration that
+  # was already right while the character walked right forever.
+  defp strip_trouble(nil, frame, %Calibration{} = calib, settings, state) do
     case Calibration.minimap_capture_region(calib) do
       {ox, oy, _w, _h} ->
         opts = coord_opts(calib, settings)
 
         [state.band, relative_band(Calibration.minimap_coord_region(calib), ox, oy)]
         |> Enum.reject(&is_nil/1)
-        |> case do
-          [] -> false
-          bands -> Enum.all?(bands, &(Glyphs.segment(frame, &1, opts) == []))
-        end
+        |> verdict(frame, opts)
 
       nil ->
-        false
+        no_trouble()
     end
   end
 
-  defp blank?(_read_or_no_calib, _frame, _calib, _settings, _state), do: false
+  defp strip_trouble(_read_or_no_calib, _frame, _calib, _settings, _state), do: no_trouble()
+
+  defp verdict([], _frame, _opts), do: no_trouble()
+
+  defp verdict(bands, frame, opts) do
+    reads = Enum.map(bands, &{Glyphs.segment(frame, &1, opts), Glyphs.read_line(frame, &1, opts)})
+
+    cond do
+      Enum.all?(reads, fn {glyphs, _line} -> glyphs == [] end) ->
+        %{coord_blank?: true, coord_unknown_font?: false}
+
+      # Ink everywhere it looked, and not one glyph recognised in any of them.
+      Enum.all?(reads, fn {glyphs, line} -> glyphs != [] and line.confidence == 0.0 end) ->
+        %{coord_blank?: false, coord_unknown_font?: true}
+
+      true ->
+        no_trouble()
+    end
+  end
+
+  defp no_trouble, do: %{coord_blank?: false, coord_unknown_font?: false}
 
   # How much of this coordinate is a GUESS: the warning that was missing, and why the glyph
   # screen read "no problem" while the bot walked to an invented place.

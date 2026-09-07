@@ -417,6 +417,29 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     # said "a coordenada não está sendo lida" — so he went looking for a broken
     # reader. When the reader says the band has NO ink, the hold says what that
     # means and what to do about it.
+    # THE ONE THAT COST HIM THE AFTERNOON: the strip HAS the number, the atlas
+    # simply never learned this render. Saying "não está sendo lida" sent him
+    # back to a calibration that was already correct.
+    test "a strip whose font was never taught says to teach it", %{worker: worker} do
+      lure_route!()
+      :ok = Worker.run(worker)
+
+      WorldState.put(
+        :minimap,
+        %{pos: nil, coord_blank?: false, coord_unknown_font?: true},
+        System.monotonic_time(:millisecond)
+      )
+
+      tick!(worker)
+
+      reason = Worker.status(worker).hold_reason
+
+      assert reason =~ "não conheço",
+             "a linha tem que dizer que a fonte é nova: #{inspect(reason)}"
+
+      assert reason =~ "/calibration", "…e onde ensinar"
+    end
+
     test "a blank strip says something is covering the minimap", %{worker: worker} do
       lure_route!()
       :ok = Worker.run(worker)

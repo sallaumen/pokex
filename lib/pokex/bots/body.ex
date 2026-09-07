@@ -321,6 +321,12 @@ defmodule Pokex.Bots.Body do
     {:noreply, dequeue(%{state | lanes: lanes})}
   end
 
+  # UMA MENSAGEM ESTRANHA NÃO DERRUBA ESTE PROCESSO: um `:DOWN` atrasado, um
+  # timer que disparou depois do próprio cancelamento, ou conversa de um tópico
+  # que um vizinho assinou por ele.
+  @impl true
+  def handle_info(_msg, state), do: {:noreply, state}
+
   # Pick the next sequence. :critical (the survival combo) always drains first — nothing gets
   # ahead of it. Otherwise high is preferred, but after a high action we let an already-waiting
   # normal action run once, so repeated combat clicks can't keep fishing off the mouse forever.

@@ -112,6 +112,12 @@ defmodule Pokex.Perception.Feed do
     {:noreply, reschedule(state, Settings.get(state.spec.interval_setting))}
   end
 
+  # UMA MENSAGEM ESTRANHA NÃO DERRUBA ESTE PROCESSO: um `:DOWN` atrasado, um
+  # timer que disparou depois do próprio cancelamento, ou conversa de um tópico
+  # que um vizinho assinou por ele.
+  @impl true
+  def handle_info(_msg, state), do: {:noreply, state}
+
   defp observe(state) do
     with {:ok, calib} <- Calibration.load(),
          {:region, region} when not is_nil(region) <- {:region, state.spec.region.(calib)},

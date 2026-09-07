@@ -409,6 +409,13 @@ defmodule PokexWeb.DiagnosticsLive do
      )}
   end
 
+  # UMA MENSAGEM ESTRANHA NÃO DERRUBA A PÁGINA.
+  #
+  # `HeaderState` assina toda página nos tópicos dos workers e repassa o que não
+  # é dele — foi assim que `{:panic, "kill corner"}` matou esta LiveView
+  # (07/09), justamente no momento em que nada pode quebrar.
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
   # Arms the watcher (the first call sets the codes AND drains whatever was
   # buffered, so each round is measured clean), fires the burst off the LiveView
   # process — an osascript burst takes ~1.2s and the page must stay alive — and

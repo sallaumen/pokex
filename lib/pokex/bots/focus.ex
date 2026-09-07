@@ -90,6 +90,12 @@ defmodule Pokex.Bots.Focus do
     {:noreply, schedule(state, Settings.get(:focus_poll_ms))}
   end
 
+  # UMA MENSAGEM ESTRANHA NÃO DERRUBA ESTE PROCESSO: um `:DOWN` atrasado, um
+  # timer que disparou depois do próprio cancelamento, ou conversa de um tópico
+  # que um vizinho assinou por ele.
+  @impl true
+  def handle_info(_msg, state), do: {:noreply, state}
+
   # An uncrashable poll: a flaky osascript read must not take the safety monitor down. On an
   # unreadable frontmost, HOLD the last verdict (don't flap the gate on a transient error).
   defp evaluate(state) do

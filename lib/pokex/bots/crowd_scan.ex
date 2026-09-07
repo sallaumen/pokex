@@ -47,6 +47,11 @@ defmodule Pokex.Bots.CrowdScan do
   # A mark whose body stands within this many tiles of the character IS the
   # character (his own bar floats over his head).
   @me_tiles 0.6
+  # One column of the 25-column bar.
+  @pet_hp_tolerance 4
+  # How far over his head his own bar can float, in screen points: 36 on the
+  # notebook, ~100 on the ultrawide, never a tile and a half of the big screen.
+  @me_head_px 200
 
   @type hostile :: %{
           point: {integer, integer},
@@ -86,6 +91,8 @@ defmodule Pokex.Bots.CrowdScan do
 
     * `:radius_tiles` — how far out to look (default `crowd_scan_radius_tiles`)
     * `:listed` — the battle-list count to carry alongside, when the caller has one
+    * `:pet_hp` — his pokemon's health as the Pokebar reads it, to find it by
+    * `:me_hp` — his own health, to tell his own bar from a monster's
     * `:evidence` — also return the picture it read, with the marks drawn on
     * `:capture` — injected for tests
   """
@@ -101,11 +108,11 @@ defmodule Pokex.Bots.CrowdScan do
          {:ok, frame} <- capture.(box, "crowd_scan.raw") do
       scale = frame_scale(frame)
       tile = Calibration.tile_px()
-      found = CreatureMarks.find(frame, tile_px: round(tile * scale))
+      found = CreatureMarks.find(frame)
       marks = Enum.map(found, &to_screen(&1, box, scale))
 
       marks
-      |> place({px, py}, tile)
+      |> place({px, py}, tile, Keyword.take(opts, [:pet_hp, :me_hp]))
       |> Map.merge(%{
         at: started,
         took_ms: System.monotonic_time(:millisecond) - started,
@@ -123,18 +130,23 @@ defmodule Pokex.Bots.CrowdScan do
   @doc """
   Marks (bar centres, in screen points) placed in tiles from `me` and from
   his pokemon. Pure: the simulator calls it with the marks its world draws.
+
+  His pokemon is the mark with the number box nearest to him. Without a box
+  (his notebook draws none) it is the mark whose health matches `:pet_hp`,
+  what the Pokebar reads, within one column of the bar — nearest to him when
+  two match. No match, no pet: `from_pet` stays `nil`.
   """
-  @spec place([CreatureMarks.mark()], {integer, integer}, pos_integer) :: placed
-  def place(marks, {px, py} = me, tile) do
+  @spec place([CreatureMarks.mark()], {integer, integer}, pos_integer, keyword) :: placed
+  def place(marks, {px, py} = me, tile, opts \\ []) do
+    me_hp = Keyword.get(opts, :me_hp)
+
     bodies =
       marks
+      |> Enum.reject(&over_his_head?(&1, me, tile, me_hp))
       |> Enum.map(fn %{point: {x, y}} = mark -> %{mark | point: {x, y + tile}} end)
       |> Enum.reject(&(chebyshev(&1.point, me) <= @me_tiles * tile))
 
-    pet =
-      bodies
-      |> Enum.filter(& &1.pet?)
-      |> Enum.min_by(&chebyshev(&1.point, me), fn -> nil end)
+    pet = boxed_pet(bodies, me) || pet_by_health(bodies, me, Keyword.get(opts, :pet_hp))
 
     hostiles =
       bodies
@@ -151,6 +163,37 @@ defmodule Pokex.Bots.CrowdScan do
     do: Enum.count(hostiles, &(&1.from_me <= tiles))
 
   def within(_unread, _tiles), do: 0
+
+  # --- himself ----------------------------------------------------------------
+
+  # His own bar floats straight over his head, and carries HIS health. That
+  # second half holds even when the tile ruler is wrong for the screen — the
+  # notebook ran a whole afternoon with 151 for a 36-point tile, and his own
+  # bar read as a hostile one tile away.
+  defp over_his_head?(%{point: {x, y}, hp_pct: hp}, {px, py}, tile, me_hp)
+       when is_integer(me_hp) do
+    abs(x - px) <= @me_tiles * tile and y < py and py - y <= @me_head_px and
+      abs(hp - me_hp) <= @pet_hp_tolerance
+  end
+
+  defp over_his_head?(_mark, _me, _tile, _unknown), do: false
+
+  # --- his pokemon -----------------------------------------------------------
+
+  defp boxed_pet(bodies, me) do
+    bodies
+    |> Enum.filter(& &1.pet?)
+    |> Enum.min_by(&chebyshev(&1.point, me), fn -> nil end)
+  end
+
+  # One column of the bar is 4%: the Pokebar's 39% draws as 36% or 40%.
+  defp pet_by_health(bodies, me, pet_hp) when is_integer(pet_hp) do
+    bodies
+    |> Enum.filter(&(abs(&1.hp_pct - pet_hp) <= @pet_hp_tolerance))
+    |> Enum.min_by(&chebyshev(&1.point, me), fn -> nil end)
+  end
+
+  defp pet_by_health(_bodies, _me, _unknown), do: nil
 
   # --- geometry ------------------------------------------------------------
 
@@ -189,7 +232,7 @@ defmodule Pokex.Bots.CrowdScan do
 
   defp evidence(opts, frame, marks, {rx, ry, _w, _h}, {px, py}, scale) do
     if Keyword.get(opts, :evidence, false) do
-      geo = CreatureMarks.geometry(round(Calibration.tile_px() * scale))
+      geo = CreatureMarks.geometry(scale)
 
       Evidence.data_url(frame,
         shrink: Pokex.Settings.get(:crowd_scan_evidence_shrink),

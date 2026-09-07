@@ -19,23 +19,43 @@ defmodule Pokex.Vision.CreatureMarks do
     * a **number box** under it, a wide black box behind a number, drawn only
       under his own pokémon.
 
-  Every size here is a fraction of the tile, so a client zoom that moves
-  `tile_px` moves the whole ruler with it.
+  ## The bar is a UI element: it does not zoom with the map
+
+  Measured on both his screens (2026-09-07): the ultrawide draws the map at
+  151 points a tile and the notebook at 36, and the bar is 27×4 POINTS on
+  both. So every size here scales with the FRAME's scale (pixels per point,
+  stamped by the capture), never with `tile_px`. The tile only matters to
+  whoever turns a mark into a distance.
+
+  ## A partial fill has soft ends
+
+  Measured on the notebook's Magneton pile: a bar at 30% reads
+  `k.IIIIII.kkk` — one dim pixel at each end of the ink, neither black nor
+  saturated. The first eye refused every such bar, which is why a whole pile
+  read as "vi 1". The dim ends count as fill.
   """
 
   alias Pokex.Vision.Frame
 
-  @reference_tile 151
   @bar_w 27
   @bar_h 4
-  @skull_px 118
+  # Bright white only (every channel above 200): the icon keeps 61 such pixels
+  # on both his screens, a Magneton's grey metal ball at most 12.
+  @skull_px 61
   @skull_above {14, 40}
   @skull_half_w 12
   @skull_share 0.6
+  # More white than an icon can hold is a flash, not a skull; an icon also
+  # carries a black outline, a flash carries none.
+  @skull_ceiling 1.6
+  @skull_outline_px 25
+  # the icon is 17 rows tall; a damage number is 9
+  @skull_rows 12
   @box_bars 2
+  @soft_ends 2
 
   @black_max 60
-  @white_min 150
+  @white_min 200
   @white_spread 40
   @ink_max_min 140
   @ink_min_max 60
@@ -53,34 +73,36 @@ defmodule Pokex.Vision.CreatureMarks do
           skull_above: {pos_integer, pos_integer},
           skull_half_w: pos_integer,
           skull_px: pos_integer,
+          skull_outline_px: pos_integer,
+          skull_rows: pos_integer,
           box_w: pos_integer
         }
 
-  @doc "The bar and signature sizes at this tile ruler, scaled from the measured reference."
-  @spec geometry(pos_integer) :: geometry
-  def geometry(tile_px) when is_integer(tile_px) and tile_px > 0 do
-    ratio = tile_px / @reference_tile
+  @doc "The bar and signature sizes at this frame scale (pixels per point), from the measured reference."
+  @spec geometry(number) :: geometry
+  def geometry(scale) when is_number(scale) and scale > 0 do
     {above_min, above_max} = @skull_above
 
     %{
-      bar_w: max(round(@bar_w * ratio), 5),
-      bar_h: max(round(@bar_h * ratio), 4),
-      skull_above: {max(round(above_min * ratio), 2), max(round(above_max * ratio), 4)},
-      skull_half_w: max(round(@skull_half_w * ratio), 3),
-      skull_px: max(round(@skull_px * ratio * ratio), 8),
-      box_w: max(round(@bar_w * ratio) * @box_bars, 10)
+      bar_w: max(round(@bar_w * scale), 5),
+      bar_h: max(round(@bar_h * scale), 4),
+      skull_above: {max(round(above_min * scale), 2), max(round(above_max * scale), 4)},
+      skull_half_w: max(round(@skull_half_w * scale), 3),
+      skull_px: max(round(@skull_px * scale * scale), 8),
+      skull_outline_px: max(round(@skull_outline_px * scale * scale), 4),
+      skull_rows: max(round(@skull_rows * scale), 4),
+      box_w: max(round(@bar_w * scale) * @box_bars, 10)
     }
   end
 
   @doc """
   Every creature mark in `frame`, top to bottom. `point` is the centre of the
-  bar in FRAME pixels; the body stands one tile below it.
-
-  Options: `:tile_px` — the tile ruler in frame pixels (default the reference).
+  bar in FRAME pixels; the body stands one tile below it. Sizes come from the
+  frame's own `scale` (pixels per point).
   """
-  @spec find(Frame.t(), keyword) :: [mark]
-  def find(%Frame{} = frame, opts \\ []) do
-    geo = geometry(Keyword.get(opts, :tile_px, @reference_tile))
+  @spec find(Frame.t()) :: [mark]
+  def find(%Frame{} = frame) do
+    geo = geometry(frame_scale(frame))
 
     frame
     |> candidates(geo)
@@ -118,11 +140,13 @@ defmodule Pokex.Vision.CreatureMarks do
   end
 
   # The run is one of the interior rows; the bar's top-left is one column to
-  # the left and one to `bar_h - 2` rows up.
+  # the left of the ink (two, when the fill starts with a soft pixel) and one
+  # to `bar_h - 2` rows up.
   defp bars_at(frame, {start, y}, geo) do
-    for k <- 1..(geo.bar_h - 2),
-        {:ok, fill} <- [rectangle(frame, start - 1, y - k, geo)],
-        do: {start - 1, y - k, fill}
+    for left <- [start - 1, start - 2],
+        k <- 1..(geo.bar_h - 2),
+        {:ok, fill} <- [rectangle(frame, left, y - k, geo)],
+        do: {left, y - k, fill}
   end
 
   # --- the rectangle ------------------------------------------------------
@@ -152,28 +176,40 @@ defmodule Pokex.Vision.CreatureMarks do
     end)
   end
 
-  # Interior columns are ink from the left and black after; anything else is
-  # not a health bar. Zero fill is refused: a plain black rectangle is not a
-  # creature, and a creature at zero health is a corpse.
+  # Interior columns are the fill from the left and black after; anything else
+  # is not a health bar. The fill is ink with at most one soft (dim) column at
+  # each end. Zero ink is refused: a plain black rectangle is not a creature,
+  # and a creature at zero health is a corpse.
   defp fill(frame, bx, by, bw, bh) do
-    rows = 1..(bh - 2)
+    kinds = for i <- 1..(bw - 2), do: column_kind(frame, bx + i, by, bh)
+    {filled, rest} = Enum.split_while(kinds, &(&1 != :black))
 
-    kinds =
-      for i <- 1..(bw - 2) do
-        column = Enum.map(rows, &kind_at(frame, bx + i, by + &1))
-
-        cond do
-          Enum.all?(column, &(&1 == :ink)) -> :ink
-          Enum.all?(column, &(&1 == :black)) -> :black
-          true -> :other
-        end
-      end
-
-    fill = kinds |> Enum.take_while(&(&1 == :ink)) |> length()
-    rest_black? = kinds |> Enum.drop(fill) |> Enum.all?(&(&1 == :black))
-
-    if fill > 0 and rest_black?, do: {:ok, fill}, else: :no
+    if Enum.all?(rest, &(&1 == :black)) and fill_shaped?(filled),
+      do: {:ok, length(filled)},
+      else: :no
   end
+
+  # One interior column, read down: all ink, all black, or something else.
+  defp column_kind(frame, x, by, bh) do
+    column = Enum.map(1..(bh - 2), &kind_at(frame, x, by + &1))
+
+    cond do
+      Enum.all?(column, &(&1 == :ink)) -> :ink
+      Enum.all?(column, &(&1 == :black)) -> :black
+      true -> :other
+    end
+  end
+
+  # Ink with at most one soft column at each end, and at least one ink.
+  defp fill_shaped?(filled) do
+    soft_ends = soft_run(filled) + soft_run(Enum.reverse(filled))
+
+    Enum.any?(filled, &(&1 == :ink)) and soft_run(filled) <= 1 and
+      soft_run(Enum.reverse(filled)) <= 1 and
+      Enum.count(filled, &(&1 == :other)) <= min(soft_ends, @soft_ends)
+  end
+
+  defp soft_run(kinds), do: kinds |> Enum.take_while(&(&1 == :other)) |> length()
 
   # --- the mark and its signatures ----------------------------------------
 
@@ -186,19 +222,32 @@ defmodule Pokex.Vision.CreatureMarks do
     }
   end
 
+  # An icon's worth of white, as TALL as an icon, with a black outline around
+  # it. A spell flash is far more white and has no outline; a damage number
+  # ("168" over the pile) is white with an outline but only a digit tall.
   defp skull?(frame, bx, by, geo) do
     cx = bx + div(geo.bar_w, 2)
     {above_min, above_max} = geo.skull_above
 
-    count =
+    {white, black, rows} =
       for y <- (by - above_max)..(by - above_min)//1,
           x <- (cx - geo.skull_half_w)..(cx + geo.skull_half_w)//1,
-          white_at?(frame, x, y),
-          reduce: 0 do
-        n -> n + 1
+          reduce: {0, 0, MapSet.new()} do
+        tally -> tally_icon(frame, x, y, tally)
       end
 
-    count >= round(geo.skull_px * @skull_share)
+    white >= round(geo.skull_px * @skull_share) and
+      white <= round(geo.skull_px * @skull_ceiling) and
+      black >= geo.skull_outline_px and
+      MapSet.size(rows) >= geo.skull_rows
+  end
+
+  defp tally_icon(frame, x, y, {white, black, rows}) do
+    cond do
+      black_at?(frame, x, y) -> {white, black + 1, rows}
+      white_at?(frame, x, y) -> {white + 1, black, MapSet.put(rows, y)}
+      true -> {white, black, rows}
+    end
   end
 
   # The bottom border of his pokémon's bar is part of the number box's top
@@ -255,4 +304,7 @@ defmodule Pokex.Vision.CreatureMarks do
   end
 
   defp pixel(_frame, _x, _y), do: nil
+
+  defp frame_scale(%Frame{scale: scale}) when is_number(scale) and scale > 0, do: scale
+  defp frame_scale(_frame), do: 1.0
 end

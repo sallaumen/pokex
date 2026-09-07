@@ -285,6 +285,29 @@ defmodule PokexWeb.DiagnosticsLiveTest do
     alias Pokex.Calibration
     alias PokexWeb.DiagnosticsLive
 
+    # UMA TELA SÓ (06/09). Pra clicar em "Ensinar glifos" ele precisa focar o
+    # NAVEGADOR, e a varredura fotografava sem trazer o jogo pra frente — então
+    # ela media a janela do navegador, não achava glifo nenhum e concluía
+    # "nenhum glifo duvidoso no que deu pra ler". Alta com a leitura quebrada:
+    # "ele diz pra mim que não tem problema e não me pede pra calibrar nada".
+    #
+    # Com a foto certa há MUITO o que ensinar: a fonte desta tela nunca entrou
+    # no atlas, então nenhum dos glifos da faixa dele casa.
+    test "on his strip the sweep has plenty to teach — not one glyph matches" do
+      {:ok, panel} =
+        Pokex.Vision.Frame.from_file("test/fixtures/screen/minimapa_fonte_nao_ensinada.raw")
+
+      duvidosos =
+        Pokex.Vision.Glyphs.uncertain_in(panel, {2, 1, 82, 15},
+          ink: Pokex.Settings.get(:minimap_coord_ink)
+        )
+
+      assert length(duvidosos) >= 5,
+             "a varredura não teria o que pedir pra ensinar: #{length(duvidosos)}"
+
+      assert Enum.all?(duvidosos, &(&1.exact? == false))
+    end
+
     test "a faixa da coordenada resolve só com marcação à mão, sem layout nenhum" do
       calib = %Calibration{
         scale: 1.0,

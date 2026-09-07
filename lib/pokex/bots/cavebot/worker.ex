@@ -133,9 +133,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
       pos_at: nil,
       # how old the :minimap fact was on the tick that decided — see observe/2
       pos_age: nil,
-      # whether the coordinate strip is EMPTY (something on top of the minimap)
-      # rather than merely unreadable — the two need different words
-      coord_blank?: false,
+      # what is wrong with the coordinate strip, when something is: `:blank`
+      # (nothing drawn — covered, or the window moved) or `:unknown_font` (the
+      # number is there and the atlas never learned this render). Different
+      # problems, different cures, and until 2026-09-06 the same sentence.
+      strip_trouble: nil,
       # comebacks already spent on local blocks tonight; reaching a waypoint
       # gives them all back (see note_arrival/3)
       block_retries: 0,
@@ -441,7 +443,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     # taken on an 800ms-old position (`cavebot_minimap_fact_max_age_ms`) is a
     # decision taken about where he WAS. Kept on both paths — the blind kick is
     # a decision too, and there the age is the whole story.
-    state = %{state | pos_age: WorldState.age(:minimap, now), coord_blank?: coord_blank?(now)}
+    state = %{state | pos_age: WorldState.age(:minimap, now), strip_trouble: strip_trouble(now)}
 
     world = %{
       pos: pos,
@@ -570,10 +572,11 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # Read from the blackboard and NOT through `Perception.minimap/1`: that one
   # answers "the position, or unknown", so a fact with no position never comes
   # back through it — and a fact with no position is exactly this question.
-  defp coord_blank?(now) do
+  defp strip_trouble(now) do
     case WorldState.get(:minimap, Settings.get(:cavebot_minimap_fact_max_age_ms), now) do
-      {:ok, %{coord_blank?: true}} -> true
-      _stale_missing_or_reading -> false
+      {:ok, %{coord_blank?: true}} -> :blank
+      {:ok, %{coord_unknown_font?: true}} -> :unknown_font
+      _stale_missing_or_reading -> nil
     end
   end
 
@@ -1299,10 +1302,18 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # sat over the top-right corner of the screen — exactly where the minimap is —
   # and the line sent him looking for a broken reader instead of at the window
   # in front of it.
-  defp blind_why(%{coord_blank?: true}),
+  defp blind_why(%{strip_trouble: :blank}),
     do:
       "não há número nenhum na faixa do minimapa: alguma janela está POR CIMA dele, " <>
         "ou o jogo mudou de lugar (aí recalibre)"
+
+  # A calibração está CERTA e ele não tem como saber: a faixa mostra o número,
+  # e é o alfabeto que nunca viu esta fonte. Recalibrar não conserta — ensinar
+  # conserta, numa linha digitada.
+  defp blind_why(%{strip_trouble: :unknown_font}),
+    do:
+      "vejo o número na faixa mas não conheço esta fonte — a calibragem está certa; " <>
+        "vá em /calibration, marque a faixa à mão e escreva o número uma vez pra eu aprender"
 
   defp blind_why(_reading_something), do: "a coordenada do minimapa não está sendo lida"
 
@@ -1531,7 +1542,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
         pos: nil,
         pos_at: nil,
         pos_age: nil,
-        coord_blank?: false,
+        strip_trouble: nil,
         counters: @zero_counters,
         last_action: nil,
         hold_note: nil,

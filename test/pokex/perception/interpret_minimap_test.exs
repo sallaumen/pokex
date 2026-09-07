@@ -37,6 +37,38 @@ defmodule Pokex.Perception.InterpretMinimapTest do
     end
   end
 
+  # INK WITH NOTHING RECOGNISED IS A FONT I WAS NEVER TAUGHT (2026-09-06). His
+  # notebook draws the coordinate at 8px; the atlas has 8-row glyphs, but from
+  # the OLD client — so `missing_digits/0` accuses no hole while every glyph
+  # fails to match. The hunt said "a coordenada não está sendo lida", he
+  # re-validated a calibration that was already right, and the character walked
+  # right forever (a blind kick with no position is `{:nudge, 1, 0}`).
+  test "ink that matches nothing is a font never taught, not a bad band" do
+    {:ok, panel} = Frame.from_file("test/fixtures/screen/minimapa_fonte_nao_ensinada.raw")
+
+    calib = %Calibration{
+      scale: 1.0,
+      minimap_region: {1324, 62, 176, 200},
+      minimap_coord_region: {1326, 63, 82, 15}
+    }
+
+    assert {obs, _state} = Minimap.interpret(panel, calib, %{}, nil)
+    assert obs.pos == nil
+    refute obs.coord_blank?, "tem tinta na faixa: não é uma faixa vazia"
+    assert obs.coord_unknown_font?, "nenhum glifo casou e ninguém disse que a fonte é nova"
+  end
+
+  # …and a strip that reads is never accused of an unknown font.
+  test "a strip that reads is not an unknown font" do
+    for {name, _} <- @coords do
+      {fix, panel} = located(name)
+      calib = %Calibration{scale: 1.0, layout: fix}
+
+      assert {%{coord_unknown_font?: false}, _state} = Minimap.interpret(panel, calib, %{}, nil),
+             "acusou fonte nova numa faixa que lê: #{name}"
+    end
+  end
+
   # NOTHING IN THE STRIP IS NOT "A NUMBER I CANNOT READ" (2026-09-06). His
   # browser sat over the top-right corner of the screen, exactly where the
   # minimap is, and the hunt said "não sei onde estou — a coordenada do minimapa

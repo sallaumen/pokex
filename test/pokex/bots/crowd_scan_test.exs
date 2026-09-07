@@ -72,6 +72,18 @@ defmodule Pokex.Bots.CrowdScanTest do
       placed = CrowdScan.place([mark({0, 0}), mark({2, 0})], @me, @tile)
       assert length(placed.hostiles) == 1
     end
+
+    # On his notebook the tile was still calibrated at 151 (it is 36), and his
+    # own bar, 36 px over his head, read as a hostile one tile away all day.
+    # A bar straight over his head with his own health is him, whatever the tile.
+    test "a bar straight above him with his health is him even when the tile is wrong" do
+      {px, py} = @me
+      own = %{point: {px + 6, py - 36}, hp_pct: 100, skull?: false, pet?: false}
+      other = %{point: {px + 6, py - 36}, hp_pct: 40, skull?: false, pet?: false}
+
+      assert CrowdScan.place([own], @me, 151, me_hp: 100).hostiles == []
+      assert [%{hp_pct: 40}] = CrowdScan.place([other], @me, 151, me_hp: 100).hostiles
+    end
   end
 
   describe "his pokemon" do
@@ -94,6 +106,31 @@ defmodule Pokex.Bots.CrowdScanTest do
       placed = CrowdScan.place([mark({1, 1})], @me, @tile)
       assert placed.pet == nil
       assert [%{from_pet: nil}] = placed.hostiles
+    end
+
+    # On his notebook no box is drawn under the pet's bar; what the Pokebar
+    # reads (39% for the Torterra) is what the bar on the field shows (36%).
+    test "without a box, the mark whose health matches the Pokebar is the pet" do
+      marks = [mark({0, 2}, hp: 36), mark({1, 3}, hp: 32), mark({-4, 2}, hp: 100)]
+      placed = CrowdScan.place(marks, @me, @tile, pet_hp: 39)
+
+      assert %{dx: 0, dy: 2, hp_pct: 36} = placed.pet
+      assert Enum.map(placed.hostiles, & &1.hp_pct) == [32, 100]
+    end
+
+    test "two marks within a column of the Pokebar: the nearest to him is the pet" do
+      marks = [mark({4, 4}, hp: 40), mark({0, 2}, hp: 36)]
+      assert %{dx: 0, dy: 2} = CrowdScan.place(marks, @me, @tile, pet_hp: 39).pet
+    end
+
+    test "the number box wins over a health match" do
+      marks = [mark({3, 3}, pet?: true, hp: 100), mark({0, 2}, hp: 39)]
+      assert %{dx: 3, dy: 3} = CrowdScan.place(marks, @me, @tile, pet_hp: 39).pet
+    end
+
+    test "no bar within a column of the Pokebar means no pet, not a guess" do
+      marks = [mark({0, 2}, hp: 32), mark({1, 3}, hp: 100)]
+      assert CrowdScan.place(marks, @me, @tile, pet_hp: 39).pet == nil
     end
   end
 
@@ -134,7 +171,8 @@ defmodule Pokex.Bots.CrowdScanTest do
   # `look/1` as the capture.
   defp look_at(bodies, opts) do
     {px, py} = @me
-    %{bar_w: bw, bar_h: bh} = geo = Pokex.Vision.CreatureMarks.geometry(@tile)
+    # the bar is a UI element: 27×4 points at 1 pixel per point, whatever the tile
+    %{bar_w: bw, bar_h: bh} = geo = Pokex.Vision.CreatureMarks.geometry(1.0)
 
     capture = fn {rx, ry, w, h}, _name ->
       bars =

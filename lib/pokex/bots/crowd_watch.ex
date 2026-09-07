@@ -132,7 +132,14 @@ defmodule Pokex.Bots.CrowdWatch do
   # -- a look ------------------------------------------------------------------
 
   defp look(state, now, opts) do
-    reading = state.look.(Keyword.merge([listed: listed(now), evidence: false], opts))
+    reading =
+      state.look.(
+        Keyword.merge(
+          [listed: listed(now), pet_hp: pet_hp(now), me_hp: me_hp(now), evidence: false],
+          opts
+        )
+      )
+
     published = Map.delete(reading, :evidence)
 
     WorldState.put(:crowd, published, now)
@@ -280,6 +287,24 @@ defmodule Pokex.Bots.CrowdWatch do
     case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now) do
       {:ok, %{enemies: enemies}} when is_list(enemies) -> length(enemies)
       _no_list -> 0
+    end
+  end
+
+  # His pokemon's health as the Pokebar reads it: the way to tell its bar from
+  # a monster's on a screen that draws no number box under it.
+  defp pet_hp(now) do
+    case WorldState.get(:pokemon, Settings.get(:pokemon_fact_max_age_ms), now) do
+      {:ok, %{hp_pct: hp}} when is_integer(hp) -> hp
+      _unread -> nil
+    end
+  end
+
+  # His own health (the `:player` fact's `player_hp`, never its `hp_pct`,
+  # which is the pokemon's): what tells his own bar from a monster's.
+  defp me_hp(now) do
+    case WorldState.get(:player, Settings.get(:engine_hunt_max_age_ms), now) do
+      {:ok, %{player_hp: hp}} when is_integer(hp) -> hp
+      _unread -> nil
     end
   end
 

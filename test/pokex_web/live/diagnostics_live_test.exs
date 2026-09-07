@@ -281,6 +281,22 @@ defmodule PokexWeb.DiagnosticsLiveTest do
   # tudo. E o layout era o único caminho, então as marcações à mão dele (as que
   # o cavebot usa pra ler a coordenada todo dia) não contavam: a faixa que ele
   # precisava ensinar era justamente a que ele tinha marcado.
+  # O CANTO DE PÂNICO É O PIOR MOMENTO PRA UM PROCESSO MORRER (07/09). O
+  # Guardian solta `{:panic, "kill corner"}` nos tópicos dos workers, o
+  # `HeaderState` assina toda página neles e repassa o que não é dele — e esta
+  # LiveView não tinha cláusula final: `FunctionClauseError`, página no chão,
+  # bem na hora em que ele mandou parar tudo.
+  test "the panic corner does not take the page down", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/diagnostics")
+
+    send(view.pid, {:panic, "kill corner"})
+    send(view.pid, {:mensagem, :que, "ninguém espera"})
+    send(view.pid, :ola)
+
+    assert render(view) =~ "Diagnóstico"
+    assert Process.alive?(view.pid)
+  end
+
   describe "a varredura de glifos" do
     alias Pokex.Calibration
     alias PokexWeb.DiagnosticsLive

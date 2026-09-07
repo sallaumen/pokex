@@ -135,6 +135,12 @@ defmodule Pokex.Bots.Fishing.Worker do
     end
   end
 
+  # UMA MENSAGEM ESTRANHA NÃO DERRUBA ESTE PROCESSO: um `:DOWN` atrasado, um
+  # timer que disparou depois do próprio cancelamento, ou conversa de um tópico
+  # que um vizinho assinou por ele.
+  @impl true
+  def handle_info(_msg, state), do: {:noreply, state}
+
   defp resume_from_hold(state) do
     config = Config.build(state.calib, Settings.all())
     {logic, actions} = Logic.start(Logic.new(config), now())

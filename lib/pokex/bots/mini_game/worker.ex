@@ -164,6 +164,12 @@ defmodule Pokex.Bots.MiniGame.Worker do
   # must not crash the worker.
   def handle_info({:EXIT, _pid, _reason}, state), do: {:noreply, state}
 
+  # UMA MENSAGEM ESTRANHA NÃO DERRUBA ESTE PROCESSO: um `:DOWN` atrasado, um
+  # timer que disparou depois do próprio cancelamento, ou conversa de um tópico
+  # que um vizinho assinou por ele.
+  @impl true
+  def handle_info(_msg, state), do: {:noreply, state}
+
   # While PLAYING the interval is a DEADLINE, not a nap: sleeping the whole
   # mini_game_play_tick_ms after the work made the real period work+interval (measured: 68ms
   # work + 81ms sleep = 149ms, 6.7 fps instead of the 12.5 asked for), and at that vision rate

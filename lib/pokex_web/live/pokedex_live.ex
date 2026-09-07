@@ -212,6 +212,13 @@ defmodule PokexWeb.PokedexLive do
          sync_msg: "sync falhou: #{String.slice(reason, 0, 200)}"
        )}
 
+  # UMA MENSAGEM ESTRANHA NÃO DERRUBA A PÁGINA.
+  #
+  # `HeaderState` assina toda página nos tópicos dos workers e repassa o que
+  # não é dele — foi assim que `{:panic, "kill corner"}` matou esta LiveView
+  # (07/09), justamente no momento em que nada pode quebrar.
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
   # Every filter change goes through here: merge onto the current URL state,
   # drop the empties, patch.
   defp patch_with(socket, changes) do

@@ -82,6 +82,12 @@ defmodule Pokex.Bots.Perf do
     {:noreply, %{state | stats: %{}, last_window: stats}}
   end
 
+  # UMA MENSAGEM ESTRANHA NÃO DERRUBA ESTE PROCESSO: um `:DOWN` atrasado, um
+  # timer que disparou depois do próprio cancelamento, ou conversa de um tópico
+  # que um vizinho assinou por ele.
+  @impl true
+  def handle_info(_msg, state), do: {:noreply, state}
+
   defp enabled?(interval), do: is_integer(interval) and interval > 0
 
   defp record_stat(stats, key, ms) do

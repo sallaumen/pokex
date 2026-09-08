@@ -60,6 +60,27 @@ defmodule Pokex.Sim.BenchTest do
     end
   end
 
+  # THE SIEGE EYE SPEAKS ON THE BENCH: the world draws the bars, production's
+  # eye places them, and the brain writes beside each revive what the eye would
+  # say. It is the very sentence his diary will show — the bench is where it is
+  # read first.
+  test "the eye speaks beside the revives of a client-chain hunt" do
+    result = run("corrente-do-cliente", duration_ms: 40_000)
+
+    eye_lines = Enum.filter(result.timeline, &(&1.why =~ "o olho diria: olho"))
+
+    assert eye_lines != [], "nenhum revive com a frase do olho em 40s de corrente"
+
+    assert Enum.any?(eye_lines, &(&1.why =~ "dormindo")),
+           "a cobertura do fim da corrente nunca pôs ninguém pra dormir"
+  end
+
+  test "…and a blind world has no eye to speak" do
+    result = run("corrente-do-cliente", duration_ms: 20_000, knobs: %{readable?: false})
+
+    refute Enum.any?(result.timeline, &(&1.why =~ "o olho diria"))
+  end
+
   test "a pile above the ruler gets engaged and killed" do
     result = run("pilha-que-fecha", duration_ms: 30_000)
 

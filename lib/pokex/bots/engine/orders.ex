@@ -62,7 +62,8 @@ defmodule Pokex.Bots.Engine.Orders do
           fire: :hold | :free,
           opening: [String.t()],
           revive: :hold | :now | :prepare,
-          why: String.t()
+          why: String.t(),
+          siege: map | nil
         }
 
   @doc "The route goes and the hands stay down."
@@ -110,7 +111,10 @@ defmodule Pokex.Bots.Engine.Orders do
       fire: Keyword.fetch!(opts, :fire),
       opening: Keyword.get(opts, :opening, []),
       revive: Keyword.get(opts, :revive, :hold),
-      why: why
+      why: why,
+      # what the eye would say about a recall at this tick (`Engine.Siege.record/1`),
+      # filled by the brain on the revive orders it gives or holds; nil otherwise
+      siege: Keyword.get(opts, :siege)
     }
   end
 end

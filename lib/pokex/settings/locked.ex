@@ -239,6 +239,8 @@ defmodule Pokex.Settings.Locked do
       {"Onde estão os monstros (visão)", "foto mais velha que 0,6 s não vale"},
     crowd_scan_evidence_shrink:
       {"Onde estão os monstros (visão)", "a evidência é desenhada 4× menor"},
+    engine_pin_tiles:
+      {"Onde estão os monstros (visão)", "a 1 tile do pokémon o bicho está colado (mordendo)"},
     # --- Vigia das leituras ---
     watchman_every_ms: {"Vigia das leituras", "pergunta a cada 10 s se o bot ainda enxerga"},
     watchman_repeat_ms:

@@ -3021,4 +3021,153 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.band == :red
     end
   end
+
+  # THE SIEGE EYE, IN SHADOW: the brain still decides by today's rules, but
+  # writes beside every revive it gives or holds what the EYE would say — a
+  # night of that shows where the two disagree before the eye is given the key.
+  # The reading travels on the picture (`crowd`); without it nothing changes.
+  describe "the siege eye (shadow)" do
+    @tile 36
+
+    defp creature(dx, dy, opts \\ []) do
+      %{
+        point: {dx * @tile, dy * @tile},
+        dx: dx,
+        dy: dy,
+        from_me: max(abs(dx), abs(dy)),
+        from_pet: Keyword.get(opts, :from_pet, max(abs(dx), abs(dy))),
+        hp_pct: 100,
+        skull?: Keyword.get(opts, :skull?, false)
+      }
+    end
+
+    # his pokemon one tile to the left; the list counts what the picture saw
+    defp eye(hostiles) do
+      %{
+        read?: true,
+        at: 9_900,
+        me: {0, 0},
+        pet: %{point: {-@tile, 0}, dx: -1, dy: 0, tiles: 1, hp_pct: 100},
+        hostiles: hostiles,
+        listed: length(hostiles)
+      }
+    end
+
+    # the fence's pile (4 listed, no sleep) with the eye seeing part of it — and
+    # the control COLD, so nothing stamps a sleep and the revive stays held
+    defp seen_pile(hostiles, overrides \\ %{}),
+      do: mobada(Map.merge(%{crowd: eye(hostiles), ready_keys: ~w(3 4)}, overrides))
+
+    test "without an eye the orders are what they were" do
+      orders = cerca_segundo(mobada(%{ready_keys: ~w(3 4)}))
+
+      assert orders.why =~ "segurando o revive"
+      refute orders.why =~ "o olho diria"
+      assert orders.siege == nil
+    end
+
+    test "with an eye, a held revive says what the eye would say, and files the numbers" do
+      orders = cerca_segundo(seen_pile([creature(-2, 0, from_pet: 1), creature(3, 0)]))
+
+      assert orders.revive == :hold
+      assert orders.why =~ "segurando o revive"
+
+      assert orders.why =~
+               "o olho diria: olho: 1 colado acordado · 1 solto a 3 tiles · 2 sem ver → segurando"
+
+      assert orders.siege == %{
+               read: true,
+               heavy: false,
+               pinned: 1,
+               covered: 0,
+               loose: 1,
+               unseen: 2,
+               gap: false
+             }
+    end
+
+    test "an order without a revive does not speak of the eye" do
+      {_logic, abertura} = cerca_step(Logic.new(), seen_pile([creature(3, 0)]), 10_000)
+
+      assert abertura.revive == :hold
+      refute abertura.why =~ "o olho diria"
+      assert abertura.siege == nil
+    end
+
+    # THE CONTROL THAT GOES OUT TAKES THE COVER: whoever stood within the
+    # stun's reach sleeps; whoever arrives later matches no point.
+    test "the control stamps the sleep AND the cover; the next revive is safe by the eye too" do
+      mundo =
+        mobada(%{
+          crowd:
+            eye([
+              creature(-2, 0, from_pet: 1),
+              creature(-2, 1, from_pet: 1),
+              creature(4, 0, from_pet: 5)
+            ])
+        })
+
+      {logic, _abertura} = cerca_step(Logic.new(), mundo, 10_000)
+      assert logic.stun_cover == nil
+
+      {logic, segundo} = cerca_step(logic, mundo, 10_500)
+      assert segundo.why =~ "controle na frente"
+      assert logic.stun_cover == %{at: 10_500, pet: {-1, 0}, points: [{-2, 0}, {-2, 1}]}
+
+      {_logic, terceiro} = cerca_step(logic, mundo, 11_000)
+      assert terceiro.revive == :now
+
+      assert terceiro.why =~
+               "o olho diria: olho: 2 colados dormindo · 1 solto a 4 tiles · 1 sem ver → revive seguro"
+
+      assert terceiro.siege.gap == true
+    end
+
+    # IN AUTO COMBO THE CHAIN ENDS IN THE CONTROL: the edge where it ends IS
+    # the sleep, and the cover is taken there, from that very tick's picture.
+    test "the chain's end is the sleep: the cover is taken there" do
+      eye = eye([creature(-2, 0, from_pet: 1), creature(-2, 1, from_pet: 1)])
+
+      chain = fn overrides ->
+        world(%{
+          situation:
+            situation(Map.merge(%{enemies: 2, spent?: true, own_hp: 100, crowd: eye}, overrides)),
+          hunt: hunt(%{state: :fighting}),
+          hands: %{opening: ~w(3 4), single: [], crowd: []}
+        })
+      end
+
+      running = chain.(%{combo_left_ms: 2_500, combo_since_end_ms: nil})
+      ended = chain.(%{combo_left_ms: 0, combo_since_end_ms: 0})
+
+      {logic, _} = Logic.step(Logic.new(), running, @sem_stun, 10_000)
+      assert logic.chain_seen?
+      assert logic.stun_cover == nil
+
+      {logic, orders} = Logic.step(logic, ended, @sem_stun, 12_500)
+      assert logic.stun_cover == %{at: 12_500, pet: {-1, 0}, points: [{-2, 0}, {-2, 1}]}
+      assert orders.revive == :now
+
+      assert orders.why =~
+               "o olho diria: olho: 2 colados dormindo · ninguém solto · 0 sem ver → revive seguro"
+    end
+
+    # "Ou são todos com caveira ou nenhum": the skull is the area's, and an
+    # effect over the pile hides it without changing the area.
+    test "a skull latches the area heavy until the list empties" do
+      skulled = seen_pile([creature(3, 0, skull?: true)])
+      skull_less = seen_pile([creature(3, 0)])
+
+      {logic, _} = cerca_step(Logic.new(), skulled, 10_000)
+      assert logic.heavy_area?
+
+      {logic, orders} = cerca_step(logic, skull_less, 10_500)
+
+      assert orders.why =~
+               "o olho diria: olho (caveira): ninguém colado · 1 solto a 3 tiles · 3 sem ver → segurando"
+
+      {logic, _} = cerca_step(logic, seen_pile([], %{enemies: 0}), 11_000)
+      refute logic.heavy_area?
+    end
+  end
 end

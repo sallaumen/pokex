@@ -309,8 +309,22 @@ defmodule Pokex.Sim.World do
     own_row?: false,
     # the world can go blind on purpose; INJECTING blindness is phase 2, being
     # ABLE to is phase 1, because nil and [] are opposite facts
-    readable?: true
+    readable?: true,
+    # THE EYE'S PICTURE (`marks/1`), the way `CrowdScan` sees the screen:
+    #   * `heavy?` — the area has skulls ("ou são todos com caveira ou nenhum");
+    #     his hard hunts do, the easy one (magneton) does not.
+    #   * `mark_miss_pct` — the eye misses a bar this often (an effect over the
+    #     pile, a bar behind a bar). Zero is a perfect eye; the notebook measured
+    #     the eye seeing fewer than the list in 95% of its readings (08/09).
+    heavy?: true,
+    mark_miss_pct: 0
   }
+
+  # The eye's synthetic screen: the notebook's tile, the character at the
+  # origin. The eye reads offsets in tiles, so the numbers do not matter beyond
+  # being the same ones `CrowdScan.place/4` is handed.
+  @eye_tile 36
+  @eye_me {0, 0}
 
   @directions %{"right" => {1, 0}, "left" => {-1, 0}, "down" => {0, 1}, "up" => {0, -1}}
 
@@ -1513,6 +1527,101 @@ defmodule Pokex.Sim.World do
   end
 
   def boss_color_seen?(_sem_regra_ensinada), do: false
+
+  @doc """
+  THE EYE'S PICTURE: the creature bars on screen as `Pokex.Vision.CreatureMarks`
+  would find them, in a synthetic screen with the character at `me` and the
+  tile `tile` — the bench hands them to `CrowdScan.place/4`, the same function
+  the game's eye runs, so the siege the brain judges here is judged by the
+  production eye and not by a copy of it.
+
+  A mark is the bar's centre, one tile ABOVE the body (that is how the eye
+  finds the body back). Every creature on screen is a hostile mark, with a
+  skull when the area is heavy; the pokémon is the boxed mark (the ultrawide
+  draws the number box — the notebook finds it by health, `pet_hp:`, which the
+  bench also passes). His own bar over his own head is not drawn: nothing here
+  asks about it.
+
+  `mark_miss_pct` hides a bar per tick, deterministically (the creature and the
+  clock seed the draw), so a run with misses is the same run every time.
+  """
+  @spec marks(t) :: %{marks: [map], me: {integer, integer}, tile: pos_integer}
+  def marks(world) do
+    {px, py, _pz} = world.pos
+    {mx, my} = @eye_me
+
+    hostiles =
+      world.mobs
+      |> Enum.filter(&on_screen?(&1, world.pos, world.knobs))
+      |> Enum.reject(&missed?(&1, world))
+      |> Enum.map(fn %{pos: {x, y, _z}} = mob ->
+        %{
+          point: {mx + (x - px) * @eye_tile, my + (y - py) * @eye_tile - @eye_tile},
+          hp_pct: round(100 * mob.hp / mob.max_hp),
+          skull?: world.knobs.heavy?,
+          pet?: false
+        }
+      end)
+
+    pet =
+      if world.own.out? and not off_screen?(world.own.pos, world.pos, world.knobs.screen_tiles) do
+        {x, y, _z} = world.own.pos
+
+        [
+          %{
+            point: {mx + (x - px) * @eye_tile, my + (y - py) * @eye_tile - @eye_tile},
+            hp_pct: world.own.hp_pct,
+            skull?: false,
+            pet?: true
+          }
+        ]
+      else
+        []
+      end
+
+    %{marks: pet ++ hostiles, me: @eye_me, tile: @eye_tile}
+  end
+
+  defp missed?(_mob, %{knobs: %{mark_miss_pct: 0}}), do: false
+
+  defp missed?(mob, world),
+    do: rem(:erlang.phash2({mob.id, world.clock}), 100) < world.knobs.mark_miss_pct
+
+  @doc """
+  THE SIEGE AS THE WORLD KNOWS IT — the truth the eye's reading is measured
+  against. Same piles as `Engine.Siege`: creatures biting the pokémon
+  (`pin_tiles` from it), asleep, loose (awake and away), and the nearest awake
+  creature's distance from HIM; `gap_ok?` is whether a recall now would leave
+  nothing awake within `guard` tiles of him.
+  """
+  @spec siege_truth(t, keyword) :: %{
+          pinned: non_neg_integer,
+          asleep: non_neg_integer,
+          loose: non_neg_integer,
+          on_screen: non_neg_integer,
+          nearest_awake_from_me: non_neg_integer | nil,
+          gap_ok?: boolean
+        }
+  def siege_truth(world, opts \\ []) do
+    pin = Keyword.get(opts, :pin_tiles, 1)
+    guard = Keyword.get(opts, :guard_tiles, 4)
+    pet = if world.own.out?, do: world.own.pos, else: nil
+
+    on_screen = Enum.filter(world.mobs, &on_screen?(&1, world.pos, world.knobs))
+    asleep = Enum.filter(on_screen, &asleep?(&1, world))
+    awake = on_screen -- asleep
+    pinned? = fn mob -> pet != nil and distance(mob.pos, pet) <= pin end
+    nearest = awake |> Enum.map(&distance(&1.pos, world.pos)) |> Enum.min(fn -> nil end)
+
+    %{
+      pinned: Enum.count(on_screen, pinned?),
+      asleep: length(asleep),
+      loose: Enum.count(awake, &(not pinned?.(&1))),
+      on_screen: length(on_screen),
+      nearest_awake_from_me: nearest,
+      gap_ok?: nearest == nil or nearest >= guard
+    }
+  end
 
   defp visible(world) do
     world.mobs

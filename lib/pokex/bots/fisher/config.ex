@@ -29,7 +29,6 @@ defmodule Pokex.Bots.Fisher.Config do
     :hook_hold_max_ms,
     :target_locked_min_pixels,
     :target_lost_streak,
-    :tile_px,
     :humanize_max_ms,
     :cast_delay_max_ms,
     :hook_delay_min_ms,

@@ -138,7 +138,7 @@ defmodule Pokex.Bots.ShinyGuard do
   # The character and the STANDING pokémon become 3×3-tile forbidden boxes: the own pokémon's
   # green can match a shiny's. Points in SCREEN coordinates; the frame knows its own scale.
   defp forbidden_boxes(calib, %Frame{scale: scale}, {rx, ry, _w, _h}) do
-    meia = round(Calibration.tile_px() * 1.5 * scale)
+    meia = round(Calibration.tile_px(calib) * 1.5 * scale)
 
     [calib.player_point, calib.pokemon_spot_point]
     |> Enum.reject(&is_nil/1)

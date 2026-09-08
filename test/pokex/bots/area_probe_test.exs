@@ -25,12 +25,13 @@ defmodule Pokex.Bots.AreaProbeTest do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Pokex.TestHome.restore() end)
 
-    SettingsStash.stash!(tile_px: @tile, crowd_scan_radius_tiles: 6, area_probe_enabled: false)
+    SettingsStash.stash!(crowd_scan_radius_tiles: 6, area_probe_enabled: false)
 
     Calibration.save(%Calibration{
       scale: 1.0,
       screen_w: @screen,
       screen_h: @screen,
+      tile_px: @tile,
       player_point: {800, 800}
     })
 

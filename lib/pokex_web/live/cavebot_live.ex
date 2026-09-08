@@ -177,6 +177,7 @@ defmodule PokexWeb.CavebotLive do
        # where the character is drawn — and how big a tile is.
        calibration: loaded_calibration(),
        tile_px: Calibration.tile_px(),
+       tile_known?: tile_known?(),
        park_default: {Settings.get(:cavebot_park_tiles_x), Settings.get(:cavebot_park_tiles_y)},
        safety: safety_snapshot()
      )}
@@ -839,7 +840,6 @@ defmodule PokexWeb.CavebotLive do
   # it, and a distance in tiles is only as honest as the size of a tile.
   def handle_event("save_park_tiles", %{"index" => index} = params, socket) do
     index = String.to_integer(index)
-    save_tile_px(params["tile_px"])
 
     case park_from(params) do
       nil ->
@@ -1290,12 +1290,12 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
-  # The ruler is saved only when it is a number AND actually different: a blank
-  # field means "leave it alone", never "the tile is zero pixels".
-  defp save_tile_px(value) do
-    case Integer.parse(to_string(value)) do
-      {px, ""} when px > 0 -> Settings.put(:tile_px, px)
-      _blank_or_garbage -> :ok
+  # The tile is the screen's (`Pokex.Screen.Tile`), never a number typed here:
+  # the notebook ran three days on the ultrawide's 151 (2026-09-07).
+  defp tile_known? do
+    case loaded_calibration() do
+      %Calibration{} = calib -> match?({:ok, _px}, Calibration.tile(calib))
+      nil -> false
     end
   end
 
@@ -3120,18 +3120,18 @@ defmodule PokexWeb.CavebotLive do
                     />
                   </label>
                   <span class="font-mono text-pk-meta text-pk-text-3">tiles de você</span>
-                  <label
-                    class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
-                    title="quantos pixels da tela tem um tile — a régua dessa distância"
+                  <span
+                    id={"waypoint-park-tile-#{index}"}
+                    class={[
+                      "font-mono text-pk-meta",
+                      if(@tile_known?, do: "text-pk-text-3", else: "text-pk-warn")
+                    ]}
+                    title="o tamanho do tile vem da tela calibrada, nunca de um número digitado"
                   >
-                    1 tile =
-                    <input
-                      type="number"
-                      name="tile_px"
-                      value={@tile_px}
-                      class="pk-num h-8 w-16 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-                    /> px
-                  </label>
+                    {if @tile_known?,
+                      do: "1 tile = #{@tile_px} px (desta tela)",
+                      else: "esta tela não tem tile medido — o bot não liga nela"}
+                  </span>
                   <button
                     id={"waypoint-park-save-#{index}"}
                     class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"

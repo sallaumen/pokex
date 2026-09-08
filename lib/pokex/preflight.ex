@@ -16,6 +16,7 @@ defmodule Pokex.Preflight do
       |> check_character()
       |> check_active_pokemon()
       |> check_bar_fits()
+      |> check_tile()
       |> check_screen(rig)
 
     case errors do
@@ -72,6 +73,25 @@ defmodule Pokex.Preflight do
       ]
     else
       _fits_or_nothing_to_measure -> errors
+    end
+  end
+
+  # A SCREEN WITHOUT A MEASURED TILE HAS NO DISTANCES. The tile is the unit of everything
+  # measured from the character; it used to be a number on the cavebot page, and the notebook
+  # ran three days on the ultrawide's 151 (every creature "1 tile" away, park clicks off the
+  # screen). "Isso deveria ser automático com o tamanho da tela, e numa tela que não tiver
+  # sido reconhecida, dar erro" (Lucas, 2026-09-08).
+  defp check_tile(errors) do
+    with {:ok, calib} <- Calibration.load(),
+         {:unknown, {w, h}} <- Calibration.tile(calib) do
+      [
+        "esta tela (#{w}×#{h}) não tem o tamanho do tile medido — o bot conhece " <>
+          "#{Pokex.Screen.Tile.known_text()}; sem o tile nenhuma distância do personagem é " <>
+          "de verdade. Meça o tile desta tela e cadastre em Pokex.Screen.Tile"
+        | errors
+      ]
+    else
+      _known_or_uncalibrated -> errors
     end
   end
 

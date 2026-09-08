@@ -15,13 +15,19 @@ defmodule Pokex.Bots.Catcher.SweepTest do
   @tile 88
 
   setup do
-    SettingsStash.stash!(tile_px: @tile, sweep_radius_tiles: 1, sweep_side: "square")
+    SettingsStash.stash!(sweep_radius_tiles: 1, sweep_side: "square")
     :ok
   end
 
   defp calib(extra \\ %{}) do
     struct!(
-      %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, player_point: {1688, 697}},
+      %Calibration{
+        scale: 1.0,
+        screen_w: 3440,
+        screen_h: 1440,
+        tile_px: @tile,
+        player_point: {1688, 697}
+      },
       extra
     )
   end

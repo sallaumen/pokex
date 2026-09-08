@@ -97,6 +97,7 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
       scale: 2.0,
       screen_w: 1000,
       screen_h: 700,
+      tile_px: 40,
       water_point: {400, 300},
       glow_region: {368, 268, 64, 64},
       battle_region: {700, 100, 260, 200},

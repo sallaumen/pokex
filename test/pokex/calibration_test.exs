@@ -155,27 +155,27 @@ defmodule Pokex.CalibrationTest do
   # 2026-08-06). Switching monitors has to bring both.
   test "a profile carries the numbers that belong to its screen", %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
-    tile = Settings.get(:tile_px)
+    tile = Settings.get(:battle_row_height)
     glow = Settings.get(:glow_threshold)
 
     on_exit(fn ->
       Pokex.TestHome.restore()
-      Settings.put(:tile_px, tile)
+      Settings.put(:battle_row_height, tile)
       Settings.put(:glow_threshold, glow)
     end)
 
     Calibration.save(sample())
-    Settings.put(:tile_px, 88)
+    Settings.put(:battle_row_height, 88)
     Settings.put(:glow_threshold, 1100)
     assert {:ok, "ultrawide"} = Calibration.save_profile("ultrawide")
 
     # move to the small screen: the numbers get rescaled for it
-    Settings.put(:tile_px, 59)
+    Settings.put(:battle_row_height, 59)
     Settings.put(:glow_threshold, 496)
 
     assert {:ok, _calib, applied} = Calibration.apply_profile("ultrawide")
     assert applied > 0
-    assert Settings.get(:tile_px) == 88
+    assert Settings.get(:battle_row_height) == 88
     assert Settings.get(:glow_threshold) == 1100
 
     # and deleting takes the sidecar with it
@@ -192,20 +192,20 @@ defmodule Pokex.CalibrationTest do
     tmp_dir: tmp
   } do
     Application.put_env(:pokex, :home_dir, tmp)
-    tile = Settings.get(:tile_px)
+    tile = Settings.get(:battle_row_height)
 
     on_exit(fn ->
       Pokex.TestHome.restore()
-      Settings.put(:tile_px, tile)
+      Settings.put(:battle_row_height, tile)
     end)
 
     # calibrate on the ultrawide with its numbers in force
-    Settings.put(:tile_px, 88)
+    Settings.put(:battle_row_height, 88)
     Calibration.save(sample())
     assert {:ok, %Calibration{screen_w: 1728}} = Calibration.last_for_screen({1728, 1117})
 
     # move to the MacBook: different marks, different numbers
-    Settings.put(:tile_px, 59)
+    Settings.put(:battle_row_height, 59)
     small = %{sample() | screen_w: 1512, screen_h: 982, water_point: {293, 871}}
     Calibration.save(small)
 
@@ -213,7 +213,7 @@ defmodule Pokex.CalibrationTest do
     assert {:ok, restored, applied} = Calibration.restore_last_for_screen({1728, 1117})
     assert restored.screen_w == 1728
     assert applied > 0
-    assert Settings.get(:tile_px) == 88
+    assert Settings.get(:battle_row_height) == 88
     assert {:ok, %Calibration{screen_w: 1728}} = Calibration.load()
 
     # a monitor never calibrated has nothing to offer — and says so
@@ -227,7 +227,7 @@ defmodule Pokex.CalibrationTest do
   @tag :tmp_dir
   # The accident of 2026-08-24: the ruler rescaled 21 settings on the very
   # screen they had been measured on, and the snapshot dutifully stored the
-  # wreckage (`tile_px` 255). The settings were repaired the same day; the
+  # wreckage (`battle_row_height` 255). The settings were repaired the same day; the
   # sidecar was not, and sat there for days one "Usar" away from putting the
   # wreckage back. On the seed screen a stored copy can never beat the seed.
   test "the screen the numbers were measured on keeps no stored copy of them", %{tmp_dir: tmp} do
@@ -244,16 +244,16 @@ defmodule Pokex.CalibrationTest do
     # a sidecar left by an older build is removed, not trusted
     File.write!(
       Path.join([tmp, "calibrations", "aqui.settings.json"]),
-      Jason.encode!(%{tile_px: 255})
+      Jason.encode!(%{battle_row_height: 255})
     )
 
     assert {:ok, "aqui"} = Calibration.save_profile("aqui")
     assert Calibration.profile_settings("aqui") == %{}
 
     # and applying it leaves the measured numbers alone
-    tile = Settings.get(:tile_px)
+    tile = Settings.get(:battle_row_height)
     assert {:ok, _calib, 0} = Calibration.apply_profile("aqui")
-    assert Settings.get(:tile_px) == tile
+    assert Settings.get(:battle_row_height) == tile
   end
 
   @tag :tmp_dir
@@ -361,12 +361,16 @@ defmodule Pokex.CalibrationTest do
 
   # The ruler, and the unit anything measured FROM THE CHARACTER is written in.
   test "tiles and screen points convert both ways around the character" do
-    calib = %Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440, player_point: {1707, 689}}
+    calib =
+      %Calibration{
+        scale: 1.0,
+        screen_w: 3440,
+        screen_h: 1440,
+        player_point: {1707, 689},
+        tile_px: 131
+      }
 
-    Pokex.Settings.put(:tile_px, 131)
-    on_exit(fn -> Pokex.Settings.put(:tile_px, Pokex.Settings.defaults()[:tile_px]) end)
-
-    assert Calibration.tile_px() == 131
+    assert Calibration.tile_px(calib) == 131
     assert Calibration.tile_point(calib, {6, -2}) == {1707 + 786, 689 - 262}
     assert Calibration.tile_offset(calib, {1707 + 786, 689 - 262}) == {6, -2}
 
@@ -376,5 +380,47 @@ defmodule Pokex.CalibrationTest do
     # nothing anchoring the character = no answer, never a guess
     assert Calibration.tile_point(%Calibration{}, {1, 1}) == nil
     assert Calibration.tile_offset(%Calibration{}, {1, 1}) == nil
+  end
+
+  # THE TILE IS THE SCREEN'S (2026-09-08). It used to be a setting he typed on
+  # the cavebot page: the notebook ran three days on the ultrawide's 151.
+  describe "the tile of a screen" do
+    test "comes from the measured table when the calibration has none of its own" do
+      assert Calibration.tile(%Calibration{screen_w: 3440, screen_h: 1440}) == {:ok, 151}
+      assert Calibration.tile(%Calibration{screen_w: 1512, screen_h: 982}) == {:ok, 36}
+      assert Calibration.tile_px(%Calibration{screen_w: 1512, screen_h: 982}) == 36
+    end
+
+    test "the calibration's own measurement wins" do
+      assert Calibration.tile(%Calibration{screen_w: 1512, screen_h: 982, tile_px: 40}) ==
+               {:ok, 40}
+    end
+
+    test "a screen nobody measured is unknown, and says which" do
+      assert Calibration.tile(%Calibration{screen_w: 2000, screen_h: 1200}) ==
+               {:unknown, {2000, 1200}}
+
+      assert Calibration.tile(%Calibration{}) == {:unknown, {nil, nil}}
+    end
+
+    @tag :tmp_dir
+    test "round-trips through the file, nil for older files", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "calibration.json")
+
+      Calibration.save(%{sample() | tile_px: 40}, path)
+      assert {:ok, %Calibration{tile_px: 40}} = Calibration.load(path)
+
+      Calibration.save(sample(), path)
+      assert {:ok, %Calibration{tile_px: nil}} = Calibration.load(path)
+    end
+
+    @tag :tmp_dir
+    test "tile_px/0 reads the calibration on disk", %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      Calibration.save(%{sample() | screen_w: 1512, screen_h: 982})
+      assert Calibration.tile_px() == 36
+    end
   end
 end

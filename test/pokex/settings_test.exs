@@ -41,7 +41,7 @@ defmodule Pokex.SettingsTest do
     {:ok, server2} = Settings.start_link(name: nil, path: path)
     assert Settings.get(:glow_threshold, server2) == 22.5
     assert Settings.get(:skill_keys, server2) == ["1", "2", "3", "4"]
-    assert Settings.get(:tile_px, server2) == Settings.defaults()[:tile_px]
+    assert Settings.get(:alarm_min_gap_ms, server2) == Settings.defaults()[:alarm_min_gap_ms]
   end
 
   # A boolean turned OFF is the most common override there is; migrating values
@@ -101,13 +101,13 @@ defmodule Pokex.SettingsTest do
   @tag :tmp_dir
   test "unknown keys are ignored as behaviour, but kept in the file", %{tmp_dir: tmp} do
     path = Path.join(tmp, "settings.json")
-    File.write!(path, ~s({"hacker": 1, "tile_px": 48}))
+    File.write!(path, ~s({"hacker": 1, "alarm_min_gap_ms": 48}))
     {:ok, server} = Settings.start_link(name: nil, path: path)
 
-    assert Settings.get(:tile_px, server) == 48
+    assert Settings.get(:alarm_min_gap_ms, server) == 48
     refute Settings.all(server) |> Map.has_key?(:hacker)
 
-    assert gravado(path) == %{"hacker" => 1, "tile_px" => 48}
+    assert gravado(path) == %{"hacker" => 1, "alarm_min_gap_ms" => 48}
   end
 
   @tag :tmp_dir
@@ -134,13 +134,13 @@ defmodule Pokex.SettingsTest do
   @tag :tmp_dir
   test "putting a value back to the default drops the override", %{tmp_dir: tmp} do
     path = Path.join(tmp, "settings.json")
-    File.write!(path, ~s({"tile_px": 48}))
+    File.write!(path, ~s({"alarm_min_gap_ms": 48}))
     {:ok, server} = Settings.start_link(name: nil, path: path)
-    assert Settings.get(:tile_px, server) == 48
+    assert Settings.get(:alarm_min_gap_ms, server) == 48
 
-    :ok = Settings.put(:tile_px, Settings.defaults().tile_px, server)
+    :ok = Settings.put(:alarm_min_gap_ms, Settings.defaults().alarm_min_gap_ms, server)
 
-    assert Settings.get(:tile_px, server) == Settings.defaults()[:tile_px]
+    assert Settings.get(:alarm_min_gap_ms, server) == Settings.defaults()[:alarm_min_gap_ms]
     assert gravado(path) == %{}
   end
 
@@ -700,12 +700,12 @@ defmodule Pokex.SettingsTest do
       Phoenix.PubSub.subscribe(Pokex.PubSub, "settings")
       {:ok, server} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
 
-      :ok = Settings.put(:tile_px, 48, server)
-      :ok = Settings.put(:tile_px, 64, server)
-      assert_receive {:settings_log, :macro, "⚙️ tile_px: 48 → 64"}
+      :ok = Settings.put(:alarm_min_gap_ms, 48, server)
+      :ok = Settings.put(:alarm_min_gap_ms, 64, server)
+      assert_receive {:settings_log, :macro, "⚙️ alarm_min_gap_ms: 48 → 64"}
 
-      :ok = Settings.put(:tile_px, 64, server)
-      refute_receive {:settings_log, :macro, "⚙️ tile_px: 64 → 64"}, 100
+      :ok = Settings.put(:alarm_min_gap_ms, 64, server)
+      refute_receive {:settings_log, :macro, "⚙️ alarm_min_gap_ms: 64 → 64"}, 100
     end
 
     # The pointer too: on 2026-09-07 it went from "lotavanon" to "" between two
@@ -728,11 +728,11 @@ defmodule Pokex.SettingsTest do
     test "every write stamps the alphabet the build knew", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
       {:ok, server} = Settings.start_link(name: nil, path: path)
-      :ok = Settings.put(:tile_px, 48, server)
+      :ok = Settings.put(:alarm_min_gap_ms, 48, server)
 
       alfabeto = path |> File.read!() |> JSON.decode!() |> Map.fetch!("__keys__")
 
-      assert "tile_px" in alfabeto
+      assert "alarm_min_gap_ms" in alfabeto
       assert "engine_engage_from" in alfabeto
       refute Settings.older_build?(path), "a build que acabou de escrever não é velha"
     end
@@ -746,7 +746,11 @@ defmodule Pokex.SettingsTest do
       tmp_dir: tmp
     } do
       path = Path.join(tmp, "settings.json")
-      File.write!(path, JSON.encode!(%{"tile_px" => 48, "__keys__" => alfabeto_do_futuro()}))
+
+      File.write!(
+        path,
+        JSON.encode!(%{"alarm_min_gap_ms" => 48, "__keys__" => alfabeto_do_futuro()})
+      )
 
       assert Settings.older_build?(path)
     end
@@ -760,24 +764,25 @@ defmodule Pokex.SettingsTest do
     } do
       path = Path.join(tmp, "settings.json")
       conhecidas = Enum.map(Map.keys(Settings.defaults()), &Atom.to_string/1)
-      [uma_que_esta_conhece | _] = conhecidas -- ["tile_px"]
+      [uma_que_esta_conhece | _] = conhecidas -- ["alarm_min_gap_ms"]
       alfabeto_antigo = (conhecidas -- [uma_que_esta_conhece]) ++ ["ajuste_aposentado"]
 
-      File.write!(path, JSON.encode!(%{"tile_px" => 48, "__keys__" => alfabeto_antigo}))
+      File.write!(path, JSON.encode!(%{"alarm_min_gap_ms" => 48, "__keys__" => alfabeto_antigo}))
 
       refute Settings.older_build?(path)
 
       {:ok, server} = Settings.start_link(name: nil, path: path)
       refute Settings.read_only?(server)
-      :ok = Settings.put(:tile_px, 64, server)
+      :ok = Settings.put(:alarm_min_gap_ms, 64, server)
 
-      assert (path |> File.read!() |> JSON.decode!())["tile_px"] == 64, "a build nova não gravou"
+      assert (path |> File.read!() |> JSON.decode!())["alarm_min_gap_ms"] == 64,
+             "a build nova não gravou"
     end
 
     @tag :tmp_dir
     test "without a badge nobody is old: missing proof does not accuse", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
-      File.write!(path, ~s({"tile_px": 48}))
+      File.write!(path, ~s({"alarm_min_gap_ms": 48}))
 
       refute Settings.older_build?(path)
     end
@@ -790,7 +795,7 @@ defmodule Pokex.SettingsTest do
       # o arquivo de uma build mais nova: um ajuste dele e um alfabeto maior
       original =
         JSON.encode!(%{
-          "tile_px" => 48,
+          "alarm_min_gap_ms" => 48,
           "ajuste_do_futuro" => 700,
           "__keys__" => alfabeto_do_futuro()
         })
@@ -801,13 +806,13 @@ defmodule Pokex.SettingsTest do
       assert Settings.read_only?(server)
 
       # lê normalmente…
-      assert Settings.get(:tile_px, server) == 48
+      assert Settings.get(:alarm_min_gap_ms, server) == 48
       # …e o boot não tocou no arquivo
       assert File.read!(path) == original
 
       # …e nem um ajuste salvo o toca: vale nesta sessão e diz que não persiste
-      :ok = Settings.put(:tile_px, 64, server)
-      assert Settings.get(:tile_px, server) == 64
+      :ok = Settings.put(:alarm_min_gap_ms, 64, server)
+      assert Settings.get(:alarm_min_gap_ms, server) == 64
       assert File.read!(path) == original, "a build velha reescreveu o arquivo"
     end
   end
@@ -819,10 +824,10 @@ defmodule Pokex.SettingsTest do
     @tag :tmp_dir
     test "keeps the previous content before overwriting", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")
-      File.write!(path, ~s({"tile_px": 48}))
+      File.write!(path, ~s({"alarm_min_gap_ms": 48}))
 
       {:ok, server} = Settings.start_link(name: nil, path: path)
-      :ok = Settings.put(:tile_px, 64, server)
+      :ok = Settings.put(:alarm_min_gap_ms, 64, server)
 
       copias = Path.join(tmp, "settings-bak") |> File.ls!()
 
@@ -833,7 +838,7 @@ defmodule Pokex.SettingsTest do
         |> Enum.map(&File.read!(Path.join([tmp, "settings-bak", &1])))
         |> Enum.map(&JSON.decode!/1)
 
-      assert Enum.any?(guardado, &(Map.get(&1, "tile_px") == 48)),
+      assert Enum.any?(guardado, &(Map.get(&1, "alarm_min_gap_ms") == 48)),
              "o valor anterior não está em cópia nenhuma"
     end
 
@@ -842,7 +847,7 @@ defmodule Pokex.SettingsTest do
       path = Path.join(tmp, "settings.json")
       {:ok, server} = Settings.start_link(name: nil, path: path)
 
-      Enum.each(1..15, &Settings.put(:tile_px, 40 + &1, server))
+      Enum.each(1..15, &Settings.put(:alarm_min_gap_ms, 40 + &1, server))
 
       assert Path.join(tmp, "settings-bak") |> File.ls!() |> length() <= 10
     end

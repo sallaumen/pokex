@@ -387,6 +387,32 @@ defmodule Pokex.Bots.GuardianTest do
       refute_receive :panicked, 10
     end
 
+    # THE CHAIN KILLS WITHOUT A TARGET (2026-09-08): four hours of Auto Combo,
+    # a pile a minute, and "estagnação: sem kills" every five minutes — the
+    # combat worker counts kills per target, and the chain has none.
+    test "a pile that vanishes after the brain engaged it is activity", %{on_panic: on_panic} do
+      active_session!(61_000)
+      Pokex.Settings.put(:stagnation_minutes, 1)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+      guardian = start_guardian!(on_panic)
+      send(guardian, {:engine, %{enemies: 5}, %{phase: :engaged}})
+      send(guardian, {:engine, %{enemies: 0}, %{phase: :travelling}})
+
+      refute_receive {:rule_alarm, :session, _}, 150
+    end
+
+    test "an empty list the brain never fought is not activity", %{on_panic: on_panic} do
+      active_session!(61_000)
+      Pokex.Settings.put(:stagnation_minutes, 1)
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+      guardian = start_guardian!(on_panic)
+      send(guardian, {:engine, %{enemies: 0}, %{phase: :travelling}})
+
+      assert_receive {:rule_alarm, :session, _}, 1_000
+    end
+
     test "activity (a hook) inside the window resets the silence clock", %{on_panic: on_panic} do
       active_session!(61_000)
       Pokex.Settings.put(:stagnation_minutes, 1)

@@ -473,7 +473,15 @@ defmodule Pokex.Sim.Scenario do
           boss_grit: 6,
           stun_hold_ms: 7_000,
           rescue_floor_ms: 5_000,
-          prepare_revive: false
+          prepare_revive: false,
+          # SEM O ESTACIONAR (08/09): mandado dois tiles pra dentro do bolo, o
+          # pokémon recebe o mordedor 5× ANTES de o grit ter luta pra medir —
+          # exatamente a janela que este cenário declara fora (acima). Medido
+          # em 3 sementes × 3 min: com o estacionar, 3 quedas (95s, 150s,
+          # 152s) e o chefe morrendo 4×; sem ele, zero quedas e o chefe
+          # sumindo na corda 5× sem luta. O que fecha essa janela é o gatilho
+          # pela MORDIDA, não o lugar do pokémon — e é o follow-up de sempre.
+          park_on_stop: false
         }
       },
       %__MODULE__{
@@ -1008,8 +1016,6 @@ defmodule Pokex.Sim.Scenario do
             stops: [],
             at: nil,
             dwell_ms: nil,
-            park_point: nil,
-            park_tiles: nil,
             fight_ms: nil,
             gather_ms: gather,
             combo: [],
@@ -1056,8 +1062,6 @@ defmodule Pokex.Sim.Scenario do
             stops: [],
             at: nil,
             dwell_ms: nil,
-            park_point: nil,
-            park_tiles: nil,
             fight_ms: fight,
             gather_ms: gather,
             combo: [],
@@ -1103,8 +1107,6 @@ defmodule Pokex.Sim.Scenario do
             stops: [],
             at: nil,
             dwell_ms: nil,
-            park_point: nil,
-            park_tiles: nil,
             # CADA CANTO é ninho: num anel cheio não existe trecho vazio, e um
             # waypoint sem `gather_ms`/`fight_ms` não é ninho nenhum — só tira
             # um dado de passante (`World.population_of/2`). A primeira versão
@@ -1158,8 +1160,6 @@ defmodule Pokex.Sim.Scenario do
             stops: [],
             at: nil,
             dwell_ms: nil,
-            park_point: nil,
-            park_tiles: nil,
             fight_ms: fight,
             gather_ms: gather,
             combo: [],

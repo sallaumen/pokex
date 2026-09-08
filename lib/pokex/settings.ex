@@ -574,10 +574,9 @@ defmodule Pokex.Settings do
     # How many times the park click goes out.
     cavebot_park_clicks: 4,
     cavebot_park_gap_ms: 120,
-    # WHERE the pokémon is sent at a kill spot that has no spot of its own — a distance from the
-    # character in TILES, right and down positive.
-    cavebot_park_tiles_x: 0,
-    cavebot_park_tiles_y: 0,
+    # Every stop for a pile sends the pokémon two tiles toward it (the eye's
+    # side), so the pile closes around the POKÉMON with all eight sides free.
+    cavebot_park_on_stop: true,
     # Recording reads the CLOCK too.
     cavebot_record_dwell_ms: 5_000,
     # …and standing still THIS long is a kill spot: he gathered a pile, killed it and picked it
@@ -888,8 +887,6 @@ defmodule Pokex.Settings do
     cavebot_stair_step_ms: 100..10_000,
     cavebot_stair_step_taps: 1..10,
     cavebot_park_clicks: 1..10,
-    cavebot_park_tiles_x: -12..12,
-    cavebot_park_tiles_y: -12..12,
     cavebot_park_gap_ms: 0..5_000,
     cavebot_record_dwell_ms: 500..600_000,
     cavebot_record_fight_dwell_ms: 1_000..600_000,

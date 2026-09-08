@@ -47,6 +47,10 @@ defmodule Pokex.Sim.Knobs do
     # a pilha esteja mesmo dormindo antes de o campo esvaziar.
     rescue_stun_first: :rescue_stun_first,
     rescue_stun_settle_ms: :rescue_stun_settle_ms,
+    # …e o ESTACIONAR: o clique do meio que manda o pokémon dois tiles pro
+    # lado da pilha quando a rota para. É a mão do cavebot, e a bancada a tem
+    # pelo mesmo motivo que tem o resgate — sem ela mede um bolo em cima DELE.
+    park_on_stop: :cavebot_park_on_stop,
     # …e o PREÇO DE CADA TECLA. As teclas de uma rajada saem uma a cada tanto, e
     # o corpo é um só: enquanto a rajada sai, não se anda nem se aperta mais
     # nada. É o número que a Central chama de "o que limita o dano da caçada", e

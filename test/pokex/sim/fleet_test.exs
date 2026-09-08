@@ -30,8 +30,6 @@ defmodule Pokex.Sim.FleetTest do
             stops: [],
             at: nil,
             dwell_ms: nil,
-            park_point: nil,
-            park_tiles: nil,
             fight_ms: nil,
             gather_ms: gather,
             combo: [],

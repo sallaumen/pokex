@@ -130,8 +130,6 @@ defmodule Pokex.Bots.Cavebot.Store do
       stops: decode_stops(map),
       at: decode_at(map["at"]),
       dwell_ms: decode_dwell(map["dwell_ms"]),
-      park_point: decode_point(map["park_point"]),
-      park_tiles: decode_point(map["park_tiles"]),
       fight_ms: decode_dwell(map["fight_ms"]),
       gather_ms: decode_dwell(map["gather_ms"]),
       combo: decode_combo(map["combo"]),
@@ -149,9 +147,6 @@ defmodule Pokex.Bots.Cavebot.Store do
     do: for({name, skill} <- @skill_names, name in list, do: skill)
 
   defp decode_skills(_absent), do: []
-
-  defp decode_point([x, y]) when is_integer(x) and is_integer(y), do: {x, y}
-  defp decode_point(_absent), do: nil
 
   defp decode_at(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
@@ -202,8 +197,6 @@ defmodule Pokex.Bots.Cavebot.Store do
       "stops" => Enum.map(Map.get(waypoint, :stops) || [], &Atom.to_string/1),
       "at" => encode_at(Map.get(waypoint, :at)),
       "dwell_ms" => Map.get(waypoint, :dwell_ms),
-      "park_point" => encode_point(Map.get(waypoint, :park_point)),
-      "park_tiles" => encode_point(Map.get(waypoint, :park_tiles)),
       "fight_ms" => Map.get(waypoint, :fight_ms),
       "gather_ms" => Map.get(waypoint, :gather_ms),
       "combo" => Map.get(waypoint, :combo) || [],
@@ -213,9 +206,6 @@ defmodule Pokex.Bots.Cavebot.Store do
 
   defp encode_mode(mode) when is_atom(mode) and not is_nil(mode), do: Atom.to_string(mode)
   defp encode_mode(_none), do: nil
-
-  defp encode_point({x, y}), do: [x, y]
-  defp encode_point(_none), do: nil
 
   defp encode_at(%DateTime{} = at), do: DateTime.to_iso8601(at)
   defp encode_at(_none), do: nil

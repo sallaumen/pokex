@@ -132,7 +132,7 @@ defmodule Pokex.Bots.Cavebot.Recording do
 
   # A RUN of kill spots within a few tiles of each other is ONE kill spot,
   # recorded several times — the middle clicks of a single fight (see
-  # `mark_park/4`). The LAST of the run survives: it is where the pile actually
+  # `mark_kill_click/3`). The LAST of the run survives: it is where the pile actually
   # died, and it is the one his recording gave the combo and the huddle to. The
   # others go back to being plain corners, keeping the SHAPE of the walk while
   # giving up their marks — deleting them would move the path.
@@ -173,13 +173,10 @@ defmodule Pokex.Bots.Cavebot.Recording do
     do: tiles_between(one, other) <= @merge_tiles_blind
 
   # A demoted kill spot keeps its place in the walk and loses everything that
-  # made it a spot: the job, the stops, and the park point of a click that was
-  # only moving the pokémon mid-fight.
+  # made it a spot: the job and the stops.
   defp demote(index, route) do
     route
     |> Route.set_action(index, :walk)
-    |> Route.set_park_point(index, nil)
-    |> Route.set_park_tiles(index, nil)
     |> then(fn r -> Enum.reduce(Route.stops(), r, &Route.set_stop(&2, index, &1, false)) end)
   end
 
@@ -202,9 +199,7 @@ defmodule Pokex.Bots.Cavebot.Recording do
   end
 
   defp kill_spots(%Route{waypoints: waypoints}) do
-    for {wp, index} <- Enum.with_index(waypoints),
-        wp.action == :lure_end or wp.park_point != nil,
-        do: index
+    for {wp, index} <- Enum.with_index(waypoints), wp.action == :lure_end, do: index
   end
 
   # A gathering starts on the waypoint AFTER a kill spot — and only when the
@@ -259,8 +254,8 @@ defmodule Pokex.Bots.Cavebot.Recording do
     end)
   end
 
-  # The same ruler as everywhere else, minus its blind fallback. `mark_park/4`
-  # only moves a park point when it guesses wrong; this one DELETES — it takes
+  # The same ruler as everywhere else, minus its blind fallback. `mark_kill_click/3`
+  # only marks nothing when it guesses wrong; this one DELETES — it takes
   # the lesson off the waypoint it was measured on. A route recorded before the
   # recorder read the clock has no `at` at all (see `Route`), and 3 tiles alone
   # is not a fight: a loop that passes within 3 tiles of an old kill spot,
@@ -351,13 +346,15 @@ defmodule Pokex.Bots.Cavebot.Recording do
         "fiquei com ela (só o combo veio junto); "
 
   @doc """
-  Marks a kill spot he pointed out HIMSELF: the middle click that parks his pokémon, which is
+  Marks a kill spot he pointed out HIMSELF: the middle click that sends his pokémon, which is
   the marker he asked for over the clock (far easier for him to signal), and unlike standing
   still it is never invisible to the reader.
+
+  The click's POINT is not kept: where the pokémon waits is the hunt's own answer now (two
+  tiles toward the pile the eye sees), never a pixel recorded on one screen.
   """
-  @spec mark_park(Route.t(), non_neg_integer, {integer, integer}, keyword) ::
-          {Route.t(), String.t() | nil}
-  def mark_park(%Route{} = route, index, point, opts \\ []) do
+  @spec mark_kill_click(Route.t(), non_neg_integer, keyword) :: {Route.t(), String.t() | nil}
+  def mark_kill_click(%Route{} = route, index, opts \\ []) do
     cond do
       Enum.at(route.waypoints, index) == nil ->
         {route, nil}
@@ -365,14 +362,13 @@ defmodule Pokex.Bots.Cavebot.Recording do
       # ONE fight, several clicks. He middle-clicks three, five, eight times while a pile
       # dies, moving the pokémon around, and each click used to open a kill spot of its
       # OWN (one recording came back with eight lure-end corners in ten seconds, one per
-      # tile, each with its own park point). A click next door to a kill spot belongs to
-      # that kill spot: it moves where the pokémon waits and marks nothing new.
-      spot = same_fight_spot(route, index, opts) ->
-        {Route.set_park_point(route, spot, point), moved_note(point, spot)}
+      # tile). A click next door to a kill spot belongs to that kill spot and marks nothing.
+      same_fight_spot(route, index, opts) != nil ->
+        {route, nil}
 
       true ->
         {route, _note} = mark_kill_spot(route, index, nil, Keyword.get(opts, :hand_marked, []))
-        {Route.set_park_point(route, index, point), park_note(point)}
+        {route, "🖱️ clique do meio — marquei \"até aqui\""}
     end
   end
 
@@ -478,12 +474,6 @@ defmodule Pokex.Bots.Cavebot.Recording do
   defp tiles_between(%{x: ax, y: ay, z: az}, %{x: bx, y: by, z: bz}) do
     if az == bz, do: abs(ax - bx) + abs(ay - by), else: 1_000
   end
-
-  defp park_note({x, y}),
-    do: "🖱️ clique do meio em #{x}, #{y} — marquei \"até aqui\" e guardei o ponto"
-
-  defp moved_note({x, y}, spot),
-    do: "🖱️ #{x}, #{y} — mesma matança do waypoint #{spot + 1}; só mudei onde o pokémon fica"
 
   defp mark_kill_spot(route, index, dwell, hand_marked) do
     route = Route.set_action(route, index, :lure_end)

@@ -331,8 +331,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                  stops: [],
                  at: nil,
                  dwell_ms: nil,
-                 park_point: nil,
-                 park_tiles: nil,
                  fight_ms: nil,
                  gather_ms: nil,
                  combo: [],
@@ -463,90 +461,59 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
 
   # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que
   # mandar algumas vezes, umas 4x, pra ter certeza" (Lucas, 2026-08-11).
+  # WHERE is the brain's, by the eye (`Engine.Siege.park_spot/2`): two tiles
+  # toward the pile, on every stop — a recorded click at a corner is gone.
   describe "parking the pokémon" do
-    test "the middle click goes out several times, off the tick", %{worker: worker} do
+    # a route away from the character, so the road has a step to hold
+    defp road!,
+      do: :ok = Route.new("cavena") |> Route.append({120, 100, 7}) |> elem(1) |> Store.add()
+
+    test "the middle click goes out several times, off the tick, where the brain says",
+         %{worker: worker} do
       SettingsStash.stash!(cavebot_park_clicks: 4, cavebot_park_gap_ms: 0)
-
-      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
-
-      # the park click belongs to the kill spot: it is where the pile is meant
-      # to close in around the pokémon
-      :ok =
-        route
-        |> Route.set_action(0, :lure_end)
-        |> Route.set_park_point(0, {1240, 655})
-        |> Store.add()
+      park_calibration()
+      road!()
 
       :ok = Worker.run(worker)
       minimap!({100, 100, 7})
+      brain!(%{route: :hold, phase: :sizing, park: {6, -2}})
       Enum.each(1..3, fn _ -> tick!(worker) end)
 
+      # the character sits at 500,350: six tiles right and two up
       assert_receive {:performed, :high, actions}, 1_000
-      assert Enum.count(actions, &match?({:click, :middle, {1240, 655}}, &1)) == 4
+      assert Enum.count(actions, &match?({:click, :middle, {1100, 150}}, &1)) == 4
 
       # and the tick never waited on it: Body.perform is a call with an
       # :infinity timeout, and the Body may be seconds deep in a capture
       assert Worker.status(worker)
     end
 
-    # "um ponto que eu senti falta aqui é eu poder calibrar melhor a parte de
-    # onde ele clica com o botão do meio. Talvez até uma distância do meu
-    # personagem" (Lucas, 2026-08-11). A distance is measured from the
-    # character, so it survives the game window moving — a recorded point does
-    # not.
-    test "a spot given in TILES is clicked at that distance from the character",
-         %{worker: worker} do
+    test "once per stop: the hold going on does not click again", %{worker: worker} do
       SettingsStash.stash!(cavebot_park_clicks: 1, cavebot_park_gap_ms: 0)
       park_calibration()
-
-      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
-
-      :ok =
-        route
-        |> Route.set_action(0, :lure_end)
-        |> Route.set_park_tiles(0, {6, -2})
-        |> Store.add()
+      road!()
 
       :ok = Worker.run(worker)
       minimap!({100, 100, 7})
+      brain!(%{route: :hold, phase: :sizing, park: {6, -2}})
       Enum.each(1..3, fn _ -> tick!(worker) end)
 
-      # the character sits at 500,350: six tiles right and two up
       assert_receive {:performed, :high, [{:click, :middle, {1100, 150}}]}, 1_000
-    end
 
-    # Two of his five kill spots (2026-08-11) carry no click at all, so the
-    # pile closed in around HIM.
-    test "a kill spot with no spot of its own uses the hunt's default distance",
-         %{worker: worker} do
-      SettingsStash.stash!(
-        cavebot_park_clicks: 1,
-        cavebot_park_gap_ms: 0,
-        cavebot_park_tiles_x: -3,
-        cavebot_park_tiles_y: 1
-      )
-
-      park_calibration()
-
-      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
-      :ok = route |> Route.set_action(0, :lure_end) |> Store.add()
-
-      :ok = Worker.run(worker)
-      minimap!({100, 100, 7})
+      brain!(%{route: :hold, phase: :bunching, park: {6, -2}})
       Enum.each(1..3, fn _ -> tick!(worker) end)
 
-      assert_receive {:performed, :high, [{:click, :middle, {200, 450}}]}, 1_000
+      refute_receive {:performed, :high, [{:click, :middle, _point}]}, 300
     end
 
-    test "with the default at 0,0 nothing is clicked at all", %{worker: worker} do
-      SettingsStash.stash!(cavebot_park_tiles_x: 0, cavebot_park_tiles_y: 0)
+    test "with the knob off nothing is clicked at all", %{worker: worker} do
+      SettingsStash.stash!(cavebot_park_on_stop: false)
       park_calibration()
-
-      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
-      :ok = route |> Route.set_action(0, :lure_end) |> Store.add()
+      road!()
 
       :ok = Worker.run(worker)
       minimap!({100, 100, 7})
+      brain!(%{route: :hold, phase: :sizing, park: {6, -2}})
       Enum.each(1..3, fn _ -> tick!(worker) end)
 
       refute_receive {:performed, :high, [{:click, :middle, _point}]}, 300
@@ -1073,8 +1040,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              stops: [],
              at: nil,
              dwell_ms: nil,
-             park_point: nil,
-             park_tiles: nil,
              fight_ms: nil,
              gather_ms: nil,
              combo: [],

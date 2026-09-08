@@ -3152,6 +3152,46 @@ defmodule Pokex.Bots.Engine.LogicTest do
                "o olho diria: olho: 2 colados dormindo · ninguém solto · 0 sem ver → revive seguro"
     end
 
+    # THE PARK RIDES ON THE HOLD: whenever the road holds for a pile the eye
+    # sees, the orders name the tile two toward it; walking orders name none.
+    test "a held road with the eye on the pile names where the pokemon parks" do
+      {_logic, orders} =
+        cerca_step(Logic.new(), seen_pile([creature(4, 1), creature(3, -1)]), 10_000)
+
+      assert orders.route == :hold
+      assert orders.park == {2, 0}
+    end
+
+    test "without an eye, or with the pokemon in the ball, the hold names no spot" do
+      {_logic, blind} = cerca_step(Logic.new(), mobada(%{ready_keys: ~w(3 4)}), 10_000)
+      assert blind.route == :hold
+      assert blind.park == nil
+
+      recalled = seen_pile([creature(4, 1)], %{own_out?: false, own_hp: nil})
+      {_logic, orders} = cerca_step(Logic.new(), recalled, 10_000)
+      assert orders.park == nil
+    end
+
+    test "with the special on screen the pokemon stays at his side" do
+      boss = seen_pile([creature(4, 1), creature(3, -1)], %{heavy?: true})
+      {_logic, orders} = cerca_step(Logic.new(), boss, 10_000)
+
+      assert orders.route == :hold
+      assert orders.park == nil
+    end
+
+    test "a walking road parks nothing" do
+      {_logic, orders} =
+        cerca_step(
+          Logic.new(),
+          world(%{situation: situation(%{crowd: eye([creature(4, 1)])})}),
+          1_000
+        )
+
+      assert orders.route == :go
+      assert orders.park == nil
+    end
+
     # "Ou são todos com caveira ou nenhum": the skull is the area's, and an
     # effect over the pile hides it without changing the area.
     test "a skull latches the area heavy until the list empties" do

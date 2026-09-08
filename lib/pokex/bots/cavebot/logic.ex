@@ -61,6 +61,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
             # reads, same rule PlayerSupport uses — one garbage frame must not
             # abort a gathering
             last_hp: nil,
+            # the pokémon was already sent to its spot during THIS hold: the
+            # click goes out once per stop, never once per tick
+            parked?: false,
             # o pokémon está NO CHÃO (fainted): a rota espera o revive de chão levantar ele.
             recovering?: false,
             # WHY the last waypoint changed — the Worker turns it into the line
@@ -85,7 +88,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | :halt_combat
           | {:nudge, integer, integer}
           | :cooldown_revive
-          | {:park, Route.spot()}
+          | {:park, {integer, integer}}
           | {:skills, [Route.skill()]}
           | {:block, atom}
 
@@ -103,6 +106,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
           optional(:engine?) => boolean,
           optional(:route_hold?) => boolean,
           optional(:route_back?) => boolean,
+          # where the brain wants the pokémon while the road holds, in tiles
+          # from the character (`Engine.Siege.park_spot/2`)
+          optional(:park) => {integer, integer} | nil,
           optional(:stranded?) => boolean,
           # the brain went SILENT in a hunt that already had it (see
           # `Cavebot.Worker.brain_gone?/3`): dangerous brake, not a wait
@@ -129,9 +135,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
           stair_step_ms: non_neg_integer,
           stair_step_taps: non_neg_integer,
           fight_only_at_stops: boolean,
-          # the hunt's DEFAULT park spot, in tiles from the character — the
-          # only pair in here, because it is the only knob that is a place
-          park_tiles: {integer, integer} | nil
+          # send the pokémon where the brain says (two tiles toward the pile)
+          # every time the road holds for one
+          park_on_stop: boolean
         }
 
   @type t :: %__MODULE__{
@@ -219,7 +225,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # A floor the route KNOWS is a floor it meant to reach — a hunt with stairs is an ordinary
   # hunt (2026-08-10).
   def step(%__MODULE__{} = logic, %{pos: pos} = world, now) when is_tuple(pos) do
-    logic = track_hp(logic, world)
+    logic = logic |> track_hp(world) |> unpark(world)
 
     if elem(pos, 2) in Route.floors(logic.route) do
       dispatch(logic, world, now)
@@ -398,21 +404,11 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   defp config_gather_wait(%__MODULE__{config: config}), do: Map.get(config, :gather_wait_ms, 0)
 
-  # Parking the pokémon is the FIRST thing that happens on arrival, before the
-  # huddle clock has run: he middle-clicks a spot so the pile closes in around
-  # the pokémon instead of around him, and the four seconds are counted from
-  # that click. WHERE is the waypoint's business (its own distance, its own
-  # recorded click) with the hunt's default distance behind it — and it stays a
-  # spec, never a screen point: this module has no calibration and no screen.
-  #
-  # A kill spot's own skills do NOT come out here: there is a burst to get in
-  # front of, so they travel with the posture (`orders/1`) instead.
-  defp on_arrival(logic, %{action: :lure_end} = wp) do
-    case Route.park_spot(wp, default_park(logic)) do
-      nil -> :none
-      spot -> {:park, spot}
-    end
-  end
+  # A kill spot's own skills do NOT come out on arrival: there is a burst to
+  # get in front of, so they travel with the posture (`orders/1`) instead. And
+  # the pokémon is no longer parked HERE by a recorded click: it parks wherever
+  # the road holds for a pile, two tiles toward it, by the eye (`park_or/2`).
+  defp on_arrival(_logic, %{action: :lure_end}), do: :none
 
   # A walking corner carrying skills: the aura he presses himself in the middle
   # of a mob stretch. Nothing is fighting here, so nobody is competing for the
@@ -421,8 +417,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp on_arrival(_logic, %{skills: [_ | _] = skills}), do: {:skills, skills}
 
   defp on_arrival(_logic, _plain_arrival), do: :none
-
-  defp default_park(%__MODULE__{config: config}), do: Map.get(config, :park_tiles)
 
   # Arriving at the lure-end corner ("até aqui") starts the huddle clock; arriving anywhere
   # else clears it, so a stale stamp can never hold fire on a plain corner.
@@ -504,7 +498,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       # The pokémon is on the FLOOR: walking on drags the character alone into the next pile.
       logic.recovering? -> {hold_patience(logic, now), :none}
       # The ENGINE asking the road to wait.
-      Map.get(world, :route_hold?, false) -> {hold_patience(logic, now), :none}
+      Map.get(world, :route_hold?, false) -> hold(logic, world, now)
       true -> follow_route(logic, world, now)
     end
   end
@@ -517,7 +511,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       logic.recovering? -> enter_fight(logic, now)
       # The ENGINE asking the road to wait — the stretch's "walk through" only
       # lasts until the brain says the pile is big.
-      Map.get(world, :route_hold?, false) -> {hold_patience(logic, now), :none}
+      Map.get(world, :route_hold?, false) -> hold(logic, world, now)
       true -> follow_route(logic, world, now)
     end
   end
@@ -526,6 +520,33 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # the Worker's frozen clocks under a closed input gate.
   defp hold_patience(logic, now),
     do: %{logic | since: Map.put(logic.since, :walk_progress, now)}
+
+  # The road holds for the brain — and the pokémon goes where the brain says.
+  defp hold(logic, world, now), do: park_or({hold_patience(logic, now), :none}, world)
+
+  # THE PARK: the middle click that sends the pokémon two tiles toward the pile
+  # (`Engine.Siege.park_spot/2`), ONCE per hold. It only ever fills a tick that
+  # had nothing else to do — a fight order or a walk is never traded for it.
+  defp park_or({logic, action}, world) do
+    case {action, park_order(logic, world)} do
+      {:none, {_dx, _dy} = tiles} -> {%{logic | parked?: true}, {:park, tiles}}
+      _busy_or_nowhere -> {logic, action}
+    end
+  end
+
+  defp park_order(%{parked?: false, config: %{park_on_stop: true}}, world) do
+    case {Map.get(world, :route_hold?, false), Map.get(world, :park)} do
+      {true, {_dx, _dy} = tiles} -> tiles
+      _walking_or_nowhere -> nil
+    end
+  end
+
+  defp park_order(_parked_or_off, _world), do: nil
+
+  # The road walking again is the end of the stop: the next hold parks anew.
+  defp unpark(logic, world) do
+    if Map.get(world, :route_hold?, false), do: logic, else: %{logic | parked?: false}
+  end
 
   defp enter_fight(logic, now) do
     since =
@@ -716,10 +737,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  # `park_tiles` counts as a mark for the same reason `park_point` does: both say "the pokémon
-  # stays HERE", in different languages.
-  defp plain?(%{action: :walk} = wp),
-    do: Map.get(wp, :stops, []) == [] and wp[:park_point] == nil and wp[:park_tiles] == nil
+  defp plain?(%{action: :walk} = wp), do: Map.get(wp, :stops, []) == []
 
   defp plain?(_marked), do: false
 
@@ -916,7 +934,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       clear?(world) -> stand_and_fight(logic, world, now)
       retreat_ordered?(world) -> retreat(fight_clocks(logic, world, now), world, now)
       walk_ordered?(world) -> follow_route(fight_clocks(logic, world, now), world, now)
-      true -> stand_and_fight(logic, world, now)
+      true -> logic |> stand_and_fight(world, now) |> park_or(world)
     end
   end
 

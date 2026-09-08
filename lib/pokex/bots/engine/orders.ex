@@ -63,7 +63,8 @@ defmodule Pokex.Bots.Engine.Orders do
           opening: [String.t()],
           revive: :hold | :now | :prepare,
           why: String.t(),
-          siege: map | nil
+          siege: map | nil,
+          park: {integer, integer} | nil
         }
 
   @doc "The route goes and the hands stay down."
@@ -114,7 +115,10 @@ defmodule Pokex.Bots.Engine.Orders do
       why: why,
       # what the eye would say about a recall at this tick (`Engine.Siege.record/1`),
       # filled by the brain on the revive orders it gives or holds; nil otherwise
-      siege: Keyword.get(opts, :siege)
+      siege: Keyword.get(opts, :siege),
+      # where the pokémon is sent when the road holds for a pile, in tiles from
+      # him (`Engine.Siege.park_spot/2`); nil = nowhere, the road obeys once per stop
+      park: Keyword.get(opts, :park)
     }
   end
 end

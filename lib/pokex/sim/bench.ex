@@ -835,6 +835,9 @@ defmodule Pokex.Sim.Bench do
 
     %{
       timeline: timeline,
+      # the world as the run left it — where everyone stood, who woke, who was
+      # asleep — for the probe that asks WHY a number came out as it did
+      world: state.world,
       metrics: %{
         state.metrics
         | violations: Enum.frequencies(state.metrics.violations),
@@ -850,6 +853,7 @@ defmodule Pokex.Sim.Bench do
         player_died_at: state.player_died_at,
         killed: state.world.stats.killed,
         vanished: state.world.stats.vanished,
+        parks: state.world.stats.parks,
         left_alive: length(state.world.mobs),
         hp_at_end: state.world.own.hp_pct,
         ran_for_ms: state.world.clock,

@@ -28,9 +28,7 @@ defmodule Pokex.Bots.Cavebot.MobadaRouteTest do
   end
 
   defp kill_spots(%Route{waypoints: waypoints}) do
-    for {wp, index} <- Enum.with_index(waypoints),
-        wp.action == :lure_end or wp.park_point != nil,
-        do: index
+    for {wp, index} <- Enum.with_index(waypoints), wp.action == :lure_end, do: index
   end
 
   test "his recording really does carry runs of kill spots" do
@@ -52,7 +50,6 @@ defmodule Pokex.Bots.Cavebot.MobadaRouteTest do
       # were recorded on it
       survivor = Enum.at(tidied.waypoints, 19)
       assert survivor.action == :lure_end
-      assert survivor.park_point == {1215, 275}
       assert survivor.combo != []
       assert survivor.gather_ms
     end
@@ -115,17 +112,17 @@ defmodule Pokex.Bots.Cavebot.MobadaRouteTest do
       assert note == nil
     end
 
-    # The click that parks the pokémon lands in the middle of the same fight:
-    # it moves the spot's point instead of opening a second one.
+    # The click that sends the pokémon lands in the middle of the same fight:
+    # it opens no second spot.
     test "the middle click after it belongs to the same spot" do
       {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
       {:ok, route} = Route.append(route, {102, 100, 7})
 
       {route, _note} = Recording.mark_fight_start(route, 0)
-      {route, _note} = Recording.mark_park(route, 1, {1300, 650})
+      {route, note} = Recording.mark_kill_click(route, 1)
 
       assert kill_spots(route) == [0]
-      assert Enum.at(route.waypoints, 0).park_point == {1300, 650}
+      assert note == nil
     end
   end
 
@@ -174,16 +171,15 @@ defmodule Pokex.Bots.Cavebot.MobadaRouteTest do
 
   # The recorder itself, so the mess does not come back on the next recording.
   describe "the middle clicks of one fight" do
-    test "a click next to a kill spot MOVES the pokémon instead of marking again" do
+    test "a click next to a kill spot marks nothing new" do
       {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
       {:ok, route} = Route.append(route, {101, 100, 7})
 
-      {route, _note} = Recording.mark_park(route, 0, {1200, 600})
-      {route, note} = Recording.mark_park(route, 1, {1300, 650})
+      {route, _note} = Recording.mark_kill_click(route, 0)
+      {route, note} = Recording.mark_kill_click(route, 1)
 
       assert kill_spots(route) == [0]
-      assert Enum.at(route.waypoints, 0).park_point == {1300, 650}
-      assert note =~ "mesma matança"
+      assert note == nil
     end
 
     test "a click far from the last one opens a new kill spot, as always" do
@@ -191,8 +187,8 @@ defmodule Pokex.Bots.Cavebot.MobadaRouteTest do
       {:ok, route} = Route.append(route, {104, 100, 7})
       {:ok, route} = Route.append(route, {120, 100, 7})
 
-      {route, _note} = Recording.mark_park(route, 0, {1200, 600})
-      {route, note} = Recording.mark_park(route, 2, {1300, 650})
+      {route, _note} = Recording.mark_kill_click(route, 0)
+      {route, note} = Recording.mark_kill_click(route, 2)
 
       assert kill_spots(route) == [0, 2]
       assert note =~ "até aqui"

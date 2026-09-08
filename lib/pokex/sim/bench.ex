@@ -37,7 +37,6 @@ defmodule Pokex.Sim.Bench do
 
   alias Pokex.Bots.Cavebot.Route
   alias Pokex.Bots.Combat.Loadout
-  alias Pokex.Bots.CrowdScan
   alias Pokex.Bots.Engine.Inputs
   alias Pokex.Pokedex.SkillProfile
   alias Pokex.Bots.Engine.Config
@@ -247,6 +246,15 @@ defmodule Pokex.Sim.Bench do
       violations: [],
       # tiques em que a ordem foi RECUAR (R7) — a promessa `nao_recua` lê isto
       kites: 0,
+      # O RECOLHIMENTO, cobrado pela VERDADE do mundo: quantas vezes o revive
+      # foi pedido, quantas delas com alguém acordado a menos da guarda DELE
+      # (`World.siege_truth/2`: 4 tiles com caveira, 2 sem) — a promessa
+      # `recolhe_seguro` lê isto — e o que o OLHO disse nesses momentos
+      # (`orders.siege.gap` contra a verdade): concordou, discordou, ou não
+      # havia olho. É o "antes" do PR 3, medido, e o "depois" dele.
+      recalls: 0,
+      recalls_unsafe: 0,
+      eye_at_recall: %{agree: 0, disagree: 0, blind: 0},
       min_hp: nil,
       bosses_born: 0,
       bosses_dead: 0,
@@ -286,6 +294,7 @@ defmodule Pokex.Sim.Bench do
       |> tally_risk(world, orders, picture)
       |> tally_violations(world, orders, picture, pocket)
       |> tally_kite(orders)
+      |> tally_recall(decided_on, orders)
       |> tally_survivor(state.logic, orders, picture)
       |> tally_bodies(previous, world)
       |> tally_death(previous, world)
@@ -386,6 +395,35 @@ defmodule Pokex.Sim.Bench do
     do: Enum.any?(opening, &(&1 in reserve))
 
   defp reserve_in_hand?(_opening, _no_pocket), do: false
+
+  # O RECOLHIMENTO CONTRA A VERDADE. No tique em que o revive é PEDIDO, o mundo
+  # sabe quem está acordado e a quantos tiles DELE (`World.siege_truth/2`); a
+  # guarda é a da área — 4 tiles com caveira, 2 sem ("sem caveira é
+  # brincadeira"). Um pedido com alguém acordado dentro da guarda é o revive
+  # que mata no modo hard; e o que o olho disse nesse instante (a sombra do
+  # PR 2a, `orders.siege`) é comparado com a verdade, um a um.
+  @guard_heavy_tiles 4
+  @guard_light_tiles 2
+
+  defp tally_recall(metrics, world, %{revive: revive} = orders) when revive in [:now, :prepare] do
+    guard = if world.knobs.heavy?, do: @guard_heavy_tiles, else: @guard_light_tiles
+    truth = World.siege_truth(world, guard_tiles: guard)
+
+    eye =
+      case Map.get(orders, :siege) do
+        %{read: true, gap: gap} -> if gap == truth.gap_ok?, do: :agree, else: :disagree
+        _no_eye -> :blind
+      end
+
+    %{
+      metrics
+      | recalls: metrics.recalls + 1,
+        recalls_unsafe: metrics.recalls_unsafe + if(truth.gap_ok?, do: 0, else: 1),
+        eye_at_recall: Map.update!(metrics.eye_at_recall, eye, &(&1 + 1))
+    }
+  end
+
+  defp tally_recall(metrics, _world, _no_recall), do: metrics
 
   # O SOBREVIVENTE DEIXADO PRA TRÁS: o cérebro com o latch armado (alguém tomou
   # a corrente inteira e ficou de pé, ou está mordendo forte) e a ordem sendo
@@ -639,10 +677,9 @@ defmodule Pokex.Sim.Bench do
       # esta dungeon (`boss_color`).
       especial?: World.boss_color_seen?(world),
       boss_tiles: World.boss_tiles(world),
-      # THE EYE, placed by the production eye: the world draws the bars
-      # (`World.marks/1`) and `CrowdScan.place/4` — the same function the
-      # game's `CrowdWatch` runs — says where everyone stands. A blind world has
-      # no eye, which is nil, never an empty picture.
+      # THE EYE, as the world observes it (`World.observe(world, :crowd)`: the
+      # bars it draws, placed by production's `CrowdScan.place/4`). A blind
+      # world has no eye, which is nil, never an empty picture.
       crowd: crowd(world, battle),
       boss_asleep_left_ms: World.boss_asleep_left_ms(world),
       prev: previous
@@ -757,14 +794,7 @@ defmodule Pokex.Sim.Bench do
   # sempre pronta, e uma tecla sempre pronta dentro desta lista faz `spent?`
   # nunca ser verdadeiro.
   defp crowd(_world, %{enemies: nil}), do: nil
-
-  defp crowd(world, battle) do
-    %{marks: marks, me: me, tile: tile} = World.marks(world)
-
-    marks
-    |> CrowdScan.place(me, tile, pet_hp: world.own.hp_pct)
-    |> Map.merge(%{at: world.clock, listed: length(battle.enemies)})
-  end
+  defp crowd(world, _battle), do: World.observe(world, :crowd)
 
   defp control_back_in_ms(world) do
     case keys_of_kind(world, :crowd) do

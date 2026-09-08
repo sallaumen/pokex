@@ -35,15 +35,22 @@ defmodule Pokex.Sim.ContratoTest do
 
   # THE SIEGE EYE IS PRODUCTION'S. The world draws the bars; who says where
   # each creature stands is `CrowdScan.place/4`, the same function `CrowdWatch`
-  # runs in the game — and who judges the siege is the brain (`Engine.Siege`,
-  # inside `Logic.tick`), never the bench on its own.
-  test "the bench places the creatures with production's eye and does not judge the siege" do
-    fonte = File.read!(@bench)
+  # runs in the game (`World.observe(world, :crowd)`, which the Runner publishes
+  # too) — and who judges the siege is the brain (`Engine.Siege`, inside
+  # `Logic.tick`), never the bench on its own.
+  @world "lib/pokex/sim/world.ex"
 
-    assert fonte =~ "CrowdScan.place(",
-           "a bancada voltou a posicionar as criaturas por conta própria"
+  test "the world's eye is production's, and the bench does not judge the siege" do
+    mundo = File.read!(@world)
+    bancada = File.read!(@bench)
 
-    refute fonte =~ "Siege.build(",
+    assert mundo =~ "CrowdScan.place(",
+           "o mundo voltou a posicionar as criaturas por conta própria"
+
+    assert bancada =~ "World.observe(world, :crowd)",
+           "a bancada deixou de ler o olho pelo mundo"
+
+    refute bancada =~ "Siege.build(",
            "a bancada julgou o cerco por fora do cérebro — o julgamento é do Logic.tick"
   end
 

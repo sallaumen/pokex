@@ -53,7 +53,9 @@ defmodule Pokex.Sim.Runner do
     battle: 120,
     pokemon: 120,
     skill_bar: 400,
-    minimap: 500
+    minimap: 500,
+    # o olho do cerco, no ritmo de luta do `CrowdWatch`
+    crowd: 250
   }
 
   # AS CHAVES QUE O SIMULADOR ESCREVE. É a lista que a cerca usa pra decidir se
@@ -408,7 +410,8 @@ defmodule Pokex.Sim.Runner do
       battle: setting(:feed_battle_ms, :battle),
       pokemon: setting(:feed_battle_ms, :pokemon),
       skill_bar: setting(:feed_skill_bar_ms, :skill_bar),
-      minimap: setting(:feed_minimap_ms, :minimap)
+      minimap: setting(:feed_minimap_ms, :minimap),
+      crowd: setting(:crowd_scan_every_ms, :crowd)
     }
   end
 

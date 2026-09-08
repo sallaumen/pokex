@@ -1658,6 +1658,58 @@ defmodule Pokex.Sim.WorldTest do
       assert world.own.pos == {px + 2, py, pz}
     end
 
+    test "the world observes the eye: production's placement, the list's count, the clock" do
+      {px, py, pz} = empty_field().pos
+
+      world =
+        with_creatures(empty_field(), [
+          creature(1, {px - 2, py, pz}),
+          creature(2, {px + 3, py, pz})
+        ])
+
+      reading = World.observe(world, :crowd)
+
+      assert reading.read?
+      assert reading.at == world.clock
+      assert reading.listed == 2
+      assert reading.pet.dx == -1
+      assert Enum.map(reading.hostiles, &{&1.dx, &1.dy}) == [{-2, 0}, {3, 0}]
+    end
+
+    test "a blind world has no eye" do
+      assert World.observe(empty_field(%{readable?: false}), :crowd) == nil
+    end
+
+    # "Os outros podem ficar longe e fazer eu morrer durante o revive" (02/09):
+    # whoever arrives after the pile slept is the one the sleep fence cannot see.
+    test "a straggler is born awake at the screen's edge, every so often, from the same seed" do
+      world = empty_field(%{straggler_every_ms: 5_000, straggler_from_tiles: 6})
+      {px, py, pz} = world.pos
+
+      stepped = Enum.reduce(1..120, world, fn _n, w -> World.step(w, 100) end)
+
+      assert stepped.stats.stragglers_born >= 1
+      assert stepped.stats.stragglers_born <= 3
+
+      born = Enum.filter(stepped.mobs, &(&1.nest == :straggler))
+      assert born != []
+
+      for mob <- born do
+        assert mob.woke?
+        {sx, sy, sz} = mob.spawn
+        assert sz == pz and abs(sx - (px + 6)) <= 1 and abs(sy - py) <= 1
+      end
+
+      again = Enum.reduce(1..120, world, fn _n, w -> World.step(w, 100) end)
+      assert Enum.map(again.mobs, & &1.spawn) == Enum.map(stepped.mobs, & &1.spawn)
+    end
+
+    test "without the knob no scenario gains a straggler" do
+      stepped = Enum.reduce(1..200, empty_field(), fn _n, w -> World.step(w, 100) end)
+
+      assert stepped.stats.stragglers_born == 0
+    end
+
     test "the world's truth: pinned, asleep, loose, and the gap" do
       {px, py, pz} = empty_field().pos
       world = empty_field()

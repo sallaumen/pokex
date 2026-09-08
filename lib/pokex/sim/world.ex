@@ -42,6 +42,7 @@ defmodule Pokex.Sim.World do
   """
 
   alias Pokex.Bots.Cavebot.Route
+  alias Pokex.Bots.CrowdScan
 
   @default_knobs %{
     # invented — nobody has ever measured tiles/s in this game. `cavebot_measure_walk`
@@ -286,6 +287,12 @@ defmodule Pokex.Sim.World do
     # nascimento tem jitter de ±25% da semente, porque "de tempos em tempos"
     # não é um metrônomo.
     boss_every_ms: nil,
+    # O RETARDATÁRIO: "os outros podem ficar longe e fazer eu morrer durante o
+    # revive" (02/09). A cada tanto (±25%) um bicho comum nasce ACORDADO a
+    # `straggler_from_tiles` dele, na borda da tela, e vem — quem chega depois
+    # de a pilha dormir. `nil` desliga; nenhum cenário antigo ganha um.
+    straggler_every_ms: nil,
+    straggler_from_tiles: 6,
     boss_hp_mult: 10,
     boss_atk_mult: 10,
     boss_name: "Chefe",
@@ -372,12 +379,17 @@ defmodule Pokex.Sim.World do
               bosses_dead: 0,
               boss_awake_max_ms: 0,
               # the middle clicks that sent the pokémon to its spot (`park_pet/2`)
-              parks: 0
+              parks: 0,
+              # os que chegaram tarde, acordados (`maybe_straggler/1`)
+              stragglers_born: 0
             },
             # o streak corrente da exposição acordada, e a hora do próximo
             # nascimento (nil = ainda não sorteada)
             boss_awake_streak_ms: 0,
             next_boss_at: nil,
+            # a hora do próximo RETARDATÁRIO (nil = ainda não sorteada) — ver
+            # `maybe_straggler/1`
+            next_straggler_at: nil,
             # QUANDO O CONTROLE SAIU. A regra dele é uma janela — "SEMPRE usar o
             # revive dentro da range de 5 segundos no máximo depois de usar a
             # skill de controle" — e até 26/08 nada aqui registrava a ponta de
@@ -847,6 +859,64 @@ defmodule Pokex.Sim.World do
     |> land_revive()
     |> repopulate()
     |> maybe_boss()
+    |> maybe_straggler()
+  end
+
+  # O RETARDATÁRIO: "os outros podem ficar longe e fazer eu morrer durante o
+  # revive" (02/09). A cada `straggler_every_ms` (±25%, da mesma semente) um
+  # bicho comum nasce ACORDADO na borda da tela, do lado pra onde ele olha, e
+  # vem — é quem chega depois de a pilha dormir, o único que a cerca do sono de
+  # hoje não vê e o olho do cerco vê. Sem o knob, nenhum cenário antigo muda.
+  defp maybe_straggler(%{knobs: %{straggler_every_ms: nil}} = world), do: world
+
+  defp maybe_straggler(%{next_straggler_at: nil} = world) do
+    {at, rand} = jitter(world.knobs.straggler_every_ms, world.rand)
+    %{world | next_straggler_at: world.clock + at, rand: rand}
+  end
+
+  defp maybe_straggler(world) do
+    if world.clock >= world.next_straggler_at do
+      {at, rand} = jitter(world.knobs.straggler_every_ms, world.rand)
+
+      %{world | rand: rand}
+      |> spawn_straggler()
+      |> Map.put(:next_straggler_at, world.clock + at)
+    else
+      world
+    end
+  end
+
+  defp spawn_straggler(world) do
+    {px, py, pz} = world.pos
+    from = world.knobs.straggler_from_tiles
+
+    {pos, rand} =
+      free_spot(%{world | knobs: %{world.knobs | nest_radius: 1}}, {px + from, py, pz})
+
+    straggler = %{
+      id: world.next_id,
+      name: world.knobs.mob_name,
+      nest: :straggler,
+      pos: pos,
+      hp: world.knobs.mob_hp,
+      max_hp: world.knobs.mob_hp,
+      # NASCE ANDANDO: o spawn é onde ele está agora, então a corda dele conta
+      # daqui — é o que chega, não o que estava lá
+      spawn: pos,
+      woke?: true,
+      walk_debt_ms: 0,
+      bite_debt_ms: 0,
+      asleep_from: 0,
+      asleep_until: 0
+    }
+
+    %{
+      world
+      | mobs: world.mobs ++ [straggler],
+        rand: rand,
+        next_id: world.next_id + 1,
+        stats: bump(world.stats, :stragglers_born, 1)
+    }
   end
 
   @doc """
@@ -1453,6 +1523,23 @@ defmodule Pokex.Sim.World do
   def observe(world, :skill_bar), do: %{ready_keys: ready_keys(world)}
 
   def observe(world, :minimap), do: %{pos: world.pos}
+
+  # THE EYE (`CrowdWatch`'s `:crowd` fact): the world draws the bars
+  # (`marks/1`) and PRODUCTION's eye places them — `CrowdScan.place/4`, the
+  # very function the game runs — so the siege the brain judges on the bench
+  # is judged by the same eye. A blind world has no eye: nil, never an empty
+  # picture.
+  def observe(world, :crowd) do
+    if unreadable?(world) do
+      nil
+    else
+      %{marks: marks, me: me, tile: tile} = marks(world)
+
+      marks
+      |> CrowdScan.place(me, tile, pet_hp: world.own.hp_pct)
+      |> Map.merge(%{at: world.clock, listed: length(visible(world))})
+    end
+  end
 
   # Two ways to not be reading the screen, and they are the same fact to every
   # consumer: the knob (a world built blind) and the injection (a scenario

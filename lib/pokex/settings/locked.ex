@@ -171,6 +171,8 @@ defmodule Pokex.Settings.Locked do
     game_app_name: {"Foco e teclado", "o jogo roda sob Wine"},
     pause_when_unfocused: {"Foco e teclado", "tudo pausa com o jogo atrás"},
     focus_poll_ms: {"Foco e teclado", "quem está na frente é conferido a cada 250ms"},
+    focus_settle_ms:
+      {"Foco e teclado", "o jogo de volta à frente: as leituras esperam 3 s a tela assentar"},
     calibration_front_delay_ms:
       {"Foco e teclado", "a calibração espera 0,7s o jogo desenhar depois de trazê-lo"},
     restore_mouse_after_actions:
@@ -245,6 +247,9 @@ defmodule Pokex.Settings.Locked do
       {"Vigia das leituras",
        "a primeira pergunta vem 8 s depois de ligar (as leituras precisam de uns tiques)"},
     watchman_stale_ms: {"Vigia das leituras", "leitura mais velha que 12 s conta como não lida"},
+    watchman_sample_ms:
+      {"Vigia das leituras",
+       "as leituras são amostradas a cada 1 s (a barra some 2 s no revive, e isso não é defeito)"},
     # --- Painel (canto de comando) ---
     command_corner:
       {"Painel (canto de comando)", "mouse no canto superior direito alterna o modo"},

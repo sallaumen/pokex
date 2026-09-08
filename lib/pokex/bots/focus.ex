@@ -43,6 +43,11 @@ defmodule Pokex.Bots.Focus do
       # via the env gate that keeps the app-wide instance quiet during unrelated tests.
       auto_start: Keyword.get(opts, :auto_start, nil),
       focused?: true,
+      # When the game last came BACK to the front, or nil when it never left.
+      # The seconds after a panel closes read whatever was over the game ("VOCÊ
+      # está com 1%" six seconds after the calibration page, 2026-09-08):
+      # readers wait `focus_settle_ms` after a return. Boot is not a return.
+      focused_since: nil,
       # MY pause's generation, or nil (nothing to resume). A boolean here once
       # re-armed the fleet over a manual Stop given between focus loss and
       # return — the human's order couldn't invalidate the pending resume. Now
@@ -73,7 +78,9 @@ defmodule Pokex.Bots.Focus do
 
   @impl true
   def handle_call(:status, _from, state),
-    do: {:reply, %{focused?: state.focused?, enabled?: enabled?()}, state}
+    do:
+      {:reply, %{focused?: state.focused?, settled?: settled?(state), enabled?: enabled?()},
+       state}
 
   @impl true
   def handle_info(:poll, state) do
@@ -143,7 +150,12 @@ defmodule Pokex.Bots.Focus do
       "focus regained — input allowed" <> if(resume?, do: " and workers resumed", else: "")
     )
 
-    %{state | focused?: true, resume_generation: nil}
+    %{
+      state
+      | focused?: true,
+        focused_since: System.monotonic_time(:millisecond),
+        resume_generation: nil
+    }
   end
 
   # steady state (no edge): keep the gate consistent with the verdict, nothing else.
@@ -151,6 +163,13 @@ defmodule Pokex.Bots.Focus do
     InputGate.set_focus_ok(focused?)
     state
   end
+
+  # Focused AND in front long enough for the screen to be the game's again.
+  defp settled?(%{focused?: false}), do: false
+  defp settled?(%{focused_since: nil}), do: true
+
+  defp settled?(%{focused_since: since}),
+    do: System.monotonic_time(:millisecond) - since >= Settings.get(:focus_settle_ms)
 
   defp read_frontmost(state) do
     state.frontmost_fun.()

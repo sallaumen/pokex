@@ -70,6 +70,33 @@ defmodule Pokex.Bots.FocusTest do
     end
   end
 
+  # THE SETTLE (2026-09-08): the seconds after the game comes back in front read
+  # whatever was over it — "VOCÊ está com 1%" six seconds after the calibration
+  # page closed. Focused is immediate; settled waits `focus_settle_ms`.
+  test "back in front, the screen counts as settled only after the settle", %{
+    agent: agent,
+    opts: opts
+  } do
+    Pokex.Settings.put(:focus_settle_ms, 300)
+
+    on_exit(fn ->
+      Pokex.Settings.put(:focus_settle_ms, Pokex.Settings.defaults().focus_settle_ms)
+    end)
+
+    set(agent, %{frontmost: "wine"})
+    focus = start_focus!(opts)
+    assert eventually(fn -> Focus.status(focus).settled? end)
+
+    set(agent, %{frontmost: "Google Chrome"})
+    assert eventually(fn -> Focus.status(focus).focused? == false end)
+    refute Focus.status(focus).settled?
+
+    set(agent, %{frontmost: "wine"})
+    assert eventually(fn -> Focus.status(focus).focused? end)
+    refute Focus.status(focus).settled?
+    assert eventually(fn -> Focus.status(focus).settled? end, 1_000)
+  end
+
   test "losing focus closes the gate and halts the running workers", %{agent: agent, opts: opts} do
     set(agent, %{frontmost: "wine", running: true})
     start_focus!(opts)

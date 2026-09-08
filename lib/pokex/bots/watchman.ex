@@ -9,15 +9,20 @@ defmodule Pokex.Bots.Watchman do
   single-screen notebook shows him the game, never the panel; the panel's
   chirps and warnings are in a tab he is not looking at. So:
 
-    * the first check comes `watchman_grace_ms` after the bot starts, once
+    * every second it SAMPLES the readings (`Checks.readings/1`) and remembers
+      when each was last good — a bar that vanishes for two seconds while the
+      revive recalls the pokémon never reaches the stale window, a bar nobody
+      can read does;
+    * the first judgement comes `watchman_grace_ms` after the bot starts, once
       the feeds have had a few ticks;
     * a NEW problem rings at once (`{:rule_alarm, :setup, _}` — the sector
       `Pokex.Bots.Siren` plays through the Mac's own speaker, with no mute
       button), and the same problems ring again every `watchman_repeat_ms`
       while they last;
     * a problem that goes away is said once in the feed, without a sound;
-    * with the game out of focus nothing is judged: he is in the panel, and
-      every region reads the browser.
+    * with the game out of focus, or back in front for less than the settle,
+      nothing is sampled or judged: he is in the panel, and every region
+      reads the browser.
 
   It measures nothing itself: `Pokex.Bots.Watchman.Checks` reads the
   blackboard and the files. Stopping the bot forgets everything, so the next
@@ -39,11 +44,12 @@ defmodule Pokex.Bots.Watchman do
     state = %{
       active?: Keyword.get(opts, :active?, &default_active?/0),
       focused?: Keyword.get(opts, :focused?, &default_focused?/0),
-      checks: Keyword.get(opts, :checks, &Checks.run/1),
+      readings: Keyword.get(opts, :readings, &Checks.readings/1),
+      checks: Keyword.get(opts, :checks, &Checks.problems/2),
       clock: Keyword.get(opts, :clock, &now/0),
-      poll_ms: Keyword.get(opts, :poll_ms, nil),
       auto_start: Keyword.get(opts, :auto_start, nil),
       running_since: nil,
+      last_good: %{},
       problems: %{},
       shouted_at: nil
     }
@@ -58,7 +64,7 @@ defmodule Pokex.Bots.Watchman do
   @spec problems(GenServer.server()) :: [String.t()]
   def problems(server \\ __MODULE__), do: GenServer.call(server, :problems)
 
-  @doc "One check now, grace or not (tests and the page's button)."
+  @doc "One sample and one judgement now, grace or not (tests and the page's button)."
   @spec check_now(GenServer.server()) :: [String.t()]
   def check_now(server \\ __MODULE__), do: GenServer.call(server, :check_now)
 
@@ -70,7 +76,11 @@ defmodule Pokex.Bots.Watchman do
         override -> override
       end
 
-    if start?, do: schedule(state, 0)
+    if start? do
+      schedule(:sample, 0)
+      schedule(:check, 0)
+    end
+
     {:ok, state}
   end
 
@@ -78,14 +88,23 @@ defmodule Pokex.Bots.Watchman do
   def handle_call(:problems, _from, state), do: {:reply, texts(state.problems), state}
 
   def handle_call(:check_now, _from, state) do
-    state = judge(%{state | running_since: -1_000_000}, state.clock.())
+    now = state.clock.()
+    state = %{state | running_since: -1_000_000} |> sample(now) |> judge(now)
     {:reply, texts(state.problems), state}
   end
 
+  # Every second: remember which readings are good now.
   @impl true
+  def handle_info(:sample, state) do
+    state = if watching?(state), do: sample(state, state.clock.()), else: state
+    schedule(:sample, Settings.get(:watchman_sample_ms))
+    {:noreply, state}
+  end
+
+  # Every ten seconds: the verdict.
   def handle_info(:check, state) do
     state = watch(state)
-    schedule(state, Settings.get(:watchman_every_ms))
+    schedule(:check, Settings.get(:watchman_every_ms))
     {:noreply, state}
   end
 
@@ -100,11 +119,27 @@ defmodule Pokex.Bots.Watchman do
     cond do
       Settings.get(:watchman_enabled) != true -> forget(state)
       not safe?(state.active?) -> forget(state)
-      state.running_since == nil -> %{state | running_since: now}
+      state.running_since == nil -> start_watching(state, now)
       now - state.running_since < Settings.get(:watchman_grace_ms) -> state
       not safe?(state.focused?, true) -> state
       true -> judge(state, now)
     end
+  end
+
+  # The bot just came on: every reading counts as good from this moment, and
+  # the grace gives the feeds time to prove it.
+  defp start_watching(state, now) do
+    %{state | running_since: now, last_good: Map.new(Checks.reading_keys(), &{&1, now})}
+  end
+
+  defp watching?(state) do
+    Settings.get(:watchman_enabled) == true and state.running_since != nil and
+      safe?(state.active?) and safe?(state.focused?, true)
+  end
+
+  defp sample(state, now) do
+    good = for {key, true} <- safe_readings(state, now), into: %{}, do: {key, now}
+    %{state | last_good: Map.merge(state.last_good, good)}
   end
 
   defp judge(state, now) do
@@ -127,10 +162,16 @@ defmodule Pokex.Bots.Watchman do
     end
   end
 
-  # A check that raises (a file mid-write, a fact of an unexpected shape) keeps
-  # the standing verdict: the watchman must outlive what it reads.
+  # A sampler or a check that raises keeps the standing verdict: the watchman
+  # must outlive what it reads.
+  defp safe_readings(state, now) do
+    state.readings.(now)
+  catch
+    _kind, _reason -> %{}
+  end
+
   defp safe_checks(state, now) do
-    Map.new(state.checks.(now))
+    Map.new(state.checks.(now, state.last_good))
   catch
     _kind, _reason -> state.problems
   end
@@ -146,7 +187,8 @@ defmodule Pokex.Bots.Watchman do
   defp feed(text),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @feed_topic, {:engine_log, :macro, text})
 
-  defp forget(state), do: %{state | running_since: nil, problems: %{}, shouted_at: nil}
+  defp forget(state),
+    do: %{state | running_since: nil, last_good: %{}, problems: %{}, shouted_at: nil}
 
   defp texts(problems), do: problems |> Enum.sort() |> Enum.map(&elem(&1, 1))
 
@@ -159,7 +201,10 @@ defmodule Pokex.Bots.Watchman do
     BotSupervisor.any_active?([status.fishing, status.combat, status.cavebot, status.mini_game])
   end
 
-  defp default_focused?, do: Focus.status().focused?
+  # Settled, not merely focused: the seconds after the game comes back in front
+  # read whatever was over it (2026-09-08, "VOCÊ está com 1%" six seconds after
+  # the panel closed).
+  defp default_focused?, do: Focus.status().settled?
 
   defp safe?(fun, default \\ false) do
     fun.() == true
@@ -167,9 +212,8 @@ defmodule Pokex.Bots.Watchman do
     _kind, _reason -> default
   end
 
-  defp schedule(state, delay_ms) do
-    Process.send_after(self(), :check, max(state.poll_ms || delay_ms || 0, 20))
-    state
+  defp schedule(message, delay_ms) do
+    Process.send_after(self(), message, max(delay_ms || 0, 20))
   end
 
   defp now, do: System.monotonic_time(:millisecond)

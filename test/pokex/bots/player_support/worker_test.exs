@@ -289,6 +289,41 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert log =~ "pedindo LOGOUT"
     end
 
+    # A ZERO THAT COMES FROM A FULL BAR IN ONE TICK IS NOT A DEATH (2026-09-07:
+    # eight false "VOCÊ está com 0%" in an afternoon he spent alive — the panel
+    # window over the game). The first such zero is "not read"; the zero that
+    # stays is accepted on the next tick and shouts.
+    @tag :tmp_dir
+    test "a zero out of a full bar is not read once, and a zero that stays shouts", %{
+      body: body,
+      red: red
+    } do
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(18)}]})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert eventually(fn ->
+               match?(
+                 {:ok, %{hp_pct: pct, readable?: true}} when pct >= 85,
+                 WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
+               )
+             end)
+
+      Agent.update(Fake, &put_in(&1.script[:capture], [{:ok, red.(0)}]))
+
+      assert eventually(fn ->
+               match?(
+                 {:ok, %{readable?: false}},
+                 WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
+               )
+             end)
+
+      assert_receive {:rule_alarm, :mortal, msg}, 3_000
+      assert msg =~ "VOCÊ está com 0%"
+    end
+
     @tag :tmp_dir
     test "without the region marked, nothing is read and nothing shouts", %{body: body, red: red} do
       {:ok, calib} = Calibration.load()

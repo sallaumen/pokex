@@ -263,7 +263,8 @@ defmodule Pokex.Bots.BotSupervisorTest do
     # a fire-and-forget Task, and the panel put it in an assign no feed ever saw.
     # One worker refusing halts the whole chain, so the fleet sat stopped with
     # nothing on screen but "ligando o modo still" (Lucas, 2026-08-07).
-    assert_receive {:rule_alarm, :command, alarm}, 1_000
+    # :setup is the sector with no mute button and a native sound (2026-09-07).
+    assert_receive {:rule_alarm, :setup, alarm}, 1_000
     assert alarm =~ "NÃO ligou"
     assert alarm =~ "calibração"
 

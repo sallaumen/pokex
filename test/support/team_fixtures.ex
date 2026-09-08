@@ -40,7 +40,9 @@ defmodule Pokex.TeamFixtures do
     restore_team_on_exit()
 
     {:ok, _} = Team.add(name)
-    Team.set_bar(name, %{region: {1610, 1217, 35 * count, 35}, count: count, refs: nil})
+    # Inside ANY calibrated screen a test saves: the preflight now refuses a bar
+    # marked outside the screen (the ultrawide's x=1594 on the notebook, 2026-09-07).
+    Team.set_bar(name, %{region: {10, 10, 35 * count, 35}, count: count, refs: nil})
     Team.set_skills(name, skills)
     Team.set_active(name)
     name

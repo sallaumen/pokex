@@ -205,19 +205,14 @@ defmodule Pokex.Sim.Bench do
         before.clock
       )
 
-    {logic, orders} =
-      Logic.step(
-        state.logic,
-        decision_world(before, picture, state.hands.leg, state.config, state.mode),
-        state.config,
-        before.clock
-      )
+    brain = decision_world(before, picture, state.hands.leg, state.config, state.mode)
+    {logic, orders} = Logic.step(state.logic, brain, state.config, before.clock)
 
     {world, hands} = Hands.obey(before, orders, state.hands, state.config)
     state = remember_ask(state, orders, picture, hands)
 
     %{state | world: world, hands: hands, logic: logic, picture: picture}
-    |> measure(previous, before, world, orders, picture, hands)
+    |> measure(previous, before, world, orders, picture, hands, brain.hands)
     |> forget_ask(before, world)
     |> record(orders, picture)
     |> mark(orders, world)
@@ -280,12 +275,15 @@ defmodule Pokex.Sim.Bench do
   # A DEATH happens between the first two — the bite kills it — and comparing
   # the wrong pair reported zero deaths in a run whose pokemon spent 97% of
   # itself on the floor (2026-08-25).
-  defp measure(state, previous, decided_on, world, orders, picture, hands) do
+  # `hands` are the simulated hands (what went out); `pocket` is the brain's own
+  # hand map (`Pokex.Bots.Engine.Inputs.hands/4`), whose `reserve` names the keys
+  # the mode keeps out of the rotation.
+  defp measure(state, previous, decided_on, world, orders, picture, hands, pocket) do
     metrics =
       state.metrics
       |> tally_time(world, orders, picture)
       |> tally_risk(world, orders, picture)
-      |> tally_violations(world, orders, picture)
+      |> tally_violations(world, orders, picture, pocket)
       |> tally_kite(orders)
       |> tally_survivor(state.logic, orders, picture)
       |> tally_bodies(previous, world)
@@ -359,7 +357,12 @@ defmodule Pokex.Sim.Bench do
   #     com a barra JÁ inteira.
   #   * `:mute_order` — an order with no reason. A brain that decides in silence
   #     is indistinguishable from a brain that is stopped.
-  defp tally_violations(metrics, _world, orders, picture) do
+  #   * `:reserve_before_spent` — the pocket (single-target and control keys the
+  #     mode keeps out of the rotation) in a firing hand while the area is NOT
+  #     spent. The pocket exists for the moment the area is gone and the revive
+  #     is held; on the night of 2026-09-07 it rode the OPENING hand 7 times in
+  #     28 ("6, 7, 8, 9, r"), which is the one thing his Auto Combo rule forbids.
+  defp tally_violations(metrics, _world, orders, picture, pocket) do
     broken =
       [
         {:fire_without_body, orders.fire == :free and picture.own_out? == false},
@@ -367,13 +370,21 @@ defmodule Pokex.Sim.Bench do
         {:wasted_revive,
          orders.revive in [:now, :prepare] and picture.enemies == 0 and
            picture.own_hp == 100 and Map.get(picture, :prepared?) == true},
-        {:mute_order, orders.why == ""}
+        {:mute_order, orders.why == ""},
+        {:reserve_before_spent,
+         orders.fire == :free and picture.spent? != true and
+           reserve_in_hand?(orders.opening, pocket)}
       ]
       |> Enum.filter(&elem(&1, 1))
       |> Enum.map(&elem(&1, 0))
 
     Map.update!(metrics, :violations, &(broken ++ &1))
   end
+
+  defp reserve_in_hand?(opening, %{reserve: reserve}) when is_list(opening) and reserve != [],
+    do: Enum.any?(opening, &(&1 in reserve))
+
+  defp reserve_in_hand?(_opening, _no_pocket), do: false
 
   # O SOBREVIVENTE DEIXADO PRA TRÁS: o cérebro com o latch armado (alguém tomou
   # a corrente inteira e ficou de pé, ou está mordendo forte) e a ordem sendo

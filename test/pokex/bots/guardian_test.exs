@@ -622,7 +622,8 @@ defmodule Pokex.Bots.GuardianTest do
 
       Guardian.warn_if_exposed()
 
-      assert_receive {:rule_alarm, :hp, aviso}, 500
+      # :mortal: no mute button, native sound — the 20:34 stop of 2026-09-07 went out muted
+      assert_receive {:rule_alarm, :mortal, aviso}, 500
       assert aviso =~ "5 bicho(s)"
       assert aviso =~ "EXPOSTO"
     end
@@ -639,7 +640,7 @@ defmodule Pokex.Bots.GuardianTest do
 
       Guardian.warn_if_exposed()
 
-      refute_receive {:rule_alarm, :hp, _}, 300
+      refute_receive {:rule_alarm, :mortal, _}, 300
     end
   end
 end

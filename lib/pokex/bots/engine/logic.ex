@@ -1470,8 +1470,20 @@ defmodule Pokex.Bots.Engine.Logic do
   # Combo são o alvo único e o controle, que a corrente não aperta e que voltam
   # antes da área. Com o revive liberado a mão é a de sempre — a reserva não
   # vira rotação por acidente.
+  # THE POCKET OPENS WITH THE AREA GONE, never on the opening. The reserve is
+  # what the mode keeps out of the rotation (single-target and control, in the
+  # Auto Combo) for the moment the area is spent and the revive is held. Until
+  # 2026-09-07 it rode every order that was not recall-safe, including the
+  # "matando o que já abriu" issued one tick after the fire edge — the very
+  # order the hand reads when it opens. 7 of 28 openings that night went out as
+  # "6, 7, 8, 9, r": his single-target keys, pressed one by one, before the
+  # chain. Whole area, pocket shut.
   defp with_reserve(t) do
-    if recall_safe?(t), do: opening(t), else: reserve(t) ++ opening(t)
+    cond do
+      recall_safe?(t) -> opening(t)
+      held_by_recall?(t) or Map.get(t.s, :spent?) == true -> reserve(t) ++ opening(t)
+      true -> opening(t)
+    end
   end
 
   defp reserve(%{hands: %{reserve: keys}}), do: keys

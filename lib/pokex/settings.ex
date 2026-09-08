@@ -699,6 +699,19 @@ defmodule Pokex.Settings do
     crowd_fact_max_age_ms: 600,
     # How much the evidence picture is shrunk before it is drawn.
     crowd_scan_evidence_shrink: 4,
+    # --- The watchman and the native sound (2026-09-07) -----------------------------------------
+    # A Mac system sound for the sectors with no mute button (:mortal, :setup), played by
+    # `Pokex.Bots.Siren` through `afplay` — heard with the game in front and the panel hidden.
+    native_alarm_sound: true,
+    # `Pokex.Bots.Watchman`: while the bot hunts, asks every `watchman_every_ms` whether the
+    # readings it decides on exist, rings `:setup` on a new problem and again every
+    # `watchman_repeat_ms` while it lasts. The first check waits `watchman_grace_ms` after the
+    # start so the feeds have ticked; a reading older than `watchman_stale_ms` is "not read".
+    watchman_enabled: true,
+    watchman_every_ms: 10_000,
+    watchman_repeat_ms: 60_000,
+    watchman_grace_ms: 8_000,
+    watchman_stale_ms: 12_000,
     # CALIBRATION MODE, off by default: after every area key the bot presses, take one capture
     # and file where the damage landed.
     area_probe_enabled: false,
@@ -884,6 +897,10 @@ defmodule Pokex.Settings do
     crowd_scan_every_ms: 100..5_000,
     crowd_fact_max_age_ms: 200..5_000,
     crowd_scan_evidence_shrink: 1..16,
+    watchman_every_ms: 1_000..600_000,
+    watchman_repeat_ms: 5_000..3_600_000,
+    watchman_grace_ms: 0..120_000,
+    watchman_stale_ms: 1_000..600_000,
     engine_crowd_from: 1..20,
     engine_spent_keys_left: 0..9,
     auto_combo_window_ms: 500..30_000,
@@ -1119,6 +1136,9 @@ defmodule Pokex.Settings do
   # Switching character: the key itself is global (there would be no way to know
   # who is active before knowing who is active), and it reloads their layer.
   def handle_call({:put, :active_character, slug}, _from, state) do
+    # The diary line, like every other key: on 2026-09-07 the pointer went from
+    # "lotavanon" to "" between two backups one second apart, and nothing said who did it.
+    note_change(:active_character, state.char, slug)
     state = put_global(state, :active_character, slug)
     state = %{state | char: slug, char_data: load_char(state, slug)}
 

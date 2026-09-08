@@ -96,6 +96,10 @@ config :pokex, :front_game_cmd, false
 config :pokex, :shiny_guard_active, false
 # O olho da espera (CrowdWatch) não fotografa na suíte: cada teste injeta o `look` que quer.
 config :pokex, :crowd_watch_active, false
+# The siren never shells out to afplay in the suite; siren tests inject the player.
+config :pokex, :native_sound_cmd, false
+# The app-wide watchman does not poll in the suite: watchman tests drive their own instance.
+config :pokex, :watchman_auto, false
 # O Logout global fica inerte na suíte: um pedido acidental travaria o latch e
 # pararia a frota compartilhada. Testes optam por entrar com `active: true`.
 config :pokex, :logout_active, false

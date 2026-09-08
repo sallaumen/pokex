@@ -64,12 +64,19 @@ defmodule Pokex.Application do
       # History that survives page reloads: subscribes to worker topics, keeps the
       # ring buffer outside LiveView. Passive — never captures or actuates.
       Pokex.Journal,
+      # The Mac's own speaker for the sectors with no mute button (:mortal, :setup). After
+      # the journal so an alarm is written before it rings; passive otherwise.
+      Pokex.Bots.Siren,
       # The same nights, typed: what the journal keeps as prose for him, this
       # keeps as numbers for the engine to be calibrated against later.
       Pokex.Engine.Events,
       # Pauses everything when the game window loses focus (and resumes on refocus). After the
       # BotSupervisor so it can halt/resume those workers.
       Pokex.Bots.Focus,
+      # Asks every ten seconds whether the hunting bot can still SEE (skill bar, battle
+      # window, Pokebar, his life bar, the tile) and rings :setup when it cannot. After
+      # Focus, whose verdict it reads; after the BotSupervisor, whose status it reads.
+      Pokex.Bots.Watchman,
       # Notices OTHER Pokex VMs running on this Mac and says so on every page. Detection only:
       # it holds no authority over anything above it, so its position in this list is free and
       # a failure of its own can never stop the bot.

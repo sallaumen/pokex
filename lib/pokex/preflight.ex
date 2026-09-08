@@ -4,6 +4,7 @@ defmodule Pokex.Preflight do
   alias Pokex.Bots.Capture
   alias Pokex.Bots.SkillBar
   alias Pokex.Calibration
+  alias Pokex.Characters
   alias Pokex.Pokedex.Team
   alias Pokex.Rig.Mac
 
@@ -12,7 +13,9 @@ defmodule Pokex.Preflight do
       []
       |> check_cliclick(rig)
       |> check_calibration()
+      |> check_character()
       |> check_active_pokemon()
+      |> check_bar_fits()
       |> check_screen(rig)
 
     case errors do
@@ -33,6 +36,43 @@ defmodule Pokex.Preflight do
     if Calibration.exists?(),
       do: errors,
       else: ["calibração não encontrada — rode o wizard em /calibration" | errors]
+  end
+
+  # NO CHARACTER, NO START. With the pointer empty the team is the legacy shared file — on
+  # 2026-09-07 that was ANOTHER character's team (a level-127 Vespiquen), and the bot fought
+  # a whole run "as Vespiquen" with a Torterra on the field, bar region and all. The pointer
+  # had been cleared at a restart, and nothing said so. A machine with characters on it
+  # refuses to hunt for nobody.
+  defp check_character(errors) do
+    if Characters.active() == "" and Characters.list() != [] do
+      [
+        "nenhum personagem ativo — o bot usaria o time legado, que pode ser de OUTRO " <>
+          "personagem; escolha o seu no seletor do cabeçalho"
+        | errors
+      ]
+    else
+      errors
+    end
+  end
+
+  # THE BAR MUST BE ON THIS SCREEN. The region travels with the pokémon in the team file and
+  # carries no screen with it: calibrated on the ultrawide (x=1594), it is outside the
+  # notebook's 1512 points, every capture answers "outside frame", and the bot hunts blind
+  # of its own cooldowns — 2026-09-07, a whole run "pelo relógio". The message names the
+  # pokémon and the screen, because the fix is his: recalibrate that bar here.
+  defp check_bar_fits(errors) do
+    with {:ok, %Calibration{screen_w: sw, screen_h: sh}} when is_integer(sw) and is_integer(sh) <-
+           Calibration.load(),
+         {name, %{region: {x, y, w, h}}} <- Team.active_bar(),
+         false <- x + w <= sw and y + h <= sh do
+      [
+        "a barra de skills do #{name} está marcada em x=#{x}, y=#{y}, fora desta tela de " <>
+          "#{sw}×#{sh} (foi calibrada noutra tela) — recalibre a barra dele em /calibration"
+        | errors
+      ]
+    else
+      _fits_or_nothing_to_measure -> errors
+    end
   end
 
   # The pokémon on the field owns its bar and its jobs, and nothing else does: the shared bar

@@ -707,6 +707,20 @@ defmodule Pokex.SettingsTest do
       :ok = Settings.put(:tile_px, 64, server)
       refute_receive {:settings_log, :macro, "⚙️ tile_px: 64 → 64"}, 100
     end
+
+    # The pointer too: on 2026-09-07 it went from "lotavanon" to "" between two
+    # backups one second apart, and the diary had no line saying who did it.
+    @tag :tmp_dir
+    test "switching the character is a line like any other", %{tmp_dir: tmp} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "settings")
+      {:ok, server} = Settings.start_link(name: nil, path: Path.join(tmp, "settings.json"))
+
+      :ok = Settings.put(:active_character, "lotavanon", server)
+      assert_receive {:settings_log, :macro, "⚙️ active_character: \"\" → \"lotavanon\""}
+
+      :ok = Settings.put(:active_character, "", server)
+      assert_receive {:settings_log, :macro, "⚙️ active_character: \"lotavanon\" → \"\""}
+    end
   end
 
   describe "o crachá do arquivo" do

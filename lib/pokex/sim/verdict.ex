@@ -47,7 +47,9 @@ defmodule Pokex.Sim.Verdict do
     {:stun_sempre, "chefe sempre no ciclo",
      "nenhum chefe passou de uma janela estrutural acordado (3s) — acima disso um ciclo se perdeu"},
     {:limpa, "limpa a tela", "terminou sem monstro de pé"},
-    {:nao_recua, "não recua", "nunca andou a rota ao contrário com a barra vazia (R7)"}
+    {:nao_recua, "não recua", "nunca andou a rota ao contrário com a barra vazia (R7)"},
+    {:recolhe_seguro, "recolhe com o campo seguro",
+     "nenhum revive pedido com alguém acordado a menos da guarda dele (4 tiles com caveira, 2 sem)"}
   ]
 
   @type promessa ::
@@ -62,6 +64,7 @@ defmodule Pokex.Sim.Verdict do
           | :nao_recua
           | :stun_sempre
           | :limpa
+          | :recolhe_seguro
   @type t :: %{
           promessa: promessa,
           label: String.t(),
@@ -130,6 +133,12 @@ defmodule Pokex.Sim.Verdict do
     do: {false, "caiu #{length(quedas)}× (primeira em #{segundos(hd(quedas))})"}
 
   # "Não dá pra usar o auto-combo e sair correndo, vai piorar a situação" (02/09).
+  defp check(:recolhe_seguro, %{metrics: %{recalls_unsafe: 0, recalls: n}}),
+    do: {true, "#{n} revive(s), todos com o campo seguro"}
+
+  defp check(:recolhe_seguro, %{metrics: %{recalls_unsafe: bad, recalls: n}}),
+    do: {false, "#{bad} de #{n} revive(s) com alguém acordado dentro da guarda dele"}
+
   defp check(:nao_recua, %{metrics: %{kites: 0}}), do: {true, "nunca recuou"}
 
   defp check(:nao_recua, %{metrics: %{kites: n}}),

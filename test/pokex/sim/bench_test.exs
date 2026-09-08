@@ -90,6 +90,33 @@ defmodule Pokex.Sim.BenchTest do
     assert result.outcome.parks == 0
   end
 
+  # O RECOLHIMENTO CONTRA A VERDADE — o "antes" do PR 3, medido. A cerca de
+  # hoje recolhe pelo sono fresco; o retardatário chega depois do sono, e o
+  # mundo sabe que ele está acordado dentro da guarda quando o revive é pedido.
+  test "the straggler scenario measures recalls the sleep fence gives with someone awake in the guard" do
+    reports =
+      for seed <- 1..4,
+          do:
+            Bench.run(Scenario.get("retardatario-no-recolhimento"),
+              duration_ms: 120_000,
+              seed: seed
+            )
+
+    recalls = Enum.map(reports, & &1.metrics.recalls)
+    unsafe = Enum.map(reports, & &1.metrics.recalls_unsafe)
+
+    assert Enum.sum(recalls) > 0, "nenhum revive em 4 sementes × 2 min"
+
+    assert Enum.sum(unsafe) > 0,
+           "o retardatário nunca pegou um recolhimento — o cenário não mede o que diz"
+
+    for report <- reports do
+      %{agree: a, disagree: d, blind: b} = report.metrics.eye_at_recall
+      assert a + d + b == report.metrics.recalls
+      assert b == 0, "o olho não leu num recolhimento de mundo legível"
+    end
+  end
+
   test "…and a blind world has no eye to speak" do
     result = run("corrente-do-cliente", duration_ms: 20_000, knobs: %{readable?: false})
 

@@ -77,6 +77,7 @@ defmodule Pokex.Sim.Scenario do
     hunt: "A caçada inteira",
     mundo: "O bicho e o bolo",
     chefe: "O chefe",
+    cerco: "O cerco e o recolhimento",
     ruler: "A régua e a pilha",
     health: "Vida, revive e morte",
     hands: "Mãos que falham",
@@ -86,7 +87,7 @@ defmodule Pokex.Sim.Scenario do
   # A ORDEM DA TELA, e ela não é a do mapa (que não tem ordem). Começa pela
   # caçada inteira, passa pelo mundo — as condições que ele nomeou: muito bicho,
   # bicho duro, bicho de papel — e termina nas peças quebradas.
-  @group_order [:hunt, :mundo, :chefe, :ruler, :health, :hands, :blind]
+  @group_order [:hunt, :mundo, :chefe, :cerco, :ruler, :health, :hands, :blind]
 
   @doc """
   The groups that are controlled EXPERIMENTS — one pile, one question.
@@ -303,9 +304,46 @@ defmodule Pokex.Sim.Scenario do
           aggro_tiles: 8,
           leash_tiles: 12,
           respawn_ms: 20_000,
-          combo_chain_ms: 3_500
+          combo_chain_ms: 3_500,
+          # BARRA ESCONDE BARRA: com nove em cima o olho vê menos que a lista
+          # (medido no notebook: em 95% das leituras, 08/09). Aqui é a perda
+          # que faz "sem ver" existir — e é o que o sono fresco tem que cobrir.
+          mark_miss_pct: 40
         },
         config: %{reset_revive: true, gather_target: 8}
+      },
+      %__MODULE__{
+        id: "retardatario-no-recolhimento",
+        group: :cerco,
+        icon: "🐌",
+        aperto: :aperto,
+        mode: :auto_combo,
+        # `:nao_morre` e `:recolhe_seguro` são as promessas do PR 3 (o cérebro
+        # obedecendo o olho); hoje a cerca do sono não vê quem chega depois, e
+        # o "antes" está medido no `bench_test` deste cenário.
+        espera: [:mata],
+        name: "Retardatário no recolhimento (ele com 1 de vida)",
+        why:
+          "A pilha dorme com a corrente, o revive sai dentro do sono — e chega um que não " <>
+            "estava lá: \"os outros podem ficar longe e fazer eu morrer durante o revive\" " <>
+            "(02/09). A cada sete segundos um bicho comum nasce acordado na borda da tela e " <>
+            "vem. A cerca de hoje só sabe do sono fresco; o olho do cerco vê o que está " <>
+            "acordado e a quantos tiles DELE. Com 1 de vida, a mordida do retardatário " <>
+            "durante o campo vazio é a morte — no sim antes de ser lá.",
+        route: :anthill,
+        knobs: %{
+          nest_sizes: %{3 => 4, 4 => 4, 5 => 2},
+          nest_radius: 2,
+          stray_chance_pct: 0,
+          aggro_tiles: 8,
+          leash_tiles: 12,
+          respawn_ms: 20_000,
+          combo_chain_ms: 3_500,
+          straggler_every_ms: 7_000,
+          straggler_from_tiles: 6,
+          player_hp: 1
+        },
+        config: %{reset_revive: true}
       },
       %__MODULE__{
         id: "barra-que-demora",

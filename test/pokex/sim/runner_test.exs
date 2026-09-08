@@ -40,7 +40,7 @@ defmodule Pokex.Sim.RunnerTest do
     # :mini_game rides the cleanup list although the runner never publishes it:
     # a fact left behind by another test is exactly what the new assertion below
     # must not mistake for one of ours.
-    for key <- [:battle, :pokemon, :skill_bar, :minimap, :mini_game],
+    for key <- [:battle, :pokemon, :skill_bar, :minimap, :crowd, :mini_game],
         do: WorldState.forget(key)
 
     counter = :counters.new(1, [])
@@ -104,9 +104,21 @@ defmodule Pokex.Sim.RunnerTest do
     Runner.play(server)
     Runner.tick_now(server)
 
-    for key <- [:battle, :pokemon, :skill_bar, :minimap] do
+    for key <- [:battle, :pokemon, :skill_bar, :minimap, :crowd] do
       assert {:ok, _obs} = WorldState.get(key, 5_000, now()), "#{key} was never published"
     end
+  end
+
+  # THE EYE TOO: the live brain reads `:crowd` for its shadow ("o olho diria"),
+  # and the /sim runner is where that shadow is watched without a game.
+  test "the crowd fact it publishes is the eye's reading", %{server: server} do
+    Runner.play(server)
+    Runner.tick_now(server)
+
+    assert {:ok, %{read?: true, hostiles: hostiles, listed: listed}} =
+             WorldState.get(:crowd, 5_000, now())
+
+    assert is_list(hostiles) and is_integer(listed)
   end
 
   test "the battle fact it publishes is the shape the fleet counts", %{server: server} do

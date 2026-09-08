@@ -10,6 +10,19 @@ defmodule Pokex.Sim.VerdictTest.NaoRecua do
     }
   end
 
+  # "Os outros podem ficar longe e fazer eu morrer durante o revive" (02/09):
+  # the recall is safe when nobody awake stands within his guard, by the
+  # world's truth at the moment the revive is asked.
+  test "recolhe_seguro charges every recall asked with someone awake in the guard" do
+    safe = %{metrics: %{recalls: 5, recalls_unsafe: 0}, outcome: %{}}
+    unsafe = %{metrics: %{recalls: 5, recalls_unsafe: 2}, outcome: %{}}
+
+    assert [%{cumpriu?: true} = ok] = Verdict.judge(safe, [:recolhe_seguro])
+    assert ok.porque =~ "5 revive"
+    assert [%{cumpriu?: false} = falhou] = Verdict.judge(unsafe, [:recolhe_seguro])
+    assert falhou.porque =~ "2 de 5"
+  end
+
   # "Não dá pra usar o auto-combo e sair correndo, vai piorar a situação" (02/09).
   test "nao_recua cobra zero tiques de retirada" do
     assert [%{cumpriu?: true}] = Verdict.judge(corrida(0), [:nao_recua])

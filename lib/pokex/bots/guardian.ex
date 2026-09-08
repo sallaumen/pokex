@@ -83,6 +83,7 @@ defmodule Pokex.Bots.Guardian do
 
   @fishing_topic "fishing"
   @combat_topic "combat"
+  @engine_topic "engine"
 
   # same practically-forever max age the :calibration/:session stamps use
   @session_max_age_ms 4_000_000_000
@@ -150,7 +151,10 @@ defmodule Pokex.Bots.Guardian do
       mini_game_running?: false,
       # last time a REAL sign of life was SEEN (monotonic ms; nil = none
       # yet this run) — the anti-stagnation rule measures silence from here
-      last_activity_at: nil
+      last_activity_at: nil,
+      # how many the brain was fighting the last time it was engaged: a list that
+      # empties after that is a pile killed, whether or not anyone counted a kill
+      engaged_with: 0
     }
 
     case name do
@@ -162,9 +166,12 @@ defmodule Pokex.Bots.Guardian do
   @impl true
   def init(state) do
     # kills (stop condition + stagnation) and hooked fish (stagnation) ride
-    # the snapshots the workers already broadcast
+    # the snapshots the workers already broadcast; the brain's picture says
+    # when a pile the bot fought is gone (the Auto Combo's chain kills with no
+    # target, so the combat worker counts no kill for it)
     Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, @engine_topic)
     # the REAL fish (won mini-game) and whether the watcher is up
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     if state.auto_poll?, do: schedule_poll(state.poll_ms)
@@ -221,6 +228,26 @@ defmodule Pokex.Bots.Guardian do
   def handle_info({:mini_game, snapshot}, state) do
     state = %{state | mini_game_running?: Map.get(snapshot, :state) != :off}
     {:noreply, track_counter(state, :clears, get_in(snapshot, [:counters, :clears]))}
+  end
+
+  # A PILE THAT VANISHES AFTER THE BRAIN ENGAGED IT IS ACTIVITY. In the Auto
+  # Combo the chain kills without a target, so the combat worker's kill counter
+  # never moves — and on 2026-09-08 the stagnation alarm rang every five
+  # minutes through a four-hour hunt that killed a pile a minute.
+  def handle_info({:engine, picture, orders}, state) when is_map(picture) and is_map(orders) do
+    enemies = Map.get(picture, :enemies)
+
+    cond do
+      Map.get(orders, :phase) == :engaged and is_integer(enemies) and enemies > 0 ->
+        {:noreply, %{state | engaged_with: max(state.engaged_with, enemies)}}
+
+      enemies == 0 and state.engaged_with > 0 ->
+        {:noreply,
+         %{state | engaged_with: 0, last_activity_at: System.monotonic_time(:millisecond)}}
+
+      true ->
+        {:noreply, state}
+    end
   end
 
   # the subscribed topics also carry {:*_log, ...} / {:panic, ...} chatter — not ours

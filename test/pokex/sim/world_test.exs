@@ -1527,4 +1527,163 @@ defmodule Pokex.Sim.WorldTest do
   end
 
   defp neighbour({x, y, z}), do: {x + 1, y, z}
+
+  # THE SIEGE EYE ON THE BENCH: the world draws the bars and production's eye
+  # (`CrowdScan.place/4`) places them — and the world's truth is the ruler the
+  # eye's reading is measured against.
+  describe "the siege eye (the marks)" do
+    alias Pokex.Bots.CrowdScan
+    alias Pokex.Bots.Engine.Siege
+
+    defp empty_field(knobs \\ %{}),
+      do: World.new(straight(), knobs: Map.merge(%{nest_size: 0, stray_chance_pct: 0}, knobs))
+
+    defp creature(id, pos, extra \\ %{}) do
+      Map.merge(
+        %{
+          id: id,
+          name: "Venonat",
+          nest: 0,
+          pos: pos,
+          hp: 50,
+          max_hp: 100,
+          spawn: pos,
+          woke?: true,
+          walk_debt_ms: 0,
+          bite_debt_ms: 0,
+          asleep_from: 0,
+          asleep_until: 0
+        },
+        extra
+      )
+    end
+
+    defp with_creatures(world, creatures), do: %{world | mobs: creatures}
+
+    test "every creature on screen is a bar one tile above the body, with its health and skull" do
+      {px, py, pz} = empty_field().pos
+      world = with_creatures(empty_field(), [creature(1, {px + 2, py + 1, pz})])
+
+      %{marks: marks, me: {mx, my}, tile: tile} = World.marks(world)
+
+      assert [_pet, mark] = Enum.sort_by(marks, & &1.pet?, :desc)
+      assert mark.point == {mx + 2 * tile, my + 1 * tile - tile}
+      assert mark.hp_pct == 50
+      assert mark.skull? == true
+      assert mark.pet? == false
+    end
+
+    test "with no skulls in the area no bar has one" do
+      {px, py, pz} = empty_field().pos
+      world = with_creatures(empty_field(%{heavy?: false}), [creature(1, {px + 2, py, pz})])
+
+      refute Enum.any?(World.marks(world).marks, & &1.skull?)
+    end
+
+    test "the pokemon is the boxed mark, at the Pokebar's health" do
+      world = empty_field()
+      %{marks: marks} = World.marks(world)
+
+      assert [pet] = marks
+      assert pet.pet? and pet.hp_pct == 100
+    end
+
+    test "a recalled pokemon leaves no mark" do
+      world = empty_field()
+      world = %{world | own: %{world.own | out?: false}}
+
+      assert World.marks(world).marks == []
+    end
+
+    test "off screen there is no bar" do
+      {px, py, pz} = empty_field().pos
+      world = with_creatures(empty_field(), [creature(1, {px + 9, py, pz})])
+
+      assert [%{pet?: true}] = World.marks(world).marks
+    end
+
+    test "production's eye reads the tiles the world placed" do
+      {px, py, pz} = empty_field().pos
+      # the pokemon is born at his left side: {px - 1, py}
+      world =
+        with_creatures(empty_field(), [
+          creature(1, {px - 2, py, pz}),
+          creature(2, {px + 3, py + 2, pz})
+        ])
+
+      %{marks: marks, me: me, tile: tile} = World.marks(world)
+
+      placed = CrowdScan.place(marks, me, tile, pet_hp: 100)
+
+      assert placed.pet.dx == -1 and placed.pet.dy == 0
+
+      assert [%{dx: -2, dy: 0, from_me: 2, from_pet: 1}, %{dx: 3, dy: 2, from_me: 3, from_pet: 4}] =
+               placed.hostiles
+    end
+
+    test "mark_miss_pct hides bars, always the same ones on the same tick" do
+      {px, py, pz} = empty_field().pos
+      creatures = for i <- 1..8, do: creature(i, {px + 2, py - 4 + i, pz})
+      world = with_creatures(empty_field(%{mark_miss_pct: 50}), creatures)
+
+      seen = fn -> world |> World.marks() |> Map.fetch!(:marks) |> Enum.count(&(not &1.pet?)) end
+
+      assert seen.() < 8
+      assert seen.() == seen.()
+
+      assert with_creatures(empty_field(%{mark_miss_pct: 100}), creatures)
+             |> World.marks()
+             |> Map.fetch!(:marks)
+             |> Enum.count(&(not &1.pet?)) == 0
+    end
+
+    test "the world's truth: pinned, asleep, loose, and the gap" do
+      {px, py, pz} = empty_field().pos
+      world = empty_field()
+
+      world =
+        with_creatures(world, [
+          creature(1, {px - 2, py, pz}),
+          creature(2, {px - 2, py + 1, pz}, %{asleep_until: world.clock + 3_000}),
+          creature(3, {px + 3, py, pz})
+        ])
+
+      truth = World.siege_truth(world)
+
+      assert truth == %{
+               pinned: 2,
+               asleep: 1,
+               loose: 1,
+               on_screen: 3,
+               nearest_awake_from_me: 2,
+               gap_ok?: false
+             }
+
+      assert World.siege_truth(world, guard_tiles: 2).gap_ok? == true
+    end
+
+    test "with a perfect eye and nobody asleep, the brain counts what the world counts" do
+      {px, py, pz} = empty_field().pos
+
+      world =
+        with_creatures(empty_field(), [
+          creature(1, {px - 2, py, pz}),
+          creature(2, {px - 2, py + 1, pz}),
+          creature(3, {px + 3, py, pz}),
+          creature(4, {px + 5, py - 3, pz})
+        ])
+
+      %{marks: marks, me: me, tile: tile} = World.marks(world)
+      reading = marks |> CrowdScan.place(me, tile, pet_hp: 100) |> Map.put(:at, world.clock)
+      config = %{pin_tiles: 1, stun_reach_tiles: 3, stun_hold_ms: 4_000}
+      siege = Siege.build(reading, 4, nil, config, world.clock)
+      truth = World.siege_truth(world)
+
+      assert siege.pinned == truth.pinned
+      assert siege.loose == truth.loose
+      assert siege.unseen == 0
+      assert siege.nearest_awake_from_me == truth.nearest_awake_from_me
+      assert siege.recall_gap_ok? == truth.gap_ok?
+    end
+  end
 end

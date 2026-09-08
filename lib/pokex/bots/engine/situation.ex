@@ -110,6 +110,9 @@ defmodule Pokex.Bots.Engine.Situation do
           control_back_in_ms: non_neg_integer | nil,
           revive_left: non_neg_integer | nil,
           blind?: boolean,
+          # the eye's reading (`Pokex.Bots.CrowdScan`), raw, or nil without one fresh
+          # enough; judged by `Engine.Siege` inside the brain's tick
+          crowd: map | nil,
           at: integer
         }
 
@@ -194,6 +197,7 @@ defmodule Pokex.Bots.Engine.Situation do
       # "revive é de graça" (o simulador devolve tudo por 500ms) de "revive é um
       # item que acabou às 23:43" (a noite de 27→28/08).
       revive_left: Map.get(inputs, :revive_left),
+      crowd: Map.get(inputs, :crowd),
       # QUANTO FALTA DA CORRENTE DO JOGO (`Combat.Combo`), em ms — nil quando esta
       # caçada não tem combo. É a testemunha que impede um revive de recolher o
       # pokémon com metade das skills por sair: a corrente é indivisível, e

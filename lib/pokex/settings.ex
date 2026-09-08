@@ -697,6 +697,8 @@ defmodule Pokex.Settings do
     crowd_fact_max_age_ms: 600,
     # How much the evidence picture is shrunk before it is drawn.
     crowd_scan_evidence_shrink: 4,
+    # "Colado" no pokémon: a hostile this many tiles from it (or fewer) is biting it.
+    engine_pin_tiles: 1,
     # --- The watchman and the native sound (2026-09-07) -----------------------------------------
     # A Mac system sound for the sectors with no mute button (:mortal, :setup), played by
     # `Pokex.Bots.Siren` through `afplay` — heard with the game in front and the panel hidden.
@@ -902,6 +904,7 @@ defmodule Pokex.Settings do
     crowd_scan_every_ms: 100..5_000,
     crowd_fact_max_age_ms: 200..5_000,
     crowd_scan_evidence_shrink: 1..16,
+    engine_pin_tiles: 1..3,
     watchman_every_ms: 1_000..600_000,
     watchman_repeat_ms: 5_000..3_600_000,
     watchman_grace_ms: 0..120_000,

@@ -489,4 +489,20 @@ defmodule Pokex.Bots.Engine.SituationTest do
       assert picture.heavy? == false
     end
   end
+
+  # THE EYE TRAVELS ON THE PICTURE, as `CrowdWatch` publishes it: the picture
+  # does not interpret it (that is `Engine.Siege`'s, inside the brain), it only
+  # carries it — and without an eye the field is nil, never an empty picture.
+  describe "the siege eye" do
+    test "the eye's reading crosses the picture untouched" do
+      eye = %{read?: true, at: 900, me: {0, 0}, pet: nil, hostiles: [], listed: 3}
+      picture = Situation.build(inputs(%{crowd: eye}), @config, 1_000)
+
+      assert picture.crowd == eye
+    end
+
+    test "without an eye the field is nil" do
+      assert Situation.build(inputs(), @config, 1_000).crowd == nil
+    end
+  end
 end

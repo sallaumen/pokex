@@ -37,6 +37,7 @@ defmodule Pokex.Sim.Bench do
 
   alias Pokex.Bots.Cavebot.Route
   alias Pokex.Bots.Combat.Loadout
+  alias Pokex.Bots.CrowdScan
   alias Pokex.Bots.Engine.Inputs
   alias Pokex.Pokedex.SkillProfile
   alias Pokex.Bots.Engine.Config
@@ -638,6 +639,11 @@ defmodule Pokex.Sim.Bench do
       # esta dungeon (`boss_color`).
       especial?: World.boss_color_seen?(world),
       boss_tiles: World.boss_tiles(world),
+      # THE EYE, placed by the production eye: the world draws the bars
+      # (`World.marks/1`) and `CrowdScan.place/4` — the same function the
+      # game's `CrowdWatch` runs — says where everyone stands. A blind world has
+      # no eye, which is nil, never an empty picture.
+      crowd: crowd(world, battle),
       boss_asleep_left_ms: World.boss_asleep_left_ms(world),
       prev: previous
     }
@@ -750,6 +756,16 @@ defmodule Pokex.Sim.Bench do
   # entra quando a caçada realmente a usa. Uma tecla que nunca é apertada está
   # sempre pronta, e uma tecla sempre pronta dentro desta lista faz `spent?`
   # nunca ser verdadeiro.
+  defp crowd(_world, %{enemies: nil}), do: nil
+
+  defp crowd(world, battle) do
+    %{marks: marks, me: me, tile: tile} = World.marks(world)
+
+    marks
+    |> CrowdScan.place(me, tile, pet_hp: world.own.hp_pct)
+    |> Map.merge(%{at: world.clock, listed: length(battle.enemies)})
+  end
+
   defp control_back_in_ms(world) do
     case keys_of_kind(world, :crowd) do
       [] -> nil

@@ -353,6 +353,10 @@ defmodule Pokex.Bots.Engine.Worker do
       revive_left: ReviveLedger.remaining(),
       combo_left_ms: Combo.left_ms(mode, now),
       combo_since_end_ms: Combo.since_end_ms(mode, now),
+      # THE EYE (`CrowdWatch`'s `:crowd` fact): where the creatures stand, in
+      # tiles from him and from his pokémon. Stale is nil — no eye, not an old
+      # picture — and `Engine.Siege` says what it would decide with it.
+      crowd: crowd(now),
       # O ESPECIAL VISTO PELA COR (`ShinyGuard`) — o shiny, que é o mesmo bicho
       # que ele chama de chefe. É o único canal que funciona no jogo dele hoje:
       # o nome não separa e o grit precisa da luta já aberta. Fato velho não
@@ -377,6 +381,13 @@ defmodule Pokex.Bots.Engine.Worker do
   defp battle(now) do
     case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now) do
       {:ok, obs} -> obs
+      _stale_or_missing -> nil
+    end
+  end
+
+  defp crowd(now) do
+    case WorldState.get(:crowd, Settings.get(:crowd_fact_max_age_ms), now) do
+      {:ok, reading} -> reading
       _stale_or_missing -> nil
     end
   end
@@ -483,7 +494,10 @@ defmodule Pokex.Bots.Engine.Worker do
       stable_ms: picture.stable_for_ms,
       growing: picture.growing?,
       hp: picture.own_hp,
-      why: orders.why
+      why: orders.why,
+      # what the eye would say about a recall (`Engine.Siege.record/1`), on the
+      # revive orders only; nil elsewhere and with no eye
+      siege: Map.get(orders, :siege)
     })
   end
 

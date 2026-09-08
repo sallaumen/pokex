@@ -93,11 +93,14 @@ defmodule Pokex.Bots.Engine.ConfigTest do
     # `Inputs` e da rotação e passou a morar num lugar só, que o modo escolhe.
     # `single_target` e `shield_from` são lidos lá — e são regras que o bot TEM,
     # não regras que só a bancada obedece, que é a pergunta deste guarda.
+    # …E O OLHO DO CERCO (08/09): `Engine.Siege` julga dentro do `Logic.tick`
+    # com a mesma config, e `pin_tiles` é lido lá.
     fontes =
       [
         "lib/pokex/bots/engine/logic.ex",
         "lib/pokex/bots/engine/worker.ex",
         "lib/pokex/bots/engine/situation.ex",
+        "lib/pokex/bots/engine/siege.ex",
         "lib/pokex/bots/engine/inputs.ex",
         "lib/pokex/bots/combat/plan.ex",
         "lib/pokex/bots/combat/plan/standard.ex"

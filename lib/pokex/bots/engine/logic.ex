@@ -144,6 +144,7 @@ defmodule Pokex.Bots.Engine.Logic do
   """
 
   alias Pokex.Bots.Engine.Orders
+  alias Pokex.Bots.Engine.Siege
 
   # ONLY what the next tick needs to answer differently. `why` used to live here
   # too, written every tick and read by nobody: the sentence travels on the
@@ -191,7 +192,16 @@ defmodule Pokex.Bots.Engine.Logic do
             # O SOBREVIVENTE DA CORRENTE: quem tomou a área inteira e ficou de pé
             # (`%{since, chains}`; nil = ninguém). Um sobrevivente é forte por
             # definição, e a resposta é ficar: revive → corrente → … até cair.
-            survivors: nil
+            survivors: nil,
+            # THE STUN'S COVER (`Engine.Siege.cover/3`): where the pokémon stood
+            # and which creatures the control reached when it went out. It is
+            # what lets the eye tell a creature asleep in the pile from one that
+            # arrived after — the picture alone cannot. nil = no stun this fight.
+            stun_cover: nil,
+            # THE AREA IS HEAVY (skulls), latched for the fight: an effect over
+            # the pile hides skulls without changing the area. An empty list
+            # clears it.
+            heavy_area?: false
 
   @type t :: %__MODULE__{}
   @type orders :: Orders.t()
@@ -216,16 +226,24 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp tick(logic, world, config, now) do
     situation = world.situation
+    # the edge where the client's chain ENDS in a control: read before
+    # `track_survivors/3` consumes it
+    chain_end? = logic.chain_seen? and Map.get(situation, :combo_left_ms) == 0
 
     logic =
       logic
       |> track_hp_blind(situation, now)
       |> track_bar_blind(situation, now)
       |> track_survivors(situation, now)
+      |> track_heavy(situation)
+      |> cover_chain_end(chain_end?, situation, config, now)
+
+    siege = siege(logic, situation, config, now)
 
     %{
-      logic: logic,
+      logic: latch_heavy(logic, siege),
       s: with_survivors(situation, logic),
+      siege: siege,
       hunt: Map.get(world, :hunt),
       hands: Map.get(world, :hands) || %{},
       config: config,
@@ -233,6 +251,66 @@ defmodule Pokex.Bots.Engine.Logic do
       band: band(situation, config)
     }
   end
+
+  # --- the siege eye (shadow) --------------------------------------------------
+
+  # THE EYE JUDGES EVERY TICK, and this PR only writes what it would say. The
+  # reading travels on the picture (`situation.crowd`, `CrowdWatch`'s fact when
+  # it is fresh; nil when there is no eye), the list's count says how many it
+  # cannot see, and the brain's own stun cover says who is asleep.
+  defp siege(logic, situation, config, now) do
+    Siege.build(
+      Map.get(situation, :crowd),
+      Map.get(situation, :enemies),
+      logic.stun_cover,
+      config,
+      now,
+      heavy?: logic.heavy_area?
+    )
+  end
+
+  defp track_heavy(logic, %{enemies: 0}), do: %{logic | heavy_area?: false}
+  defp track_heavy(logic, _pile_or_blind), do: logic
+
+  defp latch_heavy(logic, %{heavy?: true}), do: %{logic | heavy_area?: true}
+  defp latch_heavy(logic, _light_or_unread), do: logic
+
+  # In Auto Combo the chain ends in the control, so the chain's end IS the
+  # stun: the cover is taken there, from the picture of that very tick.
+  defp cover_chain_end(logic, false, _situation, _config, _now), do: logic
+
+  defp cover_chain_end(logic, true, situation, config, now) do
+    %{logic | stun_cover: cover_now(situation, config, now)}
+  end
+
+  defp cover_now(situation, config, now) do
+    Map.get(situation, :crowd)
+    |> Siege.build(Map.get(situation, :enemies), nil, config, now)
+    |> Siege.cover(config, now)
+  end
+
+  # THE CONTROL WENT OUT: the sleep is stamped (as before) and the cover taken.
+  defp stun!(logic, t),
+    do: %{mark(logic, :stunned, t.now) | stun_cover: Siege.cover(t.siege, t.config, t.now)}
+
+  # The eye's sentence rides on every revive the brain gives or holds — and
+  # only when there is an eye to speak: with no reading in the picture the
+  # orders are exactly what they were, which is what keeps a night's diary
+  # comparable with the one before.
+  defp shadow_siege({logic, orders}, %{s: %{crowd: crowd}} = t) when not is_nil(crowd) do
+    if orders.revive in [:now, :prepare] or String.contains?(orders.why, "segurando o revive") do
+      {logic,
+       %{
+         orders
+         | why: orders.why <> " · o olho diria: " <> Siege.summary(t.siege),
+           siege: Siege.record(t.siege)
+       }}
+    else
+      {logic, orders}
+    end
+  end
+
+  defp shadow_siege(decision, _no_eye), do: decision
 
   # O SOBREVIVENTE DA CORRENTE. "Quando não consegue matar 1 pokémon com um
   # combo, sobra 1, ele sai correndo tentando mobar (…) quando tem 1 shiny
@@ -353,7 +431,7 @@ defmodule Pokex.Bots.Engine.Logic do
   defp decide(t) do
     t = %{t | logic: audit_reset(t)}
 
-    t |> choose() |> hold_until_reset_seen(t)
+    t |> choose() |> hold_until_reset_seen(t) |> shadow_siege(t)
   end
 
   # O RESET É UMA PROMESSA COBRADA POR IMAGEM. "Temos que ter certeza de que
@@ -1113,7 +1191,7 @@ defmodule Pokex.Bots.Engine.Logic do
     # no relógio de uma luta que já estava em curso — e chamando de FORA do
     # `engaged` (a fila das bandas) é ele que garante que a luta é uma luta,
     # não um `:idle` narrando fogo.
-    {t.logic |> enter(:engaged, t.now) |> mark(:stunned, t.now),
+    {t.logic |> enter(:engaged, t.now) |> stun!(t),
      Orders.standing_and_firing(
        :engaged,
        t.band,
@@ -1128,7 +1206,7 @@ defmodule Pokex.Bots.Engine.Logic do
       # AGORA, junto com o dano — guardá-lo pro resgate é guardá-lo pra um
       # resgate que, numa hunt séria, chega tarde demais.
       stun_now?(t) ->
-        {mark(t.logic, :stunned, t.now),
+        {stun!(t.logic, t),
          Orders.standing_and_firing(
            :engaged,
            t.band,
@@ -1162,7 +1240,7 @@ defmodule Pokex.Bots.Engine.Logic do
       # `stun_window?` do tique seguinte — que é exatamente a sequência que ele
       # descreveu: controle, algum dano, revive.
       stun_before_reset?(t) ->
-        {mark(t.logic, :stunned, t.now),
+        {stun!(t.logic, t),
          Orders.standing_and_firing(
            :engaged,
            t.band,
@@ -2084,7 +2162,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # revive — exatamente o "desarme falso" que custou 39 minutos de kite em
   # 28/08, mas do lado perigoso.
   defp stamp_stun(t) do
-    if stun_in_reserve(t) == [], do: t.logic, else: mark(t.logic, :stunned, t.now)
+    if stun_in_reserve(t) == [], do: t.logic, else: stun!(t.logic, t)
   end
 
   # O controle DO POKÉMON (não o da rotação, que no Auto Combo é vazio), e só

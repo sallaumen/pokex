@@ -50,6 +50,8 @@ defmodule Pokex.Bots.Engine.Config do
     stun_window_ms: :engine_stun_window_ms,
     stun_hold_ms: :engine_stun_hold_ms,
     stun_reach_tiles: :engine_stun_reach_tiles,
+    # "colado" no pokémon: a distância em tiles que faz um bicho contar como mordendo
+    pin_tiles: :engine_pin_tiles,
     rescue_floor_ms: :rescue_cooldown_ms,
     # a PEGADA do stun é o mesmo fenômeno que o settle do resgate espera —
     # um número medido, dois usos

@@ -41,7 +41,7 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
       stair_step_taps: 1,
       hp_abort_pct: 0,
       hp_resume_pct: 80,
-      park_tiles: nil
+      park_on_stop: true
     }
   end
 
@@ -119,6 +119,62 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
       {_logic, action} = Logic.step(logic, world(%{route_hold?: true}), 100)
 
       assert action == :none
+    end
+
+    # THE PARK BY THE EYE: while the road holds for a pile, the brain names the
+    # tile (two toward the pile, `Engine.Siege.park_spot/2`) and the road sends
+    # the pokémon there ONCE per stop — never once per tick, and never in
+    # place of a fight order.
+    test "a hold with a spot parks the pokemon once, and again only after walking" do
+      logic = walking(logic())
+      held = world(%{route_hold?: true, park: {2, 0}})
+
+      {logic, first} = Logic.step(logic, held, 100)
+      {logic, second} = Logic.step(logic, held, 200)
+
+      assert first == {:park, {2, 0}}
+      assert second == :none
+
+      # the road walks again: the stop is over…
+      {logic, _walk} = Logic.step(logic, world(), 300)
+      # …and the next hold parks anew
+      {_logic, again} = Logic.step(logic, held, 400)
+      assert again == {:park, {2, 0}}
+    end
+
+    test "a hold without a spot (no eye, or the pile on top of him) parks nothing" do
+      logic = walking(logic())
+
+      {_logic, action} = Logic.step(logic, world(%{route_hold?: true, park: nil}), 100)
+
+      assert action == :none
+    end
+
+    test "the knob turns the park off" do
+      logic = Logic.new(route(), %{config() | park_on_stop: false}) |> walking()
+
+      {_logic, action} = Logic.step(logic, world(%{route_hold?: true, park: {2, 0}}), 100)
+
+      assert action == :none
+    end
+
+    test "in a fight the park fills a tick that had nothing else to do" do
+      logic = lutando(logic())
+
+      held =
+        world(%{
+          engine?: true,
+          enemies: 3,
+          combat_state: :fighting,
+          route_hold?: true,
+          park: {0, -2}
+        })
+
+      {logic, first} = Logic.step(logic, held, 100)
+      {_logic, second} = Logic.step(logic, held, 200)
+
+      assert first == {:park, {0, -2}}
+      assert second == :none
     end
 
     test "without the ask, the route walks" do

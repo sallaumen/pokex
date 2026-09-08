@@ -66,7 +66,10 @@ defmodule Pokex.Sim.Hands do
             # e quantas vezes ele já desviou sem sair do lugar — é o que faz o
             # lado alternar em vez de empurrar a mesma pedra
             sidestep: nil,
-            sidestep_try: 0
+            sidestep_try: 0,
+            # the pokémon was already sent to its spot during THIS hold — the
+            # cavebot's own once-per-stop (`Cavebot.Logic.park_or/2`), mirrored
+            parked?: false
 
   @type t :: %__MODULE__{}
 
@@ -124,9 +127,22 @@ defmodule Pokex.Sim.Hands do
 
     {world, hands} = rescue_combo(world, orders, hands, config)
     {world, hands} = support(world, orders, hands, config)
+    {world, hands} = park(world, orders, hands, config)
 
     {world, %{advance(hands, world, orders, config) | prev_hp: world.own.hp_pct}}
   end
+
+  # THE PARK, the cavebot's way: while the road holds and the brain names a
+  # spot, ONE middle click per stop sends the pokémon there; the road walking
+  # again is the end of the stop. Off by the same knob the cavebot reads.
+  defp park(world, %{route: :hold, park: {_dx, _dy} = tiles}, %{parked?: false} = hands, config) do
+    if Map.get(config, :park_on_stop, true),
+      do: {World.park_pet(world, tiles), %{hands | parked?: true}},
+      else: {world, hands}
+  end
+
+  defp park(world, %{route: :hold}, hands, _config), do: {world, hands}
+  defp park(world, _walking, hands, _config), do: {world, %{hands | parked?: false}}
 
   @doc """
   Finishes a rescue that is mid-combo, with no orders involved.

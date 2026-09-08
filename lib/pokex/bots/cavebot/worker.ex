@@ -94,7 +94,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     stair_probe_ms: :cavebot_stair_probe_ms,
     stair_max_probes: :cavebot_stair_max_probes,
     stair_step_ms: :cavebot_stair_step_ms,
-    stair_step_taps: :cavebot_stair_step_taps
+    stair_step_taps: :cavebot_stair_step_taps,
+    park_on_stop: :cavebot_park_on_stop
   }
 
   def topic, do: @topic
@@ -496,6 +497,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
         # The retreat (fenced R7): the spent bar backs off over ground already cleared
         # instead of collecting fresh spawn ahead; see `Logic.retreat/3`.
         route_back?: Map.get(orders, :route) == :back,
+        # Where the pokémon goes while the road holds, in tiles from him — the
+        # eye's answer (`Engine.Siege.park_spot/2`); see `Logic.park_or/2`.
+        park: Map.get(orders, :park),
         # The brain gave up on the revive (phase :stranded): not a wait but the end of
         # the night. Logic turns it into a DANGEROUS block that stops the fleet and does
         # not come back on its own; see `Engine.Logic`, the floor brake.
@@ -626,19 +630,20 @@ defmodule Pokex.Bots.Cavebot.Worker do
     stepped
   end
 
-  # The middle click he makes himself when he finishes gathering: it parks the
-  # active pokémon on a chosen tile so the pile closes in AROUND IT. Recorded
-  # from his own hand (Cavebot.Recording.mark_park/4), replayed here.
-  def translate(state, {:park, spot}) do
+  # The middle click he makes himself when the pile is coming: it sends the
+  # active pokémon to a tile so the pile closes in AROUND IT. The tile is the
+  # brain's (two toward the pile the eye sees), turned into a screen point
+  # HERE, where the calibration lives.
+  def translate(state, {:park, {dx, dy} = tiles}) do
     state = release_walk(state)
 
-    case spot_point(spot) do
+    case tile_point(tiles) do
       nil ->
         log(:macro, "🖱️ não mandei o pokémon: falta calibrar onde o personagem fica na tela")
         state
 
       point ->
-        park_click(state, point)
+        park_click(state, point, "#{dx}, #{dy} tiles de você, do lado da pilha")
     end
   end
 
@@ -909,7 +914,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   defp skills_text(categories),
     do: Enum.map_join(categories, ", ", &"#{SkillProfile.icon(&1)} #{SkillProfile.label(&1)}")
 
-  defp park_click(state, point) do
+  defp park_click(state, point, where) do
     times = Settings.get(:cavebot_park_clicks)
     gap = Settings.get(:cavebot_park_gap_ms)
 
@@ -920,24 +925,19 @@ defmodule Pokex.Bots.Cavebot.Worker do
     body = state.body
     spawn(fn -> body.perform(actions, :high) end)
 
-    log(:macro, "🖱️ pokémon posicionado em #{elem(point, 0)}, #{elem(point, 1)} (#{times}x)")
+    log(:macro, "🖱️ pokémon mandado a #{where} (#{times}x)")
     state
   end
 
-  # A spot the Logic named, turned into a screen point HERE — where the
-  # calibration lives. A distance in tiles is measured from the character, so
-  # it survives the game window moving; a recorded click is taken as it was
-  # made. Nothing anchors the character = nothing is clicked, and it is said.
-  defp spot_point({:point, {x, y}}), do: {x, y}
-
-  defp spot_point({:tiles, {_dx, _dy} = tiles}) do
+  # A distance in tiles is measured from the character, so it survives the
+  # game window moving. Nothing anchors the character = nothing is clicked,
+  # and it is said.
+  defp tile_point({_dx, _dy} = tiles) do
     case Calibration.load() do
       {:ok, calib} -> Calibration.tile_point(calib, tiles)
       _uncalibrated -> nil
     end
   end
-
-  defp spot_point(_nothing), do: nil
 
   # One key, and no calibration to be missing: the choreography this borrowed
   # used to need the portrait marked, and a hunt could reach the corner only to
@@ -1060,16 +1060,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end)
   end
 
-  # Two shapes, on purpose: the scalar knobs come straight from Settings, and the hunt's DEFAULT
-  # park spot is a pair — where the pokémon goes at a kill spot he never marked one for.
-  defp config do
-    @config_keys
-    |> Map.new(fn {key, setting} -> {key, Settings.get(setting)} end)
-    |> Map.put(
-      :park_tiles,
-      {Settings.get(:cavebot_park_tiles_x), Settings.get(:cavebot_park_tiles_y)}
-    )
-  end
+  defp config, do: Map.new(@config_keys, fn {key, setting} -> {key, Settings.get(setting)} end)
 
   # :minimap is THIS worker's feed (monitored + reattached); :battle is already
   # monitored by Combat.Worker while it runs — here we only register demand so

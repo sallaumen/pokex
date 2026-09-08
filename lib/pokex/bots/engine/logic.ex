@@ -431,8 +431,32 @@ defmodule Pokex.Bots.Engine.Logic do
   defp decide(t) do
     t = %{t | logic: audit_reset(t)}
 
-    t |> choose() |> hold_until_reset_seen(t) |> shadow_siege(t)
+    t |> choose() |> hold_until_reset_seen(t) |> shadow_siege(t) |> with_park(t)
   end
+
+  # THE POKÉMON PARKS TWO TILES FROM HIM, on the pile's side, whenever the road
+  # holds for a pile and the eye sees it: one empty square between the two, so
+  # the pile closes around the POKÉMON and every one of its eight sides is a
+  # monster's, not his. The old park — a click recorded at a corner, in the
+  # ultrawide's pixels, default 0/0 — is gone with this (08/09).
+  #
+  # NOT WITH THE SPECIAL ON SCREEN. The boss posture (stun at every chain's end,
+  # revive inside the measured sleep) has its physics measured with the pokémon
+  # at his side; sent two tiles toward the boss it meets the bite a second
+  # earlier, and the bench lost a cycle of the combo in one seed of three
+  # (08/09). A boss is one creature — it needs no eight mouths around it.
+  @park_gap_tiles 2
+
+  defp with_park({logic, %{route: :hold} = orders}, t) do
+    park =
+      if Map.get(t.s, :own_out?) == true and not heavy?(t),
+        do: Siege.park_spot(t.siege, @park_gap_tiles),
+        else: nil
+
+    {logic, %{orders | park: park}}
+  end
+
+  defp with_park(decision, _walking), do: decision
 
   # O RESET É UMA PROMESSA COBRADA POR IMAGEM. "Temos que ter certeza de que
   # os cooldowns foram resetados antes de continuar a rota — se não tiver

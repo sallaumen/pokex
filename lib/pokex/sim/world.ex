@@ -370,7 +370,9 @@ defmodule Pokex.Sim.World do
               # sem stun no campo quer dizer que eu morri"
               bosses_born: 0,
               bosses_dead: 0,
-              boss_awake_max_ms: 0
+              boss_awake_max_ms: 0,
+              # the middle clicks that sent the pokémon to its spot (`park_pet/2`)
+              parks: 0
             },
             # o streak corrente da exposição acordada, e a hora do próximo
             # nascimento (nil = ainda não sorteada)
@@ -1529,6 +1531,24 @@ defmodule Pokex.Sim.World do
   def boss_color_seen?(_sem_regra_ensinada), do: false
 
   @doc """
+  THE MIDDLE CLICK: the pokémon is sent `{dx, dy}` tiles from him. It lands on
+  that square when it is free and on the nearest free one otherwise (the game
+  walks it there, it does not stack it on a monster). A recalled pokémon goes
+  nowhere.
+  """
+  @spec park_pet(t, {integer, integer}) :: t
+  def park_pet(%{own: %{out?: true} = own} = world, {dx, dy}) do
+    {x, y, z} = world.pos
+    target = {x + dx, y + dy, z}
+    blocked = MapSet.delete(occupied(world), own.pos)
+    spot = if MapSet.member?(blocked, target), do: nearest_free(target, blocked), else: target
+
+    %{world | own: %{own | pos: spot, walk_debt_ms: 0}, stats: bump(world.stats, :parks, 1)}
+  end
+
+  def park_pet(world, _tiles), do: world
+
+  @doc """
   THE EYE'S PICTURE: the creature bars on screen as `Pokex.Vision.CreatureMarks`
   would find them, in a synthetic screen with the character at `me` and the
   tile `tile` — the bench hands them to `CrowdScan.place/4`, the same function
@@ -1873,21 +1893,30 @@ defmodule Pokex.Sim.World do
   # ele teria andado dormindo.
   defp dozing(mob), do: %{mob | walk_debt_ms: 0}
 
+  # NOTICING IS HIS. A creature wakes when HE comes within its reach: its rope
+  # is measured from him (`leashed?/2`, and `coherent_aggro/1` ties the reach to
+  # the rope), so a pokémon sent two tiles ahead of him (`park_pet/2`) cannot
+  # wake what his rope would drop on the spot. Once awake it chases whatever it
+  # can reach — the pokémon first, as his rule says.
   defp walk_awake(mob, world, dt_ms, blocked, target) do
-    if distance(mob.pos, target) > world.knobs.aggro_tiles do
-      mob
-    else
-      owed = mob.walk_debt_ms + dt_ms
-      per_tile = world.knobs.mob_ms_per_tile
-      tiles = div(owed, per_tile)
-
-      %{
-        mob
-        | pos: chase(mob.pos, target, tiles, blocked),
-          walk_debt_ms: rem(owed, per_tile),
-          woke?: true
-      }
+    cond do
+      distance(mob.pos, target) > world.knobs.aggro_tiles -> mob
+      not mob.woke? and distance(mob.pos, world.pos) > world.knobs.aggro_tiles -> mob
+      true -> walk_toward(mob, world, dt_ms, blocked, target)
     end
+  end
+
+  defp walk_toward(mob, world, dt_ms, blocked, target) do
+    owed = mob.walk_debt_ms + dt_ms
+    per_tile = world.knobs.mob_ms_per_tile
+    tiles = div(owed, per_tile)
+
+    %{
+      mob
+      | pos: chase(mob.pos, target, tiles, blocked),
+        walk_debt_ms: rem(owed, per_tile),
+        woke?: true
+    }
   end
 
   # HIS rule, in his words: a monster that can see the pokemon focuses the

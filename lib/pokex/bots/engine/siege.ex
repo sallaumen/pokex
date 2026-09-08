@@ -155,6 +155,25 @@ defmodule Pokex.Bots.Engine.Siege do
 
   def cover(_unread_or_no_pet, _config, now), do: %{at: now, pet: nil, points: []}
 
+  @doc """
+  WHERE TO PARK THE POKÉMON when the hunt stops for a pile: `gap` tiles from
+  HIM toward the pile the eye sees, so one empty tile stays between the two —
+  "perto demais eu ocupo uma das oito bocas e ele luta com 7". The direction
+  is the pile's centre, snapped to one of the eight; nil without an eye,
+  without hostiles, or with the pile already centred on him.
+  """
+  @spec park_spot(t, pos_integer) :: {integer, integer} | nil
+  def park_spot(%{read?: true, hostiles: [_ | _] = hostiles}, gap) do
+    count = length(hostiles)
+    cx = Enum.sum(Enum.map(hostiles, & &1.dx)) / count
+    cy = Enum.sum(Enum.map(hostiles, & &1.dy)) / count
+    reach = max(abs(cx), abs(cy))
+
+    if reach < 0.5, do: nil, else: {gap * round(cx / reach), gap * round(cy / reach)}
+  end
+
+  def park_spot(_no_eye_or_nobody, _gap), do: nil
+
   @doc "One short sentence for the feed: what the eye would say about a recall now."
   @spec summary(t) :: String.t()
   def summary(%{read?: false, age_ms: age}) when is_integer(age),

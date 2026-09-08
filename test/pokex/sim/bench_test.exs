@@ -75,6 +75,21 @@ defmodule Pokex.Sim.BenchTest do
            "a cobertura do fim da corrente nunca pôs ninguém pra dormir"
   end
 
+  # …AND THE PARK: the pile closing makes the road hold, the eye names the
+  # side, and the pokémon is sent two tiles toward it — once per stop.
+  test "the pokemon parks toward the pile when the road holds for it" do
+    result = run("pilha-que-fecha", duration_ms: 30_000)
+
+    assert result.outcome.parks >= 1
+    assert result.outcome.parks <= 3, "um clique por parada, não por tique"
+  end
+
+  test "…and the knob keeps the pokemon at his side" do
+    result = run("pilha-que-fecha", duration_ms: 30_000, config: %{park_on_stop: false})
+
+    assert result.outcome.parks == 0
+  end
+
   test "…and a blind world has no eye to speak" do
     result = run("corrente-do-cliente", duration_ms: 20_000, knobs: %{readable?: false})
 
@@ -429,7 +444,10 @@ defmodule Pokex.Sim.BenchTest do
         # A rajada de graça: estes dois testes são sobre os DEGRAUS da escada de
         # apoio, e o preço da rajada entraria na conta da vida sem ser o que eles
         # afirmam. Mesmo motivo do `run/2` deste arquivo.
-        config: %{engage_from: 1, skill_gap_ms: 0},
+        # …e o pokémon ao lado DELE: estacionado dois tiles à frente ele leva as
+        # oito mordidas, e a mordida dura daqui o derruba com e sem a cura — a
+        # pergunta é o degrau, não o cerco.
+        config: %{engage_from: 1, skill_gap_ms: 0, park_on_stop: false},
         loadout: loadout
       )
     end

@@ -17,8 +17,6 @@ defmodule Pokex.Sim.WorldTest do
             stops: [],
             at: nil,
             dwell_ms: nil,
-            park_point: nil,
-            park_tiles: nil,
             fight_ms: nil,
             gather_ms: nil,
             combo: [],
@@ -1635,6 +1633,29 @@ defmodule Pokex.Sim.WorldTest do
              |> World.marks()
              |> Map.fetch!(:marks)
              |> Enum.count(&(not &1.pet?)) == 0
+    end
+
+    test "the middle click sends the pokemon to the tile, or to the nearest free one" do
+      {px, py, pz} = empty_field().pos
+      world = empty_field()
+
+      parked = World.park_pet(world, {2, 0})
+      assert parked.own.pos == {px + 2, py, pz}
+      assert parked.stats.parks == 1
+
+      taken = with_creatures(world, [creature(1, {px + 2, py, pz})])
+      assert World.park_pet(taken, {2, 0}).own.pos != {px + 2, py, pz}
+      assert World.park_pet(taken, {2, 0}).own.pos != world.own.pos
+
+      recalled = %{world | own: %{world.own | out?: false}}
+      assert World.park_pet(recalled, {2, 0}).own.pos == world.own.pos
+    end
+
+    test "a parked pokemon stays put — two tiles is within the leash it follows him on" do
+      world = empty_field() |> World.park_pet({2, 0}) |> World.step(3_000)
+      {px, py, pz} = world.pos
+
+      assert world.own.pos == {px + 2, py, pz}
     end
 
     test "the world's truth: pinned, asleep, loose, and the gap" do

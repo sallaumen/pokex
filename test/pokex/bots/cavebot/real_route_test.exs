@@ -159,7 +159,6 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
 
     assert length(route.waypoints) == 45
     assert Route.floors(route) == [1, 2]
-    assert Enum.count(route.waypoints, & &1.park_point) == 5
     assert Enum.count(route.waypoints, &(&1.action == :lure_end)) == 5
     assert Enum.any?(route.waypoints, &(&1.action == :lure_start))
   end

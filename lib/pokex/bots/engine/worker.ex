@@ -497,7 +497,8 @@ defmodule Pokex.Bots.Engine.Worker do
       why: orders.why,
       # what the eye would say about a recall (`Engine.Siege.record/1`), on the
       # revive orders only; nil elsewhere and with no eye
-      siege: Map.get(orders, :siege)
+      siege: Map.get(orders, :siege),
+      park: Map.get(orders, :park)
     })
   end
 

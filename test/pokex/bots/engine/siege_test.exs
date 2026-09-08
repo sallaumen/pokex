@@ -197,6 +197,34 @@ defmodule Pokex.Bots.Engine.SiegeTest do
     end
   end
 
+  # "Perto demais eu ocupo uma das oito bocas e ele luta com 7": the pokémon
+  # parks two tiles from him, on the pile's side, one empty square between.
+  describe "the park spot" do
+    test "two tiles toward the pile's centre, snapped to one of the eight directions" do
+      siege =
+        Siege.build(eye([hostile(4, 1), hostile(5, -1), hostile(3, 0)]), 3, nil, @config, 1_000)
+
+      assert Siege.park_spot(siege, 2) == {2, 0}
+    end
+
+    test "a diagonal pile parks diagonally" do
+      siege = Siege.build(eye([hostile(-3, -3), hostile(-4, -2)]), 2, nil, @config, 1_000)
+
+      assert Siege.park_spot(siege, 2) == {-2, -2}
+    end
+
+    test "a pile already centred on him has no side to park on" do
+      siege = Siege.build(eye([hostile(1, 0), hostile(-1, 0)]), 2, nil, @config, 1_000)
+
+      assert Siege.park_spot(siege, 2) == nil
+    end
+
+    test "no eye, or nobody in the picture, parks nowhere" do
+      assert Siege.park_spot(Siege.build(nil, 3, nil, @config, 1_000), 2) == nil
+      assert Siege.park_spot(Siege.build(eye([]), 3, nil, @config, 1_000), 2) == nil
+    end
+  end
+
   describe "the words" do
     test "a held recall, spelled out" do
       siege =

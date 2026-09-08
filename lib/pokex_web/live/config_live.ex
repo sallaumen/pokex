@@ -337,6 +337,16 @@ defmodule PokexWeb.ConfigLive do
           keywords: "esperar espera bunch colar fechar"
         },
         %{
+          key: :cavebot_park_on_stop,
+          kind: :bool,
+          label: "Ao parar, mandar o pokémon 2 tiles à frente",
+          hint:
+            "Toda vez que a rota para por uma pilha, um clique do meio manda o pokémon dois " <>
+              "tiles na direção dela (uma casa vazia entre vocês): o bolo fecha em cima DELE, " <>
+              "com as oito bocas livres. Precisa do olho do cerco vendo a pilha.",
+          keywords: "estacionar park clique do meio pokémon dois tiles pilha"
+        },
+        %{
           key: :engine_reset_revive,
           kind: :bool,
           label: "Revive pra zerar os cooldowns",
@@ -660,8 +670,6 @@ defmodule PokexWeb.ConfigLive do
         :cavebot_gather_wait_ms,
         :cavebot_block_retries,
         :cavebot_block_retry_ms,
-        :cavebot_park_tiles_x,
-        :cavebot_park_tiles_y,
         :area_probe_enabled,
         :skill_meter_enabled
       ]

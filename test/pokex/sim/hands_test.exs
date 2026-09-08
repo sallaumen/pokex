@@ -49,6 +49,60 @@ defmodule Pokex.Sim.HandsTest do
     )
   end
 
+  # THE PARK, the cavebot's way: one middle click per stop sends the pokémon
+  # where the brain says; the road walking again ends the stop.
+  describe "the park" do
+    @loadout %Loadout{
+      name: "Pet",
+      aoe: ["3"],
+      single: [],
+      buffs: [],
+      shield: [],
+      heal: [],
+      crowd: []
+    }
+    @quiet %{
+      heal_skill_enabled: false,
+      heal_pct: 0,
+      heal_skill_cooldown_ms: 0,
+      cure_enabled: false
+    }
+
+    test "a held road with a spot parks once, and again only after walking" do
+      world = mundo(@loadout)
+      {px, py, pz} = world.pos
+
+      {world, hands} = Hands.obey(world, ordens(%{park: {0, 2}}), Hands.new(), @quiet)
+      assert world.own.pos == {px, py + 2, pz}
+      assert hands.parked?
+
+      {world, hands} = Hands.obey(world, ordens(%{park: {0, -2}}), hands, @quiet)
+      assert world.own.pos == {px, py + 2, pz}
+      assert world.stats.parks == 1
+
+      {_world, hands} = Hands.obey(world, ordens(%{route: :go}), hands, @quiet)
+      refute hands.parked?
+    end
+
+    test "no spot, no click" do
+      world = mundo(@loadout)
+
+      {parked, hands} = Hands.obey(world, ordens(%{park: nil}), Hands.new(), @quiet)
+
+      assert parked.own.pos == world.own.pos
+      refute hands.parked?
+    end
+
+    test "the knob turns it off" do
+      world = mundo(@loadout)
+      off = Map.put(@quiet, :park_on_stop, false)
+
+      {parked, _hands} = Hands.obey(world, ordens(%{park: {0, 2}}), Hands.new(), off)
+
+      assert parked.own.pos == world.own.pos
+    end
+  end
+
   # THE COST OF THE STATUS CURE, and ONLY the cost.
   #
   # The simulated world has no negative status — no sleep, no silence, no

@@ -172,13 +172,6 @@ defmodule PokexWeb.CavebotLive do
        # waypoints he marked with his own hands — never overwritten by the
        # inference
        hand_marked: [],
-       # WHERE the pokémon is sent: read through the calibration, because a
-       # distance from the character is only a screen point once you know
-       # where the character is drawn — and how big a tile is.
-       calibration: loaded_calibration(),
-       tile_px: Calibration.tile_px(),
-       tile_known?: tile_known?(),
-       park_default: {Settings.get(:cavebot_park_tiles_x), Settings.get(:cavebot_park_tiles_y)},
        safety: safety_snapshot()
      )}
   end
@@ -463,12 +456,12 @@ defmodule PokexWeb.CavebotLive do
 
   # `at` is the HELPER's clock, the same one the key presses are stamped with —
   # the huddle is the gap between this click and his first skill.
-  defp middle_click_edge(socket, count, point, at) do
+  defp middle_click_edge(socket, count, _point, at) do
     hands = if at, do: HandsRead.parked(socket.assigns.hands, at), else: socket.assigns.hands
 
     socket
     |> assign(middle_count: count, hands: hands)
-    |> mark_park_here(point)
+    |> mark_kill_click_here()
   end
 
   # How long he has been standing on this tile, and what that MEANS.
@@ -833,58 +826,6 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
-  # WHERE the pokémon is sent, as a distance from the character — "talvez até
-  # uma distância do meu personagem, algo assim mais fácil de eu poder medir e
-  # algo que eu possa configurar ali pela interface" (Lucas, 2026-08-11). The
-  # ruler rides along in the same form: it is the unit of the two numbers above
-  # it, and a distance in tiles is only as honest as the size of a tile.
-  def handle_event("save_park_tiles", %{"index" => index} = params, socket) do
-    index = String.to_integer(index)
-
-    case park_from(params) do
-      nil ->
-        {:noreply, assign(socket, notice: "distância inválida", notice_kind: :warn)}
-
-      {dx, dy} = tiles ->
-        with_route(socket, fn route ->
-          {Route.set_park_tiles(route, index, tiles),
-           "waypoint #{index + 1}: pokémon a #{dx}, #{dy} tiles de você"}
-        end)
-    end
-  end
-
-  def handle_event("clear_park_tiles", %{"index" => index}, socket) do
-    index = String.to_integer(index)
-
-    with_route(socket, fn route ->
-      {Route.set_park_tiles(route, index, nil),
-       "waypoint #{index + 1}: sem ponto próprio pro pokémon"}
-    end)
-  end
-
-  # One kill spot's distance, made the hunt's answer everywhere: the spots he
-  # never marked (two of five, 2026-08-11) gather the pile around HIM.
-  def handle_event("park_tiles_default", %{"index" => index}, socket) do
-    index = String.to_integer(index)
-    waypoint = Enum.at(socket.assigns.active_route.waypoints, index)
-
-    case park_tiles(waypoint, socket.assigns.calibration) do
-      nil ->
-        {:noreply, assign(socket, notice: "esse waypoint não tem ponto", notice_kind: :warn)}
-
-      {dx, dy} ->
-        Settings.put(:cavebot_park_tiles_x, dx)
-        Settings.put(:cavebot_park_tiles_y, dy)
-
-        {:noreply,
-         assign(socket,
-           park_default: {dx, dy},
-           notice: "padrão da caçada: pokémon a #{dx}, #{dy} tiles de você",
-           notice_kind: :ok
-         )}
-    end
-  end
-
   # Recording lays waypoints in the order walked; a corner in the wrong place
   # used to mean walking the whole route again.
   def handle_event("move_waypoint", %{"index" => index, "dir" => dir}, socket) do
@@ -1233,14 +1174,14 @@ defmodule PokexWeb.CavebotLive do
       else: socket
   end
 
-  defp mark_park_here(socket, point) do
+  defp mark_kill_click_here(socket) do
     socket = waypoint_here(socket)
     route = socket.assigns.active_route
     index = length(route.waypoints) - 1
 
     if index >= 0 do
       {updated, note} =
-        Recording.mark_park(route, index, point, hand_marked: socket.assigns.hand_marked)
+        Recording.mark_kill_click(route, index, hand_marked: socket.assigns.hand_marked)
 
       :ok = Store.add(updated)
 
@@ -1279,68 +1220,6 @@ defmodule PokexWeb.CavebotLive do
   end
 
   defp place_from(_params, _absent), do: nil
-
-  defp park_from(params) do
-    with {:ok, dx} <- coord(params["park_x"], nil),
-         {:ok, dy} <- coord(params["park_y"], nil),
-         true <- is_integer(dx) and is_integer(dy) do
-      {dx, dy}
-    else
-      _invalid -> nil
-    end
-  end
-
-  # The tile is the screen's (`Pokex.Screen.Tile`), never a number typed here:
-  # the notebook ran three days on the ultrawide's 151 (2026-09-07).
-  defp tile_known? do
-    case loaded_calibration() do
-      %Calibration{} = calib -> match?({:ok, _px}, Calibration.tile(calib))
-      nil -> false
-    end
-  end
-
-  # What the form shows: the waypoint's own distance, or his recorded click
-  # converted into one (a click IS a distance from the character — it was just
-  # written down in the window's coordinates).
-  defp park_tiles(%{park_tiles: {_dx, _dy} = tiles}, _calib), do: tiles
-
-  defp park_tiles(%{park_point: {_x, _y} = point}, %Calibration{} = calib),
-    do: Calibration.tile_offset(calib, point)
-
-  defp park_tiles(_waypoint, _calib), do: nil
-
-  defp park_screen_point(tiles, %Calibration{} = calib), do: Calibration.tile_point(calib, tiles)
-  defp park_screen_point(_tiles, _uncalibrated), do: nil
-
-  defp park_fields(waypoint, calib) do
-    {dx, dy} = park_tiles(waypoint, calib) || {0, 0}
-    [{"park_x", "→", dx}, {"park_y", "↓", dy}]
-  end
-
-  # One line that says what will actually happen here, in his words: where the
-  # click lands, or which answer is being used when the waypoint has none.
-  defp park_hint(waypoint, calib, default) do
-    case {park_tiles(waypoint, calib), default} do
-      {nil, {0, 0}} ->
-        "sem ponto: o bolo se junta em cima de você"
-
-      {nil, {dx, dy}} ->
-        "sem ponto próprio — uso o padrão da caçada: #{dx}, #{dy} tiles"
-
-      {tiles, _default} ->
-        case park_screen_point(tiles, calib) do
-          {x, y} -> "clique do meio em #{x}, #{y} na tela"
-          nil -> "falta calibrar onde você aparece na tela"
-        end
-    end
-  end
-
-  defp loaded_calibration do
-    case Calibration.load() do
-      {:ok, calib} -> calib
-      _uncalibrated -> nil
-    end
-  end
 
   defp coord(value, fallback) do
     case Integer.parse(to_string(value)) do
@@ -1785,20 +1664,13 @@ defmodule PokexWeb.CavebotLive do
   defp keys_line(keys), do: Enum.join(keys, " ")
 
   defp taught_label(wp) do
-    [park_part(wp), gather_part(wp), fight_part(wp), combo_part(wp)]
+    [gather_part(wp), fight_part(wp), combo_part(wp)]
     |> Enum.reject(&is_nil/1)
     |> case do
       [] -> nil
       parts -> Enum.join(parts, " · ")
     end
   end
-
-  # A distance says something a screen point cannot: "6, -2" is six tiles right
-  # and two up, which he can picture. The raw point is still shown when it is
-  # all the waypoint has and there is no calibration to read it through.
-  defp park_part(%{park_tiles: {dx, dy}}), do: "🖱️ #{dx}, #{dy} tiles"
-  defp park_part(%{park_point: {x, y}}), do: "🖱️ #{x}, #{y}"
-  defp park_part(_none), do: nil
 
   defp gather_part(%{gather_ms: ms}) when is_integer(ms), do: "bolo #{seconds(ms)}"
   defp gather_part(_none), do: nil
@@ -3091,80 +2963,6 @@ defmodule PokexWeb.CavebotLive do
                     {SkillProfile.icon(skill)} {SkillProfile.label(skill)}
                   </button>
                 </div>
-
-                <%!-- WHERE the pokémon waits for the pile. Recorded as a screen
-                 point from his own middle click, said here as a DISTANCE
-                 from the character: the form he can measure by eye, and
-                 the only one that survives the game window moving. The
-                 ruler rides in the same form because it is the unit of the
-                 two numbers beside it. --%>
-                <form
-                  id={"waypoint-park-#{index}"}
-                  phx-submit="save_park_tiles"
-                  class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
-                >
-                  <input type="hidden" name="index" value={index} />
-                  <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                    pokémon
-                  </span>
-                  <label
-                    :for={{field, label, value} <- park_fields(wp, @calibration)}
-                    class="flex items-center gap-1 font-mono text-pk-meta text-pk-text-3"
-                  >
-                    {label}
-                    <input
-                      type="number"
-                      name={field}
-                      value={value}
-                      class="pk-num h-8 w-16 rounded border border-pk-line-strong bg-pk-sunken px-1 text-center font-mono text-pk-body text-pk-text focus:border-pk-ok focus:outline-none"
-                    />
-                  </label>
-                  <span class="font-mono text-pk-meta text-pk-text-3">tiles de você</span>
-                  <span
-                    id={"waypoint-park-tile-#{index}"}
-                    class={[
-                      "font-mono text-pk-meta",
-                      if(@tile_known?, do: "text-pk-text-3", else: "text-pk-warn")
-                    ]}
-                    title="o tamanho do tile vem da tela calibrada, nunca de um número digitado"
-                  >
-                    {if @tile_known?,
-                      do: "1 tile = #{@tile_px} px (desta tela)",
-                      else: "esta tela não tem tile medido — o bot não liga nela"}
-                  </span>
-                  <button
-                    id={"waypoint-park-save-#{index}"}
-                    class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                  >
-                    guardar
-                  </button>
-                  <button
-                    type="button"
-                    id={"waypoint-park-default-#{index}"}
-                    phx-click="park_tiles_default"
-                    phx-value-index={index}
-                    title="usar essa distância em todo canto de matar que não tem a sua"
-                    class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                  >
-                    virar padrão
-                  </button>
-                  <button
-                    :if={park_tiles(wp, @calibration)}
-                    type="button"
-                    id={"waypoint-park-clear-#{index}"}
-                    phx-click="clear_park_tiles"
-                    phx-value-index={index}
-                    class="h-8 cursor-pointer rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta text-pk-text-2 transition hover:border-pk-warn/60 hover:text-white"
-                  >
-                    tirar
-                  </button>
-                  <span
-                    id={"waypoint-park-hint-#{index}"}
-                    class="w-full font-mono text-pk-meta text-pk-text-3"
-                  >
-                    {park_hint(wp, @calibration, @park_default)}
-                  </span>
-                </form>
               </section>
 
               <details

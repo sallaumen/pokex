@@ -236,8 +236,9 @@ defmodule PokexWeb.CavebotLiveTest do
   end
 
   # "eu geralmente clico com o botão do meio do mouse em um ponto da minha
-  # tela" (Lucas, 2026-08-11) — the marker he makes with his own hand, and the
-  # spot the pokémon is parked on when the hunt runs this route.
+  # tela" (Lucas, 2026-08-11) — the marker he makes with his own hand. Where
+  # the pokémon waits is the hunt's own answer now (two tiles toward the pile),
+  # so the click's point is not kept.
   describe "the middle click marks the kill spot" do
     setup do
       {:ok, _} = Pokex.Rig.Fake.start_link(%{})
@@ -267,7 +268,7 @@ defmodule PokexWeb.CavebotLiveTest do
       end)
     end
 
-    test "a click while recording marks the spot and remembers the point", %{conn: conn} do
+    test "a click while recording marks the spot", %{conn: conn} do
       put_pos({10, 20, 7})
       {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
@@ -283,7 +284,7 @@ defmodule PokexWeb.CavebotLiveTest do
       clicks!(7, {1000, 500})
       send(view.pid, :watch_middle)
       render(view)
-      assert [%Route{waypoints: [%{action: :walk, park_point: nil}]}] = Store.all()
+      assert [%Route{waypoints: [%{action: :walk}]}] = Store.all()
 
       # now HE clicks
       clicks!(8, {1240, 655})
@@ -292,8 +293,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
       assert [%Route{waypoints: [wp]}] = Store.all()
       assert wp.action == :lure_end
-      assert wp.park_point == {1240, 655}
-      assert html =~ "clique do meio em 1240, 655"
+      assert html =~ "clique do meio — marquei"
     end
 
     # "shift+3 é pq eu já terminei de matar tudo, shift+1 é por que vou matar
@@ -485,19 +485,18 @@ defmodule PokexWeb.CavebotLiveTest do
       send(view.pid, :watch_middle)
       render(view)
 
-      assert [%Route{waypoints: [%{action: :walk, park_point: nil}]}] = Store.all()
+      assert [%Route{waypoints: [%{action: :walk}]}] = Store.all()
     end
   end
 
   # The route knows a lot about his hunt now; the page has to SHOW it, or he
   # cannot judge a recording before running it.
   describe "what the waypoint learned, on screen" do
-    test "a kill spot shows the point, the huddle, the fight and the combo", %{conn: conn} do
+    test "a kill spot shows the huddle, the fight and the combo", %{conn: conn} do
       {:ok, route} = Route.append(Route.new("mob"), {10, 10, 7})
 
       :ok =
         route
-        |> Route.set_park_point(0, {2490, 417})
         |> Route.set_timing(0,
           gather_ms: 3_300,
           fight_ms: 9_900,
@@ -507,7 +506,6 @@ defmodule PokexWeb.CavebotLiveTest do
 
       {:ok, _view, html} = live(conn, ~p"/cavebot?modo=editar")
 
-      assert html =~ "🖱️ 2490, 417"
       assert html =~ "bolo 3.3s"
       assert html =~ "luta 9.9s"
       # the INTENT, not the mashing
@@ -1215,131 +1213,6 @@ defmodule PokexWeb.CavebotLiveTest do
 
       assert [%Route{waypoints: [%{x: 33, y: 44, z: 5}]}] = Store.all()
       assert html =~ "agora é 33, 44"
-    end
-  end
-
-  # "um ponto que eu senti falta aqui é eu poder calibrar melhor a parte de
-  # onde ele clica com o botão do meio. Talvez até uma distância do meu
-  # personagem, algo assim mais fácil de eu poder medir e algo que eu possa
-  # configurar ali pela interface" (Lucas, 2026-08-11).
-  describe "where the pokémon is sent, in tiles" do
-    setup do
-      # the tile is the calibration's own here (100), never a number typed on the page
-      Pokex.Calibration.save(%Pokex.Calibration{
-        scale: 1.0,
-        screen_w: 3440,
-        screen_h: 1440,
-        tile_px: 100,
-        player_point: {1700, 700}
-      })
-
-      :ok
-    end
-
-    test "typing a distance saves it, and the hint says where it lands", %{conn: conn} do
-      route_with([{10, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
-
-      view |> element("#map-waypoint-0") |> render_click()
-
-      html =
-        view
-        |> form("#waypoint-park-0", %{"park_x" => "6", "park_y" => "-2"})
-        |> render_submit()
-
-      assert [%Route{waypoints: [%{park_tiles: {6, -2}}]}] = Store.all()
-      assert html =~ "pokémon a 6, -2 tiles de você"
-      # 1700 + 6×100, 700 − 2×100
-      assert view |> element("#waypoint-park-hint-0") |> render() =~ "2300, 500"
-    end
-
-    # His recorded click is the same answer written in the window's
-    # coordinates: the form opens with it already converted.
-    test "a recorded click opens as a distance", %{conn: conn} do
-      {:ok, route} = Route.append(Route.new("cavena"), {10, 10, 7})
-      :ok = route |> Route.set_park_point(0, {2300, 500}) |> Store.add()
-
-      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
-      view |> element("#map-waypoint-0") |> render_click()
-
-      assert view |> element("#waypoint-park-0") |> render() =~ ~s(value="6")
-    end
-
-    # The ruler is the SCREEN's, shown next to the numbers it is the unit of —
-    # and never a field: the notebook ran three days on a typed 151 (2026-09-07).
-    test "the ruler shown with it is the screen's tile, not a field", %{conn: conn} do
-      route_with([{10, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
-
-      view |> element("#map-waypoint-0") |> render_click()
-
-      assert view |> element("#waypoint-park-tile-0") |> render() =~ "1 tile = 100 px"
-      refute view |> element("#waypoint-park-0") |> render() =~ ~s(name="tile_px")
-
-      view
-      |> form("#waypoint-park-0", %{"park_x" => "1", "park_y" => "0"})
-      |> render_submit()
-
-      assert view |> element("#waypoint-park-hint-0") |> render() =~ "1800, 700"
-    end
-
-    test "a screen with no measured tile says so where the ruler would be", %{conn: conn} do
-      Pokex.Calibration.save(%Pokex.Calibration{
-        scale: 1.0,
-        screen_w: 2000,
-        screen_h: 1200,
-        player_point: {1000, 600}
-      })
-
-      route_with([{10, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
-      view |> element("#map-waypoint-0") |> render_click()
-
-      assert view |> element("#waypoint-park-tile-0") |> render() =~ "não tem tile medido"
-    end
-
-    test "'virar padrão' answers for every kill spot that has none", %{conn: conn} do
-      route_with([{10, 10, 7}, {20, 10, 7}])
-
-      before =
-        {Pokex.Settings.get(:cavebot_park_tiles_x), Pokex.Settings.get(:cavebot_park_tiles_y)}
-
-      on_exit(fn ->
-        Pokex.Settings.put(:cavebot_park_tiles_x, elem(before, 0))
-        Pokex.Settings.put(:cavebot_park_tiles_y, elem(before, 1))
-      end)
-
-      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
-
-      view |> element("#map-waypoint-0") |> render_click()
-
-      view
-      |> form("#waypoint-park-0", %{"park_x" => "-3", "park_y" => "1"})
-      |> render_submit()
-
-      view |> element("#waypoint-park-default-0") |> render_click()
-
-      assert Pokex.Settings.get(:cavebot_park_tiles_x) == -3
-      assert Pokex.Settings.get(:cavebot_park_tiles_y) == 1
-
-      # …and the waypoint with nothing of its own now says so
-      view |> element("#map-waypoint-1") |> render_click()
-      assert view |> element("#waypoint-park-hint-1") |> render() =~ "padrão da caçada: -3, 1"
-    end
-
-    test "tirar takes the waypoint back to having no spot", %{conn: conn} do
-      route_with([{10, 10, 7}])
-      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
-
-      view |> element("#map-waypoint-0") |> render_click()
-
-      view
-      |> form("#waypoint-park-0", %{"park_x" => "6", "park_y" => "-2"})
-      |> render_submit()
-
-      view |> element("#waypoint-park-clear-0") |> render_click()
-
-      assert [%Route{waypoints: [%{park_tiles: nil, park_point: nil}]}] = Store.all()
     end
   end
 

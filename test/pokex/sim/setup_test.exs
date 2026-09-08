@@ -110,8 +110,6 @@ defmodule Pokex.Sim.SetupTest do
             stops: [],
             at: nil,
             dwell_ms: nil,
-            park_point: nil,
-            park_tiles: nil,
             fight_ms: nil,
             gather_ms: 2_000,
             combo: [],

@@ -104,6 +104,63 @@ defmodule Pokex.PreflightTest do
       assert Enum.any?(msgs, &(&1 =~ "a tecla 0"))
       refute Enum.any?(msgs, &(&1 =~ "tecla 10"))
     end
+
+    # THE BAR OF ANOTHER SCREEN (2026-09-07): the region travels with the pokémon
+    # and carries no screen. Calibrated on the ultrawide at x=1594, on the
+    # 1512-point notebook every capture answered "outside frame" and a whole run
+    # hunted blind of its own cooldowns. The refusal names the pokémon and the fix.
+    @tag :tmp_dir
+    test "a bar marked outside this screen does not start, and says whose and where" do
+      Pokex.TeamFixtures.ready!("Torterra", count: 4)
+
+      Pokex.Pokedex.Team.set_bar("Torterra", %{region: {1594, 1215, 278, 37}, count: 4, refs: nil})
+
+      assert {:error, msgs} = Preflight.run(Pokex.Rig.Fake)
+      assert Enum.any?(msgs, &(&1 =~ "barra de skills do Torterra está marcada em x=1594"))
+      assert Enum.any?(msgs, &(&1 =~ "fora desta tela de 1000×700"))
+      assert Enum.any?(msgs, &(&1 =~ "recalibre"))
+    end
+  end
+
+  # NO CHARACTER, NO START (2026-09-07): the pointer was cleared at a restart and
+  # the bot fought a run as ANOTHER character's Vespiquen, with a Torterra out.
+  describe "o personagem" do
+    setup %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      Calibration.save(%Calibration{
+        scale: 1.0,
+        screen_w: 1000,
+        screen_h: 700,
+        water_point: {1, 1},
+        glow_region: {0, 0, 8, 8},
+        battle_region: {0, 0, 8, 8},
+        neutral_point: {1, 1}
+      })
+
+      :ok
+    end
+
+    @tag :tmp_dir
+    test "with characters on the machine and none active, it does not start" do
+      {:ok, _slug} = Pokex.Characters.create("Lotavanon")
+      assert Pokex.Characters.active() == ""
+      Pokex.TeamFixtures.ready!("Bulbasaur", count: 4)
+
+      assert {:error, msgs} = Preflight.run(Pokex.Rig.Fake)
+      assert Enum.any?(msgs, &(&1 =~ "nenhum personagem ativo"))
+    end
+
+    @tag :tmp_dir
+    test "with the character chosen, its team starts" do
+      {:ok, slug} = Pokex.Characters.create("Lotavanon")
+      :ok = Pokex.Characters.set_active(slug)
+      on_exit(fn -> Pokex.Characters.set_active("") end)
+      Pokex.TeamFixtures.ready!("Bulbasaur", count: 4)
+
+      assert Preflight.run(Pokex.Rig.Fake) == :ok
+    end
   end
 
   # THE REFUSAL THAT STOPPED EVERYTHING (2026-08-07). His calibration was saved

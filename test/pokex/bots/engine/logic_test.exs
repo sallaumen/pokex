@@ -542,6 +542,53 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     defp reset_step(logic, world, now), do: Logic.step(logic, world, @reset, now)
 
+    # THE POCKET DOES NOT OPEN THE FIGHT. The reserve (single-target and control
+    # keys the mode keeps out of the rotation) exists for the moment the area is
+    # spent and the revive is held. Until 2026-09-07 it rode every "matando o que
+    # já abriu" order, and that order is the one the hand reads one tick after
+    # the fire edge: 7 of 28 openings that night went out as "6, 7, 8, 9, r".
+    test "with the area whole, the hand after the opening is the opening alone" do
+      pile =
+        world(%{
+          situation: situation(%{enemies: 2, combo_left_ms: 0, spent?: false, own_hp: 100}),
+          hunt: hunt(%{state: :walking, luring?: true}),
+          hands: %{opening: ["r"], single: ~w(7 8 9), crowd: [], reserve: ~w(7 8 9 1)}
+        })
+
+      {logic, opening} = until_fire(pile)
+      {_logic, killing} = reset_step(logic, pile, 20_000)
+
+      assert opening.opening == ["r"]
+      assert killing.why =~ "matando o que já abriu"
+      assert killing.opening == ["r"]
+    end
+
+    # Steps the brain on the same picture until the fire is released: the pile
+    # is sized, gathered and blown on successive ticks.
+    defp until_fire(pile) do
+      Enum.reduce_while(1..10, {Logic.new(), nil}, fn i, {logic, _orders} ->
+        case reset_step(logic, pile, 10_000 + i * 200) do
+          {logic, %{fire: :free} = orders} -> {:halt, {logic, orders}}
+          {logic, orders} -> {:cont, {logic, orders}}
+        end
+      end)
+    end
+
+    test "with the area spent and the revive held, the pocket opens" do
+      spent =
+        world(%{
+          situation: situation(%{enemies: 2, combo_left_ms: 0, spent?: true, own_hp: 100}),
+          hunt: hunt(%{state: :walking, luring?: true}),
+          hands: %{opening: ["r"], single: ~w(7 8 9), crowd: [], reserve: ~w(7 8 9 1)}
+        })
+
+      {logic, _opening} = until_fire(spent)
+      {_logic, holding} = reset_step(logic, spent, 20_000)
+
+      assert holding.why =~ "segurando o revive"
+      assert Enum.all?(~w(7 8 9 1), &(&1 in holding.opening))
+    end
+
     # A CORRENTE DO JOGO SEGURA O REVIVE. No Auto Combo uma prensa encadeia as
     # skills, e o revive RECOLHE o pokémon: pedido no meio da corrente, ele
     # joga fora metade do dano que ela ia entregar — e a corrente termina em

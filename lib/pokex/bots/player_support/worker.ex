@@ -429,13 +429,41 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp watch_player_at(state, region) do
     case read_player_hp(region) do
       {:ok, hp} ->
-        WorldState.put(:player, %{hp_pct: hp, readable?: true}, now())
-        guard_player(%{state | player_hp: hp})
+        if plunge?(state, hp) or not game_in_front?(),
+          do: player_unread(state),
+          else: player_read(state, hp)
 
       _unreadable_or_error ->
-        WorldState.put(:player, %{hp_pct: nil, readable?: false}, now())
-        %{state | player_hp: nil, player_low_streak: 0}
+        player_unread(state)
     end
+  end
+
+  defp player_read(state, hp) do
+    WorldState.put(:player, %{hp_pct: hp, readable?: true}, now())
+    guard_player(%{state | player_hp: hp})
+  end
+
+  defp player_unread(state) do
+    WorldState.put(:player, %{hp_pct: nil, readable?: false}, now())
+    %{state | player_hp: nil, player_low_streak: 0}
+  end
+
+  # A ZERO THAT COMES FROM HALF A BAR IN ONE TICK IS NOT A DEATH, it is something
+  # over the bar: on 2026-09-07 the panel window over the game read "VOCÊ está com
+  # 0%" eight times in an afternoon he spent alive. A character dies over
+  # seconds (14% at 20:36, 0% at 20:40 that night), never from 50+ to nothing
+  # between two ticks. The first such zero is "not read"; a zero that stays is
+  # accepted on the next tick — a real death is one tick late, a covered bar is
+  # a silent tick instead of a false siren.
+  defp plunge?(%{player_hp: before}, hp), do: hp == 0 and is_integer(before) and before >= 50
+
+  # …and with the game out of focus every region reads whatever is in front of
+  # it. The focus monitor halts the workers a poll later; this covers the tick
+  # in between.
+  defp game_in_front? do
+    Pokex.Bots.Focus.status().focused? == true
+  catch
+    _kind, _reason -> true
   end
 
   defp read_player_hp(region) do

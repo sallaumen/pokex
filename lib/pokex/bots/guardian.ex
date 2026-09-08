@@ -322,7 +322,9 @@ defmodule Pokex.Bots.Guardian do
         Phoenix.PubSub.broadcast(
           Pokex.PubSub,
           @combat_topic,
-          {:rule_alarm, :hp,
+          # :mortal, not :hp: the exposure has no mute button (2026-09-07 the stop went out
+          # with :hp muted, the character stood in six Magneton and died six minutes later).
+          {:rule_alarm, :mortal,
            "⚠️ parando com #{length(enemies)} bicho(s) na janela de batalha — o personagem " <>
              "fica EXPOSTO parado na pilha. Sai de perto, ou liga o player_hp_logout no /config."}
         )

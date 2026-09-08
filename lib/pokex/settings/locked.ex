@@ -237,6 +237,14 @@ defmodule Pokex.Settings.Locked do
       {"Onde estão os monstros (visão)", "foto mais velha que 0,6 s não vale"},
     crowd_scan_evidence_shrink:
       {"Onde estão os monstros (visão)", "a evidência é desenhada 4× menor"},
+    # --- Vigia das leituras ---
+    watchman_every_ms: {"Vigia das leituras", "pergunta a cada 10 s se o bot ainda enxerga"},
+    watchman_repeat_ms:
+      {"Vigia das leituras", "o mesmo problema toca de novo a cada 1 min enquanto durar"},
+    watchman_grace_ms:
+      {"Vigia das leituras",
+       "a primeira pergunta vem 8 s depois de ligar (as leituras precisam de uns tiques)"},
+    watchman_stale_ms: {"Vigia das leituras", "leitura mais velha que 12 s conta como não lida"},
     # --- Painel (canto de comando) ---
     command_corner:
       {"Painel (canto de comando)", "mouse no canto superior direito alterna o modo"},

@@ -582,6 +582,26 @@ defmodule PokexWeb.ConfigLive do
           label: "Um apito a cada",
           hint: "O mesmo setor não apita de novo antes disto.",
           keywords: "apito intervalo gap alarme"
+        },
+        %{
+          key: :native_alarm_sound,
+          kind: :bool,
+          label: "Som do Mac pros alarmes vitais",
+          hint:
+            "A vida do PERSONAGEM, parar com bicho na janela, o bot que não ligou e o vigia " <>
+              "tocam pelo alto-falante do Mac, não pelo navegador: dá pra ouvir com o jogo na " <>
+              "frente e a página escondida. Não tem mudo.",
+          keywords: "som nativo mac afplay vital mortal vigia"
+        },
+        %{
+          key: :watchman_enabled,
+          kind: :bool,
+          label: "O vigia das leituras",
+          hint:
+            "Com o bot ligado, confere a cada 10 s se a barra de skills, a janela de batalha, " <>
+              "a Pokebar, a vida do personagem e o tile estão sendo lidos. Problema novo toca " <>
+              "na hora (som próprio), e de novo a cada minuto enquanto durar.",
+          keywords: "vigia leitura cega calibração alarme minuto"
         }
       ]
     }

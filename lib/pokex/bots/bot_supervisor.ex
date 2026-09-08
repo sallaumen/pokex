@@ -294,12 +294,14 @@ defmodule Pokex.Bots.BotSupervisor do
   # it. Both did: the command corner threw the return away inside a fire-and-forget Task, and
   # the panel put it in an assign that no feed and no journal ever saw. One worker refusing
   # preflight halts the whole chain, so the fleet sat stopped with nothing on screen but the
-  # mode pill. The alarm rides the :command sector, which the journal records.
+  # mode pill. The alarm rides the :setup sector — the one with no mute button and a native
+  # sound (`Pokex.Bots.Siren`): a refused start on a single-screen notebook is otherwise a
+  # line in a browser tab he is not looking at.
   defp announce_refusal(messages) do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       "combat",
-      {:rule_alarm, :command,
+      {:rule_alarm, :setup,
        "🚫 o bot NÃO ligou — #{Enum.join(List.wrap(messages), "; ")}. " <>
          "Nada roda até isso ser resolvido."}
     )

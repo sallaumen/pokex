@@ -1,8 +1,9 @@
 defmodule Pokex.Bots.WatchmanTest do
   @moduledoc """
-  The watchman: while the bot hunts, asks whether it can still see, rings on a
-  new problem and again every minute while it lasts, says once when a reading
-  comes back, and judges nothing with the game out of focus or the bot off.
+  The watchman: while the bot hunts, samples the readings every second, judges
+  every ten, rings on a new problem and again every minute while it lasts,
+  says once when a reading comes back, and judges nothing with the game out
+  of focus or the bot off.
   """
   use ExUnit.Case, async: false
 
@@ -14,14 +15,18 @@ defmodule Pokex.Bots.WatchmanTest do
       watchman_enabled: true,
       watchman_grace_ms: 8_000,
       watchman_repeat_ms: 60_000,
-      watchman_every_ms: 10_000
+      watchman_every_ms: 10_000,
+      watchman_sample_ms: 1_000,
+      watchman_stale_ms: 12_000
     )
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
     Phoenix.PubSub.subscribe(Pokex.PubSub, "engine")
 
     {:ok, world} =
-      Agent.start_link(fn -> %{active: true, focused: true, problems: [], now: 100_000} end)
+      Agent.start_link(fn ->
+        %{active: true, focused: true, problems: [], readings: %{}, now: 100_000, seen: []}
+      end)
 
     watchman =
       start_supervised!(
@@ -30,7 +35,11 @@ defmodule Pokex.Bots.WatchmanTest do
          auto_start: false,
          active?: fn -> Agent.get(world, & &1.active) end,
          focused?: fn -> Agent.get(world, & &1.focused) end,
-         checks: fn _now -> Agent.get(world, & &1.problems) end,
+         readings: fn _now -> Agent.get(world, & &1.readings) end,
+         checks: fn now, last_good ->
+           Agent.update(world, &%{&1 | seen: [{now, last_good} | &1.seen]})
+           Agent.get(world, & &1.problems)
+         end,
          clock: fn -> Agent.get(world, & &1.now) end}
       )
 
@@ -39,9 +48,15 @@ defmodule Pokex.Bots.WatchmanTest do
 
   defp set(world, changes), do: Agent.update(world, &Map.merge(&1, changes))
 
-  # One round of the clock, then a call so the round has been handled.
+  # One judgement of the clock, then a call so it has been handled.
   defp tick(watchman) do
     send(watchman, :check)
+    Watchman.problems(watchman)
+  end
+
+  # One sample of the clock.
+  defp sample(watchman) do
+    send(watchman, :sample)
     Watchman.problems(watchman)
   end
 
@@ -144,6 +159,39 @@ defmodule Pokex.Bots.WatchmanTest do
       assert tick(w) == []
       refute_receive {:rule_alarm, :setup, _}, 50
     end
+
+    # THE SAMPLER'S MEMORY (2026-09-08): a check that looked at the current
+    # frame alone rang seven times in forty minutes, each time inside the two
+    # seconds the revive keeps the bar off the screen.
+    test "the judgement receives when each reading was last good", %{watchman: w, world: world} do
+      set(world, %{readings: %{skill_bar: true, battle: true}})
+      sample(w)
+      advance(world, 1_000)
+      set(world, %{readings: %{skill_bar: false, battle: true}})
+      sample(w)
+      advance(world, 1_000)
+      sample(w)
+      advance(world, 8_000)
+      tick(w)
+
+      [{judged_at, last_good} | _] = Agent.get(world, & &1.seen)
+      assert judged_at == Agent.get(world, & &1.now)
+      # the bar was last good at the first sample, ten seconds ago; the battle two seconds ago
+      assert last_good.battle == judged_at - 8_000
+      assert last_good.skill_bar == judged_at - 10_000
+    end
+
+    test "out of focus, nothing is sampled either", %{watchman: w, world: world} do
+      set(world, %{readings: %{skill_bar: true}, focused: false})
+      sample(w)
+      set(world, %{focused: true})
+      advance(world, 10_000)
+      tick(w)
+
+      [{_at, last_good} | _] = Agent.get(world, & &1.seen)
+      # the bar's memory is the start of the watch, never the unfocused sample
+      assert last_good.skill_bar == 100_000
+    end
   end
 
   test "stopping the bot forgets everything, and the next start shouts again", %{
@@ -167,7 +215,17 @@ defmodule Pokex.Bots.WatchmanTest do
     assert_receive {:rule_alarm, :setup, _}
   end
 
-  test "check_now skips the grace", %{watchman: w, world: world} do
+  test "the watch starts with every reading counted good now", %{watchman: w, world: world} do
+    tick(w)
+    advance(world, 10_000)
+    tick(w)
+
+    [{_at, last_good} | _] = Agent.get(world, & &1.seen)
+    assert Map.keys(last_good) |> Enum.sort() == [:battle, :player, :pokemon, :skill_bar]
+    assert Enum.all?(Map.values(last_good), &(&1 == 100_000))
+  end
+
+  test "check_now samples and judges, grace or not", %{watchman: w, world: world} do
     set(world, %{problems: [@bar]})
     assert Watchman.check_now(w) == [elem(@bar, 1)]
     assert_receive {:rule_alarm, :setup, _}
@@ -181,13 +239,15 @@ defmodule Pokex.Bots.WatchmanTest do
          auto_start: false,
          active?: fn -> true end,
          focused?: fn -> true end,
-         checks: fn _now -> raise "sem chão" end,
+         readings: fn _now -> raise "sem chão" end,
+         checks: fn _now, _last_good -> raise "sem chão" end,
          clock: fn -> Agent.get(world, & &1.now) end},
         id: :broken_watchman
       )
 
     tick(watchman)
     advance(world, 10_000)
+    sample(watchman)
     send(watchman, :check)
     assert Process.alive?(watchman)
   end

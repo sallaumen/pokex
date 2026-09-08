@@ -37,7 +37,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   @topic "game"
   # The `:shields` counter must exist: every aura press bumps it, and a missing key blew up
   # the guardian tick, whose `catch` swallowed the error and threw away that tick's work (the
-  # HP reading, `prev_hp_pct`, the revive judge, the `player_low_streak` the character alarm
+  # HP reading, `prev_hp_pct`, the revive judge, the `player_low_since` the character alarm
   # needs to see twice). One night that was 272 lost ticks and a character alarm at 4%.
   @default_counters %{
     rescues: 0,
@@ -77,7 +77,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # The CHARACTER's HP: the red bar of the "Pokémon" panel, which despite its name is
       # his, not the pokémon's.
       player_hp: nil,
-      player_low_streak: 0,
+      player_low_since: nil,
       player_alarmed?: false,
       last_rescue_at: nil,
       # The last time the brain asked for a revive while his switch was off.
@@ -332,7 +332,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       case Calibration.load() do
         {:ok, calib} ->
           watch_player(
-            case read_hp(calib) do
+            case pokebar(calib) do
               {:ok, hp} ->
                 publish_pokemon_fact(%{hp_pct: hp, readable?: true, fainted?: false})
 
@@ -375,6 +375,13 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
                 })
 
                 state
+
+              # The game is not in front, or came back less than the settle ago: the region
+              # reads the panel, not the Pokebar. Unknown — and NOT the fallen path, which
+              # revived a pokémon that was standing behind a browser window (2026-09-08).
+              :covered ->
+                publish_pokemon_fact(%{hp_pct: nil, readable?: false, fainted?: state.fainted?})
+                %{state | hp_pct: nil, prev_hp_pct: nil, error: "jogo fora de foco — sem leitura"}
 
               {:error, reason} ->
                 fail(state, reason)
@@ -429,7 +436,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp watch_player_at(state, region) do
     case read_player_hp(region) do
       {:ok, hp} ->
-        if plunge?(state, hp) or not game_in_front?(),
+        if plunge?(state, hp) or not screen_settled?(),
           do: player_unread(state),
           else: player_read(state, hp)
 
@@ -445,7 +452,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   defp player_unread(state) do
     WorldState.put(:player, %{hp_pct: nil, readable?: false}, now())
-    %{state | player_hp: nil, player_low_streak: 0}
+    %{state | player_hp: nil, player_low_since: nil}
   end
 
   # A ZERO THAT COMES FROM HALF A BAR IN ONE TICK IS NOT A DEATH, it is something
@@ -458,10 +465,12 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp plunge?(%{player_hp: before}, hp), do: hp == 0 and is_integer(before) and before >= 50
 
   # …and with the game out of focus every region reads whatever is in front of
-  # it. The focus monitor halts the workers a poll later; this covers the tick
-  # in between.
-  defp game_in_front? do
-    Pokex.Bots.Focus.status().focused? == true
+  # it — for a few seconds AFTER it comes back too ("VOCÊ está com 1%" six
+  # seconds after the calibration page closed, 2026-09-08). The focus monitor
+  # halts the workers a poll later; this covers the tick in between and the
+  # settle after the return.
+  defp screen_settled? do
+    Pokex.Bots.Focus.status().settled? == true
   catch
     _kind, _reason -> true
   end
@@ -484,28 +493,32 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     kind, reason -> {:error, {kind, reason}}
   end
 
-  # The GUARDIAN: two consecutive readings below the floor, never a single frame (the same
-  # discipline that protects the revive), and it shouts ONCE per episode. The episode closes
-  # when HP climbs 10 points above the floor, so a bar hovering at the floor is not an
-  # intermittent siren.
+  # The GUARDIAN: readings below the floor for `@player_low_confirm_ms` running, never a single
+  # frame and never two frames 120 ms apart (the same discipline that protects the revive),
+  # and it shouts ONCE per episode. The episode closes when HP climbs 10 points above the
+  # floor, so a bar hovering at the floor is not an intermittent siren. Two consecutive
+  # frames were 240 ms: on 2026-09-08 that was enough for a "1%" read off the screen the
+  # panel had just uncovered to ring the native siren.
   #
   # The strong action is optional (`player_hp_logout`): logout is the only help the game gives
   # the character. Without a pokémon standing, running away only changes where he gets hit.
+  @player_low_confirm_ms 1_200
+
   defp guard_player(state) do
     floor = Settings.get(:player_hp_floor_pct)
 
     cond do
       not is_integer(floor) or floor <= 0 ->
-        %{state | player_low_streak: 0, player_alarmed?: false}
+        %{state | player_low_since: nil, player_alarmed?: false}
 
       state.player_hp >= floor + 10 ->
-        %{state | player_low_streak: 0, player_alarmed?: false}
+        %{state | player_low_since: nil, player_alarmed?: false}
 
       state.player_hp >= floor ->
-        %{state | player_low_streak: 0}
+        %{state | player_low_since: nil}
 
       true ->
-        player_low(%{state | player_low_streak: state.player_low_streak + 1})
+        player_low(%{state | player_low_since: state.player_low_since || now()})
     end
   end
 
@@ -551,8 +564,14 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp dry_text("stop"), do: "PARANDO a caçada — o personagem fica onde está"
   defp dry_text(_alarm), do: "só avisando (revive_dry_action está em “alarm”)"
 
-  defp player_low(%{player_low_streak: streak, player_alarmed?: false} = state)
-       when streak >= 2 do
+  defp player_low(%{player_low_since: since, player_alarmed?: false} = state)
+       when is_integer(since) do
+    if now() - since >= @player_low_confirm_ms, do: shout_player_low(state), else: state
+  end
+
+  defp player_low(state), do: state
+
+  defp shout_player_low(state) do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       @topic,
@@ -577,10 +596,12 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     %{state | player_alarmed?: true}
   end
 
-  defp player_low(state), do: state
-
   # Uncrashable: this monitor runs forever, so a transient capture failure (the broker or the Rig
   # momentarily down/restarting) must come back as {:error}, not take the whole worker down with it.
+  # The Pokebar, or `:covered` while the game is not in front (or came back less
+  # than the settle ago): those frames are the panel's pixels, not the bar's.
+  defp pokebar(calib), do: if(screen_settled?(), do: read_hp(calib), else: :covered)
+
   defp read_hp(calib) do
     region = Calibration.pokemon_hp_region(calib)
     min_b = Settings.get(:pokemon_hp_min_brightness)

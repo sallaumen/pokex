@@ -1,7 +1,8 @@
 defmodule Pokex.Bots.Watchman.ChecksTest do
   @moduledoc """
-  Each question the watchman asks, against the blackboard and the files, with
-  the answer he needs to hear: which reading, and where to fix it.
+  Each question the watchman asks: the readings it samples (good now or not)
+  and the problems it judges from when each was last good, plus the structural
+  ones — each with the answer he needs to hear, and where to fix it.
   """
   use ExUnit.Case, async: false
 
@@ -43,71 +44,102 @@ defmodule Pokex.Bots.Watchman.ChecksTest do
     WorldState.put(:player, %{hp_pct: 100, readable?: true}, @now)
   end
 
-  defp keys(now \\ @now), do: Checks.run(now) |> Enum.map(&elem(&1, 0))
+  @all_good %{skill_bar: @now, battle: @now, pokemon: @now, player: @now}
 
-  defp text(key, now \\ @now),
-    do: Checks.run(now) |> Enum.find_value(fn {k, t} -> k == key && t end)
+  defp keys(last_good \\ @all_good, now \\ @now),
+    do: Checks.problems(now, last_good) |> Enum.map(&elem(&1, 0))
 
-  test "with everything read there is nothing to say" do
-    assert Checks.run(@now) == []
+  defp text(key, last_good \\ @all_good, now \\ @now),
+    do: Checks.problems(now, last_good) |> Enum.find_value(fn {k, t} -> k == key && t end)
+
+  describe "the readings, good now or not" do
+    test "with everything read, every reading is good" do
+      assert Checks.readings(@now) ==
+               %{skill_bar: true, battle: true, pokemon: true, player: true}
+    end
+
+    test "a fact older than a few seconds is not good now" do
+      assert Checks.readings(@now + 5_000) ==
+               %{skill_bar: false, battle: false, pokemon: false, player: false}
+    end
+
+    test "a frame that arrives but is not recognised is not good" do
+      WorldState.put(:skill_bar, %{ready_keys: nil}, @now)
+      WorldState.put(:player, %{hp_pct: nil, readable?: false}, @now)
+      WorldState.put(:pokemon, %{hp_pct: nil, readable?: false}, @now)
+
+      assert Checks.readings(@now) ==
+               %{skill_bar: false, battle: true, pokemon: false, player: false}
+    end
   end
 
-  test "a reading older than the stale window is a problem, each with its fix" do
-    later = @now + 20_000
+  describe "the problems" do
+    test "with everything good there is nothing to say" do
+      assert Checks.problems(@now, @all_good) == []
+    end
 
-    assert keys(later) == [:skill_bar, :battle, :pokemon, :player]
-    assert text(:skill_bar, later) =~ "barra de skills do Torterra não é reconhecida"
-    assert text(:skill_bar, later) =~ "recalibre a barra dele em /calibration"
-    assert text(:battle, later) =~ "janela de batalha não é lida"
-    assert text(:pokemon, later) =~ "Pokebar"
-    assert text(:player, later) =~ "vida do PERSONAGEM não é lida"
-  end
+    # The bar vanishes for two seconds while the revive recalls the pokémon;
+    # that never reaches the stale window (2026-09-08: seven false rings).
+    test "a reading bad for less than the stale window is not a problem" do
+      assert keys(%{@all_good | skill_bar: @now - 3_000}) == []
+    end
 
-  test "a bar marked outside this screen says so, and where it was calibrated" do
-    Pokex.Pokedex.Team.set_bar("Torterra", %{region: {1594, 1215, 278, 37}, count: 4, refs: nil})
+    test "a reading bad for longer than the stale window is, each with its fix" do
+      old = %{
+        skill_bar: @now - 20_000,
+        battle: @now - 20_000,
+        pokemon: @now - 20_000,
+        player: @now - 20_000
+      }
 
-    assert keys() == [:skill_bar]
-    assert text(:skill_bar) =~ "fora desta tela (x=1594"
-  end
+      assert keys(old) == [:skill_bar, :battle, :pokemon, :player]
+      assert text(:skill_bar, old) =~ "barra de skills do Torterra não é reconhecida"
+      assert text(:skill_bar, old) =~ "recalibre a barra dele em /calibration"
+      assert text(:battle, old) =~ "janela de batalha não é lida"
+      assert text(:pokemon, old) =~ "Pokebar"
+      assert text(:player, old) =~ "vida do PERSONAGEM não é lida"
+    end
 
-  test "a bar the reader cannot recognise is a problem even when the frame arrives" do
-    WorldState.put(:skill_bar, %{ready_keys: nil}, @now)
-    assert keys() == [:skill_bar]
-  end
+    test "a reading never sampled is taken as good" do
+      assert keys(%{}) == []
+    end
 
-  test "his life bar unmarked is a problem, because it is the one that shouts" do
-    {:ok, calib} = Calibration.load()
-    Calibration.save(%{calib | player_hp_region: nil})
+    test "a bar marked outside this screen says so, and where it was calibrated" do
+      Pokex.Pokedex.Team.set_bar("Torterra", %{region: {1594, 1215, 278, 37}, count: 4, refs: nil})
 
-    assert keys() == [:player]
-    assert text(:player) =~ "não está marcada"
-  end
+      assert keys() == [:skill_bar]
+      assert text(:skill_bar) =~ "fora desta tela (x=1594"
+    end
 
-  test "his life bar read as unreadable is a problem" do
-    WorldState.put(:player, %{hp_pct: nil, readable?: false}, @now)
-    assert keys() == [:player]
-  end
+    test "his life bar unmarked is a problem, because it is the one that shouts" do
+      {:ok, calib} = Calibration.load()
+      Calibration.save(%{calib | player_hp_region: nil})
 
-  test "characters on the machine and none active: the legacy team is a problem" do
-    {:ok, _slug} = Pokex.Characters.create("Lotavanon")
+      assert keys() == [:player]
+      assert text(:player) =~ "não está marcada"
+    end
 
-    assert keys() == [:character]
-    assert text(:character) =~ "nenhum personagem ativo"
-  end
+    test "characters on the machine and none active: the legacy team is a problem" do
+      {:ok, _slug} = Pokex.Characters.create("Lotavanon")
 
-  test "a screen nobody measured the tile of is a problem, naming the ones the bot knows" do
-    {:ok, calib} = Calibration.load()
-    Calibration.save(%{calib | tile_px: nil})
+      assert keys() == [:character]
+      assert text(:character) =~ "nenhum personagem ativo"
+    end
 
-    assert keys() == [:tile]
-    assert text(:tile) =~ "esta tela (1000×700) não tem o tamanho do tile medido"
-    assert text(:tile) =~ "1512×982 → 36"
-  end
+    test "a screen nobody measured the tile of is a problem, naming the ones the bot knows" do
+      {:ok, calib} = Calibration.load()
+      Calibration.save(%{calib | tile_px: nil})
 
-  test "a measured screen needs no tile of its own" do
-    {:ok, calib} = Calibration.load()
-    Calibration.save(%{calib | screen_w: 1512, screen_h: 982, tile_px: nil})
+      assert keys() == [:tile]
+      assert text(:tile) =~ "esta tela (1000×700) não tem o tamanho do tile medido"
+      assert text(:tile) =~ "1512×982 → 36"
+    end
 
-    assert keys() == []
+    test "a measured screen needs no tile of its own" do
+      {:ok, calib} = Calibration.load()
+      Calibration.save(%{calib | screen_w: 1512, screen_h: 982, tile_px: nil})
+
+      assert keys() == []
+    end
   end
 end

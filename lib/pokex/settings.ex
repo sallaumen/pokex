@@ -710,6 +710,13 @@ defmodule Pokex.Settings do
     watchman_repeat_ms: 60_000,
     watchman_grace_ms: 8_000,
     watchman_stale_ms: 12_000,
+    # How often the readings are sampled for "last time this was good": a bar gone for two
+    # seconds during a revive never reaches the stale window, a broken one does.
+    watchman_sample_ms: 1_000,
+    # After the game comes back in front, how long the readers wait before trusting the
+    # screen: the seconds after a panel closes read whatever was over the game (2026-09-08,
+    # "VOCÊ está com 1%" six seconds after the calibration page).
+    focus_settle_ms: 3_000,
     # CALIBRATION MODE, off by default: after every area key the bot presses, take one capture
     # and file where the damage landed.
     area_probe_enabled: false,
@@ -899,6 +906,8 @@ defmodule Pokex.Settings do
     watchman_repeat_ms: 5_000..3_600_000,
     watchman_grace_ms: 0..120_000,
     watchman_stale_ms: 1_000..600_000,
+    watchman_sample_ms: 100..60_000,
+    focus_settle_ms: 0..60_000,
     engine_crowd_from: 1..20,
     engine_spent_keys_left: 0..9,
     auto_combo_window_ms: 500..30_000,

@@ -254,7 +254,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
 
-      assert_receive {:rule_alarm, :mortal, msg}, 1_500
+      assert_receive {:rule_alarm, :mortal, msg}, 3_000
       assert msg =~ "VOCÊ"
       assert msg =~ "personagem"
 
@@ -285,7 +285,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
 
-      assert_receive {:game_log, :macro, log}, 1_500
+      assert_receive {:game_log, :macro, log}, 3_000
       assert log =~ "pedindo LOGOUT"
     end
 

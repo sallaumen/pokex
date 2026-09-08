@@ -182,8 +182,6 @@ defmodule Pokex.Settings do
     # Min bright-red (r>=200,g<=60,b<=60) px on a scanline of the rightmost strip for it to
     # count as the OWN-pokemon pokeball (so that row is EXCLUDED from attack candidates).
     pokeball_min_red_px: 5,
-    # Screen points per game tile — the ruler for everything measured FROM THE CHARACTER.
-    tile_px: 151,
     # /diagnostics still shows the per-row red target-ring read for manual inspection; this is
     # the threshold it uses (a real ring is 600-900 red px, the unlocked baseline ~40-150).
     target_locked_min_pixels: 120,

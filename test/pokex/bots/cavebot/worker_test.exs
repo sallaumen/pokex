@@ -496,7 +496,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     # not.
     test "a spot given in TILES is clicked at that distance from the character",
          %{worker: worker} do
-      SettingsStash.stash!(cavebot_park_clicks: 1, cavebot_park_gap_ms: 0, tile_px: 100)
+      SettingsStash.stash!(cavebot_park_clicks: 1, cavebot_park_gap_ms: 0)
       park_calibration()
 
       {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
@@ -522,7 +522,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       SettingsStash.stash!(
         cavebot_park_clicks: 1,
         cavebot_park_gap_ms: 0,
-        tile_px: 100,
         cavebot_park_tiles_x: -3,
         cavebot_park_tiles_y: 1
       )
@@ -540,7 +539,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     end
 
     test "with the default at 0,0 nothing is clicked at all", %{worker: worker} do
-      SettingsStash.stash!(cavebot_park_tiles_x: 0, cavebot_park_tiles_y: 0, tile_px: 100)
+      SettingsStash.stash!(cavebot_park_tiles_x: 0, cavebot_park_tiles_y: 0)
       park_calibration()
 
       {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
@@ -558,6 +557,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
         scale: 1.0,
         screen_w: 1000,
         screen_h: 700,
+        tile_px: 100,
         player_point: {500, 350}
       })
     end
@@ -1284,6 +1284,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
         scale: 1.0,
         screen_w: 1000,
         screen_h: 700,
+        tile_px: 100,
         pokemon_photo_point: {120, 90},
         neutral_point: {500, 500}
       })

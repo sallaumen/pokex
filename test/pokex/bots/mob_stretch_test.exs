@@ -60,6 +60,7 @@ defmodule Pokex.Bots.MobStretchTest do
       scale: 1.0,
       screen_w: 1000,
       screen_h: 700,
+      tile_px: 40,
       water_point: {400, 300},
       glow_region: {0, 0, 20, 20},
       battle_region: {0, 0, 80, 400},

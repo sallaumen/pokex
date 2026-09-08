@@ -97,8 +97,8 @@ defmodule Pokex.ScreenScaleTest do
         |> ScreenScale.proposals(get: current)
         |> Map.new(&{&1.key, &1})
 
-      assert by_key[:tile_px].to == round(seeds.tile_px * 0.5)
-      assert by_key[:tile_px].family == :linear
+      assert by_key[:battle_row_height].to == round(seeds.battle_row_height * 0.5)
+      assert by_key[:battle_row_height].family == :linear
 
       assert by_key[:glow_threshold].to == seeds.glow_threshold * 0.25
       assert by_key[:glow_threshold].family == :area

@@ -17,12 +17,13 @@ defmodule Pokex.Bots.Watchman.ChecksTest do
     WorldState.clear()
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Pokex.TestHome.restore() end)
-    SettingsStash.stash!(watchman_stale_ms: 12_000, tile_px: 36)
+    SettingsStash.stash!(watchman_stale_ms: 12_000)
 
     Calibration.save(%Calibration{
       scale: 1.0,
       screen_w: 1000,
       screen_h: 700,
+      tile_px: 36,
       water_point: {1, 1},
       glow_region: {0, 0, 8, 8},
       battle_region: {0, 0, 8, 8},
@@ -94,11 +95,19 @@ defmodule Pokex.Bots.Watchman.ChecksTest do
     assert text(:character) =~ "nenhum personagem ativo"
   end
 
-  test "a tile that does not fit fifteen times across the screen is another screen's tile" do
-    SettingsStash.stash!(tile_px: 151)
+  test "a screen nobody measured the tile of is a problem, naming the ones the bot knows" do
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | tile_px: nil})
 
     assert keys() == [:tile]
-    assert text(:tile) =~ "tile_px 151 não cabe nesta tela de 1000"
-    assert text(:tile) =~ "36"
+    assert text(:tile) =~ "esta tela (1000×700) não tem o tamanho do tile medido"
+    assert text(:tile) =~ "1512×982 → 36"
+  end
+
+  test "a measured screen needs no tile of its own" do
+    {:ok, calib} = Calibration.load()
+    Calibration.save(%{calib | screen_w: 1512, screen_h: 982, tile_px: nil})
+
+    assert keys() == []
   end
 end

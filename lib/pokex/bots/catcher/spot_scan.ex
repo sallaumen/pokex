@@ -108,7 +108,7 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # on the display, which the broker's quarantine would otherwise reject.
   defp scan_region({cx, cy}, %Calibration{screen_w: sw, screen_h: sh} = calib)
        when is_integer(sw) and is_integer(sh) do
-    tile = Calibration.tile_px()
+    tile = Calibration.tile_px(calib)
     raio = max(Settings.get(:corpse_scan_radius_tiles), 1)
     meia = div((2 * raio + 1) * tile, 2)
 
@@ -206,19 +206,23 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # match the taught corpse by palette, and the ball would fly at Lucas's own
   # pokémon. Each anchor's CENTER is kept in frame px; any window whose center
   # falls within half a tile of one is discarded.
+  # The half tile comes with the zones: it is THIS calibration's tile, not the
+  # one on disk (a scan handed a calibration must measure with it).
   defp forbidden_zones(calib, scale, region, _box) do
-    [calib.player_point, calib.pokemon_spot_point]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.map(fn {sx, sy} -> in_frame(sx, sy, scale, region) end)
+    points =
+      [calib.player_point, calib.pokemon_spot_point]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(fn {sx, sy} -> in_frame(sx, sy, scale, region) end)
+
+    %{points: points, limit: div(Calibration.tile_px(calib), 2)}
   end
 
-  defp forbidden?(x, y, box, forbidden) do
+  defp forbidden?(x, y, box, %{points: points, limit: limite}) do
     meia_caixa = div(box, 2)
-    limite = div(Calibration.tile_px(), 2)
     cx = x + meia_caixa
     cy = y + meia_caixa
 
-    Enum.any?(forbidden, fn {px, py} -> abs(cx - px) < limite and abs(cy - py) < limite end)
+    Enum.any?(points, fn {px, py} -> abs(cx - px) < limite and abs(cy - py) < limite end)
   end
 
   # Local maxima above the threshold with neighbor suppression: the dense scan

@@ -1224,16 +1224,15 @@ defmodule PokexWeb.CavebotLiveTest do
   # configurar ali pela interface" (Lucas, 2026-08-11).
   describe "where the pokémon is sent, in tiles" do
     setup do
+      # the tile is the calibration's own here (100), never a number typed on the page
       Pokex.Calibration.save(%Pokex.Calibration{
         scale: 1.0,
         screen_w: 3440,
         screen_h: 1440,
+        tile_px: 100,
         player_point: {1700, 700}
       })
 
-      before = Pokex.Settings.get(:tile_px)
-      on_exit(fn -> Pokex.Settings.put(:tile_px, before) end)
-      Pokex.Settings.put(:tile_px, 100)
       :ok
     end
 
@@ -1245,7 +1244,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
       html =
         view
-        |> form("#waypoint-park-0", %{"park_x" => "6", "park_y" => "-2", "tile_px" => "100"})
+        |> form("#waypoint-park-0", %{"park_x" => "6", "park_y" => "-2"})
         |> render_submit()
 
       assert [%Route{waypoints: [%{park_tiles: {6, -2}}]}] = Store.all()
@@ -1266,18 +1265,37 @@ defmodule PokexWeb.CavebotLiveTest do
       assert view |> element("#waypoint-park-0") |> render() =~ ~s(value="6")
     end
 
-    test "the ruler saved with it is the unit of the numbers above it", %{conn: conn} do
+    # The ruler is the SCREEN's, shown next to the numbers it is the unit of —
+    # and never a field: the notebook ran three days on a typed 151 (2026-09-07).
+    test "the ruler shown with it is the screen's tile, not a field", %{conn: conn} do
       route_with([{10, 10, 7}])
       {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
 
       view |> element("#map-waypoint-0") |> render_click()
 
+      assert view |> element("#waypoint-park-tile-0") |> render() =~ "1 tile = 100 px"
+      refute view |> element("#waypoint-park-0") |> render() =~ ~s(name="tile_px")
+
       view
-      |> form("#waypoint-park-0", %{"park_x" => "1", "park_y" => "0", "tile_px" => "131"})
+      |> form("#waypoint-park-0", %{"park_x" => "1", "park_y" => "0"})
       |> render_submit()
 
-      assert Pokex.Settings.get(:tile_px) == 131
-      assert view |> element("#waypoint-park-hint-0") |> render() =~ "1831, 700"
+      assert view |> element("#waypoint-park-hint-0") |> render() =~ "1800, 700"
+    end
+
+    test "a screen with no measured tile says so where the ruler would be", %{conn: conn} do
+      Pokex.Calibration.save(%Pokex.Calibration{
+        scale: 1.0,
+        screen_w: 2000,
+        screen_h: 1200,
+        player_point: {1000, 600}
+      })
+
+      route_with([{10, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
+      view |> element("#map-waypoint-0") |> render_click()
+
+      assert view |> element("#waypoint-park-tile-0") |> render() =~ "não tem tile medido"
     end
 
     test "'virar padrão' answers for every kill spot that has none", %{conn: conn} do
@@ -1296,7 +1314,7 @@ defmodule PokexWeb.CavebotLiveTest do
       view |> element("#map-waypoint-0") |> render_click()
 
       view
-      |> form("#waypoint-park-0", %{"park_x" => "-3", "park_y" => "1", "tile_px" => "100"})
+      |> form("#waypoint-park-0", %{"park_x" => "-3", "park_y" => "1"})
       |> render_submit()
 
       view |> element("#waypoint-park-default-0") |> render_click()
@@ -1316,7 +1334,7 @@ defmodule PokexWeb.CavebotLiveTest do
       view |> element("#map-waypoint-0") |> render_click()
 
       view
-      |> form("#waypoint-park-0", %{"park_x" => "6", "park_y" => "-2", "tile_px" => "100"})
+      |> form("#waypoint-park-0", %{"park_x" => "6", "park_y" => "-2"})
       |> render_submit()
 
       view |> element("#waypoint-park-clear-0") |> render_click()

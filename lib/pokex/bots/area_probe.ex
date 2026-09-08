@@ -209,8 +209,8 @@ defmodule Pokex.Bots.AreaProbe do
   defp frame_scale(%Frame{scale: scale}) when is_number(scale) and scale > 0, do: scale
   defp frame_scale(_frame), do: 1.0
 
-  defp box_around({px, py}, radius_tiles, %Calibration{screen_w: sw, screen_h: sh}) do
-    radius = radius_tiles * Calibration.tile_px()
+  defp box_around({px, py}, radius_tiles, %Calibration{screen_w: sw, screen_h: sh} = calib) do
+    radius = radius_tiles * Calibration.tile_px(calib)
     x = max(px - radius, 0)
     y = max(py - radius, 0)
     {x, y, max(min(2 * radius, max(sw, 1) - x), 1), max(min(2 * radius, max(sh, 1) - y), 1)}

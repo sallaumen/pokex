@@ -107,7 +107,7 @@ defmodule Pokex.Bots.CrowdScan do
          box = box_around({px, py}, radius, calib),
          {:ok, frame} <- capture.(box, "crowd_scan.raw") do
       scale = frame_scale(frame)
-      tile = Calibration.tile_px()
+      tile = Calibration.tile_px(calib)
       found = CreatureMarks.find(frame)
       marks = Enum.map(found, &to_screen(&1, box, scale))
 
@@ -261,8 +261,8 @@ defmodule Pokex.Bots.CrowdScan do
   defp frame_scale(%Frame{scale: scale}) when is_number(scale) and scale > 0, do: scale
   defp frame_scale(_frame), do: 1.0
 
-  defp box_around({px, py}, radius_tiles, %Calibration{screen_w: sw, screen_h: sh}) do
-    radius = radius_tiles * Calibration.tile_px()
+  defp box_around({px, py}, radius_tiles, %Calibration{screen_w: sw, screen_h: sh} = calib) do
+    radius = radius_tiles * Calibration.tile_px(calib)
     x = max(px - radius, 0)
     y = max(py - radius, 0)
     w = min(2 * radius, max(sw, 1) - x)

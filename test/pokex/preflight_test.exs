@@ -14,6 +14,7 @@ defmodule Pokex.PreflightTest do
       scale: 2.0,
       screen_w: 1000,
       screen_h: 700,
+      tile_px: 40,
       water_point: {1, 1},
       glow_region: {0, 0, 8, 8},
       battle_region: {0, 0, 8, 8},
@@ -44,6 +45,7 @@ defmodule Pokex.PreflightTest do
         scale: 1.0,
         screen_w: 1000,
         screen_h: 700,
+        tile_px: 40,
         water_point: {1, 1},
         glow_region: {0, 0, 8, 8},
         battle_region: {0, 0, 8, 8},
@@ -133,6 +135,7 @@ defmodule Pokex.PreflightTest do
         scale: 1.0,
         screen_w: 1000,
         screen_h: 700,
+        tile_px: 40,
         water_point: {1, 1},
         glow_region: {0, 0, 8, 8},
         battle_region: {0, 0, 8, 8},
@@ -160,6 +163,46 @@ defmodule Pokex.PreflightTest do
       Pokex.TeamFixtures.ready!("Bulbasaur", count: 4)
 
       assert Preflight.run(Pokex.Rig.Fake) == :ok
+    end
+  end
+
+  # THE TILE IS THE SCREEN'S (2026-09-08): "isso deveria ser automático com o
+  # tamanho da tela, e numa tela que não tiver sido reconhecida, dar erro".
+  describe "o tile da tela" do
+    setup %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+      :ok
+    end
+
+    defp screen(w, h) do
+      %Calibration{
+        scale: 1.0,
+        screen_w: w,
+        screen_h: h,
+        water_point: {1, 1},
+        glow_region: {0, 0, 8, 8},
+        battle_region: {0, 0, 8, 8},
+        neutral_point: {1, 1}
+      }
+    end
+
+    @tag :tmp_dir
+    test "a measured screen starts with no tile typed anywhere" do
+      Calibration.save(screen(1512, 982))
+      Pokex.TeamFixtures.ready!("Bulbasaur", count: 4)
+
+      assert Preflight.run(Pokex.Rig.Fake) == :ok
+    end
+
+    @tag :tmp_dir
+    test "a screen nobody measured does not start, and names the ones the bot knows" do
+      Calibration.save(screen(2000, 1200))
+      Pokex.TeamFixtures.ready!("Bulbasaur", count: 4)
+
+      assert {:error, msgs} = Preflight.run(Pokex.Rig.Fake)
+      assert Enum.any?(msgs, &(&1 =~ "esta tela (2000×1200) não tem o tamanho do tile medido"))
+      assert Enum.any?(msgs, &(&1 =~ "3440×1440 → 151, 1512×982 → 36"))
     end
   end
 

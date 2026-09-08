@@ -21,12 +21,13 @@ defmodule Pokex.Bots.CrowdScanTest do
 
     # radius 3: the painted capture is 600×600 instead of 1200×1200; the
     # geometry under test is the same and the test runs in a blink.
-    SettingsStash.stash!(tile_px: @tile, crowd_scan_radius_tiles: 3)
+    SettingsStash.stash!(crowd_scan_radius_tiles: 3)
 
     Calibration.save(%Calibration{
       scale: 1.0,
       screen_w: @screen,
       screen_h: @screen,
+      tile_px: @tile,
       player_point: @me
     })
 

@@ -64,7 +64,7 @@ defmodule Pokex.Bots.Catcher.Sweep do
   def tile_count(_radius, _side), do: 0
 
   defp sweep(calib, {ax, ay}, {sw, sh}) do
-    tile = Calibration.tile_px()
+    tile = Calibration.tile_px(calib)
     radius = max(Settings.get(:sweep_radius_tiles), 1)
     side = Settings.get(:sweep_side)
     skip = own_tiles(calib, {ax, ay}, tile)

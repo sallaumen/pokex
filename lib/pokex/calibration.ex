@@ -35,6 +35,11 @@ defmodule Pokex.Calibration do
     # Optional: the escape STAIRCASE tile — the emergency-escape protocol
     # left-clicks here (click-to-walk) to flee danger (e.g. a shiny).
     :escape_point,
+    # Optional: this calibration's own tile, in points, when it was measured for
+    # it. Absent, the tile is the SCREEN's (`Pokex.Screen.Tile`), and a screen
+    # nobody measured has no tile at all — the preflight refuses, the watchman
+    # shouts. Never a number he types.
+    :tile_px,
     # Optional for backwards compatibility with calibrations created before the
     # skill bar became part of the main wizard.
     :skill_bar_region,
@@ -203,6 +208,7 @@ defmodule Pokex.Calibration do
       "scale" => calib.scale,
       "screen_w" => calib.screen_w,
       "screen_h" => calib.screen_h,
+      "tile_px" => calib.tile_px,
       "water_point" => to_list(calib.water_point),
       "glow_region" => to_list(calib.glow_region),
       "battle_region" => to_list(calib.battle_region),
@@ -245,6 +251,7 @@ defmodule Pokex.Calibration do
       scale: map["scale"] / 1,
       screen_w: map["screen_w"],
       screen_h: map["screen_h"],
+      tile_px: map["tile_px"],
       water_point: to_tuple(map["water_point"]),
       glow_region: to_tuple(map["glow_region"]),
       battle_region: to_tuple(map["battle_region"]),
@@ -507,9 +514,45 @@ defmodule Pokex.Calibration do
   One name for it, because it is one measurement: the sweep's grid, the corpse
   search square and the tile the pokémon is parked on all stretch or shrink
   together, and two of them disagreeing is a bug nobody can see.
+
+  It comes from the SCREEN, never from a setting: this calibration's own
+  measurement when it has one, otherwise the measured table in
+  `Pokex.Screen.Tile`. A screen in neither is `{:unknown, {w, h}}` — the
+  preflight refuses to start on it, because a distance in an unknown unit is
+  no distance at all (the notebook ran three days on the ultrawide's 151).
   """
+  @spec tile(t) :: {:ok, pos_integer} | {:unknown, {term, term}}
+  def tile(%__MODULE__{tile_px: px}) when is_integer(px) and px > 0, do: {:ok, px}
+
+  def tile(%__MODULE__{screen_w: w, screen_h: h}) do
+    case Pokex.Screen.Tile.for_screen({w, h}) do
+      {:ok, px} -> {:ok, px}
+      :unknown -> {:unknown, {w, h}}
+    end
+  end
+
+  # The ultrawide's tile, the reference every pixel number in the seeds was
+  # measured on. Only ever used where the screen is unknown — and there the
+  # preflight has already refused, so nothing hunts with it.
+  @fallback_tile 151
+
+  @doc "The tile of a calibration as a number, for the geometry that needs one."
+  @spec tile_px(t) :: pos_integer
+  def tile_px(%__MODULE__{} = calib) do
+    case tile(calib) do
+      {:ok, px} -> px
+      {:unknown, _screen} -> @fallback_tile
+    end
+  end
+
+  @doc "The tile of the calibration on disk."
   @spec tile_px() :: pos_integer
-  def tile_px, do: max(Pokex.Settings.get(:tile_px), 1)
+  def tile_px do
+    case load() do
+      {:ok, calib} -> tile_px(calib)
+      _uncalibrated -> @fallback_tile
+    end
+  end
 
   @doc """
   The screen point `{dx, dy}` TILES from the character — right and down positive.
@@ -524,7 +567,7 @@ defmodule Pokex.Calibration do
   @spec tile_point(t, {integer, integer}) :: {integer, integer} | nil
   def tile_point(%__MODULE__{} = calib, {dx, dy}) do
     case player_point(calib) do
-      {px, py} -> {px + dx * tile_px(), py + dy * tile_px()}
+      {px, py} -> {px + dx * tile_px(calib), py + dy * tile_px(calib)}
       nil -> nil
     end
   end
@@ -536,7 +579,7 @@ defmodule Pokex.Calibration do
   @spec tile_offset(t, {integer, integer}) :: {integer, integer} | nil
   def tile_offset(%__MODULE__{} = calib, {x, y}) do
     case player_point(calib) do
-      {px, py} -> {round((x - px) / tile_px()), round((y - py) / tile_px())}
+      {px, py} -> {round((x - px) / tile_px(calib)), round((y - py) / tile_px(calib))}
       nil -> nil
     end
   end

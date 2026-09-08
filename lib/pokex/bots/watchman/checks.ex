@@ -24,10 +24,6 @@ defmodule Pokex.Bots.Watchman.Checks do
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
 
-  # The game's viewport is 15 tiles wide: a tile that does not fit 15 times is
-  # another screen's tile.
-  @viewport_tiles 15
-
   @type problem :: {atom, String.t()}
 
   @doc "Every broken reading right now, in a fixed order."
@@ -145,23 +141,27 @@ defmodule Pokex.Bots.Watchman.Checks do
     end
   end
 
-  defp tile(problems, %Calibration{screen_w: sw}) when is_integer(sw) and sw > 0 do
-    tile = Settings.get(:tile_px)
+  # The tile comes from the screen (`Pokex.Screen.Tile`), and a screen nobody
+  # measured has none: every distance from the character would be in a made-up
+  # unit. The preflight refuses it; this catches a calibration swapped under a
+  # running bot.
+  defp tile(problems, %Calibration{} = calib) do
+    case Calibration.tile(calib) do
+      {:ok, _px} ->
+        problems
 
-    if tile * @viewport_tiles > sw do
-      [
-        {:tile,
-         "tile_px #{tile} não cabe nesta tela de #{sw} pontos (o jogo mostra #{@viewport_tiles} " <>
-           "tiles de largura) — meça o tile desta tela e ajuste no /cavebot (no notebook " <>
-           "1512×982 é 36)"}
-        | problems
-      ]
-    else
-      problems
+      {:unknown, {w, h}} ->
+        [
+          {:tile,
+           "esta tela (#{w}×#{h}) não tem o tamanho do tile medido — o bot conhece " <>
+             "#{Pokex.Screen.Tile.known_text()}; meça o tile desta tela e cadastre em " <>
+             "Pokex.Screen.Tile"}
+          | problems
+        ]
     end
   end
 
-  defp tile(problems, _no_screen), do: problems
+  defp tile(problems, _no_calibration), do: problems
 
   defp read?({:ok, obs}, key), do: is_list(Map.get(obs, key)) or is_integer(Map.get(obs, key))
   defp read?(_unread, _key), do: false

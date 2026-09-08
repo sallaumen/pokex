@@ -662,7 +662,6 @@ defmodule PokexWeb.ConfigLive do
         :cavebot_block_retry_ms,
         :cavebot_park_tiles_x,
         :cavebot_park_tiles_y,
-        :tile_px,
         :area_probe_enabled,
         :skill_meter_enabled
       ]

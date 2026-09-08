@@ -14,7 +14,6 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
     on_exit(fn -> Pokex.TestHome.restore() end)
 
     SettingsStash.stash!(
-      tile_px: 40,
       corpse_scan_radius_tiles: 2,
       corpse_sprite_box_px: 24,
       corpse_scan_step_px: 20,
@@ -33,6 +32,7 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
         scale: 1.0,
         screen_w: 1000,
         screen_h: 700,
+        tile_px: 40,
         water_point: {1, 1},
         glow_region: {0, 0, 8, 8},
         battle_region: {900, 0, 80, 400},

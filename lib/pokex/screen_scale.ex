@@ -61,8 +61,10 @@ defmodule Pokex.ScreenScale do
   # two. His other screen is at 0.76, nowhere near this.
   @reference_tolerance 0.05
 
+  # The tile is NOT here: it is the map's zoom, which this HUD ruler cannot see
+  # (the notebook's bar is 0.76× the reference and its tile 0.24×). It comes from
+  # the screen itself — `Pokex.Screen.Tile`.
   @linear [
-    :tile_px,
     :battle_row_height,
     :corpse_sprite_box_px,
     :corpse_scan_step_px,

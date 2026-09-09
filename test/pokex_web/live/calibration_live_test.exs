@@ -1863,7 +1863,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     # Preto não tem matiz, e o conta-gotas recusava por isso — agora o clique
     # vira uma BANDA ESCURA, cercada por teto de luz em vez de cone.
     @tag :tmp_dir
-    test "clicar no preto ensina uma banda escura", %{
+    test "clicking on black teaches a dark band", %{
       conn: conn,
       tmp_dir: tmp
     } do
@@ -1884,7 +1884,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     end
 
     @tag :tmp_dir
-    test "a regra preta guarda o teto de luz e o vigia a compila", %{conn: conn, tmp_dir: tmp} do
+    test "a black rule stores the light ceiling and the watcher compiles it", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
       :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
       on_exit(fn -> Pokex.TestHome.restore() end)

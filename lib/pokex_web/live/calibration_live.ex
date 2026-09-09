@@ -1307,8 +1307,6 @@ defmodule PokexWeb.CalibrationLive do
   defp sample_peak(samples),
     do: samples |> List.flatten() |> Enum.map(& &1.px) |> Enum.max(fn -> 0 end)
 
-  defp chrome_of([]), do: []
-
   defp chrome_of(samples) do
     minimo = ceil(length(samples) * @chrome_share)
 

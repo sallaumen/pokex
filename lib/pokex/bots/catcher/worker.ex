@@ -1055,6 +1055,17 @@ defmodule Pokex.Bots.Catcher.Worker do
         state = announce_corpses(state, steady)
         {%{state | aim: %{state.aim | prev: candidates}}, obs}
 
+      # SEGURAR NÃO É CEGAR. A mira recusa a olhada enquanto há bicho de pé na
+      # tela (é hora de matar, não de jogar bola) — contar isso como varredura
+      # cega encheria o placar do painel de uma cegueira que não existe.
+      %{scanning?: false, reason: {:alive_on_screen, n}} ->
+        log(:debug, "🌟 mira segurada: #{n} bicho(s) de pé — primeiro mata")
+        {state, nil}
+
+      %{scanning?: false, reason: :no_picture} ->
+        log(:debug, "🌟 mira segurada: sem quadro do cérebro pra saber quem está de pé")
+        {state, nil}
+
       %{scanning?: false} = obs ->
         log(:debug, "🌟 mira cega: #{inspect(Map.get(obs, :reason))}")
         {state, obs}

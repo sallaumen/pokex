@@ -8,10 +8,21 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
   lying down. So the aim is one fresh frame of the guard's square, the proven colour rules on
   it, and one question per blob — is there a living body on it?
 
-  The eye's `:crowd` reading answers that: a creature body (hostile or his pet) within one tile
-  of the blob means the shiny is still standing (or his Torterra is), and a ball would be
-  wasted. No eye reading at all means "cannot tell", which here is "not a corpse" — a ball
-  is dearer than a scan. The worker also asks for TWO consecutive sightings (`steady/3`),
+  Two things answer that, and the second exists because the first was caught lying.
+
+  **Nobody alive on the screen.** "Quando tá vivo temos que matar e quando tá morto temos que
+  capturar" (09/09). While the brain still counts enemies, a ball is either wasted on a live
+  creature or thrown instead of the fight that should be killing it — so the aim hands nothing
+  over until the battle list is EMPTY. It is the shiny's own colour that turns `heavy?` on and
+  makes the hunt kill it first; this is the other half of the same rule.
+
+  **No body within a tile of the blob**, from the eye's `:crowd` reading. It is a second fence,
+  not the first one, because it can be blind: measured on his own frame of 09/09, the black
+  shiny standing in the lava had NO health bar for the eye to find — zero marks in the whole
+  square — so on its own this test would have called a live creature a corpse.
+
+  No reading at all, from either channel, means "cannot tell", which here is "not a corpse": a
+  ball is dearer than a scan. The worker also asks for TWO consecutive sightings (`steady/3`),
   the same discipline the guard uses to confirm the living shiny.
 
   The observation speaks `Catcher.Logic`'s contract (`corpses`, `known`, `captured_at`) plus
@@ -28,6 +39,9 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
 
   # the eye walks at 1 s; its own `crowd_fact_max_age_ms` (600) is a fight cadence
   @crowd_max_age_ms 1_500
+  # o quadro do cérebro: ele tica a cada 200ms, e é ele que já desconta a linha
+  # do PRÓPRIO pokémon da contagem (a lista crua inclui ela)
+  @situation_max_age_ms 2_000
 
   @type candidate :: %{
           name: String.t(),
@@ -45,7 +59,8 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
     capture = Keyword.get(opts, :capture, &Capture.frame/2)
     now = System.monotonic_time(:millisecond)
 
-    with {:ok, calib} <- Calibration.load(),
+    with :ok <- screen_clear(Keyword.get(opts, :enemies, :ask), now),
+         {:ok, calib} <- Calibration.load(),
          {:ok, {_x, _y, _w, _h} = region} <- SpotScan.region(calib),
          {:ok, %Frame{} = frame} <- capture.(region, "shiny_aim.raw") do
       forbidden = ShinyGuard.forbidden_boxes(calib, frame, region)
@@ -56,10 +71,26 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
       |> judge(region, ColorRules.armed(), forbidden, crowd, tile)
       |> obs(region, now)
     else
+      {:blocked, reason} -> %{scanning?: false, source: :shiny_aim, reason: reason}
       {:error, reason} -> %{scanning?: false, source: :shiny_aim, reason: reason}
       _blind -> %{scanning?: false, source: :shiny_aim, reason: :capture_failed}
     end
   end
+
+  # NADA VIVO NA TELA. A contagem é a do CÉREBRO (`:situation`), não a da lista
+  # crua: a lista inclui a linha do próprio pokémon dele, e cobrar zero dela
+  # seria nunca jogar bola nenhuma. Quadro velho ou ausente é "não sei", e não
+  # saber aqui é não jogar.
+  defp screen_clear(:ask, now) do
+    case WorldState.get(:situation, @situation_max_age_ms, now) do
+      {:ok, %{enemies: 0}} -> :ok
+      {:ok, %{enemies: n}} when is_integer(n) -> {:blocked, {:alive_on_screen, n}}
+      _stale_or_missing -> {:blocked, :no_picture}
+    end
+  end
+
+  defp screen_clear(0, _now), do: :ok
+  defp screen_clear(n, _now) when is_integer(n), do: {:blocked, {:alive_on_screen, n}}
 
   @doc """
   The largest blob of each rule, at or above the rule's floor, with NO body within `tile_px`

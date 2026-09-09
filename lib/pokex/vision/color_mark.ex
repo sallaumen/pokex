@@ -120,27 +120,49 @@ defmodule Pokex.Vision.ColorMark do
           {:ok, {0..255, 0..255, 0..255}} | {:dark, {0..255, 0..255, 0..255}} | :none
   def dominant(%Frame{} = frame, {x, y}, raio \\ 2) do
     todos = patch(frame, x, y, raio)
-    bins = todos |> Enum.reject(&hueless?/1) |> Enum.group_by(&faixa/1)
-
     clicado = Frame.at(frame, x, y)
 
-    faixa_do_clique =
-      if hueless?(clicado), do: nil, else: Map.get(bins, faixa(clicado))
+    cond do
+      # O PIXEL CLICADO MANDA, e isto custou a noite de 09/09. O voto do
+      # quadradinho só valia quando NENHUM dos 25 tinha matiz, então clicar no
+      # corpo preto do Charizard dentro de uma caverna de lava ensinava a LAVA:
+      # um pixel alaranjado na borda da silhueta ganhava de vinte e quatro
+      # pixels (17,16,16). Ele salvou três tons assim, e cada um casava 3% da
+      # tela dele.
+      escuro?(clicado) ->
+        escuro(todos)
 
-    case faixa_do_clique || maior_faixa(bins) do
-      nil -> escuro(todos)
-      pixels -> {:ok, median(pixels)}
+      not hueless?(clicado) ->
+        bins = todos |> Enum.reject(&hueless?/1) |> Enum.group_by(&faixa/1)
+        {:ok, median(Map.get(bins, faixa(clicado)) || [clicado])}
+
+      true ->
+        # Cinza CLARO — a costura entre o bicho e o chão. O quadradinho vota,
+        # mas a faixa vencedora tem que valer pelo menos um terço dele: um
+        # pixel solto emprestando o matiz é o defeito de cima com outra roupa.
+        todos
+        |> Enum.reject(&hueless?/1)
+        |> Enum.group_by(&faixa/1)
+        |> maior_faixa()
+        |> maioria(length(todos))
     end
   end
 
-  # Nenhum matiz no quadrado: ou é o preto de um shiny (ensina uma banda
-  # escura), ou é pedra cinza (não ensina nada).
-  defp escuro(pixels) do
-    escuros = Enum.filter(pixels, fn {r, g, b} -> max(r, max(g, b)) <= @pick_dark_ceiling end)
+  defp maioria(nil, _total), do: :none
 
-    if length(escuros) * 2 >= length(pixels) and escuros != [],
-      do: {:dark, median(escuros)},
-      else: :none
+  defp maioria(pixels, total) do
+    if length(pixels) * 3 >= total, do: {:ok, median(pixels)}, else: :none
+  end
+
+  defp escuro?({r, g, b}), do: max(r, max(g, b)) <= @pick_dark_ceiling
+
+  # O quadradinho em volta de um clique escuro: a mediana dos pixels ESCUROS
+  # dele, que é o tom sem o anti-aliasing da borda.
+  defp escuro(pixels) do
+    case Enum.filter(pixels, &escuro?/1) do
+      [] -> :none
+      escuros -> {:dark, median(escuros)}
+    end
   end
 
   defp hueless?({r, g, b}) do

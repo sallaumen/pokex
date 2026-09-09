@@ -14,6 +14,31 @@ defmodule Pokex.Vision.ColorMark do
   That is what tells "25px concentrated on a differently coloured crest" from "25px of noise
   spread over the grass": sensitive without being nervous.
 
+  ## O TOM QUE NÃO TEM MATIZ
+
+  Some of his shinies are BLACK — "é um dos poucos Shinies Pretos do jogo" (09/09), a Charizard
+  whose whole body reads (17, 16, 16) with the channels a single point apart. Black has no hue
+  to put a cone around, and the eyedropper refused it by design. So a colour is either a HUE
+  cone or a DARK band: `{:dark, v_max, spread_max}` matches pixels no brighter than `v_max`
+  whose channels sit within `spread_max` of each other — an achromatic cone, measured the same
+  way and proven the same way.
+
+  Measured on his own frame (2026-09-09, the black shiny standing in the lava cave), cell 8 and
+  6 matched pixels per cell:
+
+  | v_max | the creature | the loudest blob of ground | margin |
+  |-------|--------------|----------------------------|--------|
+  | 26    | 8.728 px     | 1.576 px                   | 5,5x   |
+  | 30    | 10.503 px    | 2.638 px                   | 4,0x   |
+  | 34    | 12.605 px    | 4.449 px                   | 2,8x   |
+  | 38    | 16.195 px    | 11.055 px                  | 1,5x   |
+
+  A dark band pays a price a hue never did: THE GAME'S OWN CHROME IS BLACK. In that same frame
+  the four loudest blobs were the hotbar (30.841 px), the top toolbar (25.741), the Tracker
+  window (20.782) and the bottom-right panel (17.513) — every one of them louder than the
+  creature. That is what `box` on each blob is for: the floor proof watches which blobs never
+  move and hands them back as `forbidden`.
+
   Pure and processless, like `SpriteLibrary`: it takes a `Frame` and answers a map. Output
   coordinates are FRAME PIXELS; whoever captured knows the region and the scale, and converts to
   screen points.
@@ -23,9 +48,17 @@ defmodule Pokex.Vision.ColorMark do
 
   @default_cell_px 8
   @default_min_cell_px 6
+  # o espalhamento entre canais que ainda conta como "sem cor": medido no corpo
+  # do shiny preto dele, mediana 0 e p90 4
+  @default_spread_max 12
 
-  @typedoc "Uma cor de referência compilada pra varredura."
-  @type spec :: {h :: 0..359, s :: 0..255, v :: 0..255, tol_h :: pos_integer, tol_sv :: 0..255}
+  @typedoc """
+  Uma cor de referência compilada pra varredura: um cone de MATIZ, ou uma banda
+  ESCURA pros tons que não têm matiz nenhum (o shiny preto).
+  """
+  @type spec ::
+          {h :: 0..359, s :: 0..255, v :: 0..255, tol_h :: pos_integer, tol_sv :: 0..255}
+          | {:dark, v_max :: 0..255, spread_max :: 0..255}
 
   @doc """
   Compiles colours `%{rgb: {r, g, b}, tol_h: degrees, tol_sv: pct}` for the scan.
@@ -33,14 +66,24 @@ defmodule Pokex.Vision.ColorMark do
   `tol_h` is the half-width of the hue cone in degrees; `tol_sv` is the saturation and
   brightness slack in PERCENT (converted to the 0..255 scale here, once).
   """
-  def compile(colors) when is_list(colors) do
-    Enum.map(colors, fn %{rgb: {r, g, b}} = color ->
-      {h, s, v} = hsv(r, g, b)
-      tol_h = color |> Map.get(:tol_h, 12) |> max(1)
-      tol_sv = color |> Map.get(:tol_sv, 30) |> Kernel.*(255) |> div(100) |> max(1)
-      {h, s, v, tol_h, tol_sv}
-    end)
+  def compile(colors) when is_list(colors), do: Enum.map(colors, &compile_one/1)
+
+  # O TOM ESCURO: sem matiz pra cercar, o que se cerca é o TETO DE LUZ e o
+  # espalhamento entre os canais — preto é onde os três andam juntos e baixos.
+  defp compile_one(%{dark: v_max} = color),
+    do:
+      {:dark, clamp(v_max, 1, 255),
+       color |> Map.get(:spread, @default_spread_max) |> clamp(0, 255)}
+
+  defp compile_one(%{rgb: {r, g, b}} = color) do
+    {h, s, v} = hsv(r, g, b)
+    tol_h = color |> Map.get(:tol_h, 12) |> max(1)
+    tol_sv = color |> Map.get(:tol_sv, 30) |> Kernel.*(255) |> div(100) |> max(1)
+    {h, s, v, tol_h, tol_sv}
   end
+
+  defp clamp(n, lo, hi) when is_integer(n), do: n |> max(lo) |> min(hi)
+  defp clamp(_not_a_number, lo, _hi), do: lo
 
   @doc """
   The teaching EYEDROPPER: the dominant colour of a small square around `{x, y}`, which is what
@@ -52,8 +95,10 @@ defmodule Pokex.Vision.ColorMark do
   answers the MEDIAN of each channel. Median and not mean: the mean between two neighbouring
   tones invents a third that is not on the screen.
 
-  `:none` when there is no colour there at all (he clicked on the rock floor): whoever is
-  teaching needs to hear that instead of receiving a silent grey.
+  `{:dark, {r, g, b}}` when the patch has no hue but IS dark — his black shiny, whose body is
+  (17, 16, 16). There is no cone to put around that, so the teaching turns it into a dark band
+  (see the moduledoc). `:none` stays for grey that is not dark either (the rock floor): whoever
+  is teaching needs to hear that instead of receiving a silent grey.
 
   ## The clicked pixel rules
 
@@ -67,15 +112,15 @@ defmodule Pokex.Vision.ColorMark do
   @pick_min_delta 25
   @pick_min_value 30
   @pick_hue_bin 12
+  # Um clique SEM matiz ainda ensina alguma coisa se for escuro: acima disto é
+  # pedra cinza, e uma banda que pega pedra pega o mapa inteiro.
+  @pick_dark_ceiling 60
 
   @spec dominant(Frame.t(), {integer, integer}, pos_integer) ::
-          {:ok, {0..255, 0..255, 0..255}} | :none
+          {:ok, {0..255, 0..255, 0..255}} | {:dark, {0..255, 0..255, 0..255}} | :none
   def dominant(%Frame{} = frame, {x, y}, raio \\ 2) do
-    bins =
-      frame
-      |> patch(x, y, raio)
-      |> Enum.reject(&hueless?/1)
-      |> Enum.group_by(&faixa/1)
+    todos = patch(frame, x, y, raio)
+    bins = todos |> Enum.reject(&hueless?/1) |> Enum.group_by(&faixa/1)
 
     clicado = Frame.at(frame, x, y)
 
@@ -83,9 +128,19 @@ defmodule Pokex.Vision.ColorMark do
       if hueless?(clicado), do: nil, else: Map.get(bins, faixa(clicado))
 
     case faixa_do_clique || maior_faixa(bins) do
-      nil -> :none
+      nil -> escuro(todos)
       pixels -> {:ok, median(pixels)}
     end
+  end
+
+  # Nenhum matiz no quadrado: ou é o preto de um shiny (ensina uma banda
+  # escura), ou é pedra cinza (não ensina nada).
+  defp escuro(pixels) do
+    escuros = Enum.filter(pixels, fn {r, g, b} -> max(r, max(g, b)) <= @pick_dark_ceiling end)
+
+    if length(escuros) * 2 >= length(pixels) and escuros != [],
+      do: {:dark, median(escuros)},
+      else: :none
   end
 
   defp hueless?({r, g, b}) do
@@ -128,8 +183,9 @@ defmodule Pokex.Vision.ColorMark do
   pixels in a cell for it to count), `forbidden` (boxes `{left, top, right, bottom}` in frame
   px; HIS OWN pokémon lives in one).
 
-  Answers `%{px: total_matched, manchas: [%{point: {x, y}, px: n, cells: n}]}`, blobs in
-  decreasing order of size, `point` at the centre of mass.
+  Answers `%{px: total_matched, manchas: [%{point: {x, y}, px: n, cells: n, box: {l, t, r, b}}]}`,
+  blobs in decreasing order of size, `point` at the centre of mass and `box` around every cell
+  that entered — the box is what tells a creature from the game's own chrome across frames.
   """
   def scan(%Frame{width: w, height: h, rgba: rgba}, specs, opts \\ []) when is_list(specs) do
     cell = Keyword.get(opts, :cell_px, @default_cell_px)
@@ -182,6 +238,14 @@ defmodule Pokex.Vision.ColorMark do
   end
 
   defp matches?(_r, _g, _b, []), do: false
+
+  defp matches?(r, g, b, [{:dark, v_max, spread_max} | rest]) do
+    mx = max(r, max(g, b))
+
+    if mx <= v_max and mx - min(r, min(g, b)) <= spread_max,
+      do: true,
+      else: matches?(r, g, b, rest)
+  end
 
   defp matches?(r, g, b, [{rh, rs, rv, tol_h, tol_sv} | rest]) do
     mx = max(r, max(g, b))
@@ -275,6 +339,22 @@ defmodule Pokex.Vision.ColorMark do
         {sx + (cx * cell + div(cell, 2)) * n, sy + (cy * cell + div(cell, 2)) * n}
       end)
 
-    %{point: {div(sx, px), div(sy, px)}, px: px, cells: map_size(group)}
+    xs = Enum.map(Map.keys(group), &elem(&1, 0))
+    ys = Enum.map(Map.keys(group), &elem(&1, 1))
+
+    %{
+      point: {div(sx, px), div(sy, px)},
+      px: px,
+      cells: map_size(group),
+      # ONDE ela está, e não só onde está o centro: a prova do chão compara
+      # caixas entre fotos pra separar o que MEXE (uma criatura) do que nunca
+      # mexe (o próprio HUD do jogo, que é preto).
+      box: {
+        Enum.min(xs) * cell,
+        Enum.min(ys) * cell,
+        (Enum.max(xs) + 1) * cell - 1,
+        (Enum.max(ys) + 1) * cell - 1
+      }
+    }
   end
 end

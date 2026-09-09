@@ -29,11 +29,16 @@ defmodule PokexWeb.CalibrationLive do
   # A regra de cor em rascunho: o que o conta-gotas vai enchendo antes de virar
   # acervo. Nasce com as tolerâncias-semente do plano (matiz apertado, S/V
   # folgado — o shading do sprite mexe em brilho, não em matiz).
+  # …e o TOM SEM MATIZ, pro shiny preto: nele o que se cerca é o teto de luz e
+  # o quanto os canais podem discordar. Semente medida no corpo dele (09/09):
+  # com teto 30 a criatura dava 4x a maior mancha do chão; com 38, 1,5x.
   @special_draft %{
     name: "",
     colors: [],
     tol_h: 12,
     tol_sv: 30,
+    dark_v: 30,
+    dark_spread: 12,
     min_px: 25,
     min_cell_px: 6
   }
@@ -886,7 +891,9 @@ defmodule PokexWeb.CalibrationLive do
       | name: Map.get(params, "name", draft.name),
         tol_h: int_param(params, "tol_h", draft.tol_h, 1, 60),
         tol_sv: int_param(params, "tol_sv", draft.tol_sv, 1, 100),
-        min_px: int_param(params, "min_px", draft.min_px, 1, 5_000),
+        dark_v: int_param(params, "dark_v", draft.dark_v, 1, 120),
+        dark_spread: int_param(params, "dark_spread", draft.dark_spread, 0, 120),
+        min_px: int_param(params, "min_px", draft.min_px, 1, 50_000),
         min_cell_px: int_param(params, "min_cell_px", draft.min_cell_px, 1, 64)
     }
 
@@ -945,7 +952,13 @@ defmodule PokexWeb.CalibrationLive do
 
         {:noreply,
          assign(socket,
-           special_floor: %{slug: slug, name: entry["name"], left: @floor_samples, peak: 0},
+           special_floor: %{
+             slug: slug,
+             name: entry["name"],
+             left: @floor_samples,
+             peak: 0,
+             samples: []
+           },
            special_msg: nil
          )}
     end
@@ -995,17 +1008,21 @@ defmodule PokexWeb.CalibrationLive do
   # the wizard still sits on the search step — a stale message dies quietly.
   # Uma foto do chão por vez, com o intervalo entre elas: a LiveView não pode
   # dormir cinco segundos segurando o socket, e um chão medido em rajada seria
-  # o mesmo quadro doze vezes. Cada amostra guarda só o PICO — é ele que vira
-  # a régua.
+  # o mesmo quadro doze vezes. Cada amostra guarda as MANCHAS inteiras (px e
+  # caixa): o pico vira a régua, e as caixas que se repetem viram o HUD.
   def handle_info({:floor_sample, slug}, %{assigns: %{special_floor: %{slug: slug} = f}} = socket) do
-    peak = max(f.peak, floor_reading(socket, slug))
+    samples = [floor_reading(socket, slug) | f.samples]
     left = f.left - 1
 
     if left > 0 do
       Process.send_after(self(), {:floor_sample, slug}, @floor_gap_ms)
-      {:noreply, assign(socket, special_floor: %{f | left: left, peak: peak})}
+
+      {:noreply,
+       assign(socket,
+         special_floor: %{f | left: left, samples: samples, peak: sample_peak(samples)}
+       )}
     else
-      {:noreply, close_floor(socket, slug, peak)}
+      {:noreply, close_floor(socket, slug, samples)}
     end
   end
 
@@ -1166,13 +1183,38 @@ defmodule PokexWeb.CalibrationLive do
 
   defp add_picked(socket, draft, {:ok, rgb}) do
     socket
-    |> assign(special_draft: %{draft | colors: draft.colors ++ [rgb]}, special_msg: nil)
+    |> assign(
+      special_draft: %{draft | colors: draft.colors ++ [%{rgb: rgb, dark?: false}]},
+      special_msg: nil
+    )
+    |> read_special()
+  end
+
+  # O PRETO: "é um dos poucos Shinies Pretos do jogo" (09/09). Não há matiz pra
+  # cercar, então o clique vira uma BANDA ESCURA — e o teto de luz nasce um
+  # pouco acima do que o quadradinho mostrou, pra pegar a sombra da sprite.
+  defp add_picked(socket, draft, {:dark, {r, g, b} = rgb}) do
+    teto = min(max(max(r, max(g, b)) + 8, 20), 60)
+
+    socket
+    |> assign(
+      special_draft: %{
+        draft
+        | colors: draft.colors ++ [%{rgb: rgb, dark?: true}],
+          dark_v: max(draft.dark_v, teto)
+      },
+      special_msg:
+        {:ok,
+         "tom PRETO pego (teto de luz #{max(draft.dark_v, teto)}) — preto não tem matiz, " <>
+           "então o que cerca é a luz; meça o chão pra ele aprender o HUD do jogo"}
+    )
     |> read_special()
   end
 
   defp add_picked(socket, _draft, :none) do
     assign(socket,
-      special_msg: {:error, "aí não tem cor pra ensinar (cinza ou escuro demais) — clique no tom"}
+      special_msg:
+        {:error, "aí não tem cor pra ensinar (cinza claro demais) — clique no tom, ou no preto"}
     )
   end
 
@@ -1199,13 +1241,15 @@ defmodule PokexWeb.CalibrationLive do
     )
   end
 
-  defp draft_specs(draft) do
-    ColorMark.compile(
-      Enum.map(draft.colors, &%{rgb: &1, tol_h: draft.tol_h, tol_sv: draft.tol_sv})
-    )
-  end
+  defp draft_specs(draft), do: ColorMark.compile(Enum.map(draft.colors, &draft_spec(&1, draft)))
 
-  defp color_attrs({r, g, b}, draft),
+  defp draft_spec(%{dark?: true}, draft), do: %{dark: draft.dark_v, spread: draft.dark_spread}
+  defp draft_spec(%{rgb: rgb}, draft), do: %{rgb: rgb, tol_h: draft.tol_h, tol_sv: draft.tol_sv}
+
+  defp color_attrs(%{dark?: true, rgb: {r, g, b}}, draft),
+    do: %{"dark" => draft.dark_v, "spread" => draft.dark_spread, "rgb" => [r, g, b]}
+
+  defp color_attrs(%{rgb: {r, g, b}}, draft),
     do: %{"rgb" => [r, g, b], "tol_h" => draft.tol_h, "tol_sv" => draft.tol_sv}
 
   # Uma foto do chão AGORA, lida pela regra salva. Falha de captura vale zero e
@@ -1216,42 +1260,80 @@ defmodule PokexWeb.CalibrationLive do
          {:ok, calib} <- Calibration.load(),
          {:ok, region} <- SpotScan.region(calib),
          {:ok, frame} <- Capture.frame(region, "special_floor.raw") do
-      specs =
-        ColorMark.compile(
-          Enum.map(entry["colors"], fn c ->
-            [r, g, b] = c["rgb"]
-            %{rgb: {r, g, b}, tol_h: c["tol_h"], tol_sv: c["tol_sv"]}
-          end)
-        )
-
-      ColorMark.scan(frame, specs, min_cell_px: entry["min_cell_px"]).manchas
-      |> List.first()
-      |> then(&if(&1, do: &1.px, else: 0))
+      ColorMark.scan(frame, ColorRules.specs_for(entry), min_cell_px: entry["min_cell_px"]).manchas
     else
-      _blind -> 0
+      _blind -> []
     end
   end
 
   # O chão medido vira régua: o gatilho sobe pra três vezes o pico (margem do
   # método) mas NUNCA desce do que ele escolheu à mão — afrouxar o limiar de
   # alguém sem pedir é como perder um shiny por conta própria.
-  defp close_floor(socket, slug, peak) do
+  defp close_floor(socket, slug, samples) do
     entry = Enum.find(socket.assigns.special_rules, &(&1["slug"] == slug))
+    # SÓ o tom preto aprende o HUD. Um cone de matiz nunca casou com o cliente
+    # (ele é preto e cinza), e ali uma mancha que se repete é o mundo parado —
+    # o Torterra passando devagar —, que é chão de verdade e tem que contar.
+    chrome = if rule_dark?(entry), do: chrome_of(samples), else: []
+    peak = floor_peak(samples, chrome)
     sugerido = max(3 * peak, 20)
     novo = max(sugerido, entry["min_px"])
 
     if novo != entry["min_px"], do: ColorRules.update(slug, %{"min_px" => novo})
-    ColorRules.mark_proven(slug, peak)
+    ColorRules.mark_proven(slug, peak, chrome)
 
     assign(socket,
       special_floor: nil,
       special_rules: ColorRules.list(),
       special_msg:
         {:ok,
-         "chão de “#{entry["name"]}” medido em #{@floor_samples} fotos: pico #{peak}px. " <>
-           "Gatilho em #{novo}px e regra PROVADA — #{vigia_estado()}"}
+         "chão de “#{entry["name"]}” medido em #{@floor_samples} fotos: pico #{peak}px" <>
+           chrome_text(chrome) <>
+           ". Gatilho em #{novo}px e regra PROVADA — #{vigia_estado()}"}
     )
   end
+
+  # O QUE NUNCA MEXEU É O CLIENTE, não o mundo — e isto só vale pro tom PRETO.
+  # Numa banda escura o próprio HUD
+  # do jogo (a barra de baixo, a de cima, a janela do Tracker) é preto e mais
+  # alto que qualquer criatura — medido no quadro dele em 09/09: 30.841,
+  # 25.741 e 20.782 px contra 12.605 do bicho. O que a caçada desenha ANDA; o
+  # que o cliente desenha fica. Uma mancha na mesma caixa em quase toda foto é
+  # cliente, e sai do quadro pra sempre.
+  @chrome_share 0.8
+
+  # o maior número que a tela mostra enquanto mede — ainda COM o HUD dentro,
+  # porque enquanto as fotos não acabam ninguém sabe o que é HUD
+  defp sample_peak(samples),
+    do: samples |> List.flatten() |> Enum.map(& &1.px) |> Enum.max(fn -> 0 end)
+
+  defp chrome_of([]), do: []
+
+  defp chrome_of(samples) do
+    minimo = ceil(length(samples) * @chrome_share)
+
+    samples
+    |> Enum.flat_map(fn manchas -> manchas |> Enum.map(& &1.box) |> Enum.uniq() end)
+    |> Enum.frequencies()
+    |> Enum.filter(fn {_box, n} -> n >= minimo end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  # …e o PICO do chão é medido FORA do que virou cliente: com o HUD dentro da
+  # conta o gatilho subiria pra três vezes ele e a regra nunca dispararia — uma
+  # regra "provada" que não vê nada é pior que uma sem prova.
+  defp floor_peak(samples, chrome) do
+    samples
+    |> List.flatten()
+    |> Enum.reject(&(&1.box in chrome))
+    |> Enum.map(& &1.px)
+    |> Enum.max(fn -> 0 end)
+  end
+
+  defp chrome_text([]), do: ""
+
+  defp chrome_text(boxes),
+    do: " · #{length(boxes)} pedaço(s) do HUD aprendidos e recusados pra sempre"
 
   # A regra pode estar provada e ninguém olhando: a guarda tem interruptor
   # próprio no painel e nasce DESLIGADA. Prometer vigia sem checar seria a
@@ -1274,6 +1356,46 @@ defmodule PokexWeb.CalibrationLive do
 
   defp rule_colors(entry),
     do: Enum.map(entry["colors"], fn %{"rgb" => [r, g, b]} -> {r, g, b} end)
+
+  defp rule_dark?(entry), do: Enum.any?(entry["colors"], &Map.has_key?(&1, "dark"))
+
+  defp chrome_count(%{"proven" => %{"chrome" => boxes}}) when is_list(boxes), do: length(boxes)
+  defp chrome_count(_no_proof), do: 0
+
+  defp tone_label(%{dark?: true}, draft), do: "preto ≤#{draft.dark_v}"
+  defp tone_label(%{rgb: {r, g, b}}, _draft), do: "#{r},#{g},#{b}"
+
+  # Os campos que a regra em rascunho realmente usa: um tom com matiz se cerca
+  # por matiz e luz; um tom PRETO não tem matiz, e mostrar "matiz ±°" pra ele
+  # seria oferecer um botão que não liga em nada.
+  defp draft_fields(draft) do
+    dark? = Enum.any?(draft.colors, & &1.dark?)
+    hue? = Enum.any?(draft.colors, &(not &1.dark?)) or draft.colors == []
+
+    hue_fields =
+      if hue?,
+        do: [
+          {"tol_h", "matiz ±°", draft.tol_h, "quanto o tom pode virar"},
+          {"tol_sv", "luz ±%", draft.tol_sv, "folga de brilho e saturação"}
+        ],
+        else: []
+
+    dark_fields =
+      if dark?,
+        do: [
+          {"dark_v", "teto de luz", draft.dark_v, "preto é tudo que não passa deste brilho"},
+          {"dark_spread", "espalhamento", draft.dark_spread,
+           "quanto os canais podem discordar e ainda ser 'sem cor'"}
+        ],
+        else: []
+
+    hue_fields ++
+      dark_fields ++
+      [
+        {"min_px", "gatilho px", draft.min_px, "mancha mínima pra apitar"},
+        {"min_cell_px", "célula px", draft.min_cell_px, "densidade mínima por célula"}
+      ]
+  end
 
   defp special_zone(nil, _min), do: :none
   defp special_zone(px, min) when px >= min, do: :hit
@@ -3189,8 +3311,8 @@ defmodule PokexWeb.CalibrationLive do
                     title="tirar este tom"
                     class="flex cursor-pointer items-center gap-1.5 rounded border border-pk-line-strong bg-pk-bg px-1.5 py-1 font-mono text-pk-meta text-pk-text-2 hover:text-pk-danger"
                   >
-                    <span class="size-4 rounded-sm border border-pk-line" style={swatch(cor)} />
-                    {elem(cor, 0)},{elem(cor, 1)},{elem(cor, 2)} ✕
+                    <span class="size-4 rounded-sm border border-pk-line" style={swatch(cor.rgb)} />
+                    {tone_label(cor, @special_draft)} ✕
                   </button>
                 </div>
 
@@ -3211,15 +3333,7 @@ defmodule PokexWeb.CalibrationLive do
                   </label>
 
                   <label
-                    :for={
-                      {campo, rotulo, valor, dica} <- [
-                        {"tol_h", "matiz ±°", @special_draft.tol_h, "quanto o tom pode virar"},
-                        {"tol_sv", "luz ±%", @special_draft.tol_sv, "folga de brilho e saturação"},
-                        {"min_px", "gatilho px", @special_draft.min_px, "mancha mínima pra apitar"},
-                        {"min_cell_px", "célula px", @special_draft.min_cell_px,
-                         "densidade mínima por célula"}
-                      ]
-                    }
+                    :for={{campo, rotulo, valor, dica} <- draft_fields(@special_draft)}
                     class="flex flex-col gap-1"
                   >
                     <span class="font-mono text-pk-meta text-pk-text-3" title={dica}>{rotulo}</span>
@@ -3275,6 +3389,22 @@ defmodule PokexWeb.CalibrationLive do
 
                   <span class="min-w-0 flex-1 truncate font-mono text-pk-body text-pk-text">
                     ✨ {r["name"]}
+                  </span>
+
+                  <span
+                    :if={rule_dark?(r)}
+                    class="rounded border border-pk-line-strong px-1.5 font-mono text-pk-meta text-pk-text-2"
+                    title="tom sem matiz: o que cerca é o teto de luz"
+                  >
+                    preto
+                  </span>
+
+                  <span
+                    :if={chrome_count(r) > 0}
+                    class="rounded border border-pk-line-strong px-1.5 font-mono text-pk-meta text-pk-text-2"
+                    title="pedaços do HUD do jogo que a prova aprendeu e recusa pra sempre"
+                  >
+                    HUD ×{chrome_count(r)}
                   </span>
 
                   <span class="pk-num font-mono text-pk-meta text-pk-text-3">

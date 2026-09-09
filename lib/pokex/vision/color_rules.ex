@@ -25,9 +25,11 @@ defmodule Pokex.Vision.ColorRules do
   def list, do: cache().entries
 
   @doc """
-  Creates a rule. `attrs` requires `name` and `colors` (a list of
-  `%{"rgb" => [r, g, b], "tol_h" => degrees, "tol_sv" => pct}`); it accepts `min_px`,
-  `min_cell_px` and `note`. It is born enabled and NOT proven.
+  Creates a rule. `attrs` requires `name` and `colors`, each colour either a HUE cone
+  (`%{"rgb" => [r, g, b], "tol_h" => degrees, "tol_sv" => pct}`) or a DARK band
+  (`%{"dark" => v_max, "spread" => spread, "rgb" => [r, g, b]}` — the rgb is only the swatch;
+  black has no hue to put a cone around). It accepts `min_px`, `min_cell_px` and `note`. It is
+  born enabled and NOT proven.
 
   There is no `kind`: shiny and boss are the same thing here. Old files that stored the field
   still load, it simply no longer decides anything.
@@ -77,13 +79,18 @@ defmodule Pokex.Vision.ColorRules do
   end
 
   @doc """
-  Stamps the noise proof: the FLOOR's px peak (an ordinary hunt, with no special on screen) and
-  when it was measured. The watcher only scans a proven rule.
+  Stamps the noise proof: the FLOOR's px peak (an ordinary hunt, with no special on screen),
+  when it was measured, and the CHROME — the boxes that were dark in every single sample.
+
+  The chrome only matters to a dark band, and to it, it is everything: the hotbar, the toolbar
+  and the Tracker window are black, they never move, and in his own frame each of them was
+  louder than the creature. What the hunt draws moves; what the client draws does not.
   """
-  def mark_proven(slug, floor_px) when is_integer(floor_px) and floor_px >= 0 do
+  def mark_proven(slug, floor_px, chrome \\ []) when is_integer(floor_px) and floor_px >= 0 do
     mutate(slug, fn entry ->
       Map.put(entry, "proven", %{
         "floor_px" => floor_px,
+        "chrome" => Enum.map(chrome, fn {l, t, r, b} -> [l, t, r, b] end),
         "at" => DateTime.utc_now() |> DateTime.to_iso8601()
       })
     end)
@@ -105,7 +112,26 @@ defmodule Pokex.Vision.ColorRules do
     cache().armed
   end
 
+  @doc """
+  The compiled specs of one STORED entry — what the teaching panel reads a photo with, so the
+  ruler on screen is the watcher's own and not a copy of it.
+  """
+  def specs_for(%{"colors" => colors}), do: ColorMark.compile(Enum.map(colors, &spec_of/1))
+  def specs_for(_no_colors), do: []
+
   # -- de dentro ---------------------------------------------------------------
+
+  # O TOM SEM MATIZ (o shiny preto dele): o que se guarda é o teto de luz e o
+  # espalhamento entre canais, e o rgb fica só pro quadradinho da tela.
+  defp normalize_color(%{"dark" => v_max} = color) do
+    [r, g, b] = Map.get(color, "rgb", [0, 0, 0])
+
+    %{
+      "dark" => v_max |> positive(30) |> min(255),
+      "spread" => color |> Map.get("spread") |> positive(12) |> min(255),
+      "rgb" => [byte(r), byte(g), byte(b)]
+    }
+  end
 
   defp normalize_color(%{"rgb" => [r, g, b]} = color) do
     %{
@@ -171,13 +197,11 @@ defmodule Pokex.Vision.ColorRules do
                 name: e["name"],
                 min_px: e["min_px"],
                 min_cell_px: e["min_cell_px"],
-                specs:
-                  ColorMark.compile(
-                    Enum.map(e["colors"], fn c ->
-                      [r, g, b] = c["rgb"]
-                      %{rgb: {r, g, b}, tol_h: c["tol_h"], tol_sv: c["tol_sv"]}
-                    end)
-                  )
+                specs: ColorMark.compile(Enum.map(e["colors"], &spec_of/1)),
+                # AS CAIXAS QUE NUNCA MEXERAM: o próprio HUD do jogo é preto, e
+                # numa banda escura ele é mais alto que a criatura. A prova do
+                # chão as aprendeu; o vigia as recusa.
+                forbidden: chrome_boxes(e)
               }
             end)
         }
@@ -186,6 +210,19 @@ defmodule Pokex.Vision.ColorRules do
         cache
     end
   end
+
+  defp spec_of(%{"dark" => v_max} = c),
+    do: %{dark: v_max, spread: Map.get(c, "spread", 12)}
+
+  defp spec_of(c) do
+    [r, g, b] = c["rgb"]
+    %{rgb: {r, g, b}, tol_h: c["tol_h"], tol_sv: c["tol_sv"]}
+  end
+
+  defp chrome_boxes(%{"proven" => %{"chrome" => boxes}}) when is_list(boxes),
+    do: for([l, t, r, b] <- boxes, do: {l, t, r, b})
+
+  defp chrome_boxes(_no_proof), do: []
 
   defp file_stamp do
     case File.stat(file(), time: :posix) do

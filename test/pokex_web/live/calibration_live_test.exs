@@ -1859,6 +1859,52 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert Pokex.Vision.ColorRules.armed() == [], "sem prova de ruído, o vigia não a recebe"
     end
 
+    # O SHINY PRETO (09/09): "justamente é um dos poucos Shinies Pretos do jogo".
+    # Preto não tem matiz, e o conta-gotas recusava por isso — agora o clique
+    # vira uma BANDA ESCURA, cercada por teto de luz em vez de cone.
+    @tag :tmp_dir
+    test "clicar no preto ensina uma banda escura", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+      # o corpo dele mede (17, 16, 16) no quadro real
+      com_foto(view, cor_frame(64, 64, {150, 110, 70}, [{{10, 10, 20, 20}, {17, 16, 16}}]))
+
+      html = render_click(view, "special_pick", %{"x" => 20, "y" => 20, "cw" => 64, "nw" => 64})
+
+      assert html =~ "tom PRETO pego", "o preto tem que ensinar alguma coisa"
+      assert html =~ "preto ≤", "o tom aparece com o teto de luz, não com um rgb"
+      assert html =~ "teto de luz", "e o campo que o cerca troca de nome"
+      refute html =~ "matiz ±°", "matiz não cerca preto nenhum"
+    end
+
+    @tag :tmp_dir
+    test "a regra preta guarda o teto de luz e o vigia a compila", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+      com_foto(view, cor_frame(64, 64, {150, 110, 70}, [{{10, 10, 20, 20}, {17, 16, 16}}]))
+      render_click(view, "special_pick", %{"x" => 20, "y" => 20, "cw" => 64, "nw" => 64})
+      render_change(view, "special_form", %{"name" => "Charizard preto"})
+      render_submit(view, "special_save", %{})
+
+      assert [%{"colors" => [%{"dark" => teto, "spread" => _}], "slug" => slug}] =
+               Pokex.Vision.ColorRules.list()
+
+      assert teto >= 20
+      :ok = Pokex.Vision.ColorRules.mark_proven(slug, 3, [{0, 0, 7, 7}])
+
+      assert [%{specs: [{:dark, ^teto, _}], forbidden: [{0, 0, 7, 7}]}] =
+               Pokex.Vision.ColorRules.armed()
+    end
+
     @tag :tmp_dir
     test "a prova de ruído mede o chão, sobe o gatilho e ARMA a regra", %{
       conn: conn,

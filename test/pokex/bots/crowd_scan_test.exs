@@ -417,4 +417,39 @@ defmodule Pokex.Bots.CrowdScanTest do
 
   defp border?({bx, by}, %{bar_w: bw, bar_h: bh}, x, y),
     do: x == bx or x == bx + bw - 1 or y == by or y == by + bh - 1
+
+  # A JUNÇÃO QUE FALTAVA (09/09): a guarda acha o shiny pela COR e o olho acha
+  # os corpos pela BARRA, e nada dizia QUAL dos corpos é o shiny. Os dois falam
+  # em pontos de tela, então a distância responde.
+  describe "which body the special colour is sitting on" do
+    defp reading(hostiles) do
+      %{
+        read?: true,
+        me: {500, 500},
+        hostiles: Enum.map(hostiles, &%{point: &1, dx: 0, dy: 0, from_me: 1, hp_pct: 100})
+      }
+    end
+
+    test "a blob on a body marks that body, with the px that made the claim" do
+      vistos = [%{name: "Charizard preto", px: 12_605, point: {620, 505}}]
+
+      assert %{hostiles: [um, dois]} =
+               CrowdScan.mark_special(reading([{600, 500}, {900, 900}]), vistos, 151)
+
+      assert um.special? == true
+      assert um.special_name == "Charizard preto"
+      assert um.special_px == 12_605
+      refute Map.has_key?(dois, :special?)
+    end
+
+    test "a blob farther than a tile marks nobody" do
+      vistos = [%{name: "Charizard preto", px: 900, point: {1_000, 1_000}}]
+      assert %{hostiles: [um]} = CrowdScan.mark_special(reading([{600, 500}]), vistos, 151)
+      refute Map.has_key?(um, :special?)
+    end
+
+    test "an unread reading is handed back untouched" do
+      assert %{read?: false} = CrowdScan.mark_special(%{read?: false, reason: :x}, [], 151)
+    end
+  end
 end

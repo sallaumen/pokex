@@ -112,6 +112,15 @@
   --color-pk-info-dim: #0c1f2e;
   --color-pk-info-line: #2b6086;
 
+  /* …e o SHINY, que também não é um estado: é o troféu da noite. Ele precisa
+     ser reconhecido de relance no meio de quadrados vermelhos e amarelos de
+     vida, então é a única cor quente que não pertence à escala de vida.
+     Violeta, e não dourado, porque o amarelo já é atenção. 7.68:1 sobre a
+     superfície. */
+  --color-pk-shiny: #cba6f7;
+  --color-pk-shiny-dim: #1e1430;
+  --color-pk-shiny-line: #6a4b9c;
+
   /* Escala: TRÊS degraus. Corpo nunca abaixo de 12px. */
   --text-pk-meta: 0.6875rem;
   --text-pk-body: 0.8125rem;

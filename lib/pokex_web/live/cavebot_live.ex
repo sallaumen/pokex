@@ -42,6 +42,11 @@ defmodule PokexWeb.CavebotLive do
   # like a page and the history is still there when a stop needs explaining.
   @log_lines 40
 
+  # O ESPELHO custa uma imagem inteira por socket a cada volta (a evidência do
+  # olho sai em ~650KB no encolhimento 4). Dois segundos é o que separa "ver o
+  # que está acontecendo" de "entupir a página": a leitura em si custa ~27ms.
+  @mirror_ms 2_000
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -125,8 +130,9 @@ defmodule PokexWeb.CavebotLive do
        recording?: false,
        # The eye's last reading (the :crowd fact), and the photo only when he
        # asks for one: the picture never rides the blackboard.
-       crowd: crowd_fact(),
+       crowd: with_special(crowd_fact()),
        crowd_photo: nil,
+       mirror?: false,
        # The simulator's fence points the eyes at a world that is not the game.
        # Free to read (`:persistent_term`), and re-read on the heartbeat.
        sim_armed?: Fence.armed?(),
@@ -238,7 +244,26 @@ defmodule PokexWeb.CavebotLive do
   def handle_info({:engine, situation, orders}, socket),
     do: {:noreply, assign(socket, situation: situation, orders: orders)}
 
-  def handle_info({:crowd, reading}, socket), do: {:noreply, assign(socket, crowd: reading)}
+  def handle_info({:crowd, reading}, socket),
+    do: {:noreply, assign(socket, crowd: with_special(reading))}
+
+  # A FOTO AO VIVO. Enquanto o espelho está ligado, uma foto nova a cada
+  # `@mirror_ms` — é o que ele pediu pra poder VER a interseção entre o que a
+  # tela dele mostra e o que o olho diz que leu. Cara demais pra ficar ligada
+  # sozinha (a evidência é uma imagem inteira por socket), então nasce
+  # desligada e se desliga sozinha ao sair do modo assistir.
+  def handle_info(:mirror, %{assigns: %{mirror?: true}} = socket) do
+    reading = Pokex.Bots.CrowdScan.look(evidence: true)
+    Process.send_after(self(), :mirror, @mirror_ms)
+
+    {:noreply,
+     assign(socket,
+       crowd: reading |> Map.delete(:evidence) |> with_special(),
+       crowd_photo: Map.get(reading, :evidence) || socket.assigns.crowd_photo
+     )}
+  end
+
+  def handle_info(:mirror, socket), do: {:noreply, socket}
 
   # Os dois placares que faltavam pro resumo. Nenhum dos dois desenha nada
   # sozinho: são contadores que o resumo soma.
@@ -914,12 +939,25 @@ defmodule PokexWeb.CavebotLive do
     {:noreply, assign(socket, area: AreaProbe.summary())}
   end
 
+  # O ESPELHO: a tela dele por baixo do desenho do olho, pra ele ver com os
+  # próprios olhos se o que o bot leu é o que está lá. "É crucial para o
+  # funcionamento do nosso sistema de forma inteligente" (09/09).
+  def handle_event("toggle_mirror", _params, socket) do
+    ligado? = not socket.assigns.mirror?
+    if ligado?, do: send(self(), :mirror)
+
+    {:noreply,
+     socket
+     |> assign(mirror?: ligado?)
+     |> log_line(:macro, if(ligado?, do: "🪞 espelho ligado", else: "🪞 espelho desligado"))}
+  end
+
   def handle_event("crowd_scan", _params, socket) do
     reading = Pokex.Bots.CrowdWatch.look_now()
 
     {:noreply,
      assign(socket,
-       crowd: Map.delete(reading, :evidence),
+       crowd: reading |> Map.delete(:evidence) |> with_special(),
        crowd_photo: Map.get(reading, :evidence)
      )}
   end
@@ -1880,6 +1918,23 @@ defmodule PokexWeb.CavebotLive do
 
   # A minute is generous on purpose: the card itself says "sem olho" past
   # `crowd_fact_max_age_ms`, and a stale reading with words beats a blank.
+  # A COR EM CIMA DOS CORPOS. A guarda diz que há um shiny e o olho diz onde
+  # estão os corpos; quem junta os dois é `CrowdScan.mark_special/3`, e é essa
+  # junção que faz um dos quadrados mudar de cor.
+  defp with_special(reading) do
+    vistos =
+      case Pokex.Perception.WorldState.get(
+             :special,
+             Settings.get(:special_color_scan_ms) * 3,
+             System.monotonic_time(:millisecond)
+           ) do
+        {:ok, %{vistos: vistos}} when is_list(vistos) -> vistos
+        _stale_or_missing -> []
+      end
+
+    Pokex.Bots.CrowdScan.mark_special(reading, vistos, Calibration.tile_px())
+  end
+
   defp crowd_fact do
     case Pokex.Perception.WorldState.get(:crowd, 60_000, System.monotonic_time(:millisecond)) do
       {:ok, reading} -> reading
@@ -3703,6 +3758,7 @@ defmodule PokexWeb.CavebotLive do
         <PokexWeb.SiegeComponents.siege_card
           reading={@crowd}
           photo={@crowd_photo}
+          mirror?={@mirror?}
           radius={Settings.get(:crowd_scan_radius_tiles)}
           max_age_ms={Settings.get(:crowd_fact_max_age_ms)}
           now_ms={System.monotonic_time(:millisecond)}

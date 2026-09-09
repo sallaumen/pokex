@@ -9,6 +9,27 @@ defmodule PokexWeb.SiegeComponents do
   underneath.
 
   State is never colour alone: the headline says in words what the tiles show.
+
+  ## Cada quadrado diz o QUANTO, não só o quê
+
+  "Me mostrar, quando ele identificar qualquer coisa, qual a taxa de confiabilidade que ele
+  acha… para eu ajudar a encontrar bugs" (09/09). Um quadrado sem número é uma afirmação sem
+  prova, e o que muda por quadrado é justamente o que se pode provar:
+
+    * **o pokémon dele** — a nota da sprite ensinada (0..100%) quando foi ela que o achou, e
+      QUAL dos três caminhos achou quando não foi (a caixa de número, ou a vida da Pokebar).
+      Ele já disse que "ele muitas vezes troca qual é o pokémon que ele acha que é o meu": saber
+      por qual caminho é a diferença entre achar o defeito e adivinhar.
+    * **o shiny** — os pixels da cor contra o gatilho provado da regra. Quatro vezes o gatilho é
+      uma afirmação diferente de uma que raspou nele.
+    * **um monstro comum** — a vida, que é o que a barra realmente mede. A barra ou casa ou não
+      casa (borda preta, preenchimento de uma cor só): não existe "70% de barra", e inventar um
+      número aqui seria a única mentira que este card poderia contar.
+
+  E os dois se distinguem à primeira vista: **número puro é VIDA, número com `≈` é o quanto ele
+  acredita**. Sem isso o 87% de semelhança da sprite lia-se como 87% de vida num pokémon que
+  estava com 96 — duas grandezas diferentes com a mesma cara é como se lê um número errado sem
+  perceber.
   """
   use PokexWeb, :html
 
@@ -20,6 +41,7 @@ defmodule PokexWeb.SiegeComponents do
   attr :radius, :integer, required: true, doc: "the eye's box, in tiles each way"
   attr :max_age_ms, :integer, required: true
   attr :now_ms, :integer, required: true
+  attr :mirror?, :boolean, default: false, doc: "the live screen underneath, refreshing itself"
 
   def siege_card(assigns) do
     assigns =
@@ -40,9 +62,28 @@ defmodule PokexWeb.SiegeComponents do
         <button
           type="button"
           phx-click="crowd_scan"
-          class="shrink-0 rounded border border-pk-line px-2 py-0.5 font-mono text-pk-meta text-pk-text-2 hover:bg-pk-raised"
+          class="shrink-0 cursor-pointer rounded border border-pk-line px-2 py-0.5 font-mono text-pk-meta text-pk-text-2 hover:bg-pk-raised"
         >
           foto agora
+        </button>
+        <%!-- O ESPELHO: a tela dele por baixo, renovada sozinha. Nasce
+             desligado porque é uma imagem inteira por socket a cada duas
+             segundos, e a página tem que continuar servindo pra quem só quer
+             ver a caçada andar. --%>
+        <button
+          id="siege-mirror"
+          type="button"
+          phx-click="toggle_mirror"
+          class={[
+            "shrink-0 cursor-pointer rounded border px-2 py-0.5 font-mono text-pk-meta transition-colors",
+            if(@mirror?,
+              do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+              else: "border-pk-line text-pk-text-2 hover:bg-pk-raised"
+            )
+          ]}
+          title="a sua tela por baixo do desenho, renovada a cada 2s — pra ver se o que ele leu é o que está lá"
+        >
+          🪞 espelho {if @mirror?, do: "ligado", else: "desligado"}
         </button>
       </div>
 
@@ -66,7 +107,7 @@ defmodule PokexWeb.SiegeComponents do
           </defs>
 
           <image
-            :if={@photo && @state == :fresh}
+            :if={@photo && (@state == :fresh or @mirror?)}
             href={@photo}
             x={photo_x(@reading)}
             y={photo_y(@reading)}
@@ -98,22 +139,37 @@ defmodule PokexWeb.SiegeComponents do
               stroke-dasharray="0.4 0.3"
               opacity="0.7"
             />
-            <rect
-              :for={h <- @reading.hostiles}
-              data-hostile
-              data-dx={h.dx}
-              data-dy={h.dy}
-              data-from-me={h.from_me}
-              x={h.dx - 0.5}
-              y={h.dy - 0.5}
-              width="1"
-              height="1"
-              fill={hp_fill(h.hp_pct)}
-              stroke="var(--color-pk-bg)"
-              stroke-width="0.08"
-            >
-              <title>{hostile_title(h)}</title>
-            </rect>
+            <g :for={h <- @reading.hostiles}>
+              <rect
+                data-hostile
+                data-dx={h.dx}
+                data-dy={h.dy}
+                data-from-me={h.from_me}
+                data-special={h[:special?] && "1"}
+                x={h.dx - 0.5}
+                y={h.dy - 0.5}
+                width="1"
+                height="1"
+                fill={hostile_fill(h)}
+                stroke={if h[:special?], do: "var(--color-pk-text)", else: "var(--color-pk-bg)"}
+                stroke-width={if h[:special?], do: "0.12", else: "0.08"}
+              >
+                <title>{hostile_title(h)}</title>
+              </rect>
+              <text
+                data-hostile-label
+                x={h.dx}
+                y={h.dy + 0.12}
+                text-anchor="middle"
+                font-size="0.34"
+                font-family="ui-monospace, monospace"
+                font-weight="700"
+                fill="var(--color-pk-bg)"
+                pointer-events="none"
+              >
+                {hostile_label(h)}
+              </text>
+            </g>
             <rect
               :if={@reading.pet}
               data-pet
@@ -125,10 +181,22 @@ defmodule PokexWeb.SiegeComponents do
               stroke="var(--color-pk-bg)"
               stroke-width="0.12"
             >
-              <title>
-                seu pokémon a {@reading.pet.tiles} {tiles(@reading.pet.tiles)} · {@reading.pet.hp_pct}% de vida
-              </title>
+              <title>{pet_title(@reading.pet)}</title>
             </rect>
+            <text
+              :if={@reading.pet}
+              data-pet-label
+              x={@reading.pet.dx}
+              y={@reading.pet.dy + 0.12}
+              text-anchor="middle"
+              font-size="0.34"
+              font-family="ui-monospace, monospace"
+              font-weight="700"
+              fill="var(--color-pk-bg)"
+              pointer-events="none"
+            >
+              {pet_label(@reading.pet)}
+            </text>
           <% end %>
 
           <rect
@@ -158,6 +226,16 @@ defmodule PokexWeb.SiegeComponents do
         </li>
         <li class="flex items-center gap-1.5">
           <span class="inline-block size-3 bg-pk-danger"></span> monstro (cor = vida)
+        </li>
+        <li class="flex items-center gap-1.5">
+          <span class="inline-block size-3 bg-pk-shiny ring-1 ring-pk-text"></span> shiny (cor
+          ensinada)
+        </li>
+        <li class="flex items-center gap-1.5">
+          <span class="font-mono font-bold text-pk-text-3">42</span> no quadrado: a vida
+        </li>
+        <li class="flex items-center gap-1.5">
+          <span class="font-mono font-bold text-pk-text-3">≈42%</span> o quanto ele acredita
         </li>
       </ul>
     </section>
@@ -206,7 +284,13 @@ defmodule PokexWeb.SiegeComponents do
   defp tiles(_n), do: "tiles"
 
   defp hostile_title(h) do
-    "#{h.dx}, #{h.dy} · a #{h.from_me} #{tiles(h.from_me)} de você" <>
+    special =
+      if h[:special?],
+        do: "✨ #{h[:special_name]} · #{h[:special_px]}px da cor ensinada · ",
+        else: ""
+
+    special <>
+      "#{h.dx}, #{h.dy} · a #{h.from_me} #{tiles(h.from_me)} de você" <>
       if(h.from_pet, do: " · a #{h.from_pet} do pokémon", else: "") <>
       " · #{h.hp_pct}% de vida" <> if(h.skull?, do: " · caveira", else: "")
   end
@@ -222,6 +306,59 @@ defmodule PokexWeb.SiegeComponents do
   defp hp_fill(hp) when hp > 66, do: "var(--color-pk-danger)"
   defp hp_fill(hp) when hp > 33, do: "var(--color-pk-warn)"
   defp hp_fill(_low), do: "var(--color-pk-warn-line)"
+
+  # O SHINY TEM COR PRÓPRIA. Ele é o troféu da noite e não pode dividir a
+  # paleta com a vida de um bicho comum: quem olha de longe tem que saber que
+  # aquele quadrado é OUTRA COISA sem ler número nenhum.
+  defp hostile_fill(%{special?: true}), do: "var(--color-pk-shiny)"
+  defp hostile_fill(%{hp_pct: hp}), do: hp_fill(hp)
+
+  # --- o quanto ele acredita ----------------------------------------------------
+
+  defp hostile_label(%{special?: true} = h), do: "≈#{special_pct(h)}"
+  defp hostile_label(%{hp_pct: hp}), do: "#{hp}"
+
+  # Os pixels da cor contra o GATILHO PROVADO da regra: 100% é raspar nele.
+  # Sem a regra na mão (ela pode ter sido apagada depois da leitura) sobra o
+  # número cru, que ainda é melhor que nada.
+  defp special_pct(%{special_px: px} = h) do
+    case trigger_of(h[:special_name]) do
+      nil -> "#{px}px"
+      trigger -> "#{round(px * 100 / trigger)}%"
+    end
+  end
+
+  defp special_pct(_no_px), do: "✨"
+
+  defp trigger_of(name) when is_binary(name) do
+    Enum.find_value(Pokex.Vision.ColorRules.armed(), fn rule ->
+      if rule.name == name and rule.min_px > 0, do: rule.min_px
+    end)
+  end
+
+  defp trigger_of(_no_name), do: nil
+
+  # A NOTA DA SPRITE quando foi ela que achou; a inicial do caminho quando não
+  # foi. Uma letra é o bastante pra ele ver, de relance, que hoje o pokémon
+  # está sendo achado pela VIDA e não pela foto ensinada.
+  defp pet_label(%{by: :sprite, score: score}) when is_float(score),
+    do: "≈#{round(score * 100)}%"
+
+  defp pet_label(%{by: :box}), do: "nº"
+  defp pet_label(%{by: :hp}), do: "vida"
+  defp pet_label(_no_method), do: ""
+
+  defp pet_title(pet) do
+    "seu pokémon a #{pet.tiles} #{tiles(pet.tiles)} · #{pet.hp_pct}% de vida · " <>
+      pet_how(pet)
+  end
+
+  defp pet_how(%{by: :sprite, score: score}) when is_float(score),
+    do: "achado pela sprite ensinada (#{round(score * 100)}% de semelhança)"
+
+  defp pet_how(%{by: :box}), do: "achado pela caixa de número embaixo da barra"
+  defp pet_how(%{by: :hp}), do: "achado pela VIDA batendo com a Pokebar — nem sprite nem caixa"
+  defp pet_how(_no_method), do: "não se sabe por qual caminho"
 
   # --- the photo, mapped tile for tile ------------------------------------------
 

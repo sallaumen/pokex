@@ -168,13 +168,21 @@ defmodule Pokex.Bots.CrowdScan do
     # is running too slow.
     {passive, bodies} = Enum.split_with(seen, &Map.get(&1, :passive?, false))
 
+    # …e QUAL DOS TRÊS CAMINHOS achou o pokémon. Eram três tentativas em
+    # cascata e nada dizia qual venceu; quando ele "troca qual é o pokémon que
+    # ele acha que é o meu", saber se foi a sprite, a caixa de número ou a vida
+    # é a diferença entre achar o defeito e adivinhar.
     pet =
-      taught_pet(bodies, Keyword.get(opts, :pet_point), tile) || boxed_pet(bodies, me) ||
-        pet_by_health(bodies, me, Keyword.get(opts, :pet_hp))
+      with nil <- taught_pet(bodies, Keyword.get(opts, :pet_point), tile) |> by(:sprite),
+           nil <- boxed_pet(bodies, me) |> by(:box) do
+        pet_by_health(bodies, me, Keyword.get(opts, :pet_hp)) |> by(:hp)
+      end
 
+    # PELO PONTO, não pelo mapa: o pokémon ganha as chaves de COMO foi achado
+    # (`found_by`, `sprite_score`) e deixaria de ser igual a si mesmo na lista.
     hostiles =
       bodies
-      |> Enum.reject(&(&1 == pet))
+      |> Enum.reject(&(pet != nil and &1.point == pet.point))
       |> Enum.map(&hostile(&1, me, pet, tile))
       |> Enum.sort_by(&{&1.from_me, &1.dx, &1.dy})
 
@@ -186,6 +194,39 @@ defmodule Pokex.Bots.CrowdScan do
       passive: length(passive)
     }
   end
+
+  @doc """
+  Marks which of the creatures the SPECIAL COLOUR is sitting on.
+
+  The guard finds a shiny by colour and the eye finds bodies by their health bar; until now
+  nothing joined the two, so the screen could say "there is a shiny" and "there are four
+  creatures" without ever saying WHICH of the four. `vistos` are the guard's blobs
+  (`%{name, px, point}` in SCREEN points, the same frame the bodies use), and a blob within
+  `tile` of a body is that body's.
+
+  `px` rides along beside the rule's own trigger, because that ratio IS the confidence: a blob
+  at four times the proven trigger is a different claim from one that scraped past it.
+  """
+  @spec mark_special(placed | reading, [map], pos_integer) :: placed | reading
+  def mark_special(%{read?: true, hostiles: hostiles} = reading, vistos, tile)
+      when is_list(vistos) do
+    %{reading | hostiles: Enum.map(hostiles, &joined(&1, vistos, tile))}
+  end
+
+  def mark_special(reading, _vistos, _tile), do: reading
+
+  defp joined(hostile, vistos, tile) do
+    case Enum.find(vistos, &(chebyshev(point_of(&1), hostile.point) <= tile)) do
+      nil ->
+        hostile
+
+      visto ->
+        Map.merge(hostile, %{special?: true, special_name: visto.name, special_px: visto.px})
+    end
+  end
+
+  defp point_of(%{point: {x, y}}), do: {x, y}
+  defp point_of(_no_point), do: {-1_000_000, -1_000_000}
 
   @doc "How many hostiles stand within `tiles` of the CHARACTER. Zero for an unread scan, never a guess."
   @spec within(reading | placed, non_neg_integer) :: non_neg_integer
@@ -263,7 +304,12 @@ defmodule Pokex.Bots.CrowdScan do
         [] -> 0.0
       end
 
-    if best.score >= floor and best.score - runner_up >= @clear_by, do: mark
+    # A NOTA VIAJA JUNTO. Ela decidia e era jogada fora, e o card do cerco não
+    # tinha como dizer QUANTO ele acredita que aquele quadrado é o pokémon
+    # dele — que é a pergunta que ele faz olhando a tela ("qual a taxa de
+    # confiabilidade que ele acha").
+    if best.score >= floor and best.score - runner_up >= @clear_by,
+      do: Map.put(mark, :sprite_score, best.score)
   end
 
   defp clearly_best([], _floor), do: nil
@@ -306,10 +352,22 @@ defmodule Pokex.Bots.CrowdScan do
     }
   end
 
-  defp pet_of(%{point: point, hp_pct: hp}, me, tile) do
+  defp pet_of(%{point: point, hp_pct: hp} = mark, me, tile) do
     {dx, dy} = offset(point, me, tile)
-    %{point: point, dx: dx, dy: dy, tiles: max(abs(dx), abs(dy)), hp_pct: hp}
+
+    %{
+      point: point,
+      dx: dx,
+      dy: dy,
+      tiles: max(abs(dx), abs(dy)),
+      hp_pct: hp,
+      by: Map.get(mark, :found_by),
+      score: Map.get(mark, :sprite_score)
+    }
   end
+
+  defp by(nil, _how), do: nil
+  defp by(mark, how), do: Map.put(mark, :found_by, how)
 
   defp offset({x, y}, {px, py}, tile), do: {round((x - px) / tile), round((y - py) / tile)}
 

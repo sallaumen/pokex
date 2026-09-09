@@ -220,6 +220,90 @@ defmodule Pokex.Bots.CrowdScanTest do
     end
   end
 
+  # HIS OWN SCREEN, NOT A PAINTED ONE (09/09). Every real-capture test until now
+  # stopped at the BARS — `creature_marks_test` cobra where they are, and there
+  # it ended. Nothing asked a real picture the question that matters: WHICH of
+  # these is his pokémon, and how far is each monster from it. That gap is where
+  # the two defects of this morning lived, and both passed every test.
+  #
+  # The reason it was never asked is in the old fixtures themselves: they are
+  # hand-cut pieces of the screen, and the cut threw away the character's
+  # position, which is what turns pixels into tiles. This one is a whole capture
+  # box with the anchor kept: his Torterra two tiles above him and two Magnetons,
+  # taken while he hunted (his own frame of 09/09, his own taught sprites, his
+  # own name painted out).
+  describe "his ultrawide, his Torterra and two Magnetons" do
+    @shot "test/fixtures/crowd/ultrawide_torterra_e_magnetons.png"
+    @taught "test/fixtures/crowd/sprites_ensinadas.json"
+    @him {226, 464}
+
+    defp his_screen! do
+      Calibration.save(%Calibration{
+        scale: 1.0,
+        screen_w: 642,
+        screen_h: 664,
+        tile_px: 151,
+        player_point: @him
+      })
+
+      SettingsStash.stash!(pokemon_sprite_box_px: 96, pokemon_track_min_similarity: 0.55)
+      {:ok, frame} = Frame.from_png_file(@shot)
+      frame
+    end
+
+    defp his_look(frame, opts) do
+      CrowdScan.look([capture: fn _box, _name -> {:ok, frame} end, listed: 4] ++ opts)
+    end
+
+    test "the taught sprite finds his Torterra, and the two Magnetons fall where they stand" do
+      frame = his_screen!()
+
+      reading =
+        his_look(frame,
+          pet_name: "Torterra",
+          sprites: Pokex.Vision.SpriteLibrary.new(@taught, 10)
+        )
+
+      assert %{dx: 0, dy: -2, tiles: 2, hp_pct: 100} = reading.pet
+
+      assert [
+               %{dx: -1, dy: 0, from_me: 1, from_pet: 1},
+               %{dx: 2, dy: -1, from_me: 2, from_pet: 2}
+             ] = reading.hostiles
+    end
+
+    # The proof that it was the SPRITE that answered: this client draws no
+    # number box under his pokémon (measured over 40 of his frames that morning:
+    # not one mark carried one), and no Pokebar reading is offered here. Take the
+    # taught photos away and the eye has nothing left to name him with.
+    test "with nobody taught, the same picture yields no pokemon at all" do
+      frame = his_screen!()
+
+      reading = his_look(frame, pet_name: "Torterra", sprites: empty_library())
+
+      assert reading.pet == nil
+      assert length(reading.hostiles) == 3
+    end
+
+    test "the taught photos of ANOTHER pokemon do not name his" do
+      frame = his_screen!()
+
+      reading =
+        his_look(frame,
+          pet_name: "Arcanine",
+          sprites: Pokex.Vision.SpriteLibrary.new(@taught, 10)
+        )
+
+      assert reading.pet == nil
+    end
+
+    defp empty_library do
+      file = Path.join(System.tmp_dir!(), "vazia-#{System.unique_integer([:positive])}.json")
+      on_exit(fn -> File.rm(file) end)
+      Pokex.Vision.SpriteLibrary.new(file, 10)
+    end
+  end
+
   describe "looking at the screen" do
     test "a capture that fails says so instead of reporting an empty field" do
       reading = CrowdScan.look(capture: fn _region, _name -> {:error, :no_display} end)

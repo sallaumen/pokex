@@ -2227,11 +2227,17 @@ defmodule PokexWeb.PanelLive do
       <section id="shiny-guard-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
         <div class="flex min-h-10 items-center gap-3">
           <div class="min-w-0 flex-1">
-            <p class="text-pk-title font-semibold text-pk-text">Guarda anti-shiny ✨</p>
+            <p class="text-pk-title font-semibold text-pk-text">Caçador de shiny ✨</p>
+            <%!-- O NOME ERA "guarda anti-shiny", de quando o shiny era ameaça a
+                  evitar. Hoje ele é o alvo: "o que a gente quer encontrar é
+                  caçador de shiny" (09/09). E a descrição era três jargões numa
+                  linha só — prova de ruído, postura de chefe, captura
+                  desligada — que só quem escreveu entendia. Agora é o que ele
+                  FAZ, na ordem em que acontece. --%>
             <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2">
-              vê a COR do SHINY ensinada na calibração (o "chefe" deste jogo é
-              ele) — regra só varre depois da prova de ruído, o cérebro entra na
-              postura de chefe, e a bola sempre voa (mesmo com captura desligada)
+              procura na tela a cor que você ensinou. Achou um: o cérebro para
+              de tratar como bicho comum e ele vale a luta sozinho, e a bola voa
+              mesmo com a captura desligada.
             </p>
           </div>
           <input

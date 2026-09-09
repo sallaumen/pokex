@@ -4,10 +4,10 @@ defmodule Pokex.Bots.ShinyReadiness do
   steps have to happen.
 
   The machinery is finished and spread over four pages: the colour is taught in
-  the calibration, the floor is measured there too, the guard's switch lives on
-  the panel, the ball is chosen in the editors, and the hunt is watched on the
+  the calibration, the floor is measured there too, the hunter's switch lives in
+  the editors, the ball is chosen there too, and the hunt is watched on the
   Central. Nothing said which of those was missing, so every one of them failed
-  SILENTLY: a guard armed over zero rules reads `—/— px` forever, a rule saved
+  SILENTLY: a hunter armed over zero rules reads `—/— px` forever, a rule saved
   and never proven never scans, and `special_colors.json` simply not existing
   looks exactly like a night where no shiny walked past.
 
@@ -26,7 +26,7 @@ defmodule Pokex.Bots.ShinyReadiness do
   @type t :: %{armed: [String.t()], gaps: [step], notes: [step]}
 
   @calibration "/calibration"
-  # o cartão da guarda mora DENTRO do overlay dos Editores, não no painel: o
+  # o cartão do caçador mora DENTRO do overlay dos Editores, não no painel: o
   # ponteiro do /config dizia "/" e quem o seguia chegava numa tela sem cartão
   @editors "/config/editores"
   @config "/config"
@@ -41,18 +41,18 @@ defmodule Pokex.Bots.ShinyReadiness do
     %{armed: names, gaps: gaps(rules, armed), notes: notes(names, armed)}
   end
 
-  @doc "Nothing blocking: the guard scans and a sighting becomes a ball."
+  @doc "Nothing blocking: the hunter scans and a sighting becomes a ball."
   @spec ready?(t) :: boolean
   def ready?(%{gaps: gaps}), do: gaps == []
 
   # ONE step at a time, and only the one he can act on now: listing "ensine uma
-  # cor" next to "ligue a guarda" invites doing the second first, which arms a
+  # cor" next to "ligue o caçador" invites doing the second first, which arms a
   # watcher over nothing — the exact silence this module exists to end.
   defp gaps([], _armed),
     do: [
       step(
         :no_rule,
-        "nenhuma cor de shiny ensinada — a guarda não tem o que procurar",
+        "nenhuma cor de shiny ensinada — o caçador não tem o que procurar",
         @calibration,
         "ensinar a cor"
       )
@@ -86,9 +86,9 @@ defmodule Pokex.Bots.ShinyReadiness do
       else: [
         step(
           :guard_off,
-          "a guarda anti-shiny está desligada — a cor está pronta e ninguém olha",
+          "o caçador de shiny está desligado — a cor está pronta e ninguém procura",
           @editors,
-          "ligar a guarda"
+          "ligar o caçador"
         )
       ]
   end

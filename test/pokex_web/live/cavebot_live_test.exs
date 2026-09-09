@@ -2692,7 +2692,7 @@ defmodule PokexWeb.CavebotLiveTest do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 
       assert view |> element("#cavebot-shiny-list") |> render() =~
-               "guarda anti-shiny está desligada"
+               "caçador de shiny está desligado"
 
       view |> element("#shiny-arm") |> render_click()
 
@@ -2702,7 +2702,7 @@ defmodule PokexWeb.CavebotLiveTest do
       # o passo bloqueante sai; o CONSELHO da bola fica, que é o que ele ainda
       # ganha lendo (a bola padrão sai do mesmo jeito)
       lista = view |> element("#cavebot-shiny-list") |> render()
-      refute lista =~ "guarda anti-shiny está desligada"
+      refute lista =~ "caçador de shiny está desligado"
       assert lista =~ "bola padrão"
     end
   end

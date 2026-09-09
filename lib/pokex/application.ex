@@ -50,7 +50,7 @@ defmodule Pokex.Application do
       # Idle until a screen loads a route into it. Registered under its own name
       # because that name is the wiring: Pokex.Rig.Sim reports every key to it.
       Pokex.Sim.Runner,
-      # The anti-shiny watchdog (always-on like Guardian; manages its own
+      # The shiny hunter (always-on like Guardian; manages its own
       # arena-feed attachment from the shiny_guard_enabled setting).
       Pokex.Bots.ShinyGuard,
       # The waiting eye (phase 1): photographs around the pokémon while the brain waits

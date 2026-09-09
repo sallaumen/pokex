@@ -276,6 +276,29 @@ defmodule PokexWeb.AppHeaderTest do
       assert Pokex.Settings.get(:alarm_sound)
     end
 
+    # He unmuted the sector he needed, the journal proves the write landed, and
+    # he still heard nothing — the general sound was mute, and the sector list
+    # said nothing about that. "Sempre que eu mudo, eu acho que salvou, mas ele
+    # volta com tudo ligado" (09/09).
+    test "with the general sound mute, the sector list says so", %{conn: conn} do
+      sound = Pokex.Settings.get(:alarm_sound)
+      on_exit(fn -> Pokex.Settings.put(:alarm_sound, sound) end)
+
+      Pokex.Settings.put(:alarm_sound, false)
+      {:ok, view, html} = live(conn, "/world")
+
+      assert html =~ "nenhum setor abaixo toca"
+
+      view |> element("#app-alarm-sound-toggle") |> render_click()
+
+      refute render(view) =~ "nenhum setor abaixo toca"
+    end
+
+    test "the sector list says which way the tick means", %{conn: conn} do
+      {:ok, _view, html} = live(conn, "/world")
+      assert html =~ "marcado = toca"
+    end
+
     test "a sector toggles alone, touching neither the general sound nor other sectors", %{
       conn: conn
     } do

@@ -86,13 +86,43 @@ defmodule Pokex.Vision.ColorRules do
   and the Tracker window are black, they never move, and in his own frame each of them was
   louder than the creature. What the hunt draws moves; what the client draws does not.
   """
-  def mark_proven(slug, floor_px, chrome \\ []) when is_integer(floor_px) and floor_px >= 0 do
+  def mark_proven(slug, floor_px, chrome \\ [], region \\ nil)
+      when is_integer(floor_px) and floor_px >= 0 do
     mutate(slug, fn entry ->
       Map.put(entry, "proven", %{
         "floor_px" => floor_px,
         "chrome" => Enum.map(chrome, fn {l, t, r, b} -> [l, t, r, b] end),
+        # EM QUE QUADRO ela foi medida. As caixas do HUD são pixels DAQUELE
+        # quadro, e o quadro sai de `corpse_scan_radius_tiles`, do tile da tela
+        # e do ponto do personagem: mudar qualquer um desloca tudo, e as caixas
+        # passariam a tapar chão vazio enquanto o HUD volta a disparar.
+        "region" => region && Tuple.to_list(region),
         "at" => DateTime.utc_now() |> DateTime.to_iso8601()
       })
+    end)
+  end
+
+  @doc """
+  Is this rule's proof still about the frame we are looking at now?
+
+  A proof taken in another region is not a proof of anything here — and an OLD proof, from
+  before this field existed, is trusted (it was measured on the region he had then).
+  """
+  @spec proof_fits?(map, tuple | nil) :: boolean
+  def proof_fits?(%{proven_region: nil}, _region), do: true
+  def proof_fits?(%{proven_region: stored}, region), do: stored == region
+  def proof_fits?(_no_proof, _region), do: true
+
+  @doc """
+  Records the trigger the TOOL itself suggested, so the next measurement can tell its own
+  number from one he typed — and lower its own without touching his.
+  """
+  def remember_suggested(slug, min_px) when is_integer(min_px) do
+    mutate(slug, fn entry ->
+      case entry["proven"] do
+        %{} = proven -> Map.put(entry, "proven", Map.put(proven, "suggested", min_px))
+        _no_proof -> entry
+      end
     end)
   end
 
@@ -190,7 +220,7 @@ defmodule Pokex.Vision.ColorRules do
           entries: entries,
           armed:
             entries
-            |> Enum.filter(&(&1["enabled"] and is_map(&1["proven"])))
+            |> Enum.filter(&(&1["enabled"] == true and is_map(&1["proven"])))
             |> Enum.map(fn e ->
               %{
                 slug: e["slug"],
@@ -201,7 +231,8 @@ defmodule Pokex.Vision.ColorRules do
                 # AS CAIXAS QUE NUNCA MEXERAM: o próprio HUD do jogo é preto, e
                 # numa banda escura ele é mais alto que a criatura. A prova do
                 # chão as aprendeu; o vigia as recusa.
-                forbidden: chrome_boxes(e)
+                forbidden: chrome_boxes(e),
+                proven_region: proven_region(e)
               }
             end)
         }
@@ -224,6 +255,9 @@ defmodule Pokex.Vision.ColorRules do
 
   defp chrome_boxes(_no_proof), do: []
 
+  defp proven_region(%{"proven" => %{"region" => [x, y, w, h]}}), do: {x, y, w, h}
+  defp proven_region(_older_proof), do: nil
+
   defp file_stamp do
     case File.stat(file(), time: :posix) do
       {:ok, %{mtime: mtime, size: size}} -> {mtime, size}
@@ -231,14 +265,58 @@ defmodule Pokex.Vision.ColorRules do
     end
   end
 
+  # O ARQUIVO É DELE E ELE MEXE. `special_colors.json` é texto no `~/.pokex`:
+  # um `"enabled": null` de uma versão velha, uma cor sem `rgb`, uma prova pela
+  # metade — e `cache/0` levantava. Junto com ela levantava a guarda inteira e
+  # as DUAS telas, ou seja, a página onde ele arrumaria o estrago não abria
+  # mais. Uma entrada torta é DESCARTADA e o resto carrega.
   defp raw_entries do
     with {:ok, body} <- File.read(file()),
          {:ok, entries} when is_list(entries) <- Jason.decode(body) do
-      entries
+      Enum.flat_map(entries, &sound/1)
     else
       _no_file -> []
     end
   end
+
+  defp sound(%{"slug" => slug, "name" => name} = entry)
+       when is_binary(slug) and is_binary(name) do
+    case entry |> Map.get("colors") |> List.wrap() |> Enum.flat_map(&sane_color/1) do
+      [] ->
+        []
+
+      colors ->
+        [
+          entry
+          |> Map.merge(%{
+            "colors" => colors,
+            "enabled" => entry["enabled"] == true,
+            "min_px" => positive(entry["min_px"], 25),
+            "min_cell_px" => positive(entry["min_cell_px"], 6),
+            "proven" => sane_proof(entry["proven"])
+          })
+        ]
+    end
+  end
+
+  defp sound(_not_a_rule), do: []
+
+  defp sane_color(%{"dark" => v} = color) when is_integer(v),
+    do: [normalize_color(Map.put(color, "rgb", rgb_of(color)))]
+
+  defp sane_color(%{"rgb" => [r, g, b]} = color)
+       when is_integer(r) and is_integer(g) and is_integer(b),
+       do: [normalize_color(color)]
+
+  defp sane_color(_bad), do: []
+
+  defp rgb_of(%{"rgb" => [r, g, b]}) when is_integer(r) and is_integer(g) and is_integer(b),
+    do: [r, g, b]
+
+  defp rgb_of(_no_swatch), do: [0, 0, 0]
+
+  defp sane_proof(%{"floor_px" => px} = proven) when is_integer(px), do: proven
+  defp sane_proof(_half_written), do: nil
 
   defp persist(entries) do
     File.mkdir_p!(Path.dirname(file()))

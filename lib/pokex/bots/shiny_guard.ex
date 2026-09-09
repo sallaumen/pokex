@@ -178,7 +178,12 @@ defmodule Pokex.Bots.ShinyGuard do
         mancha = result.manchas |> List.first() |> on_screen(region, frame.scale)
         hit? = mancha != nil and mancha.px >= rule.min_px
 
-        {advance(state, rule, mancha, hit?), max(best, result.px),
+        # O MEDIDOR MOSTRA O QUE DECIDE. Ele mostrava `result.px` — TODOS os
+        # pixels casados na tela — contra um gatilho que se aplica à MAIOR
+        # MANCHA. Na tela dele de 09/09 isso era 264.131 contra 85.331: o
+        # medidor gritava "shiny!" com a guarda calada, e ele não tinha como
+        # saber qual dos dois estava mentindo.
+        {advance(state, rule, mancha, hit?), max(best, (mancha && mancha.px) || 0),
          if(hit?, do: [{rule, mancha} | vistos], else: vistos)}
       end)
 

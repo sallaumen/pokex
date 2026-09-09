@@ -59,6 +59,14 @@ defmodule Pokex.Vision.Frame do
   end
 
   @doc """
+  The bytes `from_file/1` reads: the 13-byte PXRW header and the RGBA. What a
+  keeper writes when it wants to save exactly the frame it analysed.
+  """
+  @spec to_raw(t) :: binary
+  def to_raw(%__MODULE__{width: w, height: h, rgba: rgba}),
+    do: <<"PXRW", 1, w::32, h::32, rgba::binary>>
+
+  @doc """
   Decodes a PNG file into a `Frame`.
 
   `Pokex.Vision.Png` reads the 8-bit non-interlaced truecolor shapes every

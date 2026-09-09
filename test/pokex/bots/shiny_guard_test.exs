@@ -4,6 +4,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.ShinyGuard
   alias Pokex.Calibration
+  alias Pokex.Home
   alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.SettingsStash
@@ -18,6 +19,7 @@ defmodule Pokex.Bots.ShinyGuardTest do
     Application.put_env(:pokex, :home_dir, tmp)
     :persistent_term.erase({ColorRules, :cache})
     :ets.delete(:pokex_world, :special)
+    :ets.delete(:pokex_world, :battle)
     SettingsStash.stash!(shiny_guard_enabled: true, special_color_scan_ms: 50)
 
     on_exit(fn -> Pokex.TestHome.restore() end)
@@ -30,7 +32,10 @@ defmodule Pokex.Bots.ShinyGuardTest do
       glow_region: {0, 0, 20, 20},
       battle_region: {0, 0, 80, 400},
       neutral_point: {500, 500},
-      player_point: {500, 350}
+      player_point: {500, 350},
+      # a measured tile: the square no longer swallows the whole screen, so the
+      # region has an origin away from (0,0) and a frame point differs from a screen point
+      tile_px: 40
     })
 
     {:ok, calib} = Calibration.load()
@@ -228,5 +233,114 @@ defmodule Pokex.Bots.ShinyGuardTest do
     guard = start_guard(fn _region, _name -> {:ok, limpo} end)
 
     assert %{enabled?: true, armed_rules: 1, pending?: false} = ShinyGuard.status(guard)
+  end
+
+  # The blob's centre of mass is in FRAME pixels; the fact and the broadcast
+  # carry SCREEN points, the only frame a click or the Catcher understands.
+  test "the fact and the broadcast carry the blob in screen points", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+    start_guard(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
+
+    assert_receive {:shiny_seen, %{point: {sx, sy}}}, 2_000
+
+    # the patch is 14x14 at (10,10) in the frame: its centre is (17,17) from the region origin
+    {rx, ry, _w, _h} = region
+    assert_in_delta sx, rx + 17, 4
+    assert_in_delta sy, ry + 17, 4
+
+    assert {:ok, %{vistos: [%{point: {^sx, ^sy}}]}} =
+             WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
+  end
+
+  # -- a foto da morte ----------------------------------------------------------
+
+  defp photos, do: Home.captures_dir() |> Path.join("shiny") |> Path.join("*") |> Path.wildcard()
+
+  defp tags do
+    photos()
+    |> Enum.map(&(&1 |> Path.basename() |> String.split("-") |> List.last()))
+    |> Enum.sort()
+  end
+
+  defp start_guard_journaling(capture) do
+    test = self()
+
+    start_supervised!(
+      {ShinyGuard,
+       name: nil,
+       active: true,
+       capture: capture,
+       journal: fn kind, payload -> send(test, {:journal, kind, payload}) end}
+    )
+  end
+
+  # The question this whole PR exists to answer — "does the corpse keep the
+  # palette?" — is answered by the photo of the moment the colour LEAVES, next
+  # to the last photo in which it was still there.
+  test "the colour leaving keeps the last frame with it and the first without", %{
+    region: region
+  } do
+    regra_provada(%{"name" => "Electrode shiny"})
+    {:ok, contador} = Agent.start_link(fn -> 0 end)
+    limpo = frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [])
+
+    start_guard_journaling(fn _region, _name ->
+      n = Agent.get_and_update(contador, &{&1, &1 + 1})
+      if n < 3, do: {:ok, frame_com_mancha(region)}, else: {:ok, limpo}
+    end)
+
+    assert_receive {:journal, :special,
+                    %{tag: "seen", name: "Electrode shiny", px: px, point: {_, _}}},
+                   2_000
+
+    assert px >= 50
+    assert_receive {:journal, :special, %{tag: "gone", name: "Electrode shiny"}}, 2_000
+
+    assert eventually(fn ->
+             tags() == ["gone.bmp", "gone.raw", "last.bmp", "last.raw", "seen.bmp", "seen.raw"]
+           end)
+
+    # the "last" photo is a frame WITH the blob, the "gone" photo one WITHOUT
+    [last] = Enum.filter(photos(), &String.ends_with?(&1, "last.raw"))
+    [gone] = Enum.filter(photos(), &String.ends_with?(&1, "gone.raw"))
+    assert {:ok, %Frame{rgba: com}} = Frame.from_file(last)
+    assert {:ok, %Frame{rgba: sem}} = Frame.from_file(gone)
+    assert com == frame_com_mancha(region).rgba
+    assert sem == limpo.rgba
+  end
+
+  # The list shrinking while the colour is still on screen is the shiny most
+  # likely dying — the frame of that instant is the corpse, if the palette stays.
+  test "the list dropping with the colour on screen keeps a drop photo", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    WorldState.put(:battle, %{enemies: [0, 1]}, System.monotonic_time(:millisecond))
+
+    start_guard_journaling(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
+
+    assert_receive {:journal, :special, %{tag: "seen", enemies: 2}}, 2_000
+    WorldState.put(:battle, %{enemies: [0]}, System.monotonic_time(:millisecond))
+
+    assert_receive {:journal, :special, %{tag: "drop", enemies: 1, name: "Electrode shiny"}},
+                   2_000
+
+    assert eventually(fn -> "drop.raw" in tags() end)
+  end
+
+  # A blob flapping at the threshold must not flood the rotation.
+  test "the same moment does not repeat within the photo gap", %{region: region} do
+    regra_provada()
+    {:ok, contador} = Agent.start_link(fn -> 0 end)
+    limpo = frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [])
+
+    # seen, gone, seen, gone... every scan flips
+    start_guard_journaling(fn _region, _name ->
+      n = Agent.get_and_update(contador, &{&1, &1 + 1})
+      if rem(n, 2) == 0, do: {:ok, frame_com_mancha(region)}, else: {:ok, limpo}
+    end)
+
+    assert_receive {:journal, :special, %{tag: "seen"}}, 2_000
+    assert_receive {:journal, :special, %{tag: "gone"}}, 2_000
+    refute_receive {:journal, :special, %{tag: "seen"}}, 500
   end
 end

@@ -1943,6 +1943,21 @@ defmodule Pokex.Bots.Engine.Logic do
         {reset_fight(t.logic, :travelling),
          Orders.walking(:travelling, t.band, "sumiram enquanto eu esperava — seguindo a rota")}
 
+      # THE EYE ENDS THE WAIT (09/09). "Encontrou dois ou três monstros, ele já
+      # para e fica esperando um pouquinho — essa parada não é necessária (…) é
+      # importante cruzar o que ele vê na tela e o que vê na lista." The wait
+      # exists for the pile to close ON THE POKÉMON, and the eye sees exactly
+      # that: every creature it can see biting it and nobody loose, the clock
+      # has nothing left to buy. Bars hidden behind bars (`unseen`) are the pile
+      # stacked on itself — but no more of them than the ones seen on it, or it
+      # is a pile still walking in behind one arrival.
+      pile_closed?(t) ->
+        fire_all(
+          t,
+          "#{count(t.s)} em cima do pokémon — o olho viu #{t.siege.pinned} colados e ninguém " <>
+            "solto: estourando a área"
+        )
+
       within?(t, :bunching, t.config.bunch_ms) ->
         {t.logic,
          Orders.standing(
@@ -1955,6 +1970,20 @@ defmodule Pokex.Bots.Engine.Logic do
         fire_all(t, "#{count(t.s)} em cima e perto: estourando a área")
     end
   end
+
+  # ONLY WITHOUT SKULLS — "sem caveira é brincadeira" — and never with the
+  # special on screen. In a skull area the chain's end is the stun that keeps
+  # the pile asleep, and opening a beat earlier shifts it: the bench lost a
+  # cycle of the boss's combo in two seeds of four of the stacked shinies, one
+  # fall in the incognito boss, and half a run standing still on his own route
+  # (09/09). The hunts he named for this rule have no skulls; the hard ones
+  # keep the whole wait until the eye has proven itself there.
+  defp pile_closed?(%{siege: %{read?: true, pet_seen?: true} = siege} = t),
+    do:
+      not heavy?(t) and not siege.heavy? and siege.loose == 0 and siege.pinned >= 1 and
+        siege.unseen <= siege.pinned
+
+  defp pile_closed?(_no_eye), do: false
 
   defp gathering_why(t) do
     "juntando: #{count(t.s)} até agora, #{walked(t)} passos"

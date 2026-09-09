@@ -133,6 +133,73 @@ defmodule Pokex.Bots.CrowdScanTest do
       marks = [mark({0, 2}, hp: 32), mark({1, 3}, hp: 100)]
       assert CrowdScan.place(marks, @me, @tile, pet_hp: 39).pet == nil
     end
+
+    # THE TAUGHT SPRITE WINS (09/09): "ele muitas vezes troca qual é o pokémon
+    # que ele acha que é o meu". The mark whose body the taught library
+    # recognised is the pet, whatever box or health the others show.
+    test "the mark the taught sprites named is the pet, over the box and the health" do
+      marks = [mark({3, 3}, pet?: true, hp: 100), mark({0, 2}, hp: 39), mark({-2, 1}, hp: 70)]
+      taught = mark({-2, 1}).point
+
+      placed = CrowdScan.place(marks, @me, @tile, pet_hp: 39, pet_point: taught)
+
+      assert %{dx: -2, dy: 1, hp_pct: 70} = placed.pet
+      assert Enum.map(placed.hostiles, & &1.hp_pct) == [39, 100]
+    end
+
+    test "a taught point matching no mark falls back to the box" do
+      marks = [mark({3, 3}, pet?: true), mark({0, 2})]
+
+      assert %{dx: 3, dy: 3} = CrowdScan.place(marks, @me, @tile, pet_point: {1, 1}).pet
+    end
+  end
+
+  # …AND ON THE SCREEN: the library is his own three or four angles of the
+  # Torterra; the eye scores every body against them and takes his by name.
+  describe "his pokemon by its taught sprite" do
+    @pet_blue <<20, 40, 220, 255>>
+
+    defp teach!(name, color) do
+      crop = %Frame{width: 96, height: 96, rgba: :binary.copy(color, 96 * 96), scale: 1.0}
+      {:ok, _} = Pokex.Bots.PokemonSprites.add(name, crop)
+    end
+
+    test "the body painted like the taught Torterra is the pet, not the boxed one" do
+      SettingsStash.stash!(pokemon_sprite_box_px: 96, pokemon_track_min_similarity: 0.55)
+      teach!("Torterra", @pet_blue)
+
+      reading =
+        look_at([{2, 2}, {-2, 1}],
+          listed: 2,
+          pet_name: "Torterra",
+          body_color: {{-2, 1}, @pet_blue}
+        )
+
+      assert %{dx: -2, dy: 1} = reading.pet
+      assert [%{dx: 2, dy: 2, from_pet: 4}] = reading.hostiles
+    end
+
+    test "a taught body of ANOTHER pokemon is not his" do
+      SettingsStash.stash!(pokemon_sprite_box_px: 96, pokemon_track_min_similarity: 0.55)
+      teach!("Shiny Venusaur", @pet_blue)
+
+      reading =
+        look_at([{2, 2}, {-2, 1}],
+          listed: 2,
+          pet_name: "Torterra",
+          body_color: {{-2, 1}, @pet_blue}
+        )
+
+      assert reading.pet == nil
+      assert length(reading.hostiles) == 2
+    end
+
+    test "with nothing taught the eye reads as before" do
+      reading = look_at([{2, 2}, {-2, 1}], listed: 2, pet_name: "Torterra")
+
+      assert reading.pet == nil
+      assert length(reading.hostiles) == 2
+    end
   end
 
   describe "looking at the screen" do
@@ -174,6 +241,7 @@ defmodule Pokex.Bots.CrowdScanTest do
     {px, py} = @me
     # the bar is a UI element: 27×4 points at 1 pixel per point, whatever the tile
     %{bar_w: bw, bar_h: bh} = geo = Pokex.Vision.CreatureMarks.geometry(1.0)
+    {body_opt, opts} = Keyword.pop(opts, :body_color)
 
     capture = fn {rx, ry, w, h}, _name ->
       bars =
@@ -181,20 +249,34 @@ defmodule Pokex.Bots.CrowdScanTest do
           {px + dx * @tile - div(bw, 2) - rx, py + dy * @tile - @tile - div(bh, 2) - ry}
         end)
 
-      rgba = for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>>, do: pixel(bars, geo, x, y)
+      # a body painted one colour, 96×96 around its centre (one tile under the bar)
+      body =
+        case body_opt do
+          {{dx, dy}, color} -> {{px + dx * @tile - 48 - rx, py + dy * @tile - 48 - ry}, color}
+          nil -> nil
+        end
+
+      rgba = for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>>, do: pixel(bars, geo, body, x, y)
       {:ok, %Frame{width: w, height: h, rgba: rgba, scale: 1.0}}
     end
 
     CrowdScan.look(Keyword.put(opts, :capture, capture))
   end
 
-  # Green inside a bar, black on its border, sand everywhere else.
-  defp pixel(bars, geo, x, y) do
+  # Green inside a bar, black on its border, the body's colour where one is
+  # painted, sand everywhere else.
+  defp pixel(bars, geo, body, x, y) do
     case Enum.find(bars, &covers?(&1, geo, x, y)) do
-      nil -> <<224, 192, 128, 255>>
+      nil -> body_pixel(body, x, y)
       bar -> if border?(bar, geo, x, y), do: <<0, 0, 0, 255>>, else: <<0, 188, 0, 255>>
     end
   end
+
+  defp body_pixel({{bx, by}, color}, x, y)
+       when x >= bx and x < bx + 96 and y >= by and y < by + 96,
+       do: color
+
+  defp body_pixel(_none_or_outside, _x, _y), do: <<224, 192, 128, 255>>
 
   defp covers?({bx, by}, %{bar_w: bw, bar_h: bh}, x, y),
     do: x >= bx and x < bx + bw and y >= by and y < by + bh

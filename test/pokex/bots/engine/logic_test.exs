@@ -2451,6 +2451,96 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.phase == :engaged
       assert orders.fire == :free
     end
+
+    # THE EYE ENDS THE WAIT (09/09): "encontrou dois ou três monstros, ele já
+    # para e fica esperando um pouquinho — essa parada não é necessária". The
+    # wait is for the pile to close on the pokémon; when the eye sees it
+    # closed, the clock has nothing left to buy.
+    defp eye_seeing(hostiles) do
+      %{
+        read?: true,
+        at: 900,
+        me: {0, 0},
+        pet: %{point: {-36, 0}, dx: -1, dy: 0, tiles: 1, hp_pct: 100},
+        hostiles: hostiles,
+        listed: length(hostiles)
+      }
+    end
+
+    defp seen(dx, dy, from_pet) do
+      %{
+        point: {dx * 36, dy * 36},
+        dx: dx,
+        dy: dy,
+        from_me: max(abs(dx), abs(dy)),
+        from_pet: from_pet,
+        hp_pct: 100,
+        skull?: false
+      }
+    end
+
+    defp pilha_vista(n, hostiles) do
+      world(%{
+        situation:
+          situation(%{
+            enemies: n,
+            worth_fighting?: true,
+            stable_for_ms: 9_000,
+            crowd: eye_seeing(hostiles)
+          }),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    test "with the eye seeing everyone on the pokemon, the wait ends at once" do
+      closed = pilha_vista(3, [seen(-2, 0, 1), seen(-2, 1, 1), seen(-1, 1, 1)])
+
+      {logic, _} = Logic.step(Logic.new(), pilha_pronta(), @espera, 1_000)
+      {_logic, orders} = Logic.step(logic, closed, @espera, 1_300)
+
+      assert orders.phase == :engaged
+      assert orders.fire == :free
+      assert orders.why =~ "o olho viu 3 colados"
+    end
+
+    test "with someone still loose, the wait goes on" do
+      arriving = pilha_vista(3, [seen(-2, 0, 1), seen(-2, 1, 1), seen(4, 0, 5)])
+
+      {logic, _} = Logic.step(Logic.new(), pilha_pronta(), @espera, 1_000)
+      {_logic, orders} = Logic.step(logic, arriving, @espera, 1_300)
+
+      assert orders.phase == :bunching
+    end
+
+    # "Sem caveira é brincadeira": in a skull area the chain's end is the stun
+    # that keeps the pile asleep, and the whole wait stays until the eye has
+    # proven itself there.
+    test "with skulls on the pile the wait stays whole" do
+      skulled =
+        pilha_vista(3, [
+          %{seen(-2, 0, 1) | skull?: true},
+          %{seen(-2, 1, 1) | skull?: true},
+          %{seen(-1, 1, 1) | skull?: true}
+        ])
+
+      {logic, _} = Logic.step(Logic.new(), pilha_pronta(), @espera, 1_000)
+      {_logic, orders} = Logic.step(logic, skulled, @espera, 1_300)
+
+      assert orders.phase == :bunching
+    end
+
+    test "bars hidden behind the ones on the pokemon are the pile stacked; more hidden than seen is not" do
+      stacked = pilha_vista(4, [seen(-2, 0, 1), seen(-2, 1, 1)])
+      walking_in = pilha_vista(5, [seen(-2, 0, 1)])
+
+      {logic, _} = Logic.step(Logic.new(), pilha_pronta(), @espera, 1_000)
+      {_logic, on_top} = Logic.step(logic, stacked, @espera, 1_300)
+      assert on_top.phase == :engaged
+
+      {logic, _} = Logic.step(Logic.new(), pilha_pronta(), @espera, 1_000)
+      {_logic, still} = Logic.step(logic, walking_in, @espera, 1_300)
+      assert still.phase == :bunching
+    end
   end
 
   # O ALVO DO BOLO e OS PASSOS DA ESPERA — as duas metades do que ele descreveu

@@ -2788,7 +2788,9 @@ defmodule PokexWeb.CavebotLiveTest do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
       card = view |> element("#siege-card") |> render()
 
-      assert card =~ "≈87%", "a nota da sprite ensinada vai no quadrado, com o ≈ que a separa da vida"
+      assert card =~ "≈87%",
+             "a nota da sprite ensinada vai no quadrado, com o ≈ que a separa da vida"
+
       refute card =~ ">87<", "número puro é VIDA — a semelhança nunca pode se passar por ela"
       assert card =~ "achado pela sprite ensinada"
     end

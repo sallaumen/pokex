@@ -14,6 +14,7 @@ defmodule Pokex.Pokedex.Team do
   """
 
   alias Pokex.Pokedex.SkillProfile
+  alias Pokex.Calibration
   alias Pokex.{Home, Pokedex}
 
   # The in-game hotkey slots a team member can answer to: C+2..C+6 on screen.
@@ -77,7 +78,15 @@ defmodule Pokex.Pokedex.Team do
           entry =
             Enum.find(
               data.members ++ data.bank,
-              %{name: name, level: nil, slot: nil, skills: %{}, cooldowns: %{}, bar: nil},
+              %{
+                name: name,
+                level: nil,
+                slot: nil,
+                skills: %{},
+                cooldowns: %{},
+                bars: [],
+                bar: nil
+              },
               &(&1.name == name)
             )
 
@@ -247,28 +256,45 @@ defmodule Pokex.Pokedex.Team do
   references ARE the skill icons — so a set captured with Vespiquen out is a
   set of the wrong pictures the moment he swaps.
 
-  `nil` when this one has never been calibrated, which is what makes the global
-  calibration the fallback instead of a broken read.
+  AND IT IS PER SCREEN (09/09). The region is a place on ONE screen: the
+  Torterra's bar calibrated on the notebook (x=580) does not exist on the
+  ultrawide (x=2147), and the morning he came back to two monitors the whole
+  run hunted blind of its cooldowns, with the alarms saying "recalibre" and
+  nothing saying WHY. A pokémon now carries one bar per screen it was
+  calibrated on; this answers the bar for the screen in force, or — for the
+  count, which is the pokémon's and not the screen's — any bar it has.
+
+  `nil` when this one has never been calibrated anywhere.
   """
   @spec bar(String.t()) :: map | nil
   def bar(name) do
     case Enum.find(members() ++ bank(), &(&1.name == name)) do
-      %{bar: %{} = bar} -> bar
+      %{bars: [_ | _] = bars} -> bar_for(bars, current_screen()) || List.first(bars)
       _absent_or_uncalibrated -> nil
     end
   end
 
+  @doc "The screens this pokémon has a bar on — `{w, h}`, or `nil` for a bar from before screens were kept."
+  @spec bar_screens(String.t()) :: [{pos_integer, pos_integer} | nil]
+  def bar_screens(name) do
+    case Enum.find(members() ++ bank(), &(&1.name == name)) do
+      %{bars: bars} -> Enum.map(bars, & &1.screen)
+      _absent -> []
+    end
+  end
+
   @doc """
-  Stores a pokémon's bar. `nil` clears it, which drops that pokémon back to the
-  global calibration.
+  Stores a pokémon's bar FOR THE SCREEN IN FORCE, replacing the one it had on
+  this screen and leaving the others alone. `nil` clears this screen's.
   """
   @spec set_bar(String.t(), map | nil) :: map
   def set_bar(name, bar) do
     data = read()
+    screen = current_screen()
 
     update = fn list ->
       Enum.map(list, fn
-        %{name: ^name} = entry -> Map.put(entry, :bar, bar)
+        %{name: ^name} = entry -> with_bars(entry, put_bar(entry.bars, screen, bar))
         entry -> entry
       end)
     end
@@ -276,6 +302,50 @@ defmodule Pokex.Pokedex.Team do
     %{data | members: update.(data.members), bank: update.(data.bank)}
     |> persist()
     |> announce()
+  end
+
+  defp put_bar(bars, screen, nil), do: Enum.reject(bars, &(&1.screen == screen))
+
+  defp put_bar(bars, screen, bar),
+    do: [Map.put(bar, :screen, screen) | Enum.reject(bars, &(&1.screen == screen))]
+
+  # `bar` rides beside `bars` as the FIRST of them: what the team page and the
+  # count readers ask ("does this one carry a bar?"), which no screen changes.
+  defp with_bars(entry, bars), do: %{entry | bars: bars, bar: List.first(bars)}
+
+  # The bar of THIS screen, or — for a bar from before screens were kept — the
+  # one sitting where this screen's calibration says the bar is. A bar that
+  # sits nowhere near it belongs to another screen, whatever it says.
+  defp bar_for(bars, {_w, _h} = screen) do
+    Enum.find(bars, &(&1.screen == screen)) || legacy_bar_for(bars, screen)
+  end
+
+  defp bar_for(bars, nil), do: Enum.find(bars, &(&1.screen == nil))
+
+  defp legacy_bar_for(bars, _screen) do
+    case Calibration.load() do
+      {:ok, %Calibration{skill_bar_region: {_, _, _, _} = there}} ->
+        Enum.find(bars, &(&1.screen == nil and overlaps?(&1.region, there)))
+
+      _no_calibration_or_no_bar_marked ->
+        Enum.find(bars, &(&1.screen == nil))
+    end
+  end
+
+  # At least half of the bar inside where the calibration marked it.
+  defp overlaps?({x, y, w, h}, {cx, cy, cw, ch}) do
+    ox = max(0, min(x + w, cx + cw) - max(x, cx))
+    oy = max(0, min(y + h, cy + ch) - max(y, cy))
+    w * h > 0 and ox * oy * 2 >= w * h
+  end
+
+  defp overlaps?(_region, _there), do: false
+
+  defp current_screen do
+    case Calibration.load() do
+      {:ok, %Calibration{screen_w: w, screen_h: h}} when is_integer(w) and is_integer(h) -> {w, h}
+      _no_calibration -> nil
+    end
   end
 
   # Tuples do not survive JSON — and the bar carries TWO kinds of them: the
@@ -289,10 +359,26 @@ defmodule Pokex.Pokedex.Team do
     do: %{
       "region" => [x, y, w, h],
       "count" => bar[:count],
-      "refs" => encode_refs(bar[:refs])
+      "refs" => encode_refs(bar[:refs]),
+      "screen" => encode_screen(bar[:screen])
     }
 
   defp encode_bar(_none), do: nil
+
+  defp encode_screen({w, h}), do: [w, h]
+  defp encode_screen(_unknown), do: nil
+
+  defp decode_screen([w, h]) when is_integer(w) and is_integer(h), do: {w, h}
+  defp decode_screen(_unknown), do: nil
+
+  # v7 keeps one bar PER SCREEN under "bars"; v6 and before kept one "bar" with
+  # no screen on it — read as a bar of unknown screen, served only where it
+  # sits (`bar_for/2`).
+  defp decode_bars(%{"bars" => list}) when is_list(list),
+    do: list |> Enum.map(&decode_bar/1) |> Enum.reject(&is_nil/1)
+
+  defp decode_bars(%{"bar" => legacy}), do: Enum.reject([decode_bar(legacy)], &is_nil/1)
+  defp decode_bars(_none), do: []
 
   defp encode_refs(refs) when is_list(refs), do: Enum.map(refs, &tuple_to_list/1)
   defp encode_refs(_none), do: nil
@@ -303,7 +389,12 @@ defmodule Pokex.Pokedex.Team do
 
   defp decode_bar(%{"region" => [x, y, w, h], "count" => count} = map)
        when is_integer(count) and count in 1..10,
-       do: %{region: {x, y, w, h}, count: count, refs: decode_refs(map["refs"])}
+       do: %{
+         region: {x, y, w, h},
+         count: count,
+         refs: decode_refs(map["refs"]),
+         screen: decode_screen(map["screen"])
+       }
 
   defp decode_bar(_absent_or_corrupt), do: nil
 
@@ -352,11 +443,11 @@ defmodule Pokex.Pokedex.Team do
     data = read()
 
     with name when is_binary(name) <- data.active,
-         %{bar: %{region: {_x, _y, _w, _h}} = bar} <-
-           Enum.find(data.members, &(&1.name == name)) do
+         %{bars: [_ | _] = bars} <- Enum.find(data.members, &(&1.name == name)),
+         %{region: {_x, _y, _w, _h}} = bar <- bar_for(bars, current_screen()) do
       {name, bar}
     else
-      _no_choice_or_no_bar -> nil
+      _no_choice_or_no_bar_on_this_screen -> nil
     end
   end
 
@@ -407,16 +498,19 @@ defmodule Pokex.Pokedex.Team do
     list
     |> Enum.map(fn
       name when is_binary(name) ->
-        %{name: name, level: nil, slot: nil, skills: %{}, cooldowns: %{}, bar: nil}
+        %{name: name, level: nil, slot: nil, skills: %{}, cooldowns: %{}, bars: [], bar: nil}
 
       %{"name" => name} = map when is_binary(name) ->
+        bars = decode_bars(map)
+
         %{
           name: name,
           level: int_or_nil(map["level"]),
           slot: slot_or_nil(map["slot"]),
           skills: SkillProfile.decode(map["skills"]),
           cooldowns: SkillProfile.decode_cooldowns(map["cooldowns"]),
-          bar: decode_bar(map["bar"])
+          bars: bars,
+          bar: List.first(bars)
         }
 
       _corrupt ->
@@ -440,7 +534,7 @@ defmodule Pokex.Pokedex.Team do
       "slot" => entry.slot,
       "skills" => SkillProfile.encode(entry.skills),
       "cooldowns" => Map.get(entry, :cooldowns, %{}),
-      "bar" => encode_bar(Map.get(entry, :bar))
+      "bars" => entry |> Map.get(:bars, []) |> Enum.map(&encode_bar/1)
     }
   end
 

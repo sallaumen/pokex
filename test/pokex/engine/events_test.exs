@@ -46,6 +46,23 @@ defmodule Pokex.Engine.EventsTest do
     assert record["opening"] == ~w(3 4 5)
   end
 
+  # A place names itself as a tuple (`park: {2, 0}`), and JSON has none of
+  # those either: the night of 08/09 lost every decision of a held road to it.
+  test "tuples, nested in maps, survive as lists", %{writer: writer} do
+    Events.record(
+      :decision,
+      %{park: {2, 0}, siege: %{gap: false, pet: {-1, 0}}, cover: [{1, 1}, {2, 2}]},
+      writer
+    )
+
+    settle(writer)
+
+    assert [record] = Events.read_day(Date.utc_today())
+    assert record["park"] == [2, 0]
+    assert record["siege"] == %{"gap" => false, "pet" => [-1, 0]}
+    assert record["cover"] == [[1, 1], [2, 2]]
+  end
+
   test "keeps every record of the day, oldest first", %{writer: writer} do
     Events.record(:decision, %{n: 1}, writer)
     Events.record(:decision, %{n: 2}, writer)

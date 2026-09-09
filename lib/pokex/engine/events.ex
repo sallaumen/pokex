@@ -124,6 +124,14 @@ defmodule Pokex.Engine.Events do
     do: Atom.to_string(value)
 
   defp encodable(value) when is_list(value), do: Enum.map(value, &encodable/1)
+  # Tuples are how a place names itself (`{2, 0}` tiles from him); JSON has no
+  # tuples either. The night of 08/09 lost 134 decision records to one — every
+  # tick the road held for a pile — before this clause existed.
+  defp encodable(value) when is_tuple(value), do: value |> Tuple.to_list() |> encodable()
+
+  defp encodable(%{} = value) when not is_struct(value),
+    do: Map.new(value, fn {k, v} -> {k, encodable(v)} end)
+
   defp encodable(value), do: value
 
   defp decode(line) do

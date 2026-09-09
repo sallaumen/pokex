@@ -92,11 +92,7 @@ defmodule Pokex.Bots.Watchman.Checks do
 
     cond do
       bar.region == nil ->
-        [
-          {:skill_bar,
-           "#{name} está sem barra de skills calibrada — calibre a dele em /calibration"}
-          | problems
-        ]
+        [{:skill_bar, no_bar_here(calib)} | problems]
 
       outside?(bar.region, calib) ->
         {x, _y, _w, _h} = bar.region
@@ -120,6 +116,38 @@ defmodule Pokex.Bots.Watchman.Checks do
         problems
     end
   end
+
+  # No bar on THIS screen — and the bar is per screen since 09/09: the notebook's
+  # Torterra bar does not exist on the ultrawide, and a run there hunted five
+  # minutes blind of its cooldowns with alarms saying "recalibre" and nothing
+  # saying why. Naming the screen that has it is the whole message.
+  defp no_bar_here(calib) do
+    name = Pokex.Pokedex.Team.active() || "pokémon"
+
+    case Pokex.Pokedex.Team.bar_screens(name) do
+      [] ->
+        "#{name} está sem barra de skills calibrada — calibre a dele em /calibration"
+
+      screens ->
+        "#{name} tem barra de skills calibrada só #{screens_text(screens)} — nesta tela " <>
+          "(#{screen_text(calib)}) não; calibre a dele em /calibration"
+    end
+  end
+
+  defp screens_text(screens) do
+    screens
+    |> Enum.map(fn
+      {w, h} -> "na tela #{w}×#{h}"
+      nil -> "noutra tela"
+    end)
+    |> Enum.uniq()
+    |> Enum.join(" e ")
+  end
+
+  defp screen_text(%Calibration{screen_w: w, screen_h: h}) when is_integer(w) and is_integer(h),
+    do: "#{w}×#{h}"
+
+  defp screen_text(_no_screen), do: "?"
 
   defp battle(problems, now, last_good, stale) do
     if bad_for?(last_good, :battle, now, stale) do

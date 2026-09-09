@@ -131,6 +131,83 @@ defmodule Pokex.Bots.ActiveBarTest do
     end
   end
 
+  # THE BAR IS A PLACE ON ONE SCREEN (09/09). The Torterra's bar calibrated on
+  # the notebook (x=580) does not exist on the ultrawide (x=2147): the morning
+  # he came back to two monitors the run hunted five minutes blind of its
+  # cooldowns. A pokémon keeps one bar per screen, and only this screen's is
+  # read.
+  describe "one bar per screen" do
+    defp on_screen!(w, h, bar_region \\ nil) do
+      Calibration.save(%Calibration{
+        scale: 1.0,
+        screen_w: w,
+        screen_h: h,
+        skill_bar_region: bar_region
+      })
+    end
+
+    setup do
+      {:ok, _} = Team.add("Vespiquen")
+      Team.set_active("Vespiquen")
+      :ok
+    end
+
+    test "a bar saved on one screen is not read on another, and both survive" do
+      on_screen!(1512, 982)
+      Team.set_bar("Vespiquen", %{region: {580, 803, 278, 32}, count: 8, refs: nil})
+
+      on_screen!(3440, 1440)
+      assert ActiveBar.current().region == nil
+      assert Team.bar_screens("Vespiquen") == [{1512, 982}]
+
+      Team.set_bar("Vespiquen", %{region: {2147, 1386, 279, 34}, count: 8, refs: nil})
+      assert ActiveBar.current().region == {2147, 1386, 279, 34}
+      assert Enum.sort(Team.bar_screens("Vespiquen")) == [{1512, 982}, {3440, 1440}]
+
+      on_screen!(1512, 982)
+      assert ActiveBar.current().region == {580, 803, 278, 32}
+    end
+
+    test "clearing clears this screen's bar only" do
+      on_screen!(1512, 982)
+      Team.set_bar("Vespiquen", %{region: {580, 803, 278, 32}, count: 8, refs: nil})
+      on_screen!(3440, 1440)
+      Team.set_bar("Vespiquen", %{region: {2147, 1386, 279, 34}, count: 8, refs: nil})
+
+      Team.set_bar("Vespiquen", nil)
+
+      assert ActiveBar.current().region == nil
+      assert Team.bar_screens("Vespiquen") == [{1512, 982}]
+    end
+
+    # A bar from before screens were kept says nothing about where it was
+    # made. It is trusted only where it sits: inside the place THIS screen's
+    # calibration marked for the bar.
+    test "a bar with no screen on it is read only where the calibration says the bar is" do
+      on_screen!(1512, 982, {579, 802, 280, 33})
+      Team.set_bar("Vespiquen", %{region: {580, 803, 278, 32}, count: 8, refs: nil})
+
+      legacy =
+        Team.file() |> File.read!() |> String.replace(~s("screen":[1512,982]), ~s("screen":null))
+
+      File.write!(Team.file(), legacy)
+
+      assert Team.bar_screens("Vespiquen") == [nil]
+      assert ActiveBar.current().region == {580, 803, 278, 32}
+
+      on_screen!(3440, 1440, {2147, 1386, 279, 34})
+      assert ActiveBar.current().region == nil
+    end
+
+    test "the count is the pokemon's, whatever the screen" do
+      on_screen!(1512, 982)
+      Team.set_bar("Vespiquen", %{region: {580, 803, 278, 32}, count: 8, refs: nil})
+      on_screen!(3440, 1440)
+
+      assert %{count: 8} = Team.bar("Vespiquen")
+    end
+  end
+
   describe "storage" do
     test "the region survives the round trip as a TUPLE, not a JSON list" do
       {:ok, _} = Team.add("Vespiquen")

@@ -393,10 +393,8 @@ defmodule Pokex.Bots.CrowdScan do
 
   defp chebyshev({ax, ay}, {bx, by}), do: max(abs(ax - bx), abs(ay - by))
 
-  # Frame pixels → screen points: the box's origin plus the pixel over the
-  # backend's scale.
-  defp to_screen(%{point: {x, y}} = mark, {rx, ry, _w, _h}, scale),
-    do: %{mark | point: {rx + round(x / scale), ry + round(y / scale)}}
+  defp to_screen(%{point: point} = mark, region, scale),
+    do: %{mark | point: Calibration.frame_to_screen(scale, region, point)}
 
   defp evidence(opts, frame, marks, {rx, ry, _w, _h}, {px, py}, scale) do
     if Keyword.get(opts, :evidence, false) do

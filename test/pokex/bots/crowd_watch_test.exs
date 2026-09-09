@@ -60,7 +60,14 @@ defmodule Pokex.Bots.CrowdWatchTest do
   defp battle!(n),
     do: WorldState.put(:battle, %{enemies: Enum.to_list(1..n//1), captured_at: now()}, now())
 
-  defp photos, do: Pokex.Home.captures_dir() |> Path.join("crowd") |> File.ls!()
+  # A pasta só nasce quando a primeira foto é gravada: "não existe" e "vazia"
+  # são a mesma resposta aqui.
+  defp photos do
+    case Pokex.Home.captures_dir() |> Path.join("crowd") |> File.ls() do
+      {:ok, files} -> files
+      {:error, :enoent} -> []
+    end
+  end
 
   defp now, do: System.monotonic_time(:millisecond)
 
@@ -137,6 +144,27 @@ defmodule Pokex.Bots.CrowdWatchTest do
     assert [photo] = photos()
     assert photo =~ "-open.png"
     assert File.read!(Path.join([Pokex.Home.captures_dir(), "crowd", photo])) == "bmp-de-mentira"
+  end
+
+  # DESLIGADO É DESLIGADO. A foto da abertura chamava o olho direto, sem passar
+  # pela porta: com o interruptor no não ele continuava capturando a tela e
+  # reescrevendo o fato `:crowd` a cada abertura de luta, pra sempre — e cada
+  # uma dessas fotos deixava o `last` fresco pra próxima.
+  test "switched off, the fight opening captures nothing", %{watch: watch} do
+    orders!(:bunching)
+    battle!(3)
+    CrowdWatch.look_now(watch)
+    assert_receive {:looked, _}
+
+    SettingsStash.stash!(crowd_watch_enabled: false)
+    WorldState.forget(:crowd)
+
+    send(watch, {:engine, %{}, %{phase: :engaged, why: "matando", revive: :hold}})
+    :sys.get_state(watch)
+
+    refute_receive {:looked, _}, 50
+    assert photos() == []
+    assert WorldState.get(:crowd, 5_000, now()) == :missing
   end
 
   test "every revive decision keeps a photo named by the verdict, once per sentence",

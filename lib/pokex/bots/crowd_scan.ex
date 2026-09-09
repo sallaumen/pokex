@@ -122,8 +122,7 @@ defmodule Pokex.Bots.CrowdScan do
       |> place(
         {px, py},
         tile,
-        Keyword.take(opts, [:pet_hp, :me_hp]) ++
-          [pet_point: taught && to_screen(taught, box, scale).point]
+        Keyword.take(opts, [:pet_hp, :me_hp]) ++ [sprite: sprite_verdict(taught, box, scale)]
       )
       |> Map.merge(%{
         at: started,
@@ -143,12 +142,18 @@ defmodule Pokex.Bots.CrowdScan do
   Marks (bar centres, in screen points) placed in tiles from `me` and from
   his pokemon. Pure: the simulator calls it with the marks its world draws.
 
-  His pokemon is, first, the mark `:pet_point` names — the one whose body the
-  taught sprites recognised (`look/1`, his three or four Torterra angles).
-  Failing that, the mark with the number box nearest to him. Without a box
-  (his notebook draws none) it is the mark whose health matches `:pet_hp`,
-  what the Pokebar reads, within one column of the bar — nearest to him when
-  two match. No match, no pet: `from_pet` stays `nil`.
+  His pokemon is, first, the mark `:sprite` names — `%{point:, score:}`, the
+  body the taught sprites recognised and how sure they were (`look/1`, his
+  three or four Torterra angles). Failing that, the mark with the number box
+  nearest to him. Without a box (his notebook draws none) it is the mark whose
+  health matches `:pet_hp`, what the Pokebar reads, within one column of the
+  bar — nearest to him when two match. No match, no pet: `from_pet` stays
+  `nil`.
+
+  The SCORE travels with the point because the two are one verdict: passing
+  only the point left `pet.score` nil on every live reading, and the card that
+  says how sure the eye is fell through to "não se sabe por qual caminho"
+  exactly when the taught sprite was what decided.
   """
   @spec place([CreatureMarks.mark()], {integer, integer}, pos_integer, keyword) :: placed
   def place(marks, {px, py} = me, tile, opts \\ []) do
@@ -173,7 +178,7 @@ defmodule Pokex.Bots.CrowdScan do
     # ele acha que é o meu", saber se foi a sprite, a caixa de número ou a vida
     # é a diferença entre achar o defeito e adivinhar.
     pet =
-      with nil <- taught_pet(bodies, Keyword.get(opts, :pet_point), tile) |> by(:sprite),
+      with nil <- taught_pet(bodies, Keyword.get(opts, :sprite), tile) |> by(:sprite),
            nil <- boxed_pet(bodies, me) |> by(:box) do
         pet_by_health(bodies, me, Keyword.get(opts, :pet_hp)) |> by(:hp)
       end
@@ -227,13 +232,6 @@ defmodule Pokex.Bots.CrowdScan do
 
   defp point_of(%{point: {x, y}}), do: {x, y}
   defp point_of(_no_point), do: {-1_000_000, -1_000_000}
-
-  @doc "How many hostiles stand within `tiles` of the CHARACTER. Zero for an unread scan, never a guess."
-  @spec within(reading | placed, non_neg_integer) :: non_neg_integer
-  def within(%{read?: true, hostiles: hostiles}, tiles),
-    do: Enum.count(hostiles, &(&1.from_me <= tiles))
-
-  def within(_unread, _tiles), do: 0
 
   # --- himself ----------------------------------------------------------------
 
@@ -316,10 +314,27 @@ defmodule Pokex.Bots.CrowdScan do
 
   defp same_name?(taught, active), do: String.downcase(taught) == String.downcase(active)
 
-  defp taught_pet(bodies, {x, y}, tile),
-    do: Enum.find(bodies, fn %{point: {bx, by}} -> {bx, by - tile} == {x, y} end)
+  # The sprite's verdict, as it leaves `look/1`: where the winning body's bar
+  # is, in screen points, and how sure the library was. `nil` when nothing was
+  # taught, nothing matched, or the winner was not clear of the runner-up.
+  defp sprite_verdict(nil, _box, _scale), do: nil
 
-  defp taught_pet(_bodies, _no_point, _tile), do: nil
+  defp sprite_verdict(mark, box, scale),
+    do: %{point: to_screen(mark, box, scale).point, score: Map.get(mark, :sprite_score)}
+
+  # …and the score is put BACK on the body the reading returns. `place/4` works
+  # on its own list of marks, so re-finding the winner by point and stopping
+  # there dropped the number on the floor: `pet.score` was nil on every live
+  # reading and the card said "não se sabe por qual caminho" about the one
+  # path that actually knew.
+  defp taught_pet(bodies, %{point: {x, y}, score: score}, tile) do
+    case Enum.find(bodies, fn %{point: {bx, by}} -> {bx, by - tile} == {x, y} end) do
+      nil -> nil
+      mark -> Map.put(mark, :sprite_score, score)
+    end
+  end
+
+  defp taught_pet(_bodies, _no_sprite, _tile), do: nil
 
   defp boxed_pet(bodies, me) do
     bodies

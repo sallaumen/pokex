@@ -3300,4 +3300,73 @@ defmodule Pokex.Bots.Engine.LogicTest do
       refute logic.heavy_area?
     end
   end
+
+  # THE SHINY ON THE GROUND HOLDS THE FEET (spec 2026-09-09-shiny-na-cacada):
+  # while the Catcher aims at the corpse, a walking order stands — feet only,
+  # for at most `capture_hold_ms` — and says why. Red never holds.
+  describe "the shiny corpse holds the road" do
+    @capture Config.merge(%{bunch_ms: 0, gather_target: 1, capture_hold_ms: 6_000})
+
+    defp capture_step(logic, world, now), do: Logic.step(logic, world, @capture, now)
+
+    defp walking(overrides \\ %{}) do
+      world(%{
+        situation: situation(Map.merge(%{enemies: 0, capturing?: true}, overrides)),
+        hunt: hunt(%{state: :walking})
+      })
+    end
+
+    test "a walking order becomes a stand with the why, until the ceiling" do
+      {logic, held} = capture_step(Logic.new(), walking(), 10_000)
+
+      assert held.phase == :capturing
+      assert held.route == :hold
+      assert held.why =~ "shiny no chão"
+
+      {_logic, still} = capture_step(logic, walking(), 13_000)
+      assert still.route == :hold
+      assert still.why =~ "(3s)"
+
+      {_logic, free} = capture_step(logic, walking(), 16_500)
+      assert free.route == :go
+      refute free.phase == :capturing
+    end
+
+    test "without the capture the road walks, and a new capture restarts the clock" do
+      {logic, free} = capture_step(Logic.new(), walking(%{capturing?: false}), 10_000)
+      refute free.phase == :capturing
+      refute Map.has_key?(logic.since, :capture_hold)
+
+      {logic, held} = capture_step(logic, walking(), 20_000)
+      assert held.route == :hold
+      {logic, _gone} = capture_step(logic, walking(%{capturing?: false}), 21_000)
+      refute Map.has_key?(logic.since, :capture_hold)
+      {_logic, again} = capture_step(logic, walking(), 40_000)
+      assert again.why =~ "(0s)"
+    end
+
+    test "red never holds for a ball" do
+      {_logic, red} = capture_step(Logic.new(), walking(%{own_hp: 10}), 10_000)
+      refute red.phase == :capturing
+    end
+
+    test "a fight order is not touched: the overlay only stands a walk" do
+      fight =
+        world(%{
+          situation: situation(%{enemies: 4, capturing?: true}),
+          hunt: hunt(%{state: :fighting})
+        })
+
+      {_logic, orders} = capture_step(Logic.new(), fight, 10_000)
+
+      refute orders.phase == :capturing
+      assert orders.route == :hold
+    end
+
+    test "the knob at zero turns the hold off" do
+      off = Config.merge(%{bunch_ms: 0, gather_target: 1, capture_hold_ms: 0})
+      {_logic, orders} = Logic.step(Logic.new(), walking(), off, 10_000)
+      refute orders.phase == :capturing
+    end
+  end
 end

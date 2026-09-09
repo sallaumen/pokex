@@ -431,7 +431,12 @@ defmodule Pokex.Bots.Engine.Logic do
   defp decide(t) do
     t = %{t | logic: audit_reset(t)}
 
-    t |> choose() |> hold_until_reset_seen(t) |> shadow_siege(t) |> with_park(t)
+    t
+    |> choose()
+    |> hold_until_reset_seen(t)
+    |> shadow_siege(t)
+    |> hold_for_capture(t)
+    |> with_park(t)
   end
 
   # THE POKÉMON PARKS TWO TILES FROM HIM, on the pile's side, whenever the road
@@ -457,6 +462,40 @@ defmodule Pokex.Bots.Engine.Logic do
   end
 
   defp with_park(decision, _walking), do: decision
+
+  # O SHINY NO CHÃO SEGURA OS PÉS. The Catcher aims at a shiny's corpse by
+  # colour on a fresh frame, and the frame is only good while the corpse stays
+  # in the square around him: 96% of the kills of 08/09 fell with the road
+  # already held, and the road went on a median 3.4s later (spec
+  # 2026-09-09-shiny-na-cacada). So while the `:capture` fact says "aiming", a
+  # WALKING order becomes a stand — feet only, the fire and the revive are
+  # whatever the rule below chose — for at most `capture_hold_ms`. Red never
+  # holds (a ball is not worth the pokémon), and a fight order is not touched
+  # (it already stands).
+  @held_by_capture [:travelling, :gathering, :sizing, :bunching, :skipping]
+
+  defp hold_for_capture({logic, orders}, t) do
+    cond do
+      Map.get(t.s, :capturing?) != true ->
+        {%{logic | since: Map.delete(logic.since, :capture_hold)}, orders}
+
+      orders.route != :go or orders.phase not in @held_by_capture or t.band == :red or
+          t.config.capture_hold_ms <= 0 ->
+        {logic, orders}
+
+      true ->
+        since = Map.get(logic.since, :capture_hold, t.now)
+        logic = %{logic | since: Map.put(logic.since, :capture_hold, since)}
+        held_ms = t.now - since
+
+        if held_ms < t.config.capture_hold_ms do
+          why = "shiny no chão — segurando a rota pra bola (#{div(held_ms, 1_000)}s)"
+          {logic, %{orders | phase: :capturing, route: :hold, why: why}}
+        else
+          {logic, orders}
+        end
+    end
+  end
 
   # O RESET É UMA PROMESSA COBRADA POR IMAGEM. "Temos que ter certeza de que
   # os cooldowns foram resetados antes de continuar a rota — se não tiver

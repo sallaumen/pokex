@@ -398,6 +398,15 @@ defmodule Pokex.Bots.Engine.SituationTest do
   # O ESPECIAL PELA COR — e ele é UM só: "o shiny É o chefe (…) nesse jogo o
   # que tô chamando de chefe são os shinies" (01/09). Uma regra ensinada liga a
   # postura inteira; não há um segundo tipo de bicho especial pra distinguir.
+  # The Catcher aiming at a shiny's corpse (`:capture` fact) rides the picture
+  # as `capturing?`; absent is false, never unknown.
+  describe "the capture in progress" do
+    test "capturing? follows the input and defaults to false" do
+      assert Situation.build(inputs(%{capturing?: true}), @config, 1_000).capturing? == true
+      assert Situation.build(inputs(), @config, 1_000).capturing? == false
+    end
+  end
+
   describe "o especial (shiny) pela cor" do
     test "a cor vista liga heavy? e fura a régua sozinha" do
       picture =

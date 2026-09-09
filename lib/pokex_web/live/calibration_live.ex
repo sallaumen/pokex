@@ -878,8 +878,8 @@ defmodule PokexWeb.CalibrationLive do
   def handle_event("special_cancel_upload", %{"ref" => ref}, socket),
     do: {:noreply, cancel_upload(socket, :special_image, ref)}
 
-  # O formulário do arquivo só existe pro LiveView receber o upload; o trabalho
-  # todo acontece no progresso (`special_upload_progress/3`).
+  # O formulário do arquivo só existe pro LiveView receber o upload; quem faz o
+  # trabalho é o progresso (`special_upload_progress/3`).
   def handle_event("special_upload_change", _params, socket), do: {:noreply, socket}
 
   # O CONTA-GOTAS. O clique cai num pixel; quem ensina é o quadradinho ao redor

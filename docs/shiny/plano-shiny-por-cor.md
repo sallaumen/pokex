@@ -31,6 +31,10 @@ Este documento é o plano de implementação. Quem for implementar: leia a seç�
 > em que estava, lista cai com a cor na tela) em `~/.pokex/captures/shiny/` e
 > escreve `kind: "special"` no diário; o fato `:special` e o `{:shiny_seen, _}`
 > passam a carregar pontos de TELA.
+> PR 1: `Catcher.ShinyAim` — o corpo do shiny é mirado pela MESMA cor, numa foto
+> fresca, em qualquer `player_mode`; "é corpo" = mancha sem corpo vivo (olho) a
+> um tile, em duas fotos seguidas; sessão de mira aberta pelo `{:shiny_seen, _}`
+> e fechada pela bola confirmada ou por 90 s.
 >
 > **O QUE FALTA:** o protocolo shiny completo (§8) — alvo preferido, corpo do
 > shiny real ensinado na primeira morte, "cor → qual linha da battle list".

@@ -1036,7 +1036,16 @@ defmodule PokexWeb.CalibrationLive do
   # o mesmo quadro doze vezes. Cada amostra guarda as MANCHAS inteiras (px e
   # caixa): o pico vira a régua, e as caixas que se repetem viram o HUD.
   def handle_info({:floor_sample, slug}, %{assigns: %{special_floor: %{slug: slug} = f}} = socket) do
-    samples = [floor_reading(socket, slug) | f.samples]
+    # UMA FOTO CEGA NÃO É UMA FOTO LIMPA. Contada como amostra vazia, ela
+    # derrubava as caixas do HUD abaixo do mínimo de 80% e o aprendizado saía
+    # vazio — em silêncio, porque a mensagem de sucesso não fala de chrome
+    # nenhum quando a lista está vazia.
+    samples =
+      case floor_reading(socket, slug) do
+        {:ok, manchas} -> [manchas | f.samples]
+        :blind -> f.samples
+      end
+
     left = f.left - 1
 
     if left > 0 do
@@ -1382,27 +1391,51 @@ defmodule PokexWeb.CalibrationLive do
          {:ok, calib} <- Calibration.load(),
          {:ok, region} <- SpotScan.region(calib),
          {:ok, frame} <- Capture.frame(region, "special_floor.raw") do
-      ColorMark.scan(frame, ColorRules.specs_for(entry), min_cell_px: entry["min_cell_px"]).manchas
+      {:ok,
+       ColorMark.scan(frame, ColorRules.specs_for(entry), min_cell_px: entry["min_cell_px"]).manchas}
     else
-      _blind -> []
+      _blind -> :blind
     end
   end
 
   # O chão medido vira régua: o gatilho sobe pra três vezes o pico (margem do
   # método) mas NUNCA desce do que ele escolheu à mão — afrouxar o limiar de
   # alguém sem pedir é como perder um shiny por conta própria.
+  # #11: apagar a regra no meio da medição deixava as fotos restantes chegando
+  # e o fechamento buscava uma regra que não existe mais.
+  defp close_floor(socket, _slug, []), do: assign(socket, special_floor: nil)
+
   defp close_floor(socket, slug, samples) do
-    entry = Enum.find(socket.assigns.special_rules, &(&1["slug"] == slug))
+    case Enum.find(socket.assigns.special_rules, &(&1["slug"] == slug)) do
+      nil -> assign(socket, special_floor: nil)
+      entry -> close_floor(socket, slug, samples, entry)
+    end
+  end
+
+  defp close_floor(socket, slug, samples, entry) do
     # SÓ o tom preto aprende o HUD. Um cone de matiz nunca casou com o cliente
     # (ele é preto e cinza), e ali uma mancha que se repete é o mundo parado —
     # o Torterra passando devagar —, que é chão de verdade e tem que contar.
     chrome = if rule_dark?(entry), do: chrome_of(samples), else: []
     peak = floor_peak(samples, chrome)
     sugerido = max(3 * peak, 20)
-    novo = max(sugerido, entry["min_px"])
+
+    # A CATRACA QUE PRENDIA. Isto era `max(sugerido, min_px)` "pra nunca
+    # afrouxar o que ele escolheu à mão" — mas `min_px` é o que a MEDIÇÃO
+    # ANTERIOR deixou, não o que ele escolheu. Uma medição ruim (o Tracker
+    # aberto, o HUD não aprendido) cravou 332.835 na regra dele, e nenhuma
+    # medição nova conseguia mais baixar: a regra ficava morta, marcada como
+    # "provada", e a única saída era apagá-la. Agora a medição manda sobre o
+    # que a medição pôs; o que ele digitou continua intocado.
+    his? = his_own_number?(entry)
+    novo = if his?, do: max(sugerido, entry["min_px"]), else: sugerido
 
     if novo != entry["min_px"], do: ColorRules.update(slug, %{"min_px" => novo})
-    ColorRules.mark_proven(slug, peak, chrome)
+    ColorRules.mark_proven(slug, peak, chrome, region_now())
+    # O QUE A FERRAMENTA SUGERIU, não o que ficou gravado. Gravando `novo`, o 400
+    # que ELE digitou virava "sugestão da ferramenta" na primeira medição, e a
+    # segunda medição o apagava por achar que era dela.
+    ColorRules.remember_suggested(slug, sugerido)
 
     assign(socket,
       special_floor: nil,
@@ -1414,6 +1447,23 @@ defmodule PokexWeb.CalibrationLive do
            ". Gatilho em #{novo}px e regra PROVADA — #{vigia_estado()}"}
     )
   end
+
+  # DE QUEM É ESTE NÚMERO? A medição pode baixar o que a medição pôs, e não pode
+  # encostar no que ele digitou. Quem separa os dois é a prova:
+  #
+  #   * regra nunca medida — o número é o do formulário, DELE (foi assim que a
+  #     primeira medição de uma regra nova apagava o 400 que ele tinha escrito);
+  #   * prova sem `suggested` — de uma versão que ratchetava, então o número é
+  #     restolho da ferramenta: foi o que cravou 332.835 na regra dele e a
+  #     deixou morta, sem medição nova capaz de baixar;
+  #   * prova com `suggested` — dele se ele mexeu desde então, da ferramenta se
+  #     está igualzinho ao que ela deixou.
+  defp his_own_number?(%{"proven" => nil}), do: true
+
+  defp his_own_number?(%{"proven" => %{"suggested" => anterior}} = entry),
+    do: entry["min_px"] != anterior
+
+  defp his_own_number?(_proof_from_before_the_field), do: false
 
   # O QUE NUNCA MEXEU É O CLIENTE, não o mundo — e isto só vale pro tom PRETO.
   # Numa banda escura o próprio HUD
@@ -1473,6 +1523,17 @@ defmodule PokexWeb.CalibrationLive do
     |> Enum.reject(&(&1.box in chrome))
     |> Enum.map(& &1.px)
     |> Enum.max(fn -> 0 end)
+  end
+
+  # O quadro em que esta medição foi feita — é ele que valida (ou aposenta) as
+  # caixas do HUD depois.
+  defp region_now do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, region} <- SpotScan.region(calib) do
+      region
+    else
+      _sem_quadro -> nil
+    end
   end
 
   defp chrome_text([]), do: ""

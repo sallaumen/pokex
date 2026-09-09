@@ -49,6 +49,10 @@ Este documento é o plano de implementação. Quem for implementar: leia a seç�
 > do chão de uma banda escura aprende o HUD do jogo — que é preto e, no quadro
 > dele, mais alto que a criatura (30.841 / 25.741 / 20.782 px contra 12.605).
 > Medido no corpo dele: teto 26 → margem 5,5×; 30 → 4,0×; 34 → 2,8×; 38 → 1,5×.
+> **09/09, vivo × morto:** a mira só entrega corpo com a tela VAZIA de gente de
+> pé (contagem do cérebro, que já desconta a linha do próprio pokémon). A cerca
+> da barra sozinha mentia: no quadro real do shiny preto, de pé, o olho não
+> achou barra nenhuma — zero marcas no quadrado inteiro.
 >
 > **O QUE FALTA:** o protocolo shiny completo (§8) — alvo preferido, corpo do
 > shiny real ensinado na primeira morte, "cor → qual linha da battle list".

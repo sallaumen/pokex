@@ -71,7 +71,9 @@ defmodule Pokex.Bots.ShinyGuard do
       # blob, on which frame, with how many listed enemies
       prev: @blank_prev,
       # last photo per tag: the flood gate
-      photographed_at: %{}
+      photographed_at: %{},
+      # rules already announced as measured on another frame: say it once
+      warned_stale: MapSet.new()
     }
 
     case name do
@@ -157,7 +159,8 @@ defmodule Pokex.Bots.ShinyGuard do
   # tela, uns 17 MB de RGBA presos enquanto a guarda dorme — e, ao religar, a
   # primeira varredura limpa escrevia um "last"/"gone" com a foto de uma hora
   # atrás, como se o shiny tivesse acabado de sair da tela agora.
-  defp forget(state), do: %{state | streaks: %{}, prev: @blank_prev}
+  defp forget(state),
+    do: %{state | streaks: %{}, prev: @blank_prev, warned_stale: MapSet.new()}
 
   # -- a varredura -------------------------------------------------------------
 
@@ -192,7 +195,11 @@ defmodule Pokex.Bots.ShinyGuard do
   def forbidden_boxes(calib, %Frame{scale: scale}, {rx, ry, _w, _h}) do
     meia = round(Calibration.tile_px(calib) * 1.5 * scale)
 
-    [calib.player_point, calib.pokemon_spot_point]
+    # O MESMO PONTO QUE CENTRA A BUSCA. Lendo o campo cru, uma calibração sem o
+    # personagem marcado varria em volta do meio da tela (o retorno de
+    # `player_point/1`) mas não proibia caixa nenhuma — e o próprio personagem
+    # dele virava candidato a shiny.
+    [Calibration.player_point(calib), calib.pokemon_spot_point]
     |> Enum.reject(&is_nil/1)
     |> Enum.map(fn {sx, sy} ->
       fx = round((sx - rx) * scale)
@@ -206,7 +213,7 @@ defmodule Pokex.Bots.ShinyGuard do
     # ponto do personagem, na tela), as caixas do HUD tapam chão vazio e o HUD
     # volta a disparar — em banda escura ele é mais alto que a criatura.
     {rules, fora} = Enum.split_with(rules, &ColorRules.proof_fits?(&1, region))
-    warn_stale(fora)
+    state = warn_stale(state, fora)
 
     {state, best, vistos} =
       Enum.reduce(rules, {state, 0, []}, fn rule, {state, best, vistos} ->
@@ -235,17 +242,28 @@ defmodule Pokex.Bots.ShinyGuard do
     broadcast_reading(state, best)
   end
 
-  defp warn_stale([]), do: :ok
+  # UMA VEZ POR ELENCO, não uma vez por varredura: na cadência de 700ms isto
+  # escreveria o mesmo aviso quase duas vezes por segundo, pra sempre, no feed
+  # de combate.
+  defp warn_stale(state, rules) do
+    slugs = MapSet.new(rules, & &1.slug)
 
-  defp warn_stale(rules) do
-    nomes = Enum.map_join(rules, ", ", & &1.name)
+    if slugs == state.warned_stale do
+      state
+    else
+      if rules != [] do
+        nomes = Enum.map_join(rules, ", ", & &1.name)
 
-    Phoenix.PubSub.broadcast(
-      Pokex.PubSub,
-      @combat_topic,
-      {:combat_log, :macro,
-       "⚠️ #{nomes}: a prova do chão foi medida noutro quadro — meça de novo na calibração"}
-    )
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @combat_topic,
+          {:combat_log, :macro,
+           "⚠️ #{nomes}: a prova do chão foi medida noutro quadro — meça de novo na calibração"}
+        )
+      end
+
+      %{state | warned_stale: slugs}
+    end
   end
 
   # ColorMark answers in FRAME pixels of the square; everything downstream (the

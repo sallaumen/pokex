@@ -25,6 +25,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Bots.Catcher.Balls
   alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.Logic
+  alias Pokex.Bots.Catcher.ShinyAim
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Catcher.Sweep
   alias Pokex.Bots.Combat.Worker
@@ -61,6 +62,8 @@ defmodule Pokex.Bots.Catcher.Worker do
       body: Keyword.get(opts, :body, Body),
       # kill-anchored vision; injectable in tests like the Body
       scanner: Keyword.get(opts, :scanner, &SpotScan.scan/0),
+      # the shiny's corpse by colour (Catcher.ShinyAim); injectable like the scanner
+      aimer: Keyword.get(opts, :aimer, &ShinyAim.scan/0),
       # Entry door, like every sibling in this family. The env used to be read RAW inside
       # `arm_sweep/1`, so in the suite the `sweep_timer` stayed nil forever and re-arming
       # could not be exercised: the rule written right above it (must not go quiet until
@@ -106,7 +109,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     do: GenServer.cast(server, {:sweep_now, around})
 
   @impl true
-  def init(%{body: body, scanner: scanner, auto_tick?: auto_tick?}) do
+  def init(%{body: body, scanner: scanner, aimer: aimer, auto_tick?: auto_tick?}) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
@@ -118,6 +121,12 @@ defmodule Pokex.Bots.Catcher.Worker do
        logic: nil,
        body: body,
        scanner: scanner,
+       aimer: aimer,
+       # the AIM SESSION opened by a shiny sighting: when it opened, the
+       # candidates of the previous look (two photos confirm a corpse) and the
+       # points already announced. nil = no shiny to look for.
+       aim: nil,
+       aim_timer: nil,
        auto_tick?: auto_tick?,
        timer: nil,
        attached?: false,
@@ -184,7 +193,7 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   def handle_call(:halt, _from, state) do
     {logic, _} = Logic.stop(state.logic)
-    state = state |> Map.put(:logic, logic) |> detach() |> disarm_sweep()
+    state = state |> Map.put(:logic, logic) |> detach() |> disarm_sweep() |> close_aim()
     broadcast(state)
     {:reply, :ok, cancel_timer(%{state | reattach_attempts: 0})}
   end
@@ -320,10 +329,40 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   # A shiny is on screen: arm the override so the ball flies even with capture
-  # off, and make sure the corpse feed is attached to see its body.
-  def handle_info({:shiny_seen, _info}, state) do
+  # off, and open the aim session — its corpse is looked for by COLOUR on its
+  # own timer, in any player_mode (the guard's palette is the only aim a hunt
+  # has; see Catcher.ShinyAim).
+  def handle_info({:shiny_seen, _info}, %{logic: %Logic{state: :armed}} = state) do
     state = %{state | shiny_pending?: true}
-    {:noreply, if(should_be_attached?(state), do: attach(state), else: state)}
+    {:noreply, if(state.aim == nil, do: open_aim(state), else: state)}
+  end
+
+  def handle_info({:shiny_seen, _info}, state), do: {:noreply, %{state | shiny_pending?: true}}
+
+  def handle_info(:aim, %{aim: nil} = state), do: {:noreply, state}
+
+  # One look per tick: candidates confirmed by the previous look become the
+  # Logic's corpses. The session closes when the ball's story ends (nothing
+  # pending and the shiny no longer waiting), or when the corpse never shows.
+  def handle_info(:aim, %{aim: %{since: since}} = state) do
+    ttl = aim_ttl_ms()
+
+    cond do
+      not match?(%Logic{state: :armed}, state.logic) ->
+        {:noreply, close_aim(state)}
+
+      now() - since >= ttl ->
+        log(:macro, "🌟 shiny visto, corpo não achado em #{div(ttl, 1000)}s — bola guardada")
+        {:noreply, close_aim(state)}
+
+      true ->
+        {state, obs} = aim_look(state)
+        state = advance(state, obs)
+
+        if aim_done?(state),
+          do: {:noreply, close_aim(state)},
+          else: {:noreply, schedule_aim(state)}
+    end
   end
 
   # A tick that outran its own cancellation (halt races the timer message that
@@ -500,11 +539,12 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp sweep_result(text),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:sweep_result, text})
 
-  # capture_enabled OR a pending shiny (never lose a shiny to a toggle).
+  # capture_enabled OR a shiny in the story (never lose a shiny to a toggle):
+  # pending before its ball, or the aim session still confirming that ball.
   defp capture_allowed?(state),
     do:
       Settings.get(:capture_enabled) or
-        (state.shiny_pending? and Settings.get(:shiny_always_ball))
+        ((state.shiny_pending? or state.aim != nil) and Settings.get(:shiny_always_ball))
 
   # The mode gate lives HERE, not only in attach/detach: a late in-flight {:world,...} event
   # (or a test-injected one) right after flipping to moving must never throw a ball.
@@ -517,6 +557,8 @@ defmodule Pokex.Bots.Catcher.Worker do
     state =
       cond do
         Perception.mini_game_playing?() -> state
+        # the shiny's corpse is aimed by colour on a fresh frame: no mode owns it
+        match?(%{source: :shiny_aim}, obs) -> do_advance(state, obs)
         Settings.get(:player_mode) == "still" -> do_advance(state, obs)
         true -> state
       end
@@ -598,12 +640,19 @@ defmodule Pokex.Bots.Catcher.Worker do
   # A fight is on: everything reaching here is contaminated by the live enemy sprite
   # (tile-locked, stands still — indistinguishable from a corpse). No admissions, no throws,
   # no confirms until combat disengages (see the {:combat,...} handler above).
+  # …except the shiny aim, whose "no living body within a tile" test is the
+  # answer to that very worry (Catcher.ShinyAim).
+  defp do_advance(%{combat_engaged?: true} = state, %{source: :shiny_aim} = obs),
+    do: advance_gated(state, obs)
+
   defp do_advance(%{combat_engaged?: true} = state, _obs), do: state
 
   # Capture disabled: the ball pipeline never steps — no admissions,
   # no throws, no confirms. The feed is also detached (see should_be_attached?/1); this
   # gate only catches stragglers (a late event right after the toggle flip).
-  defp do_advance(state, obs) do
+  defp do_advance(state, obs), do: advance_gated(state, obs)
+
+  defp advance_gated(state, obs) do
     cond do
       not capture_allowed?(state) ->
         state
@@ -943,6 +992,67 @@ defmodule Pokex.Bots.Catcher.Worker do
     :exit, _reason -> :ok
   end
 
+  # -- a mira do shiny ---------------------------------------------------------
+
+  defp open_aim(state) do
+    log(:macro, "🌟 shiny visto — procurando o corpo pela cor")
+    schedule_aim(%{state | aim: %{since: now(), prev: [], said: MapSet.new()}})
+  end
+
+  defp close_aim(%{aim: nil} = state), do: state
+
+  defp close_aim(state) do
+    if state.aim_timer, do: Process.cancel_timer(state.aim_timer)
+    %{state | aim: nil, aim_timer: nil, shiny_pending?: false}
+  end
+
+  defp schedule_aim(state) do
+    if state.aim_timer, do: Process.cancel_timer(state.aim_timer)
+    timer = Process.send_after(self(), :aim, Settings.get(:special_color_scan_ms))
+    %{state | aim_timer: timer}
+  end
+
+  # The story of the ball ended: no shiny waiting for one, nothing queued or in
+  # flight. A throw keeps the session alive for its own confirmation scans.
+  defp aim_done?(state),
+    do: not state.shiny_pending? and Logic.pending(state.logic) == 0
+
+  # Seen by the guard, corpse not yet found: the TTL is the corpse's own life
+  # on the ground (minutes) cut short — waiting longer would be waiting for
+  # the ordinary kills of the whole night.
+  defp aim_ttl_ms, do: Application.get_env(:pokex, :shiny_aim_ttl_ms, 90_000)
+
+  # One look; candidates seen on the PREVIOUS look are the corpses handed to
+  # the Logic. The raw candidates become the next look's `prev`.
+  defp aim_look(state) do
+    case safe_scan(state.aimer) do
+      %{scanning?: true, candidates: candidates} = obs ->
+        tolerance = Settings.get(:corpse_match_tolerance_px)
+        steady = ShinyAim.steady(candidates, state.aim.prev, tolerance)
+        obs = ShinyAim.obs(steady, obs.region, obs.captured_at)
+        state = announce_corpses(state, steady)
+        {%{state | aim: %{state.aim | prev: candidates}}, obs}
+
+      %{scanning?: false} = obs ->
+        log(:debug, "🌟 mira cega: #{inspect(Map.get(obs, :reason))}")
+        {state, obs}
+
+      _nothing ->
+        {state, nil}
+    end
+  end
+
+  defp announce_corpses(state, steady) do
+    Enum.reduce(steady, state, fn %{name: name, point: {x, y} = point}, state ->
+      if MapSet.member?(state.aim.said, point) do
+        state
+      else
+        log(:macro, "🌟 corpo do #{name} em #{x},#{y} — bola")
+        %{state | aim: %{state.aim | said: MapSet.put(state.aim.said, point)}}
+      end
+    end)
+  end
+
   defp cancel_timer(%{timer: nil} = state), do: state
 
   defp cancel_timer(%{timer: timer} = state) do
@@ -976,6 +1086,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       hold_reason: hold_reason(state),
       last_action: state.last_action,
       pending_corpses: (state.logic && Logic.pending(state.logic)) || 0,
+      aim?: state.aim != nil,
       sweep: %{
         enabled?: Settings.get(:sweep_enabled),
         pending: length(state.sweep_queue),

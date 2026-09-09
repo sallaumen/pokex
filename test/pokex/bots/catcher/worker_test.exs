@@ -707,6 +707,90 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     end
   end
 
+  # -- the shiny aim -----------------------------------------------------------
+  #
+  # The guard saw a shiny; the Catcher looks for its corpse by colour on its own
+  # timer, in ANY player_mode, and hands the point to the same Logic.
+
+  defp aim_obs(points) do
+    cands = Enum.map(points, &%{name: "Electrode shiny", px: 80, point: &1, in_frame: &1})
+
+    Pokex.Bots.Catcher.ShinyAim.obs(
+      cands,
+      {0, 0, 300, 300},
+      System.monotonic_time(:millisecond)
+    )
+  end
+
+  defp stage_aim(points),
+    do: WorldState.put(:shiny_aim, aim_obs(points), System.monotonic_time(:millisecond))
+
+  defp start_hunt_worker do
+    Settings.put(:player_mode, "hunt")
+    SettingsStash.stash!(special_color_scan_ms: 50)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+    {:ok, body} = FakeBody.start_link(self())
+
+    # a fresh captured_at per look: the Logic drops an observation it already judged
+    aimer = fn ->
+      case WorldState.get(:shiny_aim, 60_000, System.monotonic_time(:millisecond)) do
+        {:ok, obs} -> %{obs | captured_at: System.monotonic_time(:millisecond)}
+        _nada -> nil
+      end
+    end
+
+    worker = start_supervised!({Worker, name: nil, body: body, aimer: aimer}, id: :hunt_worker)
+    :ok = Worker.run(worker)
+    worker
+  end
+
+  @tag :tmp_dir
+  test "in hunt mode a shiny sighting aims by colour and throws at :high" do
+    worker = start_hunt_worker()
+    stage_aim([{116, 116}])
+
+    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
+
+    assert_receive {:performed, :high, [{:move, {116, 116}} | _]}, 3_000
+    assert Worker.status(worker).counters.throws == 1
+    assert_log_eventually("corpo do Electrode shiny")
+  end
+
+  @tag :tmp_dir
+  test "the aim ignores the fight gate: a combat still engaged does not hold the shiny ball" do
+    worker = start_hunt_worker()
+    send(worker, {:combat, %{state: :fighting}})
+    stage_aim([{116, 116}])
+
+    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
+
+    assert_receive {:performed, :high, [{:move, {116, 116}} | _]}, 3_000
+  end
+
+  @tag :tmp_dir
+  test "in hunt mode without a sighting nothing flies" do
+    worker = start_hunt_worker()
+    stage_aim([{116, 116}])
+
+    refute_receive {:performed, _, _}, 500
+    assert Worker.status(worker).counters.throws == 0
+  end
+
+  @tag :tmp_dir
+  test "the aim session ends when the shiny corpse is not found" do
+    Application.put_env(:pokex, :shiny_aim_ttl_ms, 200)
+    on_exit(fn -> Application.delete_env(:pokex, :shiny_aim_ttl_ms) end)
+
+    worker = start_hunt_worker()
+    stage_aim([])
+    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
+
+    assert eventually(fn -> Worker.status(worker).aim? end, 500)
+    assert_log_eventually("corpo não achado")
+    assert eventually(fn -> not Worker.status(worker).aim? end, 1_000)
+    refute_receive {:performed, _, _}, 100
+  end
+
   defp eventually(fun, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
 

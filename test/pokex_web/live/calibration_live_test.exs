@@ -1884,7 +1884,10 @@ defmodule PokexWeb.CalibrationLiveTest do
     end
 
     @tag :tmp_dir
-    test "a black rule stores the light ceiling and the watcher compiles it", %{conn: conn, tmp_dir: tmp} do
+    test "a black rule stores the light ceiling and the watcher compiles it", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
       Application.put_env(:pokex, :home_dir, tmp)
       :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
       on_exit(fn -> Pokex.TestHome.restore() end)

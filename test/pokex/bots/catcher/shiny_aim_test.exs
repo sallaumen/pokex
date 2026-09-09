@@ -1,7 +1,8 @@
 defmodule Pokex.Bots.Catcher.ShinyAimTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Pokex.Bots.Catcher.ShinyAim
+  alias Pokex.Perception.WorldState
   alias Pokex.Vision.{ColorMark, Frame}
 
   # the green of the shiny Electrode from the 01/09 screenshot
@@ -100,5 +101,88 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
              region: @region,
              captured_at: 5
            } = ShinyAim.obs([cand], @region, 5)
+  end
+
+  # NADA VIVO NA TELA (09/09, ordem dele): "quando tá vivo temos que matar e
+  # quando tá morto temos que capturar". A cerca da barra sozinha mentiu — no
+  # quadro real dele o shiny preto de pé não tinha barra nenhuma pro olho achar.
+  describe "the screen has to be empty of the living" do
+    @describetag :tmp_dir
+
+    setup %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :ets.delete(:pokex_world, :situation)
+
+      on_exit(fn ->
+        :ets.delete(:pokex_world, :situation)
+        Pokex.TestHome.restore()
+      end)
+
+      Pokex.Calibration.save(%Pokex.Calibration{
+        scale: 1.0,
+        screen_w: 1000,
+        screen_h: 700,
+        tile_px: 40,
+        water_point: {400, 300},
+        glow_region: {0, 0, 20, 20},
+        battle_region: {0, 0, 80, 400},
+        neutral_point: {500, 500},
+        player_point: {500, 350}
+      })
+
+      :ok
+    end
+
+    defp look(enemies) do
+      ShinyAim.scan(
+        capture: fn {_x, _y, w, h}, _name ->
+          {:ok, frame(w, h, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}])}
+        end,
+        crowd: crowd([{3_000, 3_000}]),
+        enemies: enemies
+      )
+    end
+
+    test "an enemy still listed blocks the whole look" do
+      assert %{scanning?: false, reason: {:alive_on_screen, 2}} = look(2)
+    end
+
+    test "an empty list lets the look happen" do
+      assert %{scanning?: true} = look(0)
+    end
+
+    # Sem quadro do cérebro não se sabe se há alguém de pé — e não saber aqui é
+    # não jogar: a bola é mais cara que a foto.
+    test "no picture at all is not a corpse either" do
+      assert %{scanning?: false, reason: :no_picture} =
+               ShinyAim.scan(
+                 capture: fn {_x, _y, w, h}, _name ->
+                   {:ok, frame(w, h, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}])}
+                 end,
+                 crowd: crowd([])
+               )
+    end
+
+    test "the brain's own count is what answers, and it is read from the blackboard" do
+      WorldState.put(:situation, %{enemies: 0}, System.monotonic_time(:millisecond))
+
+      assert %{scanning?: true} =
+               ShinyAim.scan(
+                 capture: fn {_x, _y, w, h}, _name ->
+                   {:ok, frame(w, h, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}])}
+                 end,
+                 crowd: crowd([{3_000, 3_000}])
+               )
+
+      WorldState.put(:situation, %{enemies: 3}, System.monotonic_time(:millisecond))
+
+      assert %{scanning?: false, reason: {:alive_on_screen, 3}} =
+               ShinyAim.scan(
+                 capture: fn {_x, _y, w, h}, _name ->
+                   {:ok, frame(w, h, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}])}
+                 end,
+                 crowd: crowd([{3_000, 3_000}])
+               )
+    end
   end
 end

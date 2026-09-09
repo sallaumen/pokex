@@ -845,4 +845,24 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert eventually(fn -> Worker.status(worker).state == :armed end, 1_000)
     assert Worker.status(worker).hold_reason == "mirando o corpo do shiny pela cor"
   end
+
+  # SEGURAR NÃO É CEGAR: com bicho de pé a mira recusa a olhada, e isso não pode
+  # aparecer no placar como varredura cega.
+  @tag :tmp_dir
+  test "a held aim does not count as a blind scan" do
+    Settings.put(:player_mode, "hunt")
+    SettingsStash.stash!(special_color_scan_ms: 50)
+    {:ok, body} = FakeBody.start_link(self())
+
+    aimer = fn -> %{scanning?: false, source: :shiny_aim, reason: {:alive_on_screen, 3}} end
+    worker = start_supervised!({Worker, name: nil, body: body, aimer: aimer}, id: :held_worker)
+    :ok = Worker.run(worker)
+
+    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
+    assert eventually(fn -> Worker.status(worker).aim? end, 1_000)
+    Process.sleep(200)
+
+    assert Worker.status(worker).counters.blind == 0
+    refute_receive {:performed, _, _}, 100
+  end
 end

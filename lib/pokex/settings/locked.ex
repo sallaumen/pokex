@@ -240,7 +240,8 @@ defmodule Pokex.Settings.Locked do
     crowd_scan_evidence_shrink:
       {"Onde estão os monstros (visão)", "a evidência é desenhada 4× menor"},
     engine_pin_tiles:
-      {"Onde estão os monstros (visão)", "a 1 tile do pokémon o bicho está colado (mordendo)"},
+      {"Onde estão os monstros (visão)",
+       "até 2 tiles do pokémon o bicho está colado (uma casa vazia entre os dois já é briga)"},
     # --- Vigia das leituras ---
     watchman_every_ms: {"Vigia das leituras", "pergunta a cada 10 s se o bot ainda enxerga"},
     watchman_repeat_ms:

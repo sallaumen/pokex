@@ -706,6 +706,17 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp after_throw(logic, :ok, performs) when performs != [], do: Logic.ball_flown(logic, now())
   defp after_throw(logic, _result, _no_ball), do: logic
 
+  # QUEM LEVOU A BOLA. A linha do arremesso é a mesma pro corpo comum da
+  # varredura e pro shiny, e a tela do Cave Bot só sabia separar as duas
+  # procurando a palavra "bola" — pescando a caçada inteira pra dentro da
+  # história do shiny. Quem sabe é a LEITURA que gerou a jogada: com a varredura
+  # e a mira abertas ao mesmo tempo, olhar só pro estado do worker marcaria
+  # também a bola de um corpo comum. Um passo SEM leitura (um corpo que já
+  # estava na fila) fica com a sessão de mira como resposta.
+  defp shiny_star(%{source: :shiny_aim}, _state), do: "🌟 "
+  defp shiny_star(nil, %{aim: aim}) when aim != nil, do: "🌟 "
+  defp shiny_star(_ordinary_reading, _state), do: ""
+
   defp note_throw(state, []), do: state
 
   defp note_throw(state, _performs) do
@@ -740,11 +751,7 @@ defmodule Pokex.Bots.Catcher.Worker do
 
     state = note_throw(state, performs)
 
-    # QUEM LEVOU A BOLA. A linha da bola é a mesma pro corpo comum da varredura
-    # e pro shiny, e a tela do Cave Bot só sabia separar as duas procurando a
-    # palavra "bola" — pescando a varredura inteira pra dentro da história do
-    # shiny. Quem sabe é aqui: uma sessão de mira aberta É a bola do shiny.
-    star = if state.aim != nil, do: "🌟 ", else: ""
+    star = shiny_star(obs, state)
 
     for {:log, text} <- actions do
       Phoenix.PubSub.broadcast(

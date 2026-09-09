@@ -183,6 +183,22 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   # PIXEL NÃO É PORCENTAGEM. A mira por cor não tem semelhança nenhuma pra
   # contar: tem a contagem de pixels da cor, e ela ia pro mesmo campo do
   # reconhecimento por foto — 1,2 milhão de pixels viravam "(120000000%)".
+  # A ESTRELA É DA LEITURA, não do estado. Com a varredura e a mira abertas ao
+  # mesmo tempo, marcar pelo estado do worker mandaria a bola de um corpo comum
+  # pra dentro da história do shiny — que é o vazamento que a estrela veio
+  # tapar.
+  @tag :tmp_dir
+  test "an ordinary sweep ball is not starred", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+
+    world!(worker, corpses_obs([{130, 224}]))
+
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    # o prefixo colado prova a ausência da estrela: com ela a linha seria
+    # "captura: 🌟 bola em 130,224"
+    assert_log_eventually("captura: bola em 130,224")
+  end
+
   @tag :tmp_dir
   test "the colour aim logs pixels, not a percentage", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")

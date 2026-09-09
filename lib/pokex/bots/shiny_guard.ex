@@ -32,10 +32,11 @@ defmodule Pokex.Bots.ShinyGuard do
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Calibration
+  alias Pokex.Home
   alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
-  alias Pokex.Vision.{ColorMark, ColorRules, Frame}
+  alias Pokex.Vision.{ColorMark, ColorRules, Evidence, Frame}
 
   @combat_topic "combat"
   # the panel meter and the Catcher listen here
@@ -45,6 +46,10 @@ defmodule Pokex.Bots.ShinyGuard do
   @reading_throttle_ms 700
   # the window in which a kill right after a sighting IS that shiny dying
   @encounter_window_ms 45_000
+  # the photos of the three moments: captures/shiny, this many files, this far apart per tag
+  @keep_photos 30
+  @photo_gap_ms 3_000
+  @photo_dir "shiny"
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -57,7 +62,13 @@ defmodule Pokex.Bots.ShinyGuard do
       # last trigger per rule: the refractory
       fired_at: %{},
       last_fired_at: nil,
-      last_reading_at: nil
+      last_reading_at: nil,
+      journal: Keyword.get(opts, :journal, &Pokex.Engine.Events.record/2),
+      # the previous scan, for the edges: which rules were seen, with which
+      # blob, on which frame, with how many listed enemies
+      prev: %{seen: [], frame: nil, enemies: 0},
+      # last photo per tag: the flood gate
+      photographed_at: %{}
     }
 
     case name do
@@ -166,6 +177,7 @@ defmodule Pokex.Bots.ShinyGuard do
          if(hit?, do: [{rule, mancha} | vistos], else: vistos)}
       end)
 
+    state = keepsake(state, vistos, frame)
     publish_special(vistos)
     broadcast_reading(state, best)
   end
@@ -241,6 +253,122 @@ defmodule Pokex.Bots.ShinyGuard do
         fired_at: Map.put(state.fired_at, rule.slug, now),
         last_fired_at: now
     }
+  end
+
+  # -- a foto da morte ----------------------------------------------------------
+  #
+  # Three moments answer "does the shiny's corpse keep the palette?": the colour
+  # appearing, the colour leaving (with the LAST frame it was still in), and the
+  # battle list shrinking while the colour is on screen. Each keeps a raw frame,
+  # a BMP with a cross on the blob, and one `kind: :special` line in the journal.
+  # Nothing here decides anything.
+
+  defp keepsake(state, vistos, frame) do
+    enemies = listed()
+    now = System.monotonic_time(:millisecond)
+    prev = state.prev
+
+    state =
+      cond do
+        prev.seen == [] and vistos != [] ->
+          keep(state, "seen", vistos, frame, enemies, now)
+
+        prev.seen != [] and vistos == [] ->
+          state
+          |> keep("last", prev.seen, prev.frame, prev.enemies, now, :quiet)
+          |> keep("gone", prev.seen, frame, enemies, now)
+
+        vistos != [] and enemies < prev.enemies ->
+          keep(state, "drop", vistos, frame, enemies, now)
+
+        true ->
+          state
+      end
+
+    %{state | prev: %{seen: vistos, frame: frame, enemies: enemies}}
+  end
+
+  # `:quiet` keeps the photo without a journal line: "last" is the companion of
+  # "gone", one record for the pair.
+  defp keep(state, tag, vistos, frame, enemies, now, voice \\ :loud)
+
+  defp keep(state, tag, [{rule, mancha} | _], %Frame{} = frame, enemies, now, voice) do
+    if gap_ok?(state, tag, now) do
+      save_photos(frame, mancha, tag)
+
+      if voice == :loud do
+        state.journal.(:special, %{
+          tag: tag,
+          name: rule.name,
+          px: mancha.px,
+          point: mancha.point,
+          enemies: enemies
+        })
+      end
+
+      %{state | photographed_at: Map.put(state.photographed_at, tag, now)}
+    else
+      state
+    end
+  end
+
+  defp keep(state, _tag, _no_blob, _no_frame, _enemies, _now, _voice), do: state
+
+  defp gap_ok?(state, tag, now) do
+    case Map.get(state.photographed_at, tag) do
+      nil -> true
+      at -> now - at >= @photo_gap_ms
+    end
+  end
+
+  # The same count the eye reads: the battle list's rows, 0 when the fact is stale.
+  defp listed do
+    now = System.monotonic_time(:millisecond)
+
+    case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now) do
+      {:ok, %{enemies: enemies}} when is_list(enemies) -> length(enemies)
+      _no_list -> 0
+    end
+  end
+
+  # The raw is the frame the code read; the BMP is the same frame with a cross
+  # on the blob, for eyes. Both under captures/shiny, 30 files kept.
+  defp save_photos(frame, mancha, tag) do
+    dir = Path.join(Home.captures_dir(), @photo_dir)
+    File.mkdir_p!(dir)
+
+    stem =
+      "#{System.system_time(:millisecond)}-#{System.unique_integer([:positive, :monotonic])}-#{tag}"
+
+    Home.write!(Path.join(dir, stem <> ".raw"), Frame.to_raw(frame))
+
+    with {:ok, bytes} <- evidence_bytes(frame, mancha) do
+      Home.write!(Path.join(dir, stem <> ".bmp"), bytes)
+    end
+
+    rotate(dir)
+  rescue
+    # A photo that cannot be saved is a photo lost, never a scan lost.
+    _no_photo -> :ok
+  end
+
+  defp evidence_bytes(frame, %{in_frame: {fx, fy}}) do
+    url = Evidence.data_url(frame, shrink: 2, marks: [{fx, fy, {255, 0, 255}}])
+
+    case String.split(url, ",", parts: 2) do
+      [_head, body] -> Base.decode64(body)
+      _no_body -> :error
+    end
+  end
+
+  defp rotate(dir) do
+    dir
+    |> Path.join("*")
+    |> Path.wildcard()
+    |> Enum.sort()
+    |> Enum.reverse()
+    |> Enum.drop(@keep_photos)
+    |> Enum.each(&File.rm/1)
   end
 
   defp recent_sighting?(%{last_fired_at: nil}), do: false

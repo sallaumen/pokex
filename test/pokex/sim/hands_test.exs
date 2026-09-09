@@ -585,7 +585,7 @@ defmodule Pokex.Sim.HandsTest do
   describe "the ball on the shiny corpse" do
     alias Pokex.Sim.Knobs
 
-    defp com_corpo do
+    defp with_corpse do
       world = mundo(@barra, %{boss_color: true, corpse_ms: 30_000})
       {x, y, z} = world.pos
 
@@ -595,7 +595,7 @@ defmodule Pokex.Sim.HandsTest do
     end
 
     test "standing on the corpse for ball_ms throws the ball" do
-      world = com_corpo()
+      world = with_corpse()
       assert World.capture_input(world).aiming?
 
       {world, hands} = Hands.obey(world, ordens(), Hands.new(), Knobs.support(:seeds))
@@ -611,7 +611,7 @@ defmodule Pokex.Sim.HandsTest do
     end
 
     test "a step in between starts the two photos over" do
-      world = com_corpo()
+      world = with_corpse()
       {world, hands} = Hands.obey(world, ordens(), Hands.new(), Knobs.support(:seeds))
       world = World.step(world, 1_000)
       {world, hands} = Hands.obey(world, ordens(%{route: :go}), hands, Knobs.support(:seeds))

@@ -90,4 +90,14 @@ defmodule Pokex.Vision.FrameTest do
     assert {:error, :not_png} =
              tap(Path.join(tmp, "x.txt"), &File.write!(&1, "no")) |> Frame.png_dimensions()
   end
+
+  @tag :tmp_dir
+  test "to_raw round-trips through from_file", %{tmp_dir: tmp} do
+    frame = %Frame{width: 2, height: 1, rgba: <<1, 2, 3, 255, 4, 5, 6, 255>>}
+    path = Path.join(tmp, "roundtrip.raw")
+    File.write!(path, Frame.to_raw(frame))
+
+    assert {:ok, %Frame{width: 2, height: 1, rgba: rgba}} = Frame.from_file(path)
+    assert rgba == frame.rgba
+  end
 end

@@ -43,6 +43,12 @@ Este documento é o plano de implementação. Quem for implementar: leia a seç�
 > PR 3: a história do shiny no feed da Central (✨ avistado, 🌟 corpo achado,
 > bola), o tile de captura diz "shiny" enquanto a mira vive, o badge ✨ lê o
 > fato `:special`, e o painel para de dizer "capturando" numa caçada sem shiny.
+> **09/09, o shiny PRETO:** "é um dos poucos Shinies Pretos do jogo". Preto não
+> tem matiz, e o conta-gotas recusava por desenho. Agora um tom pode ser um
+> CONE DE MATIZ ou uma BANDA ESCURA (`{:dark, teto, espalhamento}`), e a prova
+> do chão de uma banda escura aprende o HUD do jogo — que é preto e, no quadro
+> dele, mais alto que a criatura (30.841 / 25.741 / 20.782 px contra 12.605).
+> Medido no corpo dele: teto 26 → margem 5,5×; 30 → 4,0×; 34 → 2,8×; 38 → 1,5×.
 >
 > **O QUE FALTA:** o protocolo shiny completo (§8) — alvo preferido, corpo do
 > shiny real ensinado na primeira morte, "cor → qual linha da battle list".

@@ -703,8 +703,11 @@ defmodule PokexWeb.Panel.SettingsOverlay do
             <div id="automation-escape" class="px-3 py-2.5">
               <div class="flex min-h-10 items-center gap-3">
                 <p class="min-w-0 flex-1 text-pk-body leading-tight text-pk-text-2">
+                  <%!-- Dizia "vai ser o protocolo anti-shiny", de quando o plano
+                        era FUGIR do shiny. Hoje o shiny é o alvo e quem cuida
+                        dele é o Caçador; a fuga voltou a ser só a fuga. --%>
                   anda até o tile calibrado (Calibração → Escada de fuga), entra na escada
-                  de seta, para TUDO e toca o alarme — vai ser o protocolo anti-shiny
+                  de seta, para TUDO e toca o alarme
                 </p>
                 <button
                   id="test-escape"

@@ -1172,16 +1172,16 @@ defmodule PokexWeb.CavebotLive do
     {:noreply, socket |> assign(notice: nil) |> reload_routes(name)}
   end
 
-  # UM CLIQUE, na tela onde ele já está: o interruptor da guarda mora no
-  # painel, e mandá-lo trocar de página pro último passo é o atrito que faz um
-  # ajuste de dez segundos virar "amanhã eu ligo".
+  # UM CLIQUE, na tela onde ele já está: o interruptor do caçador mora no
+  # overlay dos Editores, e mandá-lo trocar de página pro último passo é o
+  # atrito que faz um ajuste de dez segundos virar "amanhã eu ligo".
   def handle_event("arm_shiny_guard", _params, socket) do
     Settings.put(:shiny_guard_enabled, true)
 
     {:noreply,
      socket
      |> assign(:shiny, ShinyReadiness.check())
-     |> log_line(:macro, "✨ guarda anti-shiny ligada daqui")}
+     |> log_line(:macro, "✨ caçador de shiny ligado daqui")}
   end
 
   # He marked the spot with his own hand: the waypoint under him becomes the

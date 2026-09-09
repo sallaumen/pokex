@@ -288,8 +288,22 @@ defmodule PokexWeb.Layouts do
                   </span>
                 </button>
 
+                <%!-- O MESTRE CALA OS SETORES, E NADA DIZIA ISSO. Ele
+                      desmarcou "vida crítica" da lista, o diário confirma que
+                      gravou, e continuou sem ouvir nada — porque o Som geral
+                      estava mudo. "Sempre que eu mudo, eu acho que salvou, mas
+                      ele volta com tudo ligado" (09/09): não voltava, é que
+                      nenhum setor toca com o mestre no mudo. --%>
+                <p
+                  :if={not @alarm_sound}
+                  class="mx-2 rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1 text-pk-meta text-pk-warn"
+                >
+                  com o Som geral mudo, nenhum setor abaixo toca.
+                </p>
+
                 <p class="px-2 text-pk-meta text-pk-text-3">
-                  Setores (o feed 🔔 sempre registra; isto só decide o SOM):
+                  Setores — <strong>marcado = toca</strong> (o feed 🔔 sempre
+                  registra; isto só decide o SOM):
                 </p>
 
                 <div class="max-h-64 space-y-0.5 overflow-y-auto">

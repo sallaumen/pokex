@@ -1480,13 +1480,18 @@ defmodule PokexWeb.CalibrationLive do
   defp chrome_text(boxes),
     do: " · #{length(boxes)} pedaço(s) do HUD aprendidos e recusados pra sempre"
 
-  # A regra pode estar provada e ninguém olhando: a guarda tem interruptor
-  # próprio no painel e nasce DESLIGADA. Prometer vigia sem checar seria a
-  # mesma mentira do "revive automático" desligado que engolia 556 pedidos.
+  # A regra pode estar provada e ninguém olhando: o caçador tem interruptor
+  # próprio e nasce DESLIGADO. Prometer vigia sem checar seria a mesma mentira
+  # do "revive automático" desligado que engolia 556 pedidos.
+  #
+  # E O PONTEIRO ESTAVA ERRADO: dizia "no painel", e o cartão mora dentro do
+  # overlay dos Editores. Mandar procurar na tela errada é a mesma busca inútil
+  # que o selo de prontidão existe pra acabar — "não faço a menor ideia onde
+  # está essa parte de ligar" (09/09).
   defp vigia_estado do
     if Settings.get(:shiny_guard_enabled),
-      do: "o vigia já varre com ela.",
-      else: "falta LIGAR a “Guarda anti-shiny” no painel — sem ela ninguém varre."
+      do: "o caçador já varre com ela.",
+      else: "falta LIGAR o “Caçador de shiny” em /config/editores — sem ele ninguém procura."
   end
 
   defp int_param(params, key, atual, min, max) do

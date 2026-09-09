@@ -12,7 +12,6 @@ defmodule Pokex.World do
 
   alias Pokex.Perception
   alias Pokex.Perception.WorldState
-  alias Pokex.Settings
 
   defmodule Snapshot do
     @moduledoc "One coherent view of the game, as of `at`."
@@ -125,12 +124,7 @@ defmodule Pokex.World do
     end
   end
 
-  defp special?(now) do
-    case WorldState.get(:special, Settings.get(:special_color_scan_ms) * 3, now) do
-      {:ok, %{especial?: true}} -> true
-      _stale_or_missing_or_clean -> false
-    end
-  end
+  defp special?(now), do: Pokex.Bots.ShinyGuard.on_screen?(now)
 
   defp fact(key, now) do
     case WorldState.get(key, @max_age_ms, now) do

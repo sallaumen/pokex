@@ -190,7 +190,17 @@ defmodule PokexWeb.CavebotLive do
   @impl true
   def handle_params(params, _uri, socket) do
     mode = if params["modo"] == "editar", do: :edit, else: :watch
-    {:noreply, assign(socket, mode: mode)}
+
+    # O ESPELHO SAI COM ELE. Custa uma foto inteira da tela por socket a cada
+    # dois segundos, e o `patch` pros Editores NÃO desmonta a página: a foto
+    # seguia sendo tirada e empurrada pro navegador atrás de uma tela que não a
+    # desenha, pra sempre. O comentário do laço já prometia isso; ninguém tinha
+    # escrito.
+    if mode == :watch do
+      {:noreply, assign(socket, mode: mode)}
+    else
+      {:noreply, assign(socket, mode: mode, mirror?: false, crowd_photo: nil)}
+    end
   end
 
   # Every minimap publish refreshes the position readout — and, while RECORDING,
@@ -949,6 +959,7 @@ defmodule PokexWeb.CavebotLive do
     {:noreply,
      socket
      |> assign(mirror?: ligado?)
+     |> assign(crowd_photo: if(ligado?, do: socket.assigns.crowd_photo, else: nil))
      |> log_line(:macro, if(ligado?, do: "🪞 espelho ligado", else: "🪞 espelho desligado"))}
   end
 
@@ -1922,17 +1933,11 @@ defmodule PokexWeb.CavebotLive do
   # estão os corpos; quem junta os dois é `CrowdScan.mark_special/3`, e é essa
   # junção que faz um dos quadrados mudar de cor.
   defp with_special(reading) do
-    vistos =
-      case Pokex.Perception.WorldState.get(
-             :special,
-             Settings.get(:special_color_scan_ms) * 3,
-             System.monotonic_time(:millisecond)
-           ) do
-        {:ok, %{vistos: vistos}} when is_list(vistos) -> vistos
-        _stale_or_missing -> []
-      end
-
-    Pokex.Bots.CrowdScan.mark_special(reading, vistos, Calibration.tile_px())
+    Pokex.Bots.CrowdScan.mark_special(
+      reading,
+      Pokex.Bots.ShinyGuard.seen(),
+      Calibration.tile_px()
+    )
   end
 
   defp crowd_fact do
@@ -2038,7 +2043,10 @@ defmodule PokexWeb.CavebotLive do
   # que permite descobrir de onde vem a repetição em vez de olhar por cima dela.
   # The Catcher's lines that belong to the shiny's story: the aim (🌟) and the
   # ball ("bola em", "bola 2 em", "não saiu"). Scans and library chatter stay out.
-  defp shiny_story?(text), do: String.contains?(text, "🌟") or String.contains?(text, "bola")
+  # A HISTÓRIA É MARCADA NA ORIGEM. Pescar a palavra "bola" trazia junto cada
+  # arremesso da varredura ("bola 2 em 130,224"), que é o feed do capturador
+  # inteiro caindo numa tela que pediu shiny.
+  defp shiny_story?(text), do: String.contains?(text, "🌟") or String.contains?(text, "✨")
 
   defp log_line(socket, level, text) do
     assign(socket, log: fold(socket.assigns.log, level, text))

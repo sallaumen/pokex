@@ -3,13 +3,20 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Catcher.CorpseLibrary
-  alias Pokex.Vision.Frame
+  alias Pokex.Vision.{Frame, SpriteLibrary}
 
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     on_exit(fn -> Pokex.TestHome.restore() end)
     :ok
   end
+
+  # `match/2` used to be a wrapper on CorpseLibrary; nothing in the code called it, so it went
+  # with the rest of the star-era dead weight (09/09). What it tested — the threshold, the
+  # veto of a corpse switched off, the old file formats — is the library's, and the library
+  # object is public.
+  defp match(crop, min_similarity),
+    do: SpriteLibrary.match(CorpseLibrary.library(), crop, min_similarity)
 
   # solid one-color "sprite" — an unmistakable palette for the histogram
   defp solid(r, g, b, px \\ 16) do
@@ -46,7 +53,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
   test "a painted corpse aims exactly like a photographed one" do
     {:ok, 1} = CorpseLibrary.add("Krabby shiny", solid(40, 200, 190), painted?: true)
 
-    assert {:ok, %{name: "Krabby shiny"}} = CorpseLibrary.match(solid(40, 200, 190), 0.72)
+    assert {:ok, %{name: "Krabby shiny"}} = match(solid(40, 200, 190), 0.72)
   end
 
   # MEASURED on his real library (2026-08-11, 24 taught bodies): a corpse against
@@ -64,10 +71,10 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
       :ok = CorpseLibrary.set_enabled("krabby", false)
 
       # the ordinary body: closest to the entry he switched off
-      assert :nomatch = CorpseLibrary.match(solid(200, 120, 40), 0.72)
+      assert :nomatch = match(solid(200, 120, 40), 0.72)
 
       # the shiny: still a target
-      assert {:ok, %{name: "Krabby shiny"}} = CorpseLibrary.match(solid(40, 200, 190), 0.72)
+      assert {:ok, %{name: "Krabby shiny"}} = match(solid(40, 200, 190), 0.72)
     end
 
     @tag :tmp_dir
@@ -86,7 +93,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
       {:ok, 1} = CorpseLibrary.add("Corsola", solid(180, 120, 200))
 
       assert {:ok, %{name: "Corsola", aimed?: true}} =
-               CorpseLibrary.match(solid(180, 120, 200), 0.72)
+               match(solid(180, 120, 200), 0.72)
     end
   end
 
@@ -157,10 +164,10 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
   test "a sample from a different ground improves the match — the max across samples wins" do
     {:ok, 1} = CorpseLibrary.add("Rattata", half(180, 120, 200, {90, 70, 40}))
     candidato = half(180, 120, 200, {30, 30, 120})
-    {:ok, %{score: fraco}} = CorpseLibrary.match(candidato, 0.3)
+    {:ok, %{score: fraco}} = match(candidato, 0.3)
 
     {:ok, 2} = CorpseLibrary.add("Rattata", half(180, 120, 200, {30, 30, 120}))
-    {:ok, %{name: "Rattata", score: forte}} = CorpseLibrary.match(candidato, 0.3)
+    {:ok, %{name: "Rattata", score: forte}} = match(candidato, 0.3)
 
     assert forte > fraco
     assert forte > 0.95
@@ -183,7 +190,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
     File.write!(CorpseLibrary.file(), Jason.encode!(antigo))
 
     assert [%{"name" => "Zubat", "samples" => [_uma]}] = CorpseLibrary.list()
-    assert {:ok, %{name: "Zubat"}} = CorpseLibrary.match(solid(60, 60, 220, 4), 0.7)
+    assert {:ok, %{name: "Zubat"}} = match(solid(60, 60, 220, 4), 0.7)
   end
 
   @tag :tmp_dir
@@ -210,16 +217,16 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
 
     candidato = half(180, 120, 200, {50, 110, 60})
 
-    assert {:ok, %{name: "Rattata", score: score}} = CorpseLibrary.match(candidato, 0.4)
+    assert {:ok, %{name: "Rattata", score: score}} = match(candidato, 0.4)
     assert score >= 0.4
   end
 
   @tag :tmp_dir
   test "an unknown palette does not match; an empty library never matches" do
-    assert :nomatch = CorpseLibrary.match(solid(9, 9, 9), 0.4)
+    assert :nomatch = match(solid(9, 9, 9), 0.4)
 
     {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
-    assert :nomatch = CorpseLibrary.match(solid(9, 200, 9), 0.7)
+    assert :nomatch = match(solid(9, 200, 9), 0.7)
   end
 
   @tag :tmp_dir
@@ -236,11 +243,11 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
       {:ok, 1} = CorpseLibrary.add("Rattata", solid(180, 120, 200))
       {:ok, 1} = CorpseLibrary.add("Zubat", solid(60, 60, 220))
 
-      assert {:ok, %{name: "Rattata"}} = CorpseLibrary.match(solid(180, 120, 200), 0.7)
+      assert {:ok, %{name: "Rattata"}} = match(solid(180, 120, 200), 0.7)
 
       :ok = CorpseLibrary.set_enabled("rattata", false)
 
-      assert :nomatch = CorpseLibrary.match(solid(180, 120, 200), 0.7)
+      assert :nomatch = match(solid(180, 120, 200), 0.7)
       assert length(CorpseLibrary.list()) == 2
 
       assert Enum.any?(
@@ -248,10 +255,10 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
                &(&1["slug"] == "rattata" and not CorpseLibrary.enabled?(&1))
              )
 
-      assert {:ok, %{name: "Zubat"}} = CorpseLibrary.match(solid(60, 60, 220), 0.7)
+      assert {:ok, %{name: "Zubat"}} = match(solid(60, 60, 220), 0.7)
 
       :ok = CorpseLibrary.set_enabled("rattata", true)
-      assert {:ok, %{name: "Rattata"}} = CorpseLibrary.match(solid(180, 120, 200), 0.7)
+      assert {:ok, %{name: "Rattata"}} = match(solid(180, 120, 200), 0.7)
     end
 
     @tag :tmp_dir
@@ -266,7 +273,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
 
       File.write!(CorpseLibrary.file(), Jason.encode!(antigo))
 
-      assert {:ok, %{name: "Rattata"}} = CorpseLibrary.match(solid(180, 120, 200), 0.7)
+      assert {:ok, %{name: "Rattata"}} = match(solid(180, 120, 200), 0.7)
     end
 
     @tag :tmp_dir
@@ -276,7 +283,7 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
 
       {:ok, 2} = CorpseLibrary.add("Rattata", solid(181, 121, 201))
 
-      assert :nomatch = CorpseLibrary.match(solid(180, 120, 200), 0.7)
+      assert :nomatch = match(solid(180, 120, 200), 0.7)
     end
   end
 end

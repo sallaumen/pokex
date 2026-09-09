@@ -132,6 +132,22 @@ defmodule Pokex.Vision.ColorMarkTest do
       assert {:ok, ^corpo} = ColorMark.dominant(f, {2, 2})
     end
 
+    # O DEFEITO QUE CUSTOU AS REGRAS DELE (09/09): ele clicou no corpo PRETO do
+    # Charizard dentro de uma caverna de lava e a ferramenta guardou o vermelho
+    # da lava — um pixel alaranjado na borda da silhueta ganhava do corpo
+    # inteiro, porque o voto do quadradinho só era pulado quando NENHUM dos 25
+    # tinha matiz. Cada tom assim casava 3% da tela dele.
+    test "a black click surrounded by lava still teaches BLACK" do
+      f =
+        frame(8, 8, {17, 16, 16}, [
+          # a borda acesa do bicho, encostando no ponto clicado
+          {{5, 3, 3, 3}, {200, 90, 20}}
+        ])
+
+      assert {:dark, {r, g, b}} = ColorMark.dominant(f, {4, 4})
+      assert max(r, max(g, b)) <= 30, "o tom ensinado tem que ser o do corpo, não o da lava"
+    end
+
     # …e o clique que cai numa borda sem cor continua sendo a votação de sempre.
     test "clicando no cinza entre duas cores, o patch inteiro vota" do
       f =

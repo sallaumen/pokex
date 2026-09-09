@@ -2622,7 +2622,11 @@ defmodule PokexWeb.CavebotLiveTest do
         {:catcher_log, :macro, "captura: 🌟 corpo do Electrode shiny em 116,116 — bola"}
       )
 
-      send(view.pid, {:catcher_log, :macro, "captura: bola em 116,116"})
+      send(view.pid, {:catcher_log, :macro, "captura: 🌟 bola em 116,116"})
+
+      # a bola da VARREDURA, a mesma linha sem a estrela: a caça comum do
+      # Catcher não é assunto desta tela
+      send(view.pid, {:catcher_log, :macro, "captura: bola 2 em 402,377"})
 
       send(
         view.pid,
@@ -2633,6 +2637,7 @@ defmodule PokexWeb.CavebotLiveTest do
       assert html =~ "Electrode shiny na tela"
       assert html =~ "corpo do Electrode shiny"
       assert html =~ "bola em 116,116"
+      refute html =~ "bola 2 em 402,377"
       refute html =~ "varri 12 janelas"
     end
 
@@ -2812,6 +2817,20 @@ defmodule PokexWeb.CavebotLiveTest do
       assert view |> element("#siege-mirror") |> render() =~ "desligado"
       view |> element("#siege-mirror") |> render_click()
       assert view |> element("#siege-mirror") |> render() =~ "ligado"
+    end
+
+    # O ESPELHO SAI COM ELE. `patch` pros Editores não desmonta a página, e a
+    # foto seguia sendo tirada e empurrada pro navegador atrás de uma tela que
+    # não a desenha.
+    test "leaving the watching mode turns the mirror off", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#siege-mirror") |> render_click()
+      assert view |> element("#siege-mirror") |> render() =~ "ligado"
+
+      assert view |> render_patch(~p"/cavebot?modo=editar")
+      assert view |> render_patch(~p"/cavebot")
+      assert view |> element("#siege-mirror") |> render() =~ "desligado"
     end
   end
 end

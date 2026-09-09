@@ -97,7 +97,7 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
              scanning?: true,
              source: :shiny_aim,
              corpses: [{117, 117}],
-             known: %{{117, 117} => %{name: "Electrode shiny", score: 60}},
+             known: %{{117, 117} => %{name: "Electrode shiny", px: 60}},
              region: @region,
              captured_at: 5
            } = ShinyAim.obs([cand], @region, 5)

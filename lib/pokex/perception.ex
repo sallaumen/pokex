@@ -7,7 +7,6 @@ defmodule Pokex.Perception do
   """
   use Supervisor
 
-  alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Perception.{Feed, Interpret, WorldState}
   alias Pokex.Settings
 
@@ -231,20 +230,6 @@ defmodule Pokex.Perception do
         interval_setting: :feed_minimap_ms,
         filename: "feed_minimap.raw",
         interpret: &Interpret.Minimap.interpret/4
-      },
-      %{
-        key: :corpses,
-        # The square around the character — the same one SpotScan sweeps. The
-        # arena is gone; nothing may ask for a rectangle the user never sees.
-        region: fn calib ->
-          case SpotScan.region(calib) do
-            {:ok, region} -> region
-            _no_anchor -> nil
-          end
-        end,
-        interval_setting: :feed_corpses_ms,
-        filename: "feed_corpses.raw",
-        interpret: &Interpret.Corpses.interpret/4
       }
     ]
   end

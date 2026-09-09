@@ -27,6 +27,11 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   alias Pokex.Settings
   alias Pokex.SettingsStash
 
+  # A SLOT ON THE BLACKBOARD THAT ONLY THE TESTS WRITE. `:corpses` was a real fact
+  # once; naming the staging slot after a RETIRED fact reads like production still
+  # publishes it.
+  @staged_scan :catcher_test_scan
+
   setup %{tmp_dir: tmp} do
     # one shared blackboard: start from an empty world, never from the last test's
     WorldState.clear()
@@ -39,7 +44,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       Pokex.TestHome.restore()
       Settings.put(:player_mode, mode)
       Settings.put(:capture_enabled, capture_enabled)
-      :ets.delete(:pokex_world, :corpses)
+      :ets.delete(:pokex_world, @staged_scan)
     end)
 
     Settings.put(:player_mode, "still")
@@ -62,7 +67,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     # kill and confirmation wakes see exactly the staged scene (production defaults to
     # the real SpotScan).
     scanner = fn ->
-      case WorldState.get(:corpses, 60_000, System.monotonic_time(:millisecond)) do
+      case WorldState.get(@staged_scan, 60_000, System.monotonic_time(:millisecond)) do
         {:ok, obs} -> obs
         _nada -> nil
       end
@@ -77,9 +82,13 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     %{scanning?: true, corpses: points, captured_at: System.monotonic_time(:millisecond)}
   end
 
+  # PELO CAMINHO QUE A PRODUÇÃO USA. Isto mandava `{:world, :corpses, obs}` —
+  # o feed do chão, APOSENTADO em 30/07 e desde então inalcançável: vinte
+  # testes exercitavam um handler que o bot nunca chama. O `{:kill}` é o
+  # gatilho de verdade, e o scanner injetado lê a mesma cena do quadro-negro.
   defp world!(worker, obs) do
-    WorldState.put(:corpses, obs, obs.captured_at)
-    send(worker, {:world, :corpses, obs})
+    WorldState.put(@staged_scan, obs, obs.captured_at)
+    send(worker, {:kill})
   end
 
   @tag :tmp_dir
@@ -171,6 +180,39 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_log_eventually("🎯 Corsola reconhecido (87%)")
   end
 
+  # PIXEL NÃO É PORCENTAGEM. A mira por cor não tem semelhança nenhuma pra
+  # contar: tem a contagem de pixels da cor, e ela ia pro mesmo campo do
+  # reconhecimento por foto — 1,2 milhão de pixels viravam "(120000000%)".
+  # A ESTRELA É DA LEITURA, não do estado. Com a varredura e a mira abertas ao
+  # mesmo tempo, marcar pelo estado do worker mandaria a bola de um corpo comum
+  # pra dentro da história do shiny — que é o vazamento que a estrela veio
+  # tapar.
+  @tag :tmp_dir
+  test "an ordinary sweep ball is not starred", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+
+    world!(worker, corpses_obs([{130, 224}]))
+
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    # o prefixo colado prova a ausência da estrela: com ela a linha seria
+    # "captura: 🌟 bola em 130,224"
+    assert_log_eventually("captura: bola em 130,224")
+  end
+
+  @tag :tmp_dir
+  test "the colour aim logs pixels, not a percentage", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+
+    obs =
+      corpses_obs([{130, 224}])
+      |> Map.put(:known, %{{130, 224} => %{name: "Charizard preto", px: 1_200_000}})
+
+    world!(worker, obs)
+
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    assert_log_eventually("🎯 Charizard preto reconhecido pela cor (1200000 px)")
+  end
+
   @tag :tmp_dir
   test "run announces the library — empty is a siren, not silence", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
@@ -201,7 +243,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       for _i <- 1..8 do
         Process.sleep(150)
         obs = corpses_obs([])
-        WorldState.put(:corpses, obs, obs.captured_at)
+        WorldState.put(@staged_scan, obs, obs.captured_at)
       end
     end)
 
@@ -211,7 +253,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   @tag :tmp_dir
   test "a kill event triggers an immediate world re-read", %{worker: _worker} do
     obs = corpses_obs([{140, 230}])
-    WorldState.put(:corpses, obs, obs.captured_at)
+    WorldState.put(@staged_scan, obs, obs.captured_at)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
     assert_receive {:performed, :high, [{:move, {140, 230}} | _]}, 1_000
@@ -253,7 +295,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert Worker.status(worker).hold_reason == "esperando fim da luta"
 
     fresh = corpses_obs([{150, 250}])
-    WorldState.put(:corpses, fresh, fresh.captured_at)
+    WorldState.put(@staged_scan, fresh, fresh.captured_at)
     send(worker, {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}})
 
     assert_receive {:performed, :high, [{:move, {150, 250}} | _]}, 1_000
@@ -276,7 +318,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     on_exit(fn -> WorldState.forget(:mini_game) end)
 
     obs = corpses_obs([{130, 224}])
-    WorldState.put(:corpses, obs, obs.captured_at)
+    WorldState.put(@staged_scan, obs, obs.captured_at)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
     refute_receive {:performed, _p, _a}, 300
 
@@ -321,7 +363,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     :ok = Worker.mode_changed(worker)
 
     obs = corpses_obs([{130, 224}])
-    WorldState.put(:corpses, obs, obs.captured_at)
+    WorldState.put(@staged_scan, obs, obs.captured_at)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
     refute_receive {:performed, _, [{:move, _} | _]}, 400
@@ -358,8 +400,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       reason: :outside_arena
     }
 
-    WorldState.put(:corpses, blind, blind.captured_at)
-    send(worker, {:world, :corpses, blind})
+    world!(worker, blind)
 
     assert_log_eventually("cego")
 
@@ -450,7 +491,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     :ok = Worker.mode_changed(worker)
 
     obs = corpses_obs([{140, 230}])
-    WorldState.put(:corpses, obs, obs.captured_at)
+    WorldState.put(@staged_scan, obs, obs.captured_at)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
     refute_receive {:performed, _p, [{:move, _} | _]}, 300
@@ -463,7 +504,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     send(worker, {:combat, %{state: :fighting, counters: %{}, error: nil, locked_row: 0}})
 
     obs = corpses_obs([{130, 224}])
-    WorldState.put(:corpses, obs, obs.captured_at)
+    WorldState.put(@staged_scan, obs, obs.captured_at)
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
@@ -754,6 +795,10 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:performed, :high, [{:move, {116, 116}} | _]}, 3_000
     assert Worker.status(worker).counters.throws == 1
     assert_log_eventually("corpo do Electrode shiny")
+    # A ESTRELA NA BOLA: a linha do arremesso é a mesma da varredura, e a tela
+    # do Cave Bot só sabia separar as duas procurando a palavra "bola" —
+    # pescando a caçada inteira pra dentro da história do shiny.
+    assert_log_eventually("🌟 bola em 116,116")
   end
 
   @tag :tmp_dir

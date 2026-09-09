@@ -91,8 +91,8 @@ defmodule Pokex.Vision.Finder do
   # creature, so the winning window's center is the point he chose himself.
   defp on_screen(point, _scale, nil), do: point
 
-  defp on_screen({fx, fy}, scale, {rx, ry, _w, _h}),
-    do: {rx + round(fx / scale), ry + round(fy / scale)}
+  defp on_screen(point, scale, region),
+    do: Pokex.Calibration.frame_to_screen(scale, region, point)
 
   defp score_all(lib, frame, positions, box) do
     aimed = SpriteLibrary.aimed(lib)

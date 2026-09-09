@@ -68,28 +68,13 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   defdelegate enabled?(entry), to: SpriteLibrary
 
   @doc """
-  Best match of the crop against the library: `{:ok, %{name, score}}` when a
-  taught corpse passes the threshold, `:nomatch` otherwise (including an empty
-  library — the caller decides what to do then).
-  """
-  def match(%Frame{} = crop, min_similarity),
-    do: SpriteLibrary.match(library(), crop, min_similarity)
-
-  @doc """
   Best `%{name, score}` in the library for this crop — NO threshold; `nil` only
-  when the library is empty. A FAILING score is still information: `match/2`'s
-  `:nomatch` hid whether it missed by 0.01 or 0.40, and against which Pokémon
+  when the library is empty. A FAILING score is still information: the old
+  `:nomatch` hid whether it missed by 0.01 or by 0.40, and against which body
   (blind validation, 2026-07-30). Measured on real samples the score drops ~0.05
   per 7px of crop offset, so distance to the threshold IS the aim diagnostic.
   """
   def best(%Frame{} = crop), do: SpriteLibrary.best(library(), crop)
-
-  @doc """
-  Same as `best/1` for a WINDOW inside a larger frame — no crop allocation.
-  The dense scan (`Catcher.SpotScan`) scores hundreds of windows per sweep;
-  `Frame.crop` on each would copy hundreds of binaries just to discard them.
-  """
-  def best_in(%Frame{} = frame, window), do: SpriteLibrary.best_in(library(), frame, window)
 
   @doc "The library resolved once, for a caller about to score many windows."
   def aimed, do: SpriteLibrary.aimed(library())

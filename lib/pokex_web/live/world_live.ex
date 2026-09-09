@@ -112,16 +112,6 @@ defmodule PokexWeb.WorldLive do
     "#{length(enemies)} na lista#{lock}"
   end
 
-  defp summary(:corpses, %{corpses: corpses} = obs) do
-    scan = if Map.get(obs, :scanning?), do: "varrendo", else: "parado"
-    corpse = if length(corpses) == 1, do: "corpo", else: "corpos"
-    "#{length(corpses)} #{corpse} · #{scan}"
-  end
-
-  defp summary(:arena, obs) when is_map(obs) do
-    obs |> Map.drop([:captured_at]) |> inspect(limit: 8, printable_limit: 120)
-  end
-
   defp summary(:hud, %{level: level, slots: slots}) do
     "level #{num(level)} · F1 #{num(slots[:f1])} · F2 #{num(slots[:f2])} · E #{num(slots[:e])} · S+Q #{num(slots[:s_q])}"
   end

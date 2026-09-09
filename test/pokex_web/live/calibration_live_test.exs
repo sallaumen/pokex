@@ -2076,6 +2076,73 @@ defmodule PokexWeb.CalibrationLiveTest do
       render(view)
 
       assert [%{min_px: 400}] = Pokex.Vision.ColorRules.armed()
+
+      # E NA SEGUNDA MEDIÇÃO TAMBÉM. Gravando o número FINAL como "sugestão da
+      # ferramenta", o 400 dele virava número dela e a medição seguinte o
+      # apagava.
+      render_click(view, "special_floor", %{"slug" => slug})
+
+      :sys.replace_state(view.pid, fn state ->
+        update_in(state.socket.assigns.special_floor, &%{&1 | left: 1})
+      end)
+
+      send(view.pid, {:floor_sample, slug})
+      render(view)
+
+      assert [%{min_px: 400}] = Pokex.Vision.ColorRules.armed()
+    end
+
+    # A CATRACA QUE PRENDIA. Uma medição ruim (o Tracker aberto) cravou 332.835
+    # na regra dele e nenhuma medição nova conseguia mais baixar: a regra ficava
+    # morta, marcada como "provada", e a única saída era apagá-la.
+    @tag :tmp_dir
+    test "a new measurement lowers the trigger an old measurement left behind", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      Pokex.Calibration.save(complete_calibration())
+      {:ok, _} = Fake.start_link(%{})
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      com_foto(view, cor_frame(64, 64, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}]))
+      render_click(view, "special_pick", %{"x" => 16, "y" => 16, "cw" => 64, "nw" => 64})
+      render_change(view, "special_form", %{"name" => "Chefe", "min_px" => "25"})
+      render_submit(view, "special_save", %{})
+
+      [%{"slug" => slug}] = Pokex.Vision.ColorRules.list()
+
+      {:ok, calib} = Pokex.Calibration.load()
+      {:ok, {_x, _y, w, h}} = SpotScan.region(calib)
+      File.mkdir_p!("/tmp/fake")
+
+      medir = fn frame ->
+        File.write!(
+          "/tmp/fake/special_floor.raw",
+          <<"PXRW", 1, w::32, h::32, frame.rgba::binary>>
+        )
+
+        render_click(view, "special_floor", %{"slug" => slug})
+
+        :sys.replace_state(view.pid, fn state ->
+          update_in(state.socket.assigns.special_floor, &%{&1 | left: 1})
+        end)
+
+        send(view.pid, {:floor_sample, slug})
+        render(view)
+      end
+
+      # a medição de ontem, com o Tracker aberto: a tela inteira é chão da cor
+      medir.(cor_frame(w, h, @verde, []))
+      assert [%{min_px: travado}] = Pokex.Vision.ColorRules.armed()
+      assert travado > 20_000
+
+      # a medição de hoje, com a tela limpa
+      medir.(cor_frame(w, h, {40, 40, 40}, []))
+      assert [%{min_px: 20}] = Pokex.Vision.ColorRules.armed()
     end
 
     @tag :tmp_dir

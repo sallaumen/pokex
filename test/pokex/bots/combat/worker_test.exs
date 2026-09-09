@@ -53,7 +53,6 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     on_exit(fn ->
       Pokex.TestHome.restore()
       :ets.delete(:pokex_world, :battle)
-      :ets.delete(:pokex_world, :arena)
       :ets.delete(:pokex_world, :skill_bar)
       :ets.delete(:pokex_world, :posture)
       # a posture left behind would make the NEXT test's combat pacifist

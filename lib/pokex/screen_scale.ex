@@ -70,8 +70,6 @@ defmodule Pokex.ScreenScale do
     :corpse_scan_step_px,
     :corpse_scan_refine_px,
     :corpse_match_tolerance_px,
-    :corpse_stationary_tolerance_px,
-    :corpse_cell_px,
     :fishing_bubble_radius_px,
     :glow_search_margin,
     :mini_game_bar_offset_px,
@@ -86,8 +84,7 @@ defmodule Pokex.ScreenScale do
     :fishing_lure_min_pixels,
     :wild_min_red_pixels,
     :pokeball_min_red_px,
-    :target_locked_min_pixels,
-    :corpse_cell_min_samples
+    :target_locked_min_pixels
   ]
 
   @doc "The keys this module rescales, by family."

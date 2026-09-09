@@ -76,9 +76,6 @@ defmodule Pokex.Pokedex.ShinyLog do
     end
   end
 
-  @doc "How many encounters are on the shelf."
-  def count, do: length(entries())
-
   def clear, do: persist([])
 
   defp persist(list) do

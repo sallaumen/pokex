@@ -138,7 +138,11 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
       scanning?: true,
       source: :shiny_aim,
       corpses: Enum.map(candidates, & &1.point),
-      known: Map.new(candidates, &{&1.point, %{name: &1.name, score: &1.px}}),
+      # `score` É SEMELHANÇA, DE 0 A 1. Aqui não há semelhança nenhuma: o que
+      # existe é a contagem de pixels da cor na mancha. Postos no mesmo campo,
+      # os 1,2 milhão de pixels da mancha dele viravam "reconhecido (120000000%)"
+      # no registro da captura.
+      known: Map.new(candidates, &{&1.point, %{name: &1.name, px: &1.px}}),
       candidates: candidates,
       region: region,
       captured_at: at
@@ -159,11 +163,11 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
   defp within?({ax, ay}, {bx, by}, tolerance),
     do: abs(ax - bx) <= tolerance and abs(ay - by) <= tolerance
 
-  defp on_screen(%{point: {fx, fy}, px: px}, rule, {rx, ry, _w, _h}, scale) do
+  defp on_screen(%{point: {fx, fy}, px: px}, rule, region, scale) do
     %{
       name: rule.name,
       px: px,
-      point: {rx + round(fx / scale), ry + round(fy / scale)},
+      point: Calibration.frame_to_screen(scale, region, {fx, fy}),
       in_frame: {fx, fy}
     }
   end

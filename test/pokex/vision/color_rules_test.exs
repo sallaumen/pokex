@@ -90,6 +90,56 @@ defmodule Pokex.Vision.ColorRulesTest do
     assert [%{"proven" => nil}] = ColorRules.list()
   end
 
+  # O ARQUIVO É DELE. Uma entrada torta derrubava a leitura inteira, e junto
+  # com ela a guarda e as duas telas — a página onde ele arrumaria o estrago
+  # não abria mais.
+  test "a broken entry on disk is dropped and the sound ones still load" do
+    File.mkdir_p!(Path.dirname(ColorRules.file()))
+
+    File.write!(
+      ColorRules.file(),
+      Jason.encode!([
+        %{"slug" => "sem-liga", "name" => "Sem liga", "colors" => [%{"rgb" => [1, 2, 3]}]},
+        %{"slug" => "sem-cor", "name" => "Sem cor", "colors" => [%{"tol_h" => 12}]},
+        %{"name" => "Sem slug", "colors" => [%{"rgb" => [1, 2, 3]}]},
+        "isto nem é um mapa",
+        %{
+          "slug" => "boa",
+          "name" => "Charizard preto",
+          "colors" => [%{"dark" => 40, "spread" => 10}],
+          "min_px" => 300,
+          "enabled" => true,
+          "proven" => %{"floor_px" => 10}
+        }
+      ])
+    )
+
+    # "sem-cor" some inteira: uma regra sem uma única cor legível não procura nada
+    assert Enum.map(ColorRules.list(), & &1["slug"]) == ["sem-liga", "boa"]
+    assert [%{"enabled" => false}, _boa] = ColorRules.list()
+    assert [%{slug: "boa", min_px: 300}] = ColorRules.armed()
+  end
+
+  test "half a proof is no proof: the rule loads unproven instead of crashing" do
+    File.mkdir_p!(Path.dirname(ColorRules.file()))
+
+    File.write!(
+      ColorRules.file(),
+      Jason.encode!([
+        %{
+          "slug" => "meia-prova",
+          "name" => "Meia prova",
+          "colors" => [%{"rgb" => [40, 160, 60]}],
+          "enabled" => true,
+          "proven" => %{"at" => "2026-09-09T00:00:00Z"}
+        }
+      ])
+    )
+
+    assert [%{"proven" => nil}] = ColorRules.list()
+    assert ColorRules.armed() == []
+  end
+
   test "apagar apaga; apagar de novo reclama" do
     %{"slug" => slug} = regra()
     :ok = ColorRules.delete(slug)

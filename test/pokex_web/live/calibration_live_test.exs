@@ -1828,7 +1828,8 @@ defmodule PokexWeb.CalibrationLiveTest do
       html = render_click(view, "special_pick", %{"x" => 16, "y" => 16, "cw" => 64, "nw" => 64})
 
       assert html =~ "40,160,60", "o tom pego tem que aparecer como swatch"
-      assert html =~ "maior mancha 196px", "a leitura ao vivo mede a foto com o tom pego"
+      assert html =~ "196px", "a leitura ao vivo mede a foto com o tom pego"
+      assert html =~ "separa", "…e diz, em uma palavra, se aquele tom serve"
     end
 
     @tag :tmp_dir
@@ -1940,6 +1941,61 @@ defmodule PokexWeb.CalibrationLiveTest do
       # e o conta-gotas passa a valer NELA
       html = render_click(view, "special_pick", %{"x" => 1, "y" => 1, "cw" => 2, "nw" => 2})
       assert html =~ "40,160,60"
+    end
+
+    # O DEFEITO DE 09/09, com os números dele. Ele salvou três tons pegos do
+    # Charizard preto e a regra achava a tela inteira: cada tom casava ~3% da
+    # tela, porque o que ele pegou foi a LAVA. A linha antiga dizia "18893px" e
+    # nada mais — nada ali distinguia um tom que acha o bicho de um que acha o
+    # cenário.
+    @tag :tmp_dir
+    test "a tone that is all over the picture is called out as scenery", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      # o vermelho está em toda parte: seis manchas espalhadas, nenhuma dominante
+      espalhado =
+        cor_frame(64, 64, {30, 30, 30}, [
+          {{2, 2, 8, 8}, @verde},
+          {{20, 2, 8, 8}, @verde},
+          {{40, 2, 8, 8}, @verde},
+          {{2, 20, 8, 8}, @verde},
+          {{20, 20, 8, 8}, @verde},
+          {{40, 20, 8, 8}, @verde},
+          {{2, 40, 8, 8}, @verde},
+          {{20, 40, 8, 8}, @verde},
+          {{40, 40, 8, 8}, @verde},
+          {{2, 52, 8, 8}, @verde},
+          {{20, 52, 8, 8}, @verde},
+          {{40, 52, 8, 8}, @verde},
+          {{52, 52, 8, 8}, @verde}
+        ])
+
+      com_foto(view, espalhado)
+      html = render_click(view, "special_pick", %{"x" => 5, "y" => 5, "cw" => 64, "nw" => 64})
+
+      assert html =~ "não separa", "um tom espalhado tem que ser reprovado em uma palavra"
+      assert html =~ "cenário", "…e dizer o que fazer com ele"
+      assert html =~ ~s(id="special-mask"), "…e mostrar NA FOTO o que ele casou"
+    end
+
+    @tag :tmp_dir
+    test "a tone only the creature has is approved", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+      com_foto(view, cor_frame(64, 64, {30, 30, 30}, [{{20, 20, 16, 16}, @verde}]))
+
+      html = render_click(view, "special_pick", %{"x" => 28, "y" => 28, "cw" => 64, "nw" => 64})
+
+      assert html =~ "separa: acha UM alvo"
+      assert html =~ "Salve e meça o chão"
     end
 
     @tag :tmp_dir

@@ -1300,20 +1300,68 @@ defmodule PokexWeb.CalibrationLive do
   defp read_special(%{assigns: %{special_draft: %{colors: []}}} = socket),
     do: assign(socket, special_reading: nil)
 
+  # A LEITURA VIRA VEREDITO. "Não estou entendendo nem um pouco o que são os
+  # pixels… como que eu sei se está melhor ou se está pior?" (09/09). Um número
+  # solto não responde isso; o que responde é uma razão — quanto do que casou
+  # está numa mancha só.
+  #
+  # Medido nas regras que ele salvou nesse dia, contra a foto da tela dele:
+  # o vermelho que ele pegou do Charizard casava 142.659 px (3,9% da tela) e a
+  # maior mancha tinha 85.331 dos 264.131 casados — dominância 0,5. É a lava.
+  # O preto do bicho, no recorte dele, dá 10.503 numa mancha contra 2.638 de
+  # resto: dominância 4,0. A régua é essa, e não o número cru.
+  @dominancia_boa 3.0
+  @dominancia_quase 1.5
+  @manchas_demais 12
+  @caixas_desenhadas 60
+
   defp read_special(socket) do
     draft = socket.assigns.special_draft
+    frame = socket.assigns.special_shot.frame
 
-    result =
-      ColorMark.scan(socket.assigns.special_shot.frame, draft_specs(draft),
-        min_cell_px: draft.min_cell_px
-      )
+    result = ColorMark.scan(frame, draft_specs(draft), min_cell_px: draft.min_cell_px)
 
     maior = result.manchas |> List.first() |> then(&if(&1, do: &1.px, else: 0))
+    resto = max(result.px - maior, 0)
+    total = frame.width * frame.height
 
     assign(socket,
-      special_reading: %{px: result.px, maior: maior, manchas: length(result.manchas)}
+      special_reading: %{
+        px: result.px,
+        maior: maior,
+        manchas: length(result.manchas),
+        pct: if(total > 0, do: result.px * 100 / total, else: 0.0),
+        dominancia: if(resto > 0, do: maior / resto, else: if(maior > 0, do: 999.0, else: 0.0)),
+        caixas: result.manchas |> Enum.take(@caixas_desenhadas) |> Enum.map(& &1.box),
+        largura: frame.width,
+        altura: frame.height
+      }
     )
   end
+
+  # O veredito em UMA palavra, e a frase que diz o que fazer com ela.
+  defp special_verdict(%{maior: 0}), do: :nada
+  defp special_verdict(%{manchas: n}) when n > @manchas_demais, do: :espalhado
+
+  defp special_verdict(%{dominancia: d}) when d >= @dominancia_boa, do: :separa
+  defp special_verdict(%{dominancia: d}) when d >= @dominancia_quase, do: :quase
+  defp special_verdict(_espalhado), do: :espalhado
+
+  defp verdict_word(:nada), do: "esse tom não está nesta foto"
+  defp verdict_word(:separa), do: "separa: acha UM alvo e mais nada"
+  defp verdict_word(:quase), do: "quase: acha o alvo, mas o chão também responde"
+  defp verdict_word(:espalhado), do: "não separa: esse tom está espalhado pela foto"
+
+  defp verdict_hint(:nada),
+    do: "clique EM CIMA da cor diferente do bicho — o que está pego não aparece aqui"
+
+  defp verdict_hint(:separa), do: "é assim que tem que ficar. Salve e meça o chão."
+
+  defp verdict_hint(:quase),
+    do: "aperte o tom (menos folga de luz, teto mais baixo) até o resto sumir"
+
+  defp verdict_hint(:espalhado),
+    do: "é cenário, não bicho — tire este tom e pegue um detalhe que só ele tem"
 
   defp draft_specs(draft), do: ColorMark.compile(Enum.map(draft.colors, &draft_spec(&1, draft)))
 
@@ -1381,15 +1429,40 @@ defmodule PokexWeb.CalibrationLive do
   defp sample_peak(samples),
     do: samples |> List.flatten() |> Enum.map(& &1.px) |> Enum.max(fn -> 0 end)
 
+  # POR SOBREPOSIÇÃO, não por igualdade. A caixa de uma mancha muda de célula
+  # quando um pixel da borda pisca — e o HUD pisca: contagem de cooldown, ícone
+  # que troca, texto do chat. Cobrando a caixa IDÊNTICA nas doze fotos, a
+  # medição dele de 09/09 aprendeu UMA caixa de 8×8 numa regra e 290 caquinhos
+  # na outra, que é o mesmo que não ter aprendido nada.
   defp chrome_of(samples) do
     minimo = ceil(length(samples) * @chrome_share)
+    todas = Enum.flat_map(samples, fn manchas -> Enum.map(manchas, & &1.box) end)
 
     samples
-    |> Enum.flat_map(fn manchas -> manchas |> Enum.map(& &1.box) |> Enum.uniq() end)
-    |> Enum.frequencies()
-    |> Enum.filter(fn {_box, n} -> n >= minimo end)
-    |> Enum.map(&elem(&1, 0))
+    |> List.flatten()
+    |> Enum.map(& &1.box)
+    |> Enum.uniq()
+    |> Enum.filter(fn box -> Enum.count(todas, &overlaps?(&1, box)) >= minimo end)
+    |> merge_boxes()
   end
+
+  # Duas caixas se sobrepõem quando compartilham qualquer pixel.
+  defp overlaps?({al, at, ar, ab}, {bl, bt, br, bb}),
+    do: al <= br and bl <= ar and at <= bb and bt <= ab
+
+  # …e as sobrepostas viram UMA. Doze fotos do mesmo HUD dão doze caixas quase
+  # iguais; guardar as doze é guardar a mesma coisa doze vezes.
+  defp merge_boxes(boxes) do
+    Enum.reduce(boxes, [], fn box, acc ->
+      case Enum.split_with(acc, &overlaps?(&1, box)) do
+        {[], resto} -> [box | resto]
+        {vizinhas, resto} -> [Enum.reduce(vizinhas, box, &union/2) | resto]
+      end
+    end)
+  end
+
+  defp union({al, at, ar, ab}, {bl, bt, br, bb}),
+    do: {min(al, bl), min(at, bt), max(ar, br), max(ab, bb)}
 
   # …e o PICO do chão é medido FORA do que virou cliente: com o HUD dentro da
   # conta o gatilho subiria pra três vezes ele e a regra nunca dispararia — uma
@@ -1468,11 +1541,6 @@ defmodule PokexWeb.CalibrationLive do
         {"min_cell_px", "célula px", draft.min_cell_px, "densidade mínima por célula"}
       ]
   end
-
-  defp special_zone(nil, _min), do: :none
-  defp special_zone(px, min) when px >= min, do: :hit
-  defp special_zone(px, min) when px >= div(min, 2), do: :warn
-  defp special_zone(_px, _min), do: :safe
 
   defp upload_error_text(:too_large),
     do: "essa imagem passa de 30MB — recorte o pedaço com o bicho e mande de novo"
@@ -3316,13 +3384,14 @@ defmodule PokexWeb.CalibrationLive do
                     Cores especiais (shiny e chefe)
                   </h2>
                   <p class="mt-0.5 max-w-prose text-pk-body leading-relaxed text-pk-text-2">
-                    Aqui não se ensina um recorte, se ensina um TOM: fotografe o quadro com o
-                    bicho especial na tela e clique EM CIMA da cor diferente (a base verde do
-                    Electrode shiny, o detalhe do chefe). O tom sobrevive à pose — vale até com
-                    ele de ponta-cabeça no rollout. Depois de salvar,
-                    <b class="text-pk-text">meça o chão</b>
-                    : a regra só entra no vigia depois de provar que a caçada normal não a
-                    dispara.
+                    Aqui não se ensina um recorte, se ensina um TOM. Ele lê
+                    <b class="text-pk-text">cor</b>
+                    e não desenho: o ângulo do bicho não importa — vale até com ele de
+                    ponta-cabeça no rollout. Mais fotos ajudam a achar um tom melhor, nunca a
+                    ensinar poses. O que ele procura é uma cor que
+                    <b class="text-pk-text">só o bicho tem</b>
+                    : se ela também está na lava, na grama ou no HUD, ela acha a tela inteira. O
+                    quadro abaixo diz, a cada clique, se o tom separa ou não.
                   </p>
                 </div>
                 <div class="flex shrink-0 flex-col items-end gap-1.5">
@@ -3408,15 +3477,40 @@ defmodule PokexWeb.CalibrationLive do
                 </span>
               </p>
 
-              <img
-                :if={@special_shot}
-                id="special-shot"
-                src={"/captures/special_teach.png?v=#{@special_shot.v}"}
-                phx-hook="ImgClick"
-                data-click-event="special_pick"
-                alt="quadro da busca de cores especiais"
-                class="w-full cursor-crosshair rounded-lg border border-pk-line"
-              />
+              <div :if={@special_shot} class="relative">
+                <img
+                  id="special-shot"
+                  src={"/captures/special_teach.png?v=#{@special_shot.v}"}
+                  phx-hook="ImgClick"
+                  data-click-event="special_pick"
+                  alt="quadro da busca de cores especiais"
+                  class="w-full cursor-crosshair rounded-lg border border-pk-line"
+                />
+
+                <%!-- O QUE O TOM CASOU, desenhado em cima da foto. É a peça que
+                     faltava: um número não conta que a mancha é a lava, e a
+                     caixa em volta de cada uma conta em meio segundo. --%>
+                <svg
+                  :if={@special_reading && @special_reading.caixas != []}
+                  id="special-mask"
+                  viewBox={"0 0 #{@special_reading.largura} #{@special_reading.altura}"}
+                  preserveAspectRatio="none"
+                  class="pointer-events-none absolute inset-0 size-full"
+                  aria-hidden="true"
+                >
+                  <rect
+                    :for={{l, t, r, b} <- @special_reading.caixas}
+                    x={l}
+                    y={t}
+                    width={max(r - l + 1, 3)}
+                    height={max(b - t + 1, 3)}
+                    fill="var(--color-pk-shiny)"
+                    fill-opacity="0.25"
+                    stroke="var(--color-pk-shiny)"
+                    stroke-width="2"
+                  />
+                </svg>
+              </div>
 
               <div
                 :if={@special_shot}
@@ -3458,19 +3552,6 @@ defmodule PokexWeb.CalibrationLive do
                     />
                   </label>
 
-                  <label
-                    :for={{campo, rotulo, valor, dica} <- draft_fields(@special_draft)}
-                    class="flex flex-col gap-1"
-                  >
-                    <span class="font-mono text-pk-meta text-pk-text-3" title={dica}>{rotulo}</span>
-                    <input
-                      type="number"
-                      name={campo}
-                      value={valor}
-                      class="input input-sm h-8 w-20 border border-pk-line-strong bg-pk-bg pk-num font-mono text-pk-body text-pk-text"
-                    />
-                  </label>
-
                   <button
                     id="special-save"
                     type="submit"
@@ -3479,22 +3560,92 @@ defmodule PokexWeb.CalibrationLive do
                   >
                     Salvar regra
                   </button>
+
+                  <%!-- OS NÚMEROS SAEM DA FRENTE. "Ele me pede um monte de
+                       configuração e eu não faço a menor ideia do que tu estás
+                       fazendo" (09/09). Quem decide é o veredito acima; estes
+                       campos são a régua fina de quem já sabe o que apertar, e
+                       cada um diz o que faz em uma linha. --%>
+                  <details class="w-full">
+                    <summary class="w-fit cursor-pointer list-none font-mono text-pk-meta text-pk-text-3 hover:text-pk-text-2 [&::-webkit-details-marker]:hidden">
+                      ajuste fino ▾
+                    </summary>
+
+                    <div class="mt-2 flex flex-wrap items-end gap-3">
+                      <label
+                        :for={{campo, rotulo, valor, dica} <- draft_fields(@special_draft)}
+                        class="flex flex-col gap-1"
+                      >
+                        <span class="font-mono text-pk-meta text-pk-text-3">{rotulo}</span>
+                        <input
+                          type="number"
+                          name={campo}
+                          value={valor}
+                          class="input input-sm h-8 w-20 border border-pk-line-strong bg-pk-bg pk-num font-mono text-pk-body text-pk-text"
+                        />
+                        <span class="max-w-[11rem] text-pk-meta leading-tight text-pk-text-3">
+                          {dica}
+                        </span>
+                      </label>
+                    </div>
+                  </details>
                 </form>
 
-                <p
+                <%!-- O VEREDITO, e não a sopa de números. Ele salvou três tons
+                     que casavam a LAVA (3,9% da tela cada um) porque a linha
+                     antiga dizia "18893px" e nada mais: um número sem régua não
+                     responde "está melhor ou pior?". O que responde é quanto do
+                     que casou está numa mancha só. --%>
+                <div
                   :if={@special_reading}
                   id="special-reading"
                   class={[
-                    "pk-num rounded border px-2 py-1 font-mono text-pk-body",
-                    case special_zone(@special_reading.maior, @special_draft.min_px) do
-                      :hit -> "border-pk-ok-line bg-pk-ok-dim text-pk-ok"
-                      :warn -> "border-pk-warn-line bg-pk-warn-dim text-pk-warn"
-                      _abaixo -> "border-pk-line bg-pk-bg text-pk-text-2"
+                    "rounded border px-3 py-2",
+                    case special_verdict(@special_reading) do
+                      :separa -> "border-pk-ok-line bg-pk-ok-dim"
+                      :quase -> "border-pk-warn-line bg-pk-warn-dim"
+                      :espalhado -> "border-pk-danger-line bg-pk-danger-dim"
+                      :nada -> "border-pk-line bg-pk-bg"
                     end
                   ]}
                 >
-                  nesta foto: {@special_reading.px}px da cor · maior mancha {@special_reading.maior}px · {@special_reading.manchas} mancha(s) — gatilho em {@special_draft.min_px}px
-                </p>
+                  <p class={[
+                    "flex flex-wrap items-center gap-1.5 text-pk-body font-semibold",
+                    case special_verdict(@special_reading) do
+                      :separa -> "text-pk-ok"
+                      :quase -> "text-pk-warn"
+                      :espalhado -> "text-pk-danger"
+                      :nada -> "text-pk-text-2"
+                    end
+                  ]}>
+                    <.icon
+                      name={
+                        case special_verdict(@special_reading) do
+                          :separa -> "hero-check-circle"
+                          :quase -> "hero-exclamation-triangle"
+                          :espalhado -> "hero-x-circle"
+                          :nada -> "hero-minus-circle"
+                        end
+                      }
+                      class="size-4 shrink-0"
+                    />
+                    {verdict_word(special_verdict(@special_reading))}
+                  </p>
+
+                  <p class="mt-0.5 text-pk-body text-pk-text-2">
+                    {verdict_hint(special_verdict(@special_reading))}
+                  </p>
+
+                  <p class="pk-num mt-1.5 font-mono text-pk-meta text-pk-text-3">
+                    a maior mancha tem <b class="text-pk-text-2">{@special_reading.maior}px</b>
+                    e o resto da foto tem
+                    <b class="text-pk-text-2">{@special_reading.px - @special_reading.maior}px</b>
+                    do mesmo tom · {@special_reading.manchas} mancha(s) · {:erlang.float_to_binary(
+                      @special_reading.pct,
+                      decimals: 1
+                    )}% da foto
+                  </p>
+                </div>
               </div>
 
               <ul :if={@special_rules != []} id="special-rules" class="space-y-1">

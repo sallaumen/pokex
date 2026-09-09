@@ -1843,22 +1843,23 @@ defmodule PokexWeb.PanelLive do
 
         texto =
           Enum.map_join(leituras, " · ", fn {nome, px, maior} ->
-            "#{nome}: #{px}px (maior mancha #{maior})"
+            "#{nome}: maior mancha #{maior}px (#{px}px casados na tela toda)"
           end)
 
-        {"sonda: " <> texto, leituras |> Enum.map(&elem(&1, 1)) |> Enum.max(fn -> 0 end)}
+        # A AGULHA É A MAIOR MANCHA, que é o que a guarda compara com o gatilho.
+        # Somar a tela inteira dava 264.131 contra 85.331 na tela dele: a sonda
+        # dizia "achei" onde a guarda não acharia nada.
+        {"sonda: " <> texto, leituras |> Enum.map(&elem(&1, 2)) |> Enum.max(fn -> 0 end)}
     end
   end
 
+  # PELA MESMA PORTA QUE O VIGIA. Esta função montava os specs à mão e lia só
+  # `rgb`/`tol_h`/`tol_sv` — um tom PRETO (que guarda teto de luz e
+  # espalhamento) chegava aqui com `tol_sv` nil e derrubava a sonda numa
+  # aritmética com nil. Uma segunda cópia da mesma decisão é sempre a cópia que
+  # diverge; `ColorRules.specs_for/1` é a única.
   defp probe_rule(entry, frame) do
-    specs =
-      Pokex.Vision.ColorMark.compile(
-        Enum.map(entry["colors"], fn c ->
-          [r, g, b] = c["rgb"]
-          %{rgb: {r, g, b}, tol_h: c["tol_h"], tol_sv: c["tol_sv"]}
-        end)
-      )
-
+    specs = Pokex.Vision.ColorRules.specs_for(entry)
     res = Pokex.Vision.ColorMark.scan(frame, specs, min_cell_px: entry["min_cell_px"])
     maior = res.manchas |> List.first() |> then(&if(&1, do: &1.px, else: 0))
     {entry["name"], res.px, maior}

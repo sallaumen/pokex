@@ -635,8 +635,13 @@ defmodule PokexWeb.ConfigLive do
       href: "/config/editores",
       icon: "hero-squares-plus",
       label: "Editores",
-      sub: "bolas, regras por espécie, varredura, estoque, reposição",
+      sub: "bolas, regras por espécie, varredura, estoque, reposição, guarda do shiny",
       keys: [
+        # O CARTÃO DA GUARDA MORA AQUI, não no painel: ele fica dentro do
+        # overlay dos Editores. O ponteiro dizia "/" e quem o seguia chegava
+        # numa tela sem cartão nenhum — um ponteiro errado é a mesma busca
+        # inútil que esta seção existe pra acabar.
+        :shiny_guard_enabled,
         :ball_key,
         :ball_needs_click,
         :ball_types,
@@ -688,13 +693,12 @@ defmodule PokexWeb.ConfigLive do
       href: "/",
       icon: "hero-home",
       label: "Painel e cabeçalho",
-      sub: "personagem, modo de jogo, sino, shiny, pesca",
+      sub: "personagem, modo de jogo, sino, pesca",
       keys: [
         :active_character,
         :player_mode,
         :alarm_sound,
         :alarm_muted_categories,
-        :shiny_guard_enabled,
         :mini_game_sound,
         :cavebot_measure_walk,
         :hook_skill_keys,

@@ -40,6 +40,9 @@ Este documento é o plano de implementação. Quem for implementar: leia a seç�
 > em vermelho, fogo e revive intactos); no sim, corpo + bola + promessa
 > `captura` (cenário "Shiny no chão"): com a segurada 19/19 corpos com bola,
 > sem ela 2/19.
+> PR 3: a história do shiny no feed da Central (✨ avistado, 🌟 corpo achado,
+> bola), o tile de captura diz "shiny" enquanto a mira vive, o badge ✨ lê o
+> fato `:special`, e o painel para de dizer "capturando" numa caçada sem shiny.
 >
 > **O QUE FALTA:** o protocolo shiny completo (§8) — alvo preferido, corpo do
 > shiny real ensinado na primeira morte, "cor → qual linha da battle list".

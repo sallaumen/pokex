@@ -327,6 +327,43 @@ defmodule Pokex.Bots.ShinyGuardTest do
     assert eventually(fn -> "drop.raw" in tags() end)
   end
 
+  # DESLIGAR É ESQUECER. Parada, a guarda continuava segurando o último quadro
+  # com a cor; ao religar numa tela limpa ela escrevia "last" e "gone" de um
+  # shiny que tinha saído da tela fazia meia hora.
+  test "switching the guard off forgets the frame it was holding", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    limpo = frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [])
+    {:ok, tela} = Agent.start_link(fn -> frame_com_mancha(region) end)
+
+    start_guard_journaling(fn _region, _name -> {:ok, Agent.get(tela, & &1)} end)
+
+    assert_receive {:journal, :special, %{tag: "seen"}}, 2_000
+
+    Pokex.Settings.put(:shiny_guard_enabled, false)
+    Process.sleep(200)
+    Agent.update(tela, fn _blob -> limpo end)
+    Pokex.Settings.put(:shiny_guard_enabled, true)
+
+    refute_receive {:journal, :special, %{tag: "gone"}}, 2_000
+    refute "gone.raw" in tags()
+  end
+
+  # SEM LEITURA NÃO É ZERO. Fora de combate ninguém lê a lista, e o fato fica
+  # velho: contando isso como zero, a guarda "via" a lista cair pra 0 e
+  # inventava a foto e a linha de um shiny que ninguém pegou.
+  test "an unread battle list is not a list that emptied", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    WorldState.put(:battle, %{enemies: [0, 1]}, System.monotonic_time(:millisecond))
+
+    start_guard_journaling(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
+
+    assert_receive {:journal, :special, %{tag: "seen", enemies: 2}}, 2_000
+    :ets.delete(:pokex_world, :battle)
+
+    refute_receive {:journal, :special, %{tag: "drop"}}, 500
+    refute "drop.raw" in tags()
+  end
+
   # A blob flapping at the threshold must not flood the rotation.
   test "the same moment does not repeat within the photo gap", %{region: region} do
     regra_provada()

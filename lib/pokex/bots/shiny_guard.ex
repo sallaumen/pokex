@@ -51,6 +51,9 @@ defmodule Pokex.Bots.ShinyGuard do
   @photo_gap_ms 3_000
   @photo_dir "shiny"
 
+  # the previous scan's edges, as they are before any scan has run
+  @blank_prev %{seen: [], frame: nil, enemies: nil}
+
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
 
@@ -66,7 +69,7 @@ defmodule Pokex.Bots.ShinyGuard do
       journal: Keyword.get(opts, :journal, &Pokex.Engine.Events.record/2),
       # the previous scan, for the edges: which rules were seen, with which
       # blob, on which frame, with how many listed enemies
-      prev: %{seen: [], frame: nil, enemies: 0},
+      prev: @blank_prev,
       # last photo per tag: the flood gate
       photographed_at: %{}
     }
@@ -78,6 +81,34 @@ defmodule Pokex.Bots.ShinyGuard do
   end
 
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
+
+  @doc """
+  A janela em que um fato desta guarda ainda vale: três varreduras de folga.
+
+  Uma foto perdida — o jogo sem foco, a captura engasgada — não pode despir a postura no meio
+  da luta. A cadência é uma configuração que ele mexe, então quem LÊ o fato tem que ler a
+  mesma conta que quem o escreve, e essa conta mora aqui uma vez só.
+  """
+  @spec fact_max_age_ms() :: pos_integer
+  def fact_max_age_ms, do: Settings.get(:special_color_scan_ms) * 3
+
+  @doc "Uma cor especial está na tela agora, no que a última varredura fresca sabe?"
+  @spec on_screen?(integer) :: boolean
+  def on_screen?(now \\ System.monotonic_time(:millisecond)) do
+    case WorldState.get(:special, fact_max_age_ms(), now) do
+      {:ok, %{especial?: true}} -> true
+      _stale_or_missing_or_clean -> false
+    end
+  end
+
+  @doc "As regras vistas na última varredura fresca, com as manchas delas — `[]` na tela limpa."
+  @spec seen(integer) :: [map]
+  def seen(now \\ System.monotonic_time(:millisecond)) do
+    case WorldState.get(:special, fact_max_age_ms(), now) do
+      {:ok, %{vistos: vistos}} when is_list(vistos) -> vistos
+      _stale_or_missing -> []
+    end
+  end
 
   @impl true
   def init(state) do
@@ -102,7 +133,7 @@ defmodule Pokex.Bots.ShinyGuard do
     state =
       if state.active? and Settings.get(:shiny_guard_enabled),
         do: look(state),
-        else: %{state | streaks: %{}}
+        else: forget(state)
 
     schedule(state)
     {:noreply, state}
@@ -121,6 +152,12 @@ defmodule Pokex.Bots.ShinyGuard do
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
+
+  # DESLIGAR É ESQUECER. `prev` guardava o último quadro em que a cor estava na
+  # tela, uns 17 MB de RGBA presos enquanto a guarda dorme — e, ao religar, a
+  # primeira varredura limpa escrevia um "last"/"gone" com a foto de uma hora
+  # atrás, como se o shiny tivesse acabado de sair da tela agora.
+  defp forget(state), do: %{state | streaks: %{}, prev: @blank_prev}
 
   # -- a varredura -------------------------------------------------------------
 
@@ -165,6 +202,12 @@ defmodule Pokex.Bots.ShinyGuard do
   end
 
   defp judge(state, rules, frame, region, forbidden) do
+    # UMA PROVA É DE UM QUADRO. Medida noutro (ele mexeu no raio da busca, no
+    # ponto do personagem, na tela), as caixas do HUD tapam chão vazio e o HUD
+    # volta a disparar — em banda escura ele é mais alto que a criatura.
+    {rules, fora} = Enum.split_with(rules, &ColorRules.proof_fits?(&1, region))
+    warn_stale(fora)
+
     {state, best, vistos} =
       Enum.reduce(rules, {state, 0, []}, fn rule, {state, best, vistos} ->
         result =
@@ -192,15 +235,28 @@ defmodule Pokex.Bots.ShinyGuard do
     broadcast_reading(state, best)
   end
 
+  defp warn_stale([]), do: :ok
+
+  defp warn_stale(rules) do
+    nomes = Enum.map_join(rules, ", ", & &1.name)
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @combat_topic,
+      {:combat_log, :macro,
+       "⚠️ #{nomes}: a prova do chão foi medida noutro quadro — meça de novo na calibração"}
+    )
+  end
+
   # ColorMark answers in FRAME pixels of the square; everything downstream (the
   # fact, the Catcher, a click) speaks SCREEN points. Converted once, here. The
   # frame pixel stays under `in_frame` for the evidence picture and never
   # leaves the module.
   defp on_screen(nil, _region, _scale), do: nil
 
-  defp on_screen(%{point: {fx, fy}} = mancha, {rx, ry, _w, _h}, scale) do
+  defp on_screen(%{point: {fx, fy}} = mancha, region, scale) do
     mancha
-    |> Map.put(:point, {rx + round(fx / scale), ry + round(fy / scale)})
+    |> Map.put(:point, Calibration.frame_to_screen(scale, region, {fx, fy}))
     |> Map.put(:in_frame, {fx, fy})
   end
 
@@ -288,7 +344,7 @@ defmodule Pokex.Bots.ShinyGuard do
           |> keep("last", prev.seen, prev.frame, prev.enemies, now, :quiet)
           |> keep("gone", prev.seen, frame, enemies, now)
 
-        vistos != [] and enemies < prev.enemies ->
+        vistos != [] and dropped?(prev.enemies, enemies) ->
           keep(state, "drop", vistos, frame, enemies, now)
 
         true ->
@@ -297,6 +353,14 @@ defmodule Pokex.Bots.ShinyGuard do
 
     %{state | prev: %{seen: vistos, frame: frame, enemies: enemies}}
   end
+
+  # SEM LEITURA NÃO É ZERO. `listed/0` devolve `nil` quando o fato da lista está
+  # velho, e velho acontece o tempo todo (a lista só é lida quando há briga).
+  # Contando isso como zero, toda varredura fora de combate "via" a lista
+  # encolher de 3 pra 0 e inventava a foto e a linha de "drop" de um shiny que
+  # ninguém pegou.
+  defp dropped?(before, now) when is_integer(before) and is_integer(now), do: now < before
+  defp dropped?(_unread, _now), do: false
 
   # `:quiet` keeps the photo without a journal line: "last" is the companion of
   # "gone", one record for the pair.
@@ -331,13 +395,14 @@ defmodule Pokex.Bots.ShinyGuard do
     end
   end
 
-  # The same count the eye reads: the battle list's rows, 0 when the fact is stale.
+  # The same count the eye reads: the battle list's rows, `nil` when the fact is
+  # stale — which is NOT the same as an empty list.
   defp listed do
     now = System.monotonic_time(:millisecond)
 
     case WorldState.get(:battle, Settings.get(:combat_world_max_age_ms), now) do
       {:ok, %{enemies: enemies}} when is_list(enemies) -> length(enemies)
-      _no_list -> 0
+      _no_list -> nil
     end
   end
 

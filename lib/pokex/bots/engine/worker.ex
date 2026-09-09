@@ -47,6 +47,7 @@ defmodule Pokex.Bots.Engine.Worker do
   alias Pokex.Bots.Engine.Narration
   alias Pokex.Bots.Engine.Situation
   alias Pokex.Bots.HuntMode
+  alias Pokex.Bots.ShinyGuard
   alias Pokex.Bots.{ReviveLedger, SkillClock}
   alias Pokex.Engine.Events
   alias Pokex.Engine.Vitals
@@ -371,19 +372,10 @@ defmodule Pokex.Bots.Engine.Worker do
     }
   end
 
-  # Três varreduras de folga: uma foto perdida (jogo sem foco, captura
-  # engasgada) não pode despir a postura no meio da luta.
-  defp especial?(now) do
-    idade = Settings.get(:special_color_scan_ms) * 3
-
-    case WorldState.get(:special, idade, now) do
-      {:ok, %{especial?: true}} -> true
-      _stale_or_missing_or_clean -> false
-    end
-  end
+  defp especial?(now), do: ShinyGuard.on_screen?(now)
 
   defp capturing?(now) do
-    idade = Settings.get(:special_color_scan_ms) * 3
+    idade = ShinyGuard.fact_max_age_ms()
 
     case WorldState.get(:capture, idade, now) do
       {:ok, %{aiming?: true}} -> true

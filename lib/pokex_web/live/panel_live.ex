@@ -1876,12 +1876,16 @@ defmodule PokexWeb.PanelLive do
   defp shiny_px_label(nil), do: "—"
   defp shiny_px_label(px), do: to_string(px)
 
+  # Sem regra ARMADA não há régua, e `min` chega nil: em Elixir um átomo é
+  # MAIOR que qualquer número, então `nil <= 0` é falso e a divisão explodia —
+  # a sonda existe justamente pro estado em que nada está provado ainda.
   defp shiny_bar_pct(nil, _min), do: 0
-  defp shiny_bar_pct(_px, min) when min <= 0, do: 0
+  defp shiny_bar_pct(_px, min) when not is_integer(min) or min <= 0, do: 0
   defp shiny_bar_pct(px, min), do: min(round(px / min * 100), 100)
 
   # green = no star (normal list), red = A SHINY is listed — red is GOOD here.
   defp shiny_zone(nil, _min), do: :none
+  defp shiny_zone(_px, min) when not is_integer(min), do: :none
   defp shiny_zone(px, min) when px >= min, do: :hit
   defp shiny_zone(px, min) when px >= min * 0.5, do: :warn
   defp shiny_zone(_px, _min), do: :safe

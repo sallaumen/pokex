@@ -106,8 +106,12 @@ defmodule PokexWeb.SiegeComponents do
             </pattern>
           </defs>
 
+          <%!-- A foto só entra com uma leitura que TEM caixa e âncora: com o
+               espelho ligado, uma captura que falha deixa a foto velha no lugar
+               e a leitura vira `read?: false` — desenhar aquela foto pedia um
+               `box` que não existe e derrubava a página. --%>
           <image
-            :if={@photo && (@state == :fresh or @mirror?)}
+            :if={@photo && placeable?(@reading) && (@state == :fresh or @mirror?)}
             href={@photo}
             x={photo_x(@reading)}
             y={photo_y(@reading)}
@@ -361,6 +365,9 @@ defmodule PokexWeb.SiegeComponents do
   defp pet_how(_no_method), do: "não se sabe por qual caminho"
 
   # --- the photo, mapped tile for tile ------------------------------------------
+
+  defp placeable?(%{box: {_x, _y, _w, _h}, me: {_px, _py}}), do: true
+  defp placeable?(_unread), do: false
 
   defp photo_x(%{box: {bx, _by, _w, _h}, me: {px, _py}}), do: (bx - px) / tile() - 0.5
   defp photo_y(%{box: {_bx, by, _w, _h}, me: {_px, py}}), do: (by - py) / tile() - 0.5

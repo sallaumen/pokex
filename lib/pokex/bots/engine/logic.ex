@@ -193,10 +193,12 @@ defmodule Pokex.Bots.Engine.Logic do
             # (`%{since, chains}`; nil = ninguém). Um sobrevivente é forte por
             # definição, e a resposta é ficar: revive → corrente → … até cair.
             survivors: nil,
-            # THE STUN'S COVER (`Engine.Siege.cover/3`): where the pokémon stood
-            # and which creatures the control reached when it went out. It is
-            # what lets the eye tell a creature asleep in the pile from one that
-            # arrived after — the picture alone cannot. nil = no stun this fight.
+            # THE STUN'S COVER (`Engine.Siege.cover/3`): where the pokémon stood,
+            # which tile HE stood on, and which creatures the control reached
+            # when it went out. It is what lets the eye tell a creature asleep in
+            # the pile from one that arrived after — the picture alone cannot,
+            # and the tile is what keeps the two readings in one frame while he
+            # walks. nil = no stun this fight.
             stun_cover: nil,
             # THE AREA IS HEAVY (skulls), latched for the fight: an effect over
             # the pile hides skulls without changing the area. An empty list
@@ -265,7 +267,10 @@ defmodule Pokex.Bots.Engine.Logic do
       logic.stun_cover,
       config,
       now,
-      heavy?: logic.heavy_area?
+      heavy?: logic.heavy_area?,
+      # the tile he is standing on: the frame the stun's cover is compared in,
+      # because the eye measures from him and he walks (`Siege.covered?/3`)
+      pos: Map.get(situation, :pos)
     )
   end
 
@@ -285,7 +290,7 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp cover_now(situation, config, now) do
     Map.get(situation, :crowd)
-    |> Siege.build(Map.get(situation, :enemies), nil, config, now)
+    |> Siege.build(Map.get(situation, :enemies), nil, config, now, pos: Map.get(situation, :pos))
     |> Siege.cover(config, now)
   end
 
@@ -529,10 +534,15 @@ defmodule Pokex.Bots.Engine.Logic do
     at = Map.get(t.logic.since, :reset_pending, t.now)
     segundos = div(t.now - at, 1_000)
 
+    # AS TRÊS FRASES SÃO TRÊS ESTADOS DA LEITURA, e a primeira dizia o mesmo
+    # que as outras duas: "a barra ainda não voltou na tela" com `bar_seen?`
+    # VERDADEIRO — a foto está chegando. Ler isso mandava ele recalibrar um
+    # leitor que estava funcionando, quando o que falta são os cooldowns.
     tela =
       cond do
         bar_seen?(t) ->
-          "a barra ainda não voltou na tela; a rota só segue com os cooldowns de volta"
+          "a barra é lida, e os cooldowns ainda não voltaram nela; " <>
+            "a rota só segue quando voltarem"
 
         blind_before_request?(t, at) ->
           "a barra está ilegível desde antes do pedido — solto pelo relógio em " <>

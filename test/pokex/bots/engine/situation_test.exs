@@ -305,6 +305,61 @@ defmodule Pokex.Bots.Engine.SituationTest do
     end
   end
 
+  # O NOME É A ESPÉCIE, e ele caça o bicho que tem em campo. Descontar "toda
+  # linha com esse nome" fazia a pilha inteira virar a linha dele: cinco
+  # Vileplumes na tela, `enemies` 0, `worth_fighting?` falso, e o cérebro
+  # respondendo "seguindo a rota" pra uma pilha que estava comendo ele.
+  describe "the own row when the hunt is his own species" do
+    test "discounts ONE namesake, never every row with that name" do
+      picture = picture_of(~w(Vileplume Vileplume Vileplume), own_name: "Shiny Vileplume")
+
+      assert picture.rows == 3
+      assert picture.enemies == 2
+      assert picture.own_row_seen? == true
+    end
+
+    test "the namesakes come back into `named`, so a boss of his species is visible" do
+      picture = picture_of(~w(Vileplume Vileplume), own_name: "Vileplume")
+
+      assert length(picture.named) == picture.enemies
+      assert Enum.map(picture.named, & &1.name) == ~w(Vileplume)
+    end
+
+    test "a pile of his own species is still worth fighting" do
+      picture = picture_of(~w(Vileplume Vileplume Vileplume Vileplume), own_name: "Vileplume")
+
+      assert picture.enemies == 3
+      assert picture.worth_fighting?
+    end
+
+    # A mesma vida lida de dois lugares que não se conhecem — a Pokebar e o
+    # trilho da linha — é o que aponta QUAL delas é a dele, exatamente como já
+    # fazia com as linhas ilegíveis.
+    test "his health names WHICH namesake is his" do
+      detail = [
+        %{row: 0, name: "Vileplume", hp_pct: 1.0, shiny?: false},
+        %{row: 1, name: "Vileplume", hp_pct: 0.40, shiny?: false}
+      ]
+
+      picture =
+        Situation.build(
+          %{
+            battle: %{enemies: [0, 1], enemies_detail: detail, locked?: false, locked_row: nil},
+            own_name: "Vileplume",
+            own_hp: 42,
+            own_out?: true,
+            ready_keys: [],
+            damage_keys: []
+          },
+          @config,
+          1_000
+        )
+
+      assert picture.enemies == 1
+      assert Enum.map(picture.named, & &1.hp_pct) == [1.0]
+    end
+  end
+
   # O CHEFE, POR NOME. `heavy?` é o gatilho da postura de chefe do cérebro —
   # e ele fura a régua (`worth_fighting?`) porque um chefe sozinho vale a luta
   # que cinco bichos comuns valem.

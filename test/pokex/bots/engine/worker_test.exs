@@ -119,6 +119,23 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert picture.heavy? == false
     end
 
+    # The Catcher aiming at a shiny's corpse reaches the picture as
+    # `capturing?`, on the colour's own clock (three scans).
+    test "the :capture fact rides the picture while fresh", %{worker: worker} do
+      see(~w(Venonat))
+      WorldState.put(:capture, %{aiming?: true, pending: 1, corpses: []}, now())
+      send(worker, :tick)
+      settle(worker)
+
+      assert {:ok, %{capturing?: true}} = WorldState.get(:situation, 5_000, now())
+
+      WorldState.put(:capture, %{aiming?: true, pending: 1, corpses: []}, now() - 60_000)
+      send(worker, :tick)
+      settle(worker)
+
+      assert {:ok, %{capturing?: false}} = WorldState.get(:situation, 5_000, now())
+    end
+
     test "halting takes the picture down with it", %{worker: worker} do
       see(~w(Venonat Paras Venomoth))
       send(worker, :tick)

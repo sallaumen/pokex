@@ -2706,4 +2706,110 @@ defmodule PokexWeb.CavebotLiveTest do
       assert lista =~ "bola padrão"
     end
   end
+
+  # O CARD COMO FONTE DE VALIDAÇÃO (09/09): "pra eu ver a interseção e nós
+  # juntos podermos usar aquilo como uma fonte visual de validação do
+  # funcionamento do reconhecimento de imagens".
+  describe "the siege card as proof" do
+    defp crowd_with(hostiles, pet \\ nil) do
+      %{
+        read?: true,
+        at: System.monotonic_time(:millisecond),
+        took_ms: 27,
+        me: {906, 720},
+        box: {0, 0, 1812, 1440},
+        pet: pet,
+        hostiles: hostiles,
+        listed: length(hostiles)
+      }
+    end
+
+    defp hostile(point, dx, dy, extra \\ %{}) do
+      Map.merge(
+        %{
+          point: point,
+          dx: dx,
+          dy: dy,
+          from_me: max(abs(dx), abs(dy)),
+          from_pet: nil,
+          hp_pct: 100,
+          skull?: false
+        },
+        extra
+      )
+    end
+
+    test "the shiny gets its own colour and says how far past the trigger it is", %{conn: conn} do
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+
+      {:ok, %{"slug" => slug}} =
+        Pokex.Vision.ColorRules.add(%{
+          "name" => "Charizard preto",
+          "colors" => [%{"dark" => 30, "spread" => 12, "rgb" => [17, 16, 16]}],
+          "min_px" => 3_000
+        })
+
+      :ok = Pokex.Vision.ColorRules.mark_proven(slug, 900)
+      now = System.monotonic_time(:millisecond)
+
+      WorldState.put(:crowd, crowd_with([hostile({1057, 1022}, 1, 2)]), now)
+
+      WorldState.put(
+        :special,
+        %{especial?: true, vistos: [%{name: "Charizard preto", px: 12_000, point: {1057, 1022}}]},
+        now
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      card = view |> element("#siege-card") |> render()
+
+      assert card =~ ~s(data-special="1"), "o quadrado do shiny se declara"
+      assert card =~ "pk-shiny", "…e tem cor própria"
+      # 12.000px contra um gatilho de 3.000 = 400%
+      assert card =~ "≈400%", "…e diz o quanto passou do gatilho, marcado como CONFIANÇA"
+      assert card =~ "Charizard preto"
+
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+    end
+
+    test "the pet square says which of the three paths found it", %{conn: conn} do
+      pet = %{
+        point: {906, 1022},
+        dx: 0,
+        dy: 2,
+        tiles: 2,
+        hp_pct: 96,
+        by: :sprite,
+        score: 0.87
+      }
+
+      WorldState.put(:crowd, crowd_with([], pet), System.monotonic_time(:millisecond))
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      card = view |> element("#siege-card") |> render()
+
+      assert card =~ "≈87%", "a nota da sprite ensinada vai no quadrado, com o ≈ que a separa da vida"
+      refute card =~ ">87<", "número puro é VIDA — a semelhança nunca pode se passar por ela"
+      assert card =~ "achado pela sprite ensinada"
+    end
+
+    test "a pet found by health says so, because that is the weak path", %{conn: conn} do
+      pet = %{point: {906, 1022}, dx: 0, dy: 2, tiles: 2, hp_pct: 96, by: :hp, score: nil}
+      WorldState.put(:crowd, crowd_with([], pet), System.monotonic_time(:millisecond))
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      card = view |> element("#siege-card") |> render()
+
+      assert card =~ "vida"
+      assert card =~ "nem sprite nem caixa"
+    end
+
+    test "the mirror is off until he asks, and then it says so", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#siege-mirror") |> render() =~ "desligado"
+      view |> element("#siege-mirror") |> render_click()
+      assert view |> element("#siege-mirror") |> render() =~ "ligado"
+    end
+  end
 end

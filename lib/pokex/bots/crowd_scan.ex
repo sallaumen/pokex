@@ -110,9 +110,15 @@ defmodule Pokex.Bots.CrowdScan do
       tile = Calibration.tile_px(calib)
       found = CreatureMarks.find(frame)
       marks = Enum.map(found, &to_screen(&1, box, scale))
+      taught = sprite_pet(frame, found, tile, scale, opts)
 
       marks
-      |> place({px, py}, tile, Keyword.take(opts, [:pet_hp, :me_hp]))
+      |> place(
+        {px, py},
+        tile,
+        Keyword.take(opts, [:pet_hp, :me_hp]) ++
+          [pet_point: taught && to_screen(taught, box, scale).point]
+      )
       |> Map.merge(%{
         at: started,
         took_ms: System.monotonic_time(:millisecond) - started,
@@ -131,7 +137,9 @@ defmodule Pokex.Bots.CrowdScan do
   Marks (bar centres, in screen points) placed in tiles from `me` and from
   his pokemon. Pure: the simulator calls it with the marks its world draws.
 
-  His pokemon is the mark with the number box nearest to him. Without a box
+  His pokemon is, first, the mark `:pet_point` names — the one whose body the
+  taught sprites recognised (`look/1`, his three or four Torterra angles).
+  Failing that, the mark with the number box nearest to him. Without a box
   (his notebook draws none) it is the mark whose health matches `:pet_hp`,
   what the Pokebar reads, within one column of the bar — nearest to him when
   two match. No match, no pet: `from_pet` stays `nil`.
@@ -146,7 +154,9 @@ defmodule Pokex.Bots.CrowdScan do
       |> Enum.map(fn %{point: {x, y}} = mark -> %{mark | point: {x, y + tile}} end)
       |> Enum.reject(&(chebyshev(&1.point, me) <= @me_tiles * tile))
 
-    pet = boxed_pet(bodies, me) || pet_by_health(bodies, me, Keyword.get(opts, :pet_hp))
+    pet =
+      taught_pet(bodies, Keyword.get(opts, :pet_point), tile) || boxed_pet(bodies, me) ||
+        pet_by_health(bodies, me, Keyword.get(opts, :pet_hp))
 
     hostiles =
       bodies
@@ -179,6 +189,49 @@ defmodule Pokex.Bots.CrowdScan do
   defp over_his_head?(_mark, _me, _tile, _unknown), do: false
 
   # --- his pokemon -----------------------------------------------------------
+
+  # THE TAUGHT SPRITE WINS (09/09): "ele muitas vezes troca qual é o pokémon que
+  # ele acha que é o meu — é importante usar a calibração do meu pokémon, três
+  # ou quatro imagens do Torterra de vários ângulos". Every mark's body (one
+  # tile under the bar) is scored against the taught library; the body that
+  # is his pokémon by name, above the tracker's own threshold and best of all,
+  # is the pet — whatever box or health the others show. Nothing taught, or
+  # nothing close enough (the notebook's tile is a third of the ultrawide's,
+  # and the library was taught there): the box and the health decide, as before.
+  defp sprite_pet(frame, marks, tile, scale, opts) do
+    name = Keyword.get_lazy(opts, :pet_name, &Pokex.Pokedex.Team.active/0)
+    lib = Keyword.get_lazy(opts, :sprites, &Pokex.Bots.PokemonSprites.library/0)
+
+    if is_binary(name) and marks != [] and not Pokex.Vision.SpriteLibrary.empty?(lib) do
+      aimed = Pokex.Vision.SpriteLibrary.aimed(lib)
+      box = Pokex.Settings.get(:pokemon_sprite_box_px)
+      floor = Pokex.Settings.get(:pokemon_track_min_similarity)
+      body_below = round(tile * scale)
+
+      marks
+      |> Enum.map(fn %{point: {x, y}} = mark ->
+        window = {x - div(box, 2), y + body_below - div(box, 2), box, box}
+        {mark, Pokex.Vision.SpriteLibrary.best_in(aimed, frame, window)}
+      end)
+      |> Enum.filter(fn {_mark, hit} ->
+        hit != nil and hit.score >= floor and same_name?(hit.name, name)
+      end)
+      |> Enum.max_by(fn {_mark, hit} -> hit.score end, fn -> nil end)
+      |> case do
+        {mark, _hit} -> mark
+        nil -> nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp same_name?(taught, active), do: String.downcase(taught) == String.downcase(active)
+
+  defp taught_pet(bodies, {x, y}, tile),
+    do: Enum.find(bodies, fn %{point: {bx, by}} -> {bx, by - tile} == {x, y} end)
+
+  defp taught_pet(_bodies, _no_point, _tile), do: nil
 
   defp boxed_pet(bodies, me) do
     bodies

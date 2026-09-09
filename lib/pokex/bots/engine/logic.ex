@@ -1750,9 +1750,17 @@ defmodule Pokex.Bots.Engine.Logic do
           "#{count(t.s)} depois de #{walked(t)} passos juntando (bolo cheio): estourando a área"
         )
 
-      stopped_arriving?(t) ->
-        open(t, "#{count(t.s)} e pararam de chegar: estourando a área")
-
+      # AQUI HAVIA UMA QUARTA SAÍDA, "pararam de chegar", E ELA NUNCA PODIA
+      # DISPARAR (09/09): pedia `bolo_cheio? and settled?`, e bolo cheio é a
+      # linha logo acima, que abre primeiro — nenhuma pilha chegava nela. O
+      # diário dele confirma: 0 de 164 fechamentos de janela naquela manhã.
+      #
+      # Reescrevê-la como "vale a área E pararam de vir" (o piso, não o alvo)
+      # foi tentado e está ERRADO: dois testes desta suíte cobram, de
+      # propósito, que uma pilha de dois já assentada CONTINUE andando atrás do
+      # alvo. Quem decide quando parar de juntar é o alvo do bolo, e o teto é a
+      # paciência. Uma regra a mais no meio só teria o que fazer se alguém
+      # medisse que vale — e ninguém mediu. Fora, então, em vez de fingir.
       # "Ou quando a gente já andou demais e não achou mais ninguém": past the
       # patience, what is there is worth more than what might still come.
       patience_out?(t) ->
@@ -2013,8 +2021,6 @@ defmodule Pokex.Bots.Engine.Logic do
   # A paciência (`patience_tiles`) continua sendo o teto: um bolo que nunca
   # chega no alvo não pode segurar a caçada pra sempre.
   defp gathered_enough?(t), do: bolo_cheio?(t)
-
-  defp stopped_arriving?(t), do: bolo_cheio?(t) and settled?(t)
 
   defp bolo_cheio?(t) do
     t.s.worth_fighting? and is_integer(t.s.enemies) and t.s.enemies >= t.config.gather_target

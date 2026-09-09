@@ -226,9 +226,12 @@ defmodule Pokex.Settings.Locked do
     minimap_px_per_tile: {"Minimapa (visão)", "medido: 2px por tile"},
     # --- O modo decide ---
     engine_gather_piles: {"O modo decide", "juntar bicho andando: nenhum modo faz"},
+    # A NOTA ANTIGA MENTIA: dizia "sem juntar andando, este número nunca é
+    # olhado". É olhado em TODO tique de juntada — `bolo_cheio?` cobra os dois,
+    # o piso ("para e luta a partir de") e este alvo, e vale o MAIOR dos dois.
     engine_gather_target:
       {"O modo decide",
-       "o 'para e luta' já decide o tamanho do bolo: sem juntar andando, este número nunca é olhado"},
+       "o alvo que a régua persegue; o 'para e luta a partir de' é o piso, e vale o maior dos dois"},
     engine_kite_when_spent: {"O modo decide", "recuar com a barra vazia"},
     # --- Where the monsters are (vision) ---
     crowd_scan_radius_tiles:

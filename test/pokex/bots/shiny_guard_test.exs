@@ -30,7 +30,10 @@ defmodule Pokex.Bots.ShinyGuardTest do
       glow_region: {0, 0, 20, 20},
       battle_region: {0, 0, 80, 400},
       neutral_point: {500, 500},
-      player_point: {500, 350}
+      player_point: {500, 350},
+      # a measured tile: the square no longer swallows the whole screen, so the
+      # region has an origin away from (0,0) and a frame point differs from a screen point
+      tile_px: 40
     })
 
     {:ok, calib} = Calibration.load()
@@ -228,5 +231,23 @@ defmodule Pokex.Bots.ShinyGuardTest do
     guard = start_guard(fn _region, _name -> {:ok, limpo} end)
 
     assert %{enabled?: true, armed_rules: 1, pending?: false} = ShinyGuard.status(guard)
+  end
+
+  # The blob's centre of mass is in FRAME pixels; the fact and the broadcast
+  # carry SCREEN points, the only frame a click or the Catcher understands.
+  test "the fact and the broadcast carry the blob in screen points", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+    start_guard(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
+
+    assert_receive {:shiny_seen, %{point: {sx, sy}}}, 2_000
+
+    # the patch is 14x14 at (10,10) in the frame: its centre is (17,17) from the region origin
+    {rx, ry, _w, _h} = region
+    assert_in_delta sx, rx + 17, 4
+    assert_in_delta sy, ry + 17, 4
+
+    assert {:ok, %{vistos: [%{point: {^sx, ^sy}}]}} =
+             WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
   end
 end

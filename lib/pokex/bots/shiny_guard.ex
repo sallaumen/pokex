@@ -9,6 +9,7 @@ defmodule Pokex.Bots.ShinyGuard do
   shiny Electrode is green where the common one is red, and the hue survives any pose, even an
   upside-down rollout. So the watcher scans the square around the character (the same one
   `SpotScan` uses) for the PROVEN rules of `ColorRules`, with `ColorMark` doing the reading.
+  Points leave this module in SCREEN coordinates.
 
   NO ACTIONS, by his decision: no alarm, no escape; `shiny_action` and the `escape_fun` died
   with the star. Sighted means RECORDED: a journal line, a trophy in `ShinyLog`,
@@ -119,7 +120,7 @@ defmodule Pokex.Bots.ShinyGuard do
 
       rules ->
         case snapshot(state) do
-          {:ok, frame, forbidden} -> judge(state, rules, frame, forbidden)
+          {:ok, frame, region, forbidden} -> judge(state, rules, frame, region, forbidden)
           # Blind is not "no boss": without a frame the fact is NOT rewritten; it ages
           # on its own until the brain stops believing it.
           _blind -> state
@@ -131,7 +132,7 @@ defmodule Pokex.Bots.ShinyGuard do
     with {:ok, calib} <- Calibration.load(),
          {:ok, {_x, _y, _w, _h} = region} <- SpotScan.region(calib),
          {:ok, %Frame{} = frame} <- state.capture.(region, "special_colors.raw") do
-      {:ok, frame, forbidden_boxes(calib, frame, region)}
+      {:ok, frame, region, forbidden_boxes(calib, frame, region)}
     end
   end
 
@@ -149,7 +150,7 @@ defmodule Pokex.Bots.ShinyGuard do
     end)
   end
 
-  defp judge(state, rules, frame, forbidden) do
+  defp judge(state, rules, frame, region, forbidden) do
     {state, best, vistos} =
       Enum.reduce(rules, {state, 0, []}, fn rule, {state, best, vistos} ->
         result =
@@ -158,7 +159,7 @@ defmodule Pokex.Bots.ShinyGuard do
             forbidden: forbidden
           )
 
-        mancha = List.first(result.manchas)
+        mancha = result.manchas |> List.first() |> on_screen(region, frame.scale)
         hit? = mancha != nil and mancha.px >= rule.min_px
 
         {advance(state, rule, mancha, hit?), max(best, result.px),
@@ -167,6 +168,18 @@ defmodule Pokex.Bots.ShinyGuard do
 
     publish_special(vistos)
     broadcast_reading(state, best)
+  end
+
+  # ColorMark answers in FRAME pixels of the square; everything downstream (the
+  # fact, the Catcher, a click) speaks SCREEN points. Converted once, here. The
+  # frame pixel stays under `in_frame` for the evidence picture and never
+  # leaves the module.
+  defp on_screen(nil, _region, _scale), do: nil
+
+  defp on_screen(%{point: {fx, fy}} = mancha, {rx, ry, _w, _h}, scale) do
+    mancha
+    |> Map.put(:point, {rx + round(fx / scale), ry + round(fy / scale)})
+    |> Map.put(:in_frame, {fx, fy})
   end
 
   # The FACT is published on EVERY scan, not every announcement. The trophy has a one-minute

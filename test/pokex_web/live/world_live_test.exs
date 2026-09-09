@@ -10,7 +10,7 @@ defmodule PokexWeb.WorldLiveTest do
 
     on_exit(fn ->
       Enum.each(
-        [:battle, :corpses, :mini_game, :world_test_key, :hud, :team, :minimap],
+        [:battle, :mini_game, :world_test_key, :hud, :team, :minimap],
         &WorldState.forget/1
       )
     end)
@@ -57,7 +57,7 @@ defmodule PokexWeb.WorldLiveTest do
   end
 
   test "renders the empty state before anything is published", %{conn: conn} do
-    Enum.each([:battle, :arena, :corpses, :mini_game], &WorldState.forget/1)
+    Enum.each([:battle, :minimap, :mini_game], &WorldState.forget/1)
 
     {:ok, _view, html} = live(conn, ~p"/world")
 
@@ -76,7 +76,7 @@ defmodule PokexWeb.WorldLiveTest do
       now
     )
 
-    WorldState.put(:corpses, %{scanning?: true, corpses: [{130, 224}], captured_at: now}, now)
+    WorldState.put(:minimap, %{pos: {316, 297, 7}}, now)
 
     {:ok, _view, html} = live(conn, ~p"/world")
 
@@ -88,8 +88,8 @@ defmodule PokexWeb.WorldLiveTest do
     assert html =~ "2 na lista"
     assert html =~ "lock na linha 0"
 
-    assert html =~ "corpses"
-    assert html =~ "1 corpo"
+    assert html =~ "minimap"
+    assert html =~ "posição 316, 297 (andar 7)"
 
     assert html =~ "ms"
   end
@@ -142,7 +142,7 @@ defmodule PokexWeb.WorldLiveTest do
   end
 
   test "the periodic refresh picks up facts published after mount", %{conn: conn} do
-    Enum.each([:battle, :arena, :corpses, :mini_game], &WorldState.forget/1)
+    Enum.each([:battle, :minimap, :mini_game], &WorldState.forget/1)
 
     {:ok, view, _html} = live(conn, ~p"/world")
     # scoped to the page's OWN snapshot: the header rides on every route and
@@ -169,7 +169,7 @@ defmodule PokexWeb.WorldLiveTest do
   # e, por ser um fato compartilhado, qualquer página aberta depois na mesma
   # sessão de testes.
   test "a lista de batalha ILEGÍVEL é um fato, não um crash", %{conn: conn} do
-    Enum.each([:battle, :arena, :corpses, :mini_game], &WorldState.forget/1)
+    Enum.each([:battle, :minimap, :mini_game], &WorldState.forget/1)
 
     WorldState.put(
       :battle,

@@ -470,23 +470,11 @@ defmodule Pokex.Settings do
     # A held key dies on its own after this long without a refresh.
     hold_max_ms: 1_500,
     # --- Corpse capture ("still" mode) -------------------------------------------------------------
-    # The :corpses feed learns the EMPTY ground at attach: the first warmup frame is the baseline
-    # and any 16px cell that deviates during the remaining warmup frames (animated water, sparkles,
-    # the character) is masked out forever. After warmup, a masked-diff blob that holds still for
-    # corpse_stationary_frames consecutive frames is a corpse (a wandering pet never qualifies).
-    # Start the bot with the ground CLEAN — a corpse present at attach becomes part of the baseline.
+    # The ground-diff feed that once learned an EMPTY baseline is GONE (retired 2026-07-30,
+    # deleted 2026-09-09): the aim is the kill-anchored `SpotScan`, and real operation never had
+    # the quiet window a baseline needed. This clock survived it as the Logic's fallback wake
+    # while a ball is in flight — the name is the only thing left of the feed.
     feed_corpses_ms: 400,
-    corpse_warmup_frames: 20,
-    corpse_cell_px: 18,
-    # per-channel delta for a sample to count as changed (warmup: mask a cell; scanning: heat it)
-    corpse_noise_threshold: 40,
-    corpse_diff_threshold: 40,
-    # samples per 16px cell = 16 (stride 4); a cell is HOT when this many changed
-    corpse_cell_min_samples: 8,
-    # a blob needs this many connected hot cells (a corpse sprite spans ~2-3 cells)
-    corpse_min_cells: 2,
-    corpse_stationary_frames: 2,
-    corpse_stationary_tolerance_px: 28,
     # Catcher: one ball in flight at a time, confirmed against the next observations.
     player_mode: "still",
     # Independent switches, both only meaningful while parado:

@@ -51,18 +51,8 @@ defmodule Pokex.Settings.Locked do
     corpse_scan_refine_peaks: {"Captura (visão)", "quantos picos a varredura refina"},
     pokeball_min_red_px:
       {"Captura (visão)", "pixels vermelhos que marcam a bola do PRÓPRIO pokémon na lista"},
-    feed_corpses_ms: {"Captura (visão)", "o chão é lido a cada 400ms no modo Parado"},
-    corpse_warmup_frames: {"Captura (visão)", "quadros pra aprender o chão vazio"},
-    corpse_cell_px: {"Captura (visão)", "célula da grade que detecta mudança no chão"},
-    corpse_noise_threshold:
-      {"Captura (visão)", "delta por canal pra um pixel contar como mudado (aprendendo)"},
-    corpse_diff_threshold:
-      {"Captura (visão)", "delta por canal pra um pixel contar como mudado (varrendo)"},
-    corpse_cell_min_samples: {"Captura (visão)", "amostras mudadas pra uma célula esquentar"},
-    corpse_min_cells: {"Captura (visão)", "células quentes vizinhas que formam um corpo (~2-3)"},
-    corpse_stationary_frames: {"Captura (visão)", "quadros parado antes de valer como corpo"},
-    corpse_stationary_tolerance_px:
-      {"Captura (visão)", "quanto pode tremer e ainda ser o mesmo corpo"},
+    feed_corpses_ms:
+      {"Captura (visão)", "com uma bola no ar, o relógio que faz a lógica olhar de novo"},
     corpse_match_tolerance_px: {"Captura (visão)", "distância pra casar um corpo com o acervo"},
     corpse_ignore_ttl_ms: {"Captura (visão)", "corpo desistido é ignorado por 45s"},
     corpse_confirm_after_ms: {"Captura (visão)", "espera antes de confirmar que a bola capturou"},

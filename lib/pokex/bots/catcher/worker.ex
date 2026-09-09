@@ -32,7 +32,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Bots.InputGate
   alias Pokex.Calibration
   alias Pokex.Perception
-  alias Pokex.Perception.Feed
   alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
@@ -130,10 +129,7 @@ defmodule Pokex.Bots.Catcher.Worker do
        aim_timer: nil,
        auto_tick?: auto_tick?,
        timer: nil,
-       attached?: false,
        combat_engaged?: false,
-       feed_ref: nil,
-       reattach_attempts: 0,
        # has the closed gate been announced this round? (edge-triggered log)
        held?: false,
        # rescans scheduled after a kill that found nothing: the corpse stays on
@@ -184,7 +180,8 @@ defmodule Pokex.Bots.Catcher.Worker do
         combat_engaged?: seed_combat_engaged()
     }
 
-    state = state |> monitorar_combate() |> sync_mode() |> arm_sweep()
+    state = %{state | shiny_pending?: false}
+    state = state |> monitorar_combate() |> cancel_timer() |> arm_sweep()
     announce_library()
     broadcast(state)
     {:reply, :ok, state}
@@ -194,9 +191,9 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   def handle_call(:halt, _from, state) do
     {logic, _} = Logic.stop(state.logic)
-    state = state |> Map.put(:logic, logic) |> detach() |> disarm_sweep() |> close_aim()
+    state = state |> Map.put(:logic, logic) |> disarm_sweep() |> close_aim()
     broadcast(state)
-    {:reply, :ok, cancel_timer(%{state | reattach_attempts: 0})}
+    {:reply, :ok, cancel_timer(state)}
   end
 
   def handle_call(:status, _from, state), do: {:reply, snapshot(state), state}
@@ -207,13 +204,13 @@ defmodule Pokex.Bots.Catcher.Worker do
     state = %{state | combat_engaged?: seed_combat_engaged()}
     # the sweep re-arms HERE too: flipping its switch (or its cadence) in the
     # settings screen has to apply to a bot already running, not at the next start
-    state = state |> sync_mode() |> arm_sweep()
+    state = state |> cancel_timer() |> arm_sweep()
     broadcast(state)
     {:reply, :ok, state}
   end
 
   def handle_call(:relearn, _from, state) do
-    state = state |> reset_logic() |> detach() |> sync_mode()
+    state = state |> reset_logic() |> cancel_timer()
     {:reply, :ok, state}
   end
 
@@ -242,9 +239,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   @impl true
-  def handle_info({:world, :corpses, obs}, %{logic: %Logic{state: :armed}} = state),
-    do: {:noreply, advance(state, obs)}
-
   def handle_info({:world, _key, _obs}, state), do: {:noreply, state}
 
   def handle_info(:wake, %{logic: %Logic{state: :armed}} = state),
@@ -298,12 +292,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   # schedule a reattach. Otherwise a silently-detached catcher would stop capturing forever the
   # moment the feed restarts — retry-attach on a short timer instead (mirrors Combat.Worker's
   # battle-feed monitor).
-  def handle_info({:DOWN, ref, :process, _obj, _reason}, %{feed_ref: ref} = state) do
-    state = %{state | attached?: false, feed_ref: nil}
-    state = if armed_idle?(state), do: schedule_reattach(state), else: state
-    {:noreply, state}
-  end
-
   # Combat.Worker died: FAIL-OPEN on the engagement mirror. A crash between
   # engage and disengage would leave combat_engaged? stuck true — a mute catcher
   # until a broadcast that may never come. The supervisor recreates combat,
@@ -314,20 +302,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   def handle_info({:DOWN, _ref, :process, _obj, _reason}, state), do: {:noreply, state}
-
-  def handle_info(:reattach_corpses, state) do
-    cond do
-      not armed_idle?(state) or state.attached? ->
-        {:noreply, state}
-
-      state.combat_engaged? ->
-        # a fight is in progress — attaching now would warm up on the live sprite; retry later
-        {:noreply, schedule_reattach(state)}
-
-      true ->
-        {:noreply, reattach_corpses(state)}
-    end
-  end
 
   # A shiny is on screen: arm the override so the ball flies even with capture
   # off, and open the aim session — its corpse is looked for by COLOUR on its
@@ -543,12 +517,16 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp sweep_result(text),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:sweep_result, text})
 
-  # capture_enabled OR a shiny in the story (never lose a shiny to a toggle):
-  # pending before its ball, or the aim session still confirming that ball.
+  # capture_enabled OR um shiny NA HISTÓRIA — e a história é a sessão de mira,
+  # que nasce no avistamento e morre em 90s.
+  #
+  # `shiny_pending?` sozinho não serve de porta: ele só era limpo quando uma
+  # bola voava, então um avistamento durante o jogo manual (a guarda é filha
+  # sempre-viva da aplicação) ficava armado por horas e dava bola no PRIMEIRO
+  # corpo comum da sessão seguinte, com a captura desligada — e ainda carimbava
+  # aquele avistamento velho como capturado.
   defp capture_allowed?(state),
-    do:
-      Settings.get(:capture_enabled) or
-        ((state.shiny_pending? or state.aim != nil) and Settings.get(:shiny_always_ball))
+    do: Settings.get(:capture_enabled) or (state.aim != nil and Settings.get(:shiny_always_ball))
 
   # The mode gate lives HERE, not only in attach/detach: a late in-flight {:world,...} event
   # (or a test-injected one) right after flipping to moving must never throw a ball.
@@ -649,11 +627,16 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp do_advance(%{combat_engaged?: true} = state, %{source: :shiny_aim} = obs),
     do: advance_gated(state, obs)
 
+  # …e com a captura DESLIGADA, só a mira do shiny passa: a sessão aberta não
+  # pode virar licença pra jogar bola em corpo comum.
+  defp do_advance(state, obs) when not is_map_key(obs, :source) do
+    if Settings.get(:capture_enabled), do: advance_gated(state, obs), else: state
+  end
+
   defp do_advance(%{combat_engaged?: true} = state, _obs), do: state
 
-  # Capture disabled: the ball pipeline never steps — no admissions,
-  # no throws, no confirms. The feed is also detached (see should_be_attached?/1); this
-  # gate only catches stragglers (a late event right after the toggle flip).
+  # Capture disabled: the ball pipeline never steps — no admissions, no throws,
+  # no confirms. Catches the straggler right after the toggle flip.
   defp do_advance(state, obs), do: advance_gated(state, obs)
 
   defp advance_gated(state, obs) do
@@ -757,8 +740,18 @@ defmodule Pokex.Bots.Catcher.Worker do
 
     state = note_throw(state, performs)
 
+    # QUEM LEVOU A BOLA. A linha da bola é a mesma pro corpo comum da varredura
+    # e pro shiny, e a tela do Cave Bot só sabia separar as duas procurando a
+    # palavra "bola" — pescando a varredura inteira pra dentro da história do
+    # shiny. Quem sabe é aqui: uma sessão de mira aberta É a bola do shiny.
+    star = if state.aim != nil, do: "🌟 ", else: ""
+
     for {:log, text} <- actions do
-      Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, :macro, "captura: #{text}"})
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:catcher_log, :macro, "captura: #{star}#{text}"}
+      )
     end
 
     # The ball says WHO is in the aim: the interpreter already recognized the
@@ -770,8 +763,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @topic,
-        {:catcher_log, :macro,
-         "captura: 🎯 #{info.name} reconhecido (#{trunc(info.score * 100)}%)"}
+        {:catcher_log, :macro, "captura: #{recognized(info)}"}
       )
     end
 
@@ -906,6 +898,17 @@ defmodule Pokex.Bots.Catcher.Worker do
   # The ball flies at a point ADMITTED in an earlier observation; the track
   # center may have drifted a few px since — the nearest neighbor within
   # tolerance is the same corpse.
+  # Dois caminhos chegam aqui e cada um sabe uma coisa diferente: a foto do
+  # corpo sabe QUANTO se parece com a sprite ensinada, a cor sabe QUANTOS pixels
+  # da cor achou. Um número só pros dois mentia num deles.
+  defp recognized(%{name: name, score: score}) when is_number(score),
+    do: "🎯 #{name} reconhecido (#{trunc(score * 100)}%)"
+
+  defp recognized(%{name: name, px: px}) when is_integer(px),
+    do: "🎯 #{name} reconhecido pela cor (#{px} px)"
+
+  defp recognized(%{name: name}), do: "🎯 #{name} reconhecido"
+
   defp known_at(%{known: known}, {px, py}) when is_map(known) and map_size(known) > 0 do
     tolerance = Settings.get(:corpse_match_tolerance_px)
 
@@ -925,61 +928,6 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp known_at(_obs, _point), do: nil
 
-  # The ground-detector feed is RETIRED (2026-07-30): vision is now the
-  # kill-anchored SpotScan — real operation never has the quiet window the
-  # baseline warmup required. The attach/reattach machinery below stays inert
-  # (nothing ever attaches); removing Interpret.Corpses/the feed is separate
-  # cleanup.
-  defp sync_mode(state) do
-    if should_be_attached?(state), do: attach(state), else: cancel_timer(detach(state))
-  end
-
-  defp armed_idle?(state),
-    do: Settings.get(:player_mode) == "still" and match?(%Logic{state: :armed}, state.logic)
-
-  defp should_be_attached?(_state), do: false
-
-  defp attach(%{attached?: true} = state), do: state
-
-  defp attach(state) do
-    safe(fn -> Perception.attach(:corpses) end)
-    demonitor_feed(state.feed_ref)
-    ref = Process.monitor(Feed.name(:corpses))
-    %{state | attached?: true, feed_ref: ref, reattach_attempts: 0}
-  end
-
-  defp detach(%{attached?: false} = state), do: state
-
-  defp detach(state) do
-    safe(fn -> Perception.detach(:corpses) end)
-    demonitor_feed(state.feed_ref)
-    %{state | attached?: false, feed_ref: nil}
-  end
-
-  defp demonitor_feed(nil), do: :ok
-  defp demonitor_feed(ref), do: Process.demonitor(ref, [:flush])
-
-  defp schedule_reattach(%{reattach_attempts: attempts} = state) when attempts >= 20, do: state
-
-  defp schedule_reattach(state) do
-    Process.send_after(self(), :reattach_corpses, 250)
-    %{state | reattach_attempts: state.reattach_attempts + 1}
-  end
-
-  # The bounded, catch-guarded reattach fired from :reattach_corpses. Unlike attach/1 (used by
-  # the normal run/mode_changed/relearn/disengage paths, which must never crash on a feed that
-  # isn't registered yet), this one is only reached once we already know the feed just went
-  # down — a still-dead feed schedules another bounded retry instead of optimistically marking
-  # itself attached.
-  defp reattach_corpses(state) do
-    Perception.attach(:corpses)
-    demonitor_feed(state.feed_ref)
-    ref = Process.monitor(Feed.name(:corpses))
-    %{state | attached?: true, feed_ref: ref, reattach_attempts: 0}
-  catch
-    :exit, _ -> schedule_reattach(state)
-  end
-
   defp reset_logic(%{logic: nil} = state), do: state
 
   # "Reaprender chão": a fresh Logic (not just the old one restarted) so the queue/throw/
@@ -988,12 +936,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp reset_logic(state) do
     {logic, _actions} = Logic.start(Logic.new(config()), now())
     %{state | logic: logic}
-  end
-
-  defp safe(fun) do
-    fun.()
-  catch
-    :exit, _reason -> :ok
   end
 
   # -- a mira do shiny ---------------------------------------------------------

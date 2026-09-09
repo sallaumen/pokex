@@ -64,7 +64,8 @@ defmodule Pokex.Vision.CreatureMarks do
           point: {integer, integer},
           hp_pct: 0..100,
           skull?: boolean,
-          pet?: boolean
+          pet?: boolean,
+          passive?: boolean
         }
 
   @type geometry :: %{
@@ -218,9 +219,34 @@ defmodule Pokex.Vision.CreatureMarks do
       point: {bx + div(geo.bar_w, 2), by + div(geo.bar_h, 2)},
       hp_pct: round(100 * fill / (geo.bar_w - 2)),
       skull?: skull?(frame, bx, by, geo),
-      pet?: box_below?(frame, bx, by, geo)
+      pet?: box_below?(frame, bx, by, geo),
+      passive?: passive?(frame, bx, by, fill, geo)
     }
   end
+
+  # MAGENTA IS "IT WILL NOT COME AT YOU" (09/09). "Eles já renasceram com esse
+  # nome rosa, o que quer dizer que eles não são agressivos para a gente — no
+  # seu detector de quantidade de inimigos, você não sabe disso." A creature
+  # that respawned beside him is drawn magenta, name AND bar, and it is not in
+  # the battle list; counting it is why the screen and the list could never
+  # agree. Measured on his own capture of 09/09 11:58: the two respawned
+  # Magnetons fill (254,0,254) and everything in the fight fills (0,188,0).
+  #
+  # The FILL is read, not the name: the eye already walked those pixels to get
+  # the health, the bar cannot drift from its own creature, and a name can be
+  # covered by a spell or by chat.
+  defp passive?(_frame, _bx, _by, fill, _geo) when fill <= 0, do: false
+
+  defp passive?(frame, bx, by, fill, geo) do
+    y = by + div(geo.bar_h, 2)
+    columns = for dx <- 1..min(fill, geo.bar_w - 2), do: pixel(frame, bx + dx, y)
+
+    magenta = Enum.count(columns, &magenta?/1)
+    magenta * 2 > length(columns)
+  end
+
+  defp magenta?({r, g, b}), do: r > @ink_max_min and b > @ink_max_min and g < @ink_min_max
+  defp magenta?(_no_pixel), do: false
 
   # An icon's worth of white, as TALL as an icon, with a black outline around
   # it. A spell flash is far more white and has no outline; a damage number

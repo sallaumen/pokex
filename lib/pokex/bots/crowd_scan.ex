@@ -69,7 +69,13 @@ defmodule Pokex.Bots.CrowdScan do
           tiles: non_neg_integer,
           hp_pct: 0..100
         }
-  @type placed :: %{read?: true, me: {integer, integer}, pet: pet | nil, hostiles: [hostile]}
+  @type placed :: %{
+          read?: true,
+          me: {integer, integer},
+          pet: pet | nil,
+          hostiles: [hostile],
+          passive: non_neg_integer
+        }
   @type reading ::
           %{
             read?: true,
@@ -148,11 +154,19 @@ defmodule Pokex.Bots.CrowdScan do
   def place(marks, {px, py} = me, tile, opts \\ []) do
     me_hp = Keyword.get(opts, :me_hp)
 
-    bodies =
+    seen =
       marks
       |> Enum.reject(&over_his_head?(&1, me, tile, me_hp))
       |> Enum.map(fn %{point: {x, y}} = mark -> %{mark | point: {x, y + tile}} end)
       |> Enum.reject(&(chebyshev(&1.point, me) <= @me_tiles * tile))
+
+    # THE RESPAWNED ARE NOT THE FIGHT (09/09). Magenta means the creature will
+    # not come at him, and the battle list does not carry it either — so
+    # counting it here was the reason the screen and the list could never
+    # agree. They are counted, not thrown away: monsters he already killed
+    # standing up again around him is the measure he asked for of a hunt that
+    # is running too slow.
+    {passive, bodies} = Enum.split_with(seen, &Map.get(&1, :passive?, false))
 
     pet =
       taught_pet(bodies, Keyword.get(opts, :pet_point), tile) || boxed_pet(bodies, me) ||
@@ -164,7 +178,13 @@ defmodule Pokex.Bots.CrowdScan do
       |> Enum.map(&hostile(&1, me, pet, tile))
       |> Enum.sort_by(&{&1.from_me, &1.dx, &1.dy})
 
-    %{read?: true, me: {px, py}, pet: pet && pet_of(pet, me, tile), hostiles: hostiles}
+    %{
+      read?: true,
+      me: {px, py},
+      pet: pet && pet_of(pet, me, tile),
+      hostiles: hostiles,
+      passive: length(passive)
+    }
   end
 
   @doc "How many hostiles stand within `tiles` of the CHARACTER. Zero for an unread scan, never a guess."

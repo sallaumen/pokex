@@ -122,6 +122,35 @@ defmodule Pokex.PreflightTest do
       assert Enum.any?(msgs, &(&1 =~ "fora desta tela de 1000×700"))
       assert Enum.any?(msgs, &(&1 =~ "recalibre"))
     end
+
+    # …AND A BAR OF ANOTHER SCREEN THAT FITS (09/09): the notebook's Torterra bar
+    # (x=580) fits inside the ultrawide and is not there. The bar is kept per
+    # screen now, and a start on a screen the pokémon has no bar on is refused
+    # naming the screen that has it.
+    @tag :tmp_dir
+    test "a bar calibrated on another screen does not start, and says which screen has it" do
+      Pokex.TeamFixtures.ready!("Torterra", count: 4)
+
+      Calibration.save(%Calibration{
+        scale: 1.0,
+        screen_w: 3440,
+        screen_h: 1440,
+        tile_px: 151,
+        water_point: {1, 1},
+        glow_region: {0, 0, 8, 8},
+        battle_region: {0, 0, 8, 8},
+        neutral_point: {1, 1}
+      })
+
+      assert {:error, msgs} = Preflight.run(Pokex.Rig.Fake)
+
+      assert Enum.any?(
+               msgs,
+               &(&1 =~ "Torterra tem barra de skills calibrada só na tela 1000×700")
+             )
+
+      assert Enum.any?(msgs, &(&1 =~ "nesta tela (3440×1440) não"))
+    end
   end
 
   # NO CHARACTER, NO START (2026-09-07): the pointer was cleared at a restart and

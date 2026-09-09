@@ -112,12 +112,40 @@ defmodule Pokex.Preflight do
   end
 
   defp check_bar(errors, name) do
-    case Team.active_bar() do
-      nil ->
+    case {Team.active_bar(), Team.bar_screens(name)} do
+      {nil, []} ->
         ["#{name} está sem barra de skills calibrada — calibre a dele em /calibration" | errors]
 
-      _has_one ->
+      # THE BAR OF ANOTHER SCREEN (09/09): the notebook's Torterra bar (x=580)
+      # does not exist on the ultrawide (x=2147), and the run hunted five
+      # minutes blind of its cooldowns with alarms saying "recalibre" and
+      # nothing saying why. Now it does not start, and says which screen has it.
+      {nil, screens} ->
+        [
+          "#{name} tem barra de skills calibrada só #{screens_text(screens)} — nesta tela " <>
+            "(#{this_screen()}) não; calibre a dele em /calibration antes de ligar"
+          | errors
+        ]
+
+      _has_one_here ->
         errors
+    end
+  end
+
+  defp screens_text(screens) do
+    screens
+    |> Enum.map(fn
+      {w, h} -> "na tela #{w}×#{h}"
+      nil -> "noutra tela"
+    end)
+    |> Enum.uniq()
+    |> Enum.join(" e ")
+  end
+
+  defp this_screen do
+    case Calibration.load() do
+      {:ok, %Calibration{screen_w: w, screen_h: h}} -> "#{w}×#{h}"
+      _no_calibration -> "?"
     end
   end
 

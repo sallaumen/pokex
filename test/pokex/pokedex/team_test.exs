@@ -88,8 +88,24 @@ defmodule Pokex.Pokedex.TeamTest do
 
     # every field a later version added is simply unset — `cooldowns` is the newest
     assert Team.members() == [
-             %{name: "Seadra", level: nil, slot: nil, skills: %{}, cooldowns: %{}, bar: nil},
-             %{name: "Venusaur", level: nil, slot: nil, skills: %{}, cooldowns: %{}, bar: nil}
+             %{
+               name: "Seadra",
+               level: nil,
+               slot: nil,
+               skills: %{},
+               cooldowns: %{},
+               bars: [],
+               bar: nil
+             },
+             %{
+               name: "Venusaur",
+               level: nil,
+               slot: nil,
+               skills: %{},
+               cooldowns: %{},
+               bars: [],
+               bar: nil
+             }
            ]
 
     assert Team.bank() == []

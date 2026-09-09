@@ -138,8 +138,22 @@ defmodule Pokex.Bots.Watchman.ChecksTest do
     test "a measured screen needs no tile of its own" do
       {:ok, calib} = Calibration.load()
       Calibration.save(%{calib | screen_w: 1512, screen_h: 982, tile_px: nil})
+      # the bar is per screen: give the new screen one, so only the tile is judged
+      Pokex.Pokedex.Team.set_bar("Torterra", %{region: {10, 10, 140, 35}, count: 4, refs: nil})
 
       assert keys() == []
+    end
+
+    # THE BAR OF ANOTHER SCREEN (09/09): calibrated on the notebook, it fits
+    # inside the ultrawide and is not there. The watchman names the screen that
+    # has it instead of a bare "recalibre".
+    test "a bar calibrated on another screen says which screen has it" do
+      {:ok, calib} = Calibration.load()
+      Calibration.save(%{calib | screen_w: 3440, screen_h: 1440, tile_px: 151})
+
+      assert keys() == [:skill_bar]
+      assert text(:skill_bar) =~ "Torterra tem barra de skills calibrada só na tela 1000×700"
+      assert text(:skill_bar) =~ "nesta tela (3440×1440) não"
     end
   end
 end

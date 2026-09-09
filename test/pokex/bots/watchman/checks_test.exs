@@ -40,7 +40,9 @@ defmodule Pokex.Bots.Watchman.ChecksTest do
   defp everything_read do
     WorldState.put(:skill_bar, %{ready_keys: ~w(1 2 3 4)}, @now)
     WorldState.put(:battle, %{enemies: []}, @now)
-    WorldState.put(:pokemon, %{hp_pct: 96}, @now)
+    # The whole fact the reader really publishes: `WorldState` is one table for
+    # the run, and a half-built fact left here is read by whatever renders next.
+    WorldState.put(:pokemon, %{hp_pct: 96, readable?: true, fainted?: false}, @now)
     WorldState.put(:player, %{hp_pct: 100, readable?: true}, @now)
   end
 

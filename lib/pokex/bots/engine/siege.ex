@@ -88,7 +88,7 @@ defmodule Pokex.Bots.Engine.Siege do
       |> Enum.map(&Map.put(&1, :asleep?, fresh? and covered?(&1, cover)))
       |> Enum.sort_by(& &1.from_me)
 
-    heavy? = Keyword.get(opts, :heavy?, false) or Enum.any?(hostiles, & &1.skull?)
+    heavy? = Keyword.get(opts, :heavy?, false) or most_wear_skulls?(hostiles)
     pinned = Enum.count(hostiles, &pinned?(&1, pin))
     covered = Enum.count(hostiles, & &1.asleep?)
     awake = Enum.reject(hostiles, & &1.asleep?)
@@ -203,6 +203,19 @@ defmodule Pokex.Bots.Engine.Siege do
   end
 
   # -- the piles ------------------------------------------------------------------
+
+  # HIS OWN RULE JUDGES THE SKULL (09/09): "nunca há mistura: ou todos ou
+  # nenhum". So ONE skull among bare heads is a misread, not an area — and
+  # taking any single mark's word for it cost him the exit. MEASURED over 34 of
+  # his frames that morning, 107 marks in an area with no skulls at all: one
+  # mark came back wearing one (1%), and with several marks per reading that is
+  # a bad call every few fights — one of them (08:49:30) refused a pile of four
+  # already biting, with nobody loose. Against the fixtures the share is not
+  # close: a real skull area reads 75% and 100%, a skull-less one 0% and 0%,
+  # and the false call 17%. A lone creature wearing one still counts, which
+  # fails toward caution.
+  defp most_wear_skulls?(hostiles),
+    do: Enum.count(hostiles, & &1.skull?) * 2 > length(hostiles)
 
   defp pinned?(%{from_pet: from_pet}, pin), do: is_integer(from_pet) and from_pet <= pin
 

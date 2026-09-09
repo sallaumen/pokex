@@ -33,6 +33,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.Perception.Feed
+  alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
 
@@ -359,9 +360,12 @@ defmodule Pokex.Bots.Catcher.Worker do
         {state, obs} = aim_look(state)
         state = advance(state, obs)
 
-        if aim_done?(state),
-          do: {:noreply, close_aim(state)},
-          else: {:noreply, schedule_aim(state)}
+        if aim_done?(state) do
+          {:noreply, close_aim(state)}
+        else
+          publish_capture(state)
+          {:noreply, schedule_aim(state)}
+        end
     end
   end
 
@@ -1003,7 +1007,25 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp close_aim(state) do
     if state.aim_timer, do: Process.cancel_timer(state.aim_timer)
-    %{state | aim: nil, aim_timer: nil, shiny_pending?: false}
+    state = %{state | aim: nil, aim_timer: nil, shiny_pending?: false}
+    publish_capture(state)
+    state
+  end
+
+  # THE FACT FOR THE BRAIN: "I am aiming at a shiny's corpse" — the engine holds
+  # the feet on it (`Engine.Logic.hold_for_capture/2`). Rewritten on every aim
+  # tick and once on close, so a session that dies with its worker simply ages
+  # out of the brain's belief.
+  defp publish_capture(state) do
+    WorldState.put(
+      :capture,
+      %{
+        aiming?: state.aim != nil,
+        pending: (state.logic && Logic.pending(state.logic)) || 0,
+        corpses: if(state.aim, do: MapSet.to_list(state.aim.said), else: [])
+      },
+      now()
+    )
   end
 
   defp schedule_aim(state) do

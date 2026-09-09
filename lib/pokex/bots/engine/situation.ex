@@ -85,6 +85,9 @@ defmodule Pokex.Bots.Engine.Situation do
           own_row_seen?: boolean | :unnamed | :by_hp | nil,
           worth_fighting?: boolean,
           heavy?: boolean,
+          # the Catcher is aiming at a shiny's corpse (the `:capture` fact): the
+          # brain holds the feet for it, for a while
+          capturing?: boolean,
           grit: non_neg_integer,
           heavy_latch?: boolean,
           boss_tiles: non_neg_integer | nil,
@@ -160,6 +163,7 @@ defmodule Pokex.Bots.Engine.Situation do
       # comum do lado dele zera o grit, não a declaração.
       grit: grit,
       heavy_latch?: latch?,
+      capturing?: Map.get(inputs, :capturing?) == true,
       # A QUE DISTÂNCIA O CHEFE ESTÁ, em tiles — nil quando ninguém mede. O
       # stun tem raio: apertá-lo com o chefe a 6 tiles é dormir o vento
       # (medido na bancada: o primeiro stun saía a 6 e o chefe chegava

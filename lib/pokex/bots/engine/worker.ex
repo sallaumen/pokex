@@ -363,6 +363,10 @@ defmodule Pokex.Bots.Engine.Worker do
       # vale — sem varredura recente a resposta é "não sei", que aqui é "não
       # tem".
       especial?: especial?(now),
+      # THE BALL IN PROGRESS (`Catcher.Worker`'s `:capture` fact): the Catcher is
+      # aiming at a shiny's corpse, and the brain holds the feet for it. Same
+      # clock as the colour: a fact older than three scans is no capture.
+      capturing?: capturing?(now),
       prev: state.picture
     }
   end
@@ -375,6 +379,15 @@ defmodule Pokex.Bots.Engine.Worker do
     case WorldState.get(:special, idade, now) do
       {:ok, %{especial?: true}} -> true
       _stale_or_missing_or_clean -> false
+    end
+  end
+
+  defp capturing?(now) do
+    idade = Settings.get(:special_color_scan_ms) * 3
+
+    case WorldState.get(:capture, idade, now) do
+      {:ok, %{aiming?: true}} -> true
+      _stale_or_missing_or_done -> false
     end
   end
 

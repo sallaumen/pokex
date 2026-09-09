@@ -1759,4 +1759,60 @@ defmodule Pokex.Sim.WorldTest do
       assert siege.recall_gap_ok? == truth.gap_ok?
     end
   end
+
+  # THE SHINY CORPSE (spec 2026-09-09-shiny-na-cacada): a boss killed with the
+  # colour taught leaves a corpse the aim can see; it rots after `corpse_ms`
+  # with no ball, and a ball takes it.
+  describe "the shiny corpse" do
+    alias Pokex.Bots.Combat.Loadout
+
+    defp arena(knobs \\ %{}) do
+      straight()
+      |> World.new(
+        loadout: %Loadout{name: "Barra", aoe: ["3"], single: [], crowd: []},
+        knobs: Map.merge(%{boss_color: true, corpse_ms: 5_000, ms_per_tile: 100}, knobs)
+      )
+    end
+
+    defp kill_boss(world) do
+      world
+      |> World.summon_boss({101, 200, 5}, hp: 1)
+      |> World.press({:press, "3"})
+    end
+
+    test "a boss dying with the colour taught leaves a corpse where it stood" do
+      world = kill_boss(arena())
+
+      assert world.stats.bosses_dead == 1
+      assert [%{pos: {101, 200, 5}}] = world.corpses
+      assert %{aiming?: true, pending: 1, corpses: [{101, 200, 5}]} = World.capture_input(world)
+      assert World.observe(world, :capture).aiming?
+    end
+
+    test "without the colour rule there is no corpse to aim at" do
+      world = kill_boss(arena(%{boss_color: false}))
+
+      assert world.stats.bosses_dead == 1
+      assert world.corpses == []
+      refute World.capture_input(world).aiming?
+    end
+
+    test "a corpse rots after corpse_ms and counts as a lost ball" do
+      world = arena() |> kill_boss() |> World.step(4_000)
+      assert length(world.corpses) == 1
+
+      world = World.step(world, 1_500)
+      assert world.corpses == []
+      assert world.stats.balls_lost == 1
+    end
+
+    test "a ball takes the corpse" do
+      world = arena() |> kill_boss() |> World.throw_ball()
+
+      assert world.corpses == []
+      assert world.stats.balls == 1
+      assert world.stats.balls_lost == 0
+      refute World.capture_input(world).aiming?
+    end
+  end
 end

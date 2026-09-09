@@ -55,7 +55,9 @@ defmodule Pokex.Sim.Runner do
     skill_bar: 400,
     minimap: 500,
     # o olho do cerco, no ritmo de luta do `CrowdWatch`
-    crowd: 250
+    crowd: 250,
+    # a mira do capturador, no ritmo da varredura de cor
+    capture: 700
   }
 
   # AS CHAVES QUE O SIMULADOR ESCREVE. É a lista que a cerca usa pra decidir se

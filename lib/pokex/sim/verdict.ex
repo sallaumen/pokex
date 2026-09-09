@@ -49,7 +49,8 @@ defmodule Pokex.Sim.Verdict do
     {:limpa, "limpa a tela", "terminou sem monstro de pé"},
     {:nao_recua, "não recua", "nunca andou a rota ao contrário com a barra vazia (R7)"},
     {:recolhe_seguro, "recolhe com o campo seguro",
-     "nenhum revive pedido com alguém acordado a menos da guarda dele (4 tiles com caveira, 2 sem)"}
+     "nenhum revive pedido com alguém acordado a menos da guarda dele (4 tiles com caveira, 2 sem)"},
+    {:captura, "captura o shiny", "todo corpo de shiny recebeu a bola antes de sumir do chão"}
   ]
 
   @type promessa ::
@@ -65,6 +66,7 @@ defmodule Pokex.Sim.Verdict do
           | :stun_sempre
           | :limpa
           | :recolhe_seguro
+          | :captura
   @type t :: %{
           promessa: promessa,
           label: String.t(),
@@ -246,6 +248,20 @@ defmodule Pokex.Sim.Verdict do
       gastos -> {false, "gastou #{length(gastos)} revive(s)"}
     end
   end
+
+  # A BOLA ANTES DO CORPO SUMIR (spec 2026-09-09): a mira só tem o corpo
+  # enquanto os pés param em cima dele; um corpo que apodrece sem bola é a
+  # rota que andou cedo demais. Sem shiny morto não há o que cobrar.
+  defp check(:captura, %{outcome: %{balls_lost: 0, balls: 0}}),
+    do: {true, "nenhum shiny caiu — nada a capturar"}
+
+  defp check(:captura, %{outcome: %{balls_lost: 0, balls: n}}),
+    do: {true, "#{n} bola(s), nenhum corpo perdido"}
+
+  defp check(:captura, %{outcome: %{balls_lost: lost, balls: n}}),
+    do: {false, "#{lost} corpo(s) de shiny sumiram sem bola (#{n} com bola)"}
+
+  defp check(:captura, _sem_contagem), do: {true, "a corrida não contou bolas"}
 
   defp check(:limpa, %{outcome: %{left_alive: 0}}), do: {true, "terminou com a tela limpa"}
   defp check(:limpa, %{outcome: %{left_alive: n}}), do: {false, "#{n} ainda de pé no fim"}

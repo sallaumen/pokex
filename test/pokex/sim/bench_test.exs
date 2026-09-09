@@ -666,4 +666,26 @@ defmodule Pokex.Sim.BenchTest do
       end
     end
   end
+
+  # THE HOLD BUYS THE BALL (spec 2026-09-09-shiny-na-cacada). Measured before
+  # this test was written, 6 seeds × 3 min: with the hold 19 of 19 shiny
+  # corpses got their ball (about 1.4s of standing each, no fall); without it
+  # 2 of 19 — the road walked off the corpse before the second photo.
+  test "shiny-no-chao: the capture hold is what buys the ball" do
+    alias Pokex.Sim.Verdict
+
+    for seed <- 1..3 do
+      held = Bench.run(%{Scenario.get("shiny-no-chao") | seed: seed}, duration_ms: 90_000)
+
+      assert held.outcome.balls >= 1, "seed #{seed}: no shiny got a ball"
+      assert held.outcome.balls_lost == 0, "seed #{seed}: a corpse rotted with the hold on"
+      assert Verdict.passed?(Verdict.judge(held, [:captura, :nao_cai, :nao_morre]))
+    end
+
+    loose =
+      Bench.run(Scenario.get("shiny-no-chao"), duration_ms: 90_000, config: %{capture_hold_ms: 0})
+
+    assert loose.outcome.balls_lost > 0
+    refute Verdict.passed?(Verdict.judge(loose, [:captura]))
+  end
 end

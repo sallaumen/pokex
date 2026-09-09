@@ -46,6 +46,7 @@ defmodule Pokex.Bots.Engine.Config do
     shield_from: :combat_shield_from_enemies,
     single_target: :combat_single_target,
     bunch_ms: :engine_bunch_ms,
+    capture_hold_ms: :engine_capture_hold_ms,
     gather_target: :engine_gather_target,
     stun_window_ms: :engine_stun_window_ms,
     stun_hold_ms: :engine_stun_hold_ms,

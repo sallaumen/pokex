@@ -35,6 +35,11 @@ Este documento é o plano de implementação. Quem for implementar: leia a seç�
 > fresca, em qualquer `player_mode`; "é corpo" = mancha sem corpo vivo (olho) a
 > um tile, em duas fotos seguidas; sessão de mira aberta pelo `{:shiny_seen, _}`
 > e fechada pela bola confirmada ou por 90 s.
+> PR 2: o cérebro segura os PÉS enquanto o capturador mira (`:capture` →
+> `capturing?` → fase `:capturing`, teto `engine_capture_hold_ms` 6 s, nunca
+> em vermelho, fogo e revive intactos); no sim, corpo + bola + promessa
+> `captura` (cenário "Shiny no chão"): com a segurada 19/19 corpos com bola,
+> sem ela 2/19.
 >
 > **O QUE FALTA:** o protocolo shiny completo (§8) — alvo preferido, corpo do
 > shiny real ensinado na primeira morte, "cor → qual linha da battle list".

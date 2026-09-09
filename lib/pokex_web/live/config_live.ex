@@ -337,6 +337,16 @@ defmodule PokexWeb.ConfigLive do
           keywords: "esperar espera bunch colar fechar"
         },
         %{
+          key: :engine_capture_hold_ms,
+          kind: :sec,
+          label: "Shiny no chão: segurar a rota pra bola por até",
+          hint:
+            "Com o capturador mirando o corpo de um shiny, a rota para (só os pés — skills e " <>
+              "revive seguem) por até este tempo, pra bola sair antes do corpo sair da tela. " <>
+              "0 desliga.",
+          keywords: "shiny bola corpo captura segurar rota"
+        },
+        %{
           key: :cavebot_park_on_stop,
           kind: :bool,
           label: "Ao parar, mandar o pokémon 2 tiles à frente",

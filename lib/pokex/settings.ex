@@ -604,6 +604,9 @@ defmodule Pokex.Settings do
     # R12: how long to wait after closing the window for the mobs to reach the pokémon
     # before the area fires.
     engine_bunch_ms: 6_000,
+    # The shiny on the ground: how long the road holds for the Catcher's ball
+    # (feet only — fire and revive go on). 0 turns the hold off.
+    engine_capture_hold_ms: 6_000,
     # How many mobs make a pile: the target the ruler chases before closing the window.
     engine_gather_target: 6,
     # …and a ceiling, because R2 says greed makes the pile VANISH: past this the hunt
@@ -928,6 +931,7 @@ defmodule Pokex.Settings do
     engine_vitals_ms: 100..60_000,
     engine_pile_settle_ms: 0..60_000,
     engine_bunch_ms: 0..30_000,
+    engine_capture_hold_ms: 0..15_000,
     # 8 is what fits around the pokémon; beyond that the rest stands far and hits the
     # CHARACTER.
     engine_gather_target: 1..8,

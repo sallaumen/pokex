@@ -776,6 +776,38 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert Worker.status(worker).counters.throws == 0
   end
 
+  # The brain holds the feet on this fact (`Engine.Logic.hold_for_capture/2`):
+  # "aiming" while the session lives, "not aiming" the moment it closes.
+  @tag :tmp_dir
+  test "the aim session publishes the :capture fact and clears it on close" do
+    Application.put_env(:pokex, :shiny_aim_ttl_ms, 200)
+    on_exit(fn -> Application.delete_env(:pokex, :shiny_aim_ttl_ms) end)
+
+    worker = start_hunt_worker()
+    stage_aim([])
+    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
+
+    assert eventually(
+             fn ->
+               match?(
+                 {:ok, %{aiming?: true}},
+                 WorldState.get(:capture, 5_000, System.monotonic_time(:millisecond))
+               )
+             end,
+             1_000
+           )
+
+    assert eventually(
+             fn ->
+               match?(
+                 {:ok, %{aiming?: false, pending: 0}},
+                 WorldState.get(:capture, 5_000, System.monotonic_time(:millisecond))
+               )
+             end,
+             1_500
+           )
+  end
+
   @tag :tmp_dir
   test "the aim session ends when the shiny corpse is not found" do
     Application.put_env(:pokex, :shiny_aim_ttl_ms, 200)

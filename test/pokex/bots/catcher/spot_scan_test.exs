@@ -204,6 +204,17 @@ defmodule Pokex.Bots.Catcher.SpotScanTest do
       assert obs.corpses == []
     end
 
+    # O MESMO PONTO NOS DOIS LUGARES. Sem o personagem marcado, a busca já
+    # centrava no meio da tela mas a proibição lia o campo cru e não proibia
+    # nada: o próprio personagem dele virava candidato a corpo.
+    test "without a marked player point the screen centre is forbidden all the same" do
+      teach_red!()
+
+      obs = SpotScan.scan(calib(player_point: nil), capture_with_corpses_at([{500, 350}]))
+
+      assert obs.corpses == []
+    end
+
     test "the pokemon's tile is forbidden too" do
       teach_red!()
       c = calib(pokemon_spot_point: {560, 400})

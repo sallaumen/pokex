@@ -95,12 +95,12 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # vs (1688,697)). The old fallback was the ARENA center, 268px above the
   # character on his calibration. This is what allows capturing WITHOUT a
   # calibrated arena.
-  defp center(%Calibration{player_point: {_x, _y} = point}), do: {:ok, point}
-
-  defp center(%Calibration{screen_w: w, screen_h: h}) when is_integer(w) and is_integer(h),
-    do: {:ok, {div(w, 2), div(h, 2)}}
-
-  defp center(_nothing), do: {:error, :no_anchor}
+  defp center(%Calibration{} = calib) do
+    case Calibration.player_point(calib) do
+      {_x, _y} = point -> {:ok, point}
+      nil -> {:error, :no_anchor}
+    end
+  end
 
   # The square: (2r+1) tiles centered on the character, stretched to embrace the
   # pokémon point if it falls outside, clamped to the SCREEN — never the arena
@@ -209,8 +209,12 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # The half tile comes with the zones: it is THIS calibration's tile, not the
   # one on disk (a scan handed a calibration must measure with it).
   defp forbidden_zones(calib, scale, region, _box) do
+    # O MESMO PONTO QUE CENTRA A VARREDURA. Lendo o campo cru, uma calibração
+    # sem o personagem marcado centrava a busca no meio da tela (o retorno de
+    # `player_point/1`) mas não proibia tile nenhum — e o próprio personagem
+    # dele virava candidato a corpo.
     points =
-      [calib.player_point, calib.pokemon_spot_point]
+      [Calibration.player_point(calib), calib.pokemon_spot_point]
       |> Enum.reject(&is_nil/1)
       |> Enum.map(fn {sx, sy} -> in_frame(sx, sy, scale, region) end)
 
@@ -256,9 +260,9 @@ defmodule Pokex.Bots.Catcher.SpotScan do
   # Window corner (frame px) → its CENTER as a screen point. This is the aim:
   # teaching centers on the click over the corpse, so the winning window's
   # center is the point Lucas chose himself.
-  defp center_on_screen(x, y, box, scale, {rx, ry, _w, _h}) do
+  defp center_on_screen(x, y, box, scale, region) do
     meia = div(box, 2)
-    {rx + round((x + meia) / scale), ry + round((y + meia) / scale)}
+    Calibration.frame_to_screen(scale, region, {x + meia, y + meia})
   end
 
   # SCREEN point → px in the captured region's frame (inverse of

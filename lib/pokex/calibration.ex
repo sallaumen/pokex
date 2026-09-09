@@ -714,7 +714,21 @@ defmodule Pokex.Calibration do
   def battle_row_point(%__MODULE__{battle_region: {x, y, w, _h}, scale: scale}, row_y),
     do: {x + div(w, 3), y + round(row_y / scale)}
 
-  def frame_to_screen(%__MODULE__{scale: scale}, {rx, ry, _w, _h}, {fx, fy}),
+  @doc """
+  A pixel inside a captured region, in SCREEN POINTS.
+
+  Every eye in the codebase ends its reading here — the guard, the siege, the shiny aim, the
+  corpse scan, the sprite finder — and each one had written the same two divisions itself. The
+  `scale` form is for the readers that hold a frame and no calibration: the frame's own scale
+  is the truth for the picture it just took, and a calibration loaded from disk may be another
+  screen's.
+  """
+  @spec frame_to_screen(t | number, {integer, integer, integer, integer}, {number, number}) ::
+          {integer, integer}
+  def frame_to_screen(%__MODULE__{scale: scale}, region, point),
+    do: frame_to_screen(scale, region, point)
+
+  def frame_to_screen(scale, {rx, ry, _w, _h}, {fx, fy}) when is_number(scale) and scale > 0,
     do: {rx + round(fx / scale), ry + round(fy / scale)}
 
   defp grow_region({x, y, w, h}, margin, screen_w, screen_h) do

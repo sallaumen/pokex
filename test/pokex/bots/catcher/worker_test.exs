@@ -831,4 +831,18 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     end)
     |> Enum.find(fn done -> done or System.monotonic_time(:millisecond) > deadline end)
   end
+
+  # The Panel used to say "capturando" all hunt long while every gate was shut.
+  @tag :tmp_dir
+  test "in hunt mode the status is honest: idle with the reason, armed only while aiming" do
+    worker = start_hunt_worker()
+
+    assert %{state: :idle, hold_reason: "na caçada só o shiny leva bola"} = Worker.status(worker)
+
+    stage_aim([])
+    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
+
+    assert eventually(fn -> Worker.status(worker).state == :armed end, 1_000)
+    assert Worker.status(worker).hold_reason == "mirando o corpo do shiny pela cor"
+  end
 end

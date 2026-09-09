@@ -107,4 +107,16 @@ defmodule Pokex.WorldTest do
     refute snap.shiny?
     assert World.pokemon_hp_pct(snap) == nil
   end
+
+  # The badge reads the colour: the guard's `:special` fact says presence on
+  # every scan, and the snapshot believes it for three scans, like the brain.
+  test "shiny? follows the special fact while fresh" do
+    now = System.monotonic_time(:millisecond)
+    WorldState.put(:special, %{especial?: true, vistos: []}, now)
+    assert World.snapshot(now).shiny?
+
+    WorldState.put(:special, %{especial?: true, vistos: []}, now - 60_000)
+    refute World.snapshot(now).shiny?
+    :ets.delete(:pokex_world, :special)
+  end
 end

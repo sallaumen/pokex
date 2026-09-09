@@ -2604,4 +2604,47 @@ defmodule PokexWeb.CavebotLiveTest do
       refute has_element?(view, "#cavebot-instruments")
     end
   end
+
+  # "Capturar shinies… e ver isso na tela": the shiny's story reaches the feed,
+  # the Catcher's scan chatter does not, and the capture tile says "shiny"
+  # while the aim is on.
+  describe "the shiny story on the Central" do
+    test "the aim and the ball lines get through, the scans do not", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(
+        view.pid,
+        {:combat_log, :macro, "✨ Electrode shiny na tela — mancha de 80px da cor dele"}
+      )
+
+      send(
+        view.pid,
+        {:catcher_log, :macro, "captura: 🌟 corpo do Electrode shiny em 116,116 — bola"}
+      )
+
+      send(view.pid, {:catcher_log, :macro, "captura: bola em 116,116"})
+
+      send(
+        view.pid,
+        {:catcher_log, :macro, "captura: 🔎 varri 12 janelas (300×300) · acervo vazio"}
+      )
+
+      html = render(view)
+      assert html =~ "Electrode shiny na tela"
+      assert html =~ "corpo do Electrode shiny"
+      assert html =~ "bola em 116,116"
+      refute html =~ "varri 12 janelas"
+    end
+
+    test "the capture tile says shiny while the aim is on", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      send(view.pid, {:catcher, %{aim?: true, pending_corpses: 1, counters: %{captures: 0}}})
+      assert view |> element("#tile-capture") |> render() =~ "shiny"
+      assert view |> element("#tile-capture") |> render() =~ "bola no ar"
+
+      send(view.pid, {:catcher, %{aim?: false, pending_corpses: 0, counters: %{captures: 0}}})
+      assert view |> element("#tile-capture") |> render() =~ "corpos na fila"
+    end
+  end
 end

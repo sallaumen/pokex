@@ -53,6 +53,22 @@ defmodule Pokex.Bots.ShinyReadinessTest do
     assert check.notes == []
   end
 
+  # DUAS REGRAS, A CERTA PELO NOME. Com uma ligada sem prova e outra provada e
+  # desligada, o passo era "ligar a regra" mas o nome era o da primeira da
+  # lista — que já estava ligada.
+  test "with two half-done rules the step names the one it is talking about" do
+    proven = teach("Charizard preto")
+    ColorRules.mark_proven(proven, 100)
+    ColorRules.set_enabled(proven, false)
+    teach("Electrode verde")
+
+    check = ShinyReadiness.check()
+
+    assert [%{key: :disabled, text: text, link: "ligar a regra"}] = check.gaps
+    assert text =~ "Charizard preto"
+    refute text =~ "Electrode verde"
+  end
+
   test "a rule saved and never proven asks for the floor, by name" do
     teach()
 

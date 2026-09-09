@@ -58,25 +58,31 @@ defmodule Pokex.Bots.ShinyReadiness do
       )
     ]
 
+  # NOMEIE A REGRA CERTA. Nada está armado, então nenhuma regra é provada E
+  # ligada: toda provada aqui está desligada, e toda ligada está sem prova.
+  # Dizer "a cor X" pegando a primeira da lista mandava ele medir o chão de uma
+  # regra que já tinha prova, ou ligar uma que já estava ligada.
   defp gaps(rules, []) do
-    if Enum.all?(rules, &(&1["proven"] == nil)) do
-      [
-        step(
-          :unproven,
-          "#{quoted(rules)} sem prova do chão — uma regra não provada não varre nada",
-          @calibration,
-          "medir o chão"
-        )
-      ]
-    else
-      [
-        step(
-          :disabled,
-          "#{quoted(rules)} está desligada na lista de cores",
-          @calibration,
-          "ligar a regra"
-        )
-      ]
+    case Enum.find(rules, &is_map(&1["proven"])) do
+      nil ->
+        [
+          step(
+            :unproven,
+            "#{quoted(hd(rules))} sem prova do chão — uma regra não provada não varre nada",
+            @calibration,
+            "medir o chão"
+          )
+        ]
+
+      proven ->
+        [
+          step(
+            :disabled,
+            "#{quoted(proven)} está desligada na lista de cores",
+            @calibration,
+            "ligar a regra"
+          )
+        ]
     end
   end
 
@@ -131,8 +137,8 @@ defmodule Pokex.Bots.ShinyReadiness do
     ball ++ hold
   end
 
-  defp quoted([%{"name" => name} | _rest]), do: "a cor “#{name}”"
-  defp quoted(_none), do: "a cor ensinada"
+  defp quoted(%{"name" => name}) when is_binary(name), do: "a cor “#{name}”"
+  defp quoted(_nameless), do: "a cor ensinada"
 
   defp step(key, text, href, link),
     do: %{key: key, text: text, href: href, link: link}

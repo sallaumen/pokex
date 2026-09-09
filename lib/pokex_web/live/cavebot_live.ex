@@ -246,11 +246,23 @@ defmodule PokexWeb.CavebotLive do
   def handle_info({:game, snapshot}, socket), do: {:noreply, assign(socket, support: snapshot)}
 
   # A narração do capturador não é assunto desta página — o feed dela já tem
-  # quatro fontes. O ALARME dele é (as bolas acabaram no meio da noite), e cai
-  # na cláusula de `:rule_alarm` logo abaixo.
+  # quatro fontes — EXCETO a história do shiny: avistado, corpo achado, bola.
+  # É o que ele pediu pra ver ("capturar shinies… e ver isso na tela"). O
+  # ALARME dele (as bolas acabaram no meio da noite) cai na cláusula de
+  # `:rule_alarm` logo abaixo.
+  def handle_info({:catcher_log, :macro, text}, socket) do
+    if shiny_story?(text),
+      do: {:noreply, log_line(socket, :macro, text)},
+      else: {:noreply, socket}
+  end
+
   def handle_info({:catcher_log, _level, _text}, socket), do: {:noreply, socket}
 
-  # the fight's log lines ride the same topic and are not this page's business
+  # the fight's log lines ride the same topic and are not this page's business —
+  # except the guard's sighting ("✨ … na tela"), which opens the shiny's story
+  def handle_info({:combat_log, :macro, "✨" <> _ = text}, socket),
+    do: {:noreply, log_line(socket, :macro, text)}
+
   def handle_info({:combat_log, _level, _text}, socket), do: {:noreply, socket}
 
   def handle_info({:walk_test, result}, socket),
@@ -1293,6 +1305,27 @@ defmodule PokexWeb.CavebotLive do
   defp state_word(:blocked), do: "bloqueada"
   defp state_word(other), do: to_string(other)
 
+  # THE CAPTURE TILE tells the shiny's story when there is one: aiming at the
+  # corpse (the road holds for it), else the queue the road waits on.
+  defp capture_aiming?(catcher), do: is_map(catcher) and Map.get(catcher, :aim?) == true
+
+  defp capture_value(catcher, hunt) do
+    if capture_aiming?(catcher),
+      do: "shiny",
+      else: to_string((hunt && hunt[:capture_pending]) || 0)
+  end
+
+  defp capture_note(catcher) do
+    if capture_aiming?(catcher) do
+      case Map.get(catcher, :pending_corpses, 0) do
+        0 -> "mirando o corpo pela cor"
+        n -> "bola no ar · #{n} na mira"
+      end
+    else
+      "corpos na fila"
+    end
+  end
+
   defp hunt_tone(nil), do: :neutral
   defp hunt_tone(%{state: state}) when state in [:blocked, :stuck], do: :danger
   defp hunt_tone(%{state: :walking}), do: :ok
@@ -1935,6 +1968,10 @@ defmodule PokexWeb.CavebotLive do
   # a mesma frase duas vezes seguidas no mesmo segundo — 6 de 14 linhas na tela
   # que ele mandou em 28/08. Colapsar não ESCONDE: o `×2` fica visível, que é o
   # que permite descobrir de onde vem a repetição em vez de olhar por cima dela.
+  # The Catcher's lines that belong to the shiny's story: the aim (🌟) and the
+  # ball ("bola em", "bola 2 em", "não saiu"). Scans and library chatter stay out.
+  defp shiny_story?(text), do: String.contains?(text, "🌟") or String.contains?(text, "bola")
+
   defp log_line(socket, level, text) do
     assign(socket, log: fold(socket.assigns.log, level, text))
   end
@@ -2628,8 +2665,9 @@ defmodule PokexWeb.CavebotLive do
                 id="tile-capture"
                 icon="hero-inbox-arrow-down"
                 label="captura"
-                value={to_string((@hunt && @hunt[:capture_pending]) || 0)}
-                note="corpos na fila"
+                value={capture_value(@catcher, @hunt)}
+                note={capture_note(@catcher)}
+                tone={if capture_aiming?(@catcher), do: :warn, else: :neutral}
               />
               <.world_tile
                 id="tile-hp"

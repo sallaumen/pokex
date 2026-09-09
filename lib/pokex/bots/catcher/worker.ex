@@ -1087,6 +1087,10 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp mode_state(nil, _mode), do: :idle
   defp mode_state(_logic, "moving"), do: :manual
 
+  # In a hunt only the shiny gets a ball (`Catcher.ShinyAim`): "capturando" is
+  # true while the aim session lives, and a lie the rest of the night.
+  defp mode_state(%Logic{state: :armed}, "hunt"), do: :idle
+
   defp mode_state(%Logic{state: :armed}, _mode) do
     if Settings.get(:capture_enabled), do: :armed, else: :idle
   end
@@ -1097,7 +1101,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     mode = Settings.get(:player_mode)
 
     %{
-      state: mode_state(state.logic, mode),
+      state: if(state.aim != nil, do: :armed, else: mode_state(state.logic, mode)),
       mode: mode,
       counters:
         ((state.logic && state.logic.counters) || %Logic{}.counters)
@@ -1127,6 +1131,12 @@ defmodule Pokex.Bots.Catcher.Worker do
     cond do
       Perception.mini_game_playing?() ->
         "mini-game em jogo"
+
+      state.aim != nil ->
+        "mirando o corpo do shiny pela cor"
+
+      Settings.get(:player_mode) == "hunt" ->
+        "na caçada só o shiny leva bola"
 
       state.combat_engaged? ->
         "esperando fim da luta"

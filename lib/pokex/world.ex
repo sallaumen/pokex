@@ -12,6 +12,7 @@ defmodule Pokex.World do
 
   alias Pokex.Perception
   alias Pokex.Perception.WorldState
+  alias Pokex.Settings
 
   defmodule Snapshot do
     @moduledoc "One coherent view of the game, as of `at`."
@@ -73,9 +74,10 @@ defmodule Pokex.World do
       inventory: hud[:slots] || %{f1: nil, f2: nil, e: nil, s_q: nil},
       team: team[:rows] || [],
       enemies: battle[:enemies_detail] || [],
-      # the old client's star is gone; the shiny is seen by COLOUR in the ShinyGuard,
-      # which announces over PubSub. This fact no longer carries it.
-      shiny?: false,
+      # the old client's star is gone; the shiny is seen by COLOUR in the
+      # ShinyGuard, whose `:special` fact says PRESENCE on every scan — the same
+      # three-scan clock the brain believes it on.
+      shiny?: special?(now),
       engaged?: battle[:locked?] == true,
       pos: minimap[:pos],
       pos_age_ms: WorldState.age(:minimap, now),
@@ -120,6 +122,13 @@ defmodule Pokex.World do
     case Perception.pokemon(now) do
       {:ok, %{hp_pct: pct}} -> pct
       _unknown -> nil
+    end
+  end
+
+  defp special?(now) do
+    case WorldState.get(:special, Settings.get(:special_color_scan_ms) * 3, now) do
+      {:ok, %{especial?: true}} -> true
+      _stale_or_missing_or_clean -> false
     end
   end
 

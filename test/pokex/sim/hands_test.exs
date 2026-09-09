@@ -579,4 +579,47 @@ defmodule Pokex.Sim.HandsTest do
       refute depois.pos == world.pos, "ficou encostado na pedra a corrida inteira"
     end
   end
+
+  # THE BALL NEEDS STILL FEET (spec 2026-09-09): two photos of the corpse, and
+  # a photo is only good with the road standing. A step in between starts over.
+  describe "the ball on the shiny corpse" do
+    alias Pokex.Sim.Knobs
+
+    defp com_corpo do
+      world = mundo(@barra, %{boss_color: true, corpse_ms: 30_000})
+      {x, y, z} = world.pos
+
+      world
+      |> World.summon_boss({x + 1, y + 1, z}, hp: 1)
+      |> World.press({:press, "3"})
+    end
+
+    test "standing on the corpse for ball_ms throws the ball" do
+      world = com_corpo()
+      assert World.capture_input(world).aiming?
+
+      {world, hands} = Hands.obey(world, ordens(), Hands.new(), Knobs.support(:seeds))
+      assert world.stats.balls == 0
+      assert hands.aiming_since == world.clock
+
+      world = World.step(world, 1_500)
+      {world, hands} = Hands.obey(world, ordens(), hands, Knobs.support(:seeds))
+
+      assert world.stats.balls == 1
+      assert hands.aiming_since == nil
+      refute World.capture_input(world).aiming?
+    end
+
+    test "a step in between starts the two photos over" do
+      world = com_corpo()
+      {world, hands} = Hands.obey(world, ordens(), Hands.new(), Knobs.support(:seeds))
+      world = World.step(world, 1_000)
+      {world, hands} = Hands.obey(world, ordens(%{route: :go}), hands, Knobs.support(:seeds))
+      assert hands.aiming_since == nil
+      world = World.step(world, 1_000)
+      {world, _hands} = Hands.obey(world, ordens(), hands, Knobs.support(:seeds))
+
+      assert world.stats.balls == 0
+    end
+  end
 end

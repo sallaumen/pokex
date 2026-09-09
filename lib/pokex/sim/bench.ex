@@ -676,6 +676,10 @@ defmodule Pokex.Sim.Bench do
       # responde — e só quando o cenário disse que a regra de cor existe pra
       # esta dungeon (`boss_color`).
       especial?: World.boss_color_seen?(world),
+      # THE BALL IN PROGRESS, as the Catcher's `:capture` fact would say it: a
+      # shiny corpse on screen is the aim looking for it, and the brain holds
+      # the feet on that (`Engine.Logic.hold_for_capture/2`).
+      capturing?: World.capture_input(world).aiming?,
       boss_tiles: World.boss_tiles(world),
       # THE EYE, as the world observes it (`World.observe(world, :crowd)`: the
       # bars it draws, placed by production's `CrowdScan.place/4`). A blind
@@ -884,6 +888,8 @@ defmodule Pokex.Sim.Bench do
         killed: state.world.stats.killed,
         vanished: state.world.stats.vanished,
         parks: state.world.stats.parks,
+        balls: state.world.stats.balls,
+        balls_lost: state.world.stats.balls_lost,
         left_alive: length(state.world.mobs),
         hp_at_end: state.world.own.hp_pct,
         ran_for_ms: state.world.clock,

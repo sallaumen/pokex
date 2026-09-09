@@ -69,7 +69,10 @@ defmodule Pokex.Sim.Hands do
             sidestep_try: 0,
             # the pokémon was already sent to its spot during THIS hold — the
             # cavebot's own once-per-stop (`Cavebot.Logic.park_or/2`), mirrored
-            parked?: false
+            parked?: false,
+            # the Catcher's aim: since when the road has stood on a shiny corpse
+            # (nil = not aiming, or the feet moved and the two photos start over)
+            aiming_since: nil
 
   @type t :: %__MODULE__{}
 
@@ -128,6 +131,7 @@ defmodule Pokex.Sim.Hands do
     {world, hands} = rescue_combo(world, orders, hands, config)
     {world, hands} = support(world, orders, hands, config)
     {world, hands} = park(world, orders, hands, config)
+    {world, hands} = capture(world, orders, hands, config)
 
     {world, %{advance(hands, world, orders, config) | prev_hp: world.own.hp_pct}}
   end
@@ -143,6 +147,27 @@ defmodule Pokex.Sim.Hands do
 
   defp park(world, %{route: :hold}, hands, _config), do: {world, hands}
   defp park(world, _walking, hands, _config), do: {world, %{hands | parked?: false}}
+
+  # THE BALL, the Catcher's way (`Catcher.ShinyAim`): two fresh photos of the
+  # corpse confirm it, and a photo is only good with the feet still. So while
+  # the road holds and a shiny corpse is on screen, `ball_ms` of standing
+  # throws the ball; a step in between starts the two photos over. Standing
+  # for ANY reason counts — the real aim fires through the fight gate too.
+  @ball_ms 1_400
+
+  defp capture(world, %{route: :hold}, hands, config) do
+    if World.capture_input(world).aiming? do
+      since = hands.aiming_since || world.clock
+
+      if world.clock - since >= Map.get(config, :ball_ms, @ball_ms),
+        do: {World.throw_ball(world), %{hands | aiming_since: nil}},
+        else: {world, %{hands | aiming_since: since}}
+    else
+      {world, %{hands | aiming_since: nil}}
+    end
+  end
+
+  defp capture(world, _walking, hands, _config), do: {world, %{hands | aiming_since: nil}}
 
   @doc """
   Finishes a rescue that is mid-combo, with no orders involved.

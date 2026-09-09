@@ -303,4 +303,21 @@ defmodule Pokex.Sim.VerdictTest do
       refute vazio.cumpriu?
     end
   end
+
+  # A BOLA ANTES DO CORPO SUMIR (spec 2026-09-09).
+  describe "captura" do
+    defp bolas(balls, lost), do: %{metrics: %{}, outcome: %{balls: balls, balls_lost: lost}}
+
+    test "sem shiny morto nao ha o que cobrar" do
+      assert [%{cumpriu?: true} = ok] = Verdict.judge(bolas(0, 0), [:captura])
+      assert ok.porque =~ "nada a capturar"
+    end
+
+    test "toda bola dada cumpre; um corpo perdido quebra" do
+      assert [%{cumpriu?: true} = ok] = Verdict.judge(bolas(2, 0), [:captura])
+      assert ok.porque =~ "2 bola"
+      assert [%{cumpriu?: false} = falhou] = Verdict.judge(bolas(1, 1), [:captura])
+      assert falhou.porque =~ "1 corpo"
+    end
+  end
 end

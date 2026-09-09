@@ -303,6 +303,10 @@ defmodule Pokex.Sim.World do
     # tem entrega pra contar. Desligado (o padrão), nenhum cenário antigo
     # ganha um canal que ele não pediu.
     boss_color: false,
+    # How long a dead boss's corpse stays on the ground for the ball. SHORT on
+    # purpose in scenarios: the real corpse lasts minutes, but the aim only has
+    # it while the road stands on it — a road that walks off loses it at once.
+    corpse_ms: 20_000,
     # How long a cleared nest takes to be worth walking past again. `nil` means
     # never, which is what a SCENARIO wants: a controlled experiment must not
     # have monsters arriving from off-stage. A HUNT wants a number — no rate
@@ -342,6 +346,11 @@ defmodule Pokex.Sim.World do
             held: [],
             walk_debt_ms: 0,
             mobs: [],
+            # THE SHINY CORPSES on the ground: `%{pos, at}`, kept for `corpse_ms`
+            # after a boss dies with the colour rule taught — what the Catcher's
+            # aim looks for (spec 2026-09-09-shiny-na-cacada). A corpse that
+            # decays without a ball is a `balls_lost`.
+            corpses: [],
             own: nil,
             player: %{hp_pct: 100, alive?: true},
             keys: %{},
@@ -381,7 +390,11 @@ defmodule Pokex.Sim.World do
               # the middle clicks that sent the pokémon to its spot (`park_pet/2`)
               parks: 0,
               # os que chegaram tarde, acordados (`maybe_straggler/1`)
-              stragglers_born: 0
+              stragglers_born: 0,
+              # the shiny's corpse: balls thrown (`throw_ball/1`) and corpses
+              # that rotted with no ball (`decay_corpses/1`)
+              balls: 0,
+              balls_lost: 0
             },
             # o streak corrente da exposição acordada, e a hora do próximo
             # nascimento (nil = ainda não sorteada)
@@ -629,7 +642,17 @@ defmodule Pokex.Sim.World do
     {px, py, pz} = world.pos
     {pos, rand} = free_spot(%{world | knobs: %{world.knobs | nest_radius: 2}}, {px + 5, py, pz})
 
-    boss = %{
+    %{
+      world
+      | mobs: world.mobs ++ [boss_mob(world, pos)],
+        rand: rand,
+        next_id: world.next_id + 1,
+        stats: bump(world.stats, :bosses_born, 1)
+    }
+  end
+
+  defp boss_mob(world, pos) do
+    %{
       id: world.next_id,
       name: world.knobs.boss_name,
       nest: :boss,
@@ -644,14 +667,6 @@ defmodule Pokex.Sim.World do
       asleep_until: 0,
       boss?: true,
       bite_mult: world.knobs.boss_atk_mult
-    }
-
-    %{
-      world
-      | mobs: world.mobs ++ [boss],
-        rand: rand,
-        next_id: world.next_id + 1,
-        stats: bump(world.stats, :bosses_born, 1)
     }
   end
 
@@ -856,6 +871,7 @@ defmodule Pokex.Sim.World do
     |> bite(dt_ms)
     |> watch_boss(dt_ms)
     |> Map.update!(:clock, &(&1 + dt_ms))
+    |> decay_corpses()
     |> land_revive()
     |> repopulate()
     |> maybe_boss()
@@ -1454,7 +1470,72 @@ defmodule Pokex.Sim.World do
       |> bump(:casts, 1)
       |> bump(:reached, reached)
 
-    %{world | mobs: alive, rand: rand, stats: stats}
+    %{
+      world
+      | mobs: alive,
+        rand: rand,
+        stats: stats,
+        corpses: world.corpses ++ corpses_of(world, dead)
+    }
+  end
+
+  # Only a BOSS with the colour taught leaves a corpse the aim can see: the
+  # common corpse has no taught body in the cave, and without the rule the
+  # guard never announces the shiny (the Catcher's session never opens).
+  defp corpses_of(%{knobs: %{boss_color: true}} = world, dead) do
+    for %{boss?: true, pos: pos} <- dead, do: %{pos: pos, at: world.clock}
+  end
+
+  defp corpses_of(_no_rule, _dead), do: []
+
+  defp decay_corpses(%{corpses: []} = world), do: world
+
+  defp decay_corpses(world) do
+    {gone, kept} = Enum.split_with(world.corpses, &(world.clock - &1.at >= world.knobs.corpse_ms))
+    %{world | corpses: kept, stats: bump(world.stats, :balls_lost, length(gone))}
+  end
+
+  @doc """
+  What the Catcher's `:capture` fact would say: aiming while a shiny corpse is on
+  screen. `pending` is the corpses in the aim; the brain reads only `aiming?`.
+  """
+  @spec capture_input(t) :: %{aiming?: boolean, pending: non_neg_integer, corpses: [tuple]}
+  def capture_input(world) do
+    seen = for c <- world.corpses, on_screen?(c, world.pos, world.knobs), do: c.pos
+    %{aiming?: seen != [], pending: length(seen), corpses: seen}
+  end
+
+  @doc "The ball lands: the first shiny corpse on screen is taken."
+  @spec throw_ball(t) :: t
+  def throw_ball(world) do
+    case Enum.find(world.corpses, &on_screen?(&1, world.pos, world.knobs)) do
+      nil ->
+        world
+
+      corpse ->
+        %{
+          world
+          | corpses: List.delete(world.corpses, corpse),
+            stats: bump(world.stats, :balls, 1)
+        }
+    end
+  end
+
+  @doc """
+  A boss born where the test wants it, with the health it wants — the
+  world's own boss (`spawn_boss/1`) rolls both. `hp:` in points.
+  """
+  @spec summon_boss(t, {integer, integer, integer}, keyword) :: t
+  def summon_boss(world, pos, opts \\ []) do
+    hp = Keyword.get(opts, :hp, world.knobs.mob_hp * world.knobs.boss_hp_mult)
+    boss = %{boss_mob(world, pos) | hp: hp, max_hp: max(hp, 1)}
+
+    %{
+      world
+      | mobs: world.mobs ++ [boss],
+        next_id: world.next_id + 1,
+        stats: bump(world.stats, :bosses_born, 1)
+    }
   end
 
   # O aumento da aura multiplica a FAIXA, não o sorteio: um bônus aplicado
@@ -1523,6 +1604,7 @@ defmodule Pokex.Sim.World do
   def observe(world, :skill_bar), do: %{ready_keys: ready_keys(world)}
 
   def observe(world, :minimap), do: %{pos: world.pos}
+  def observe(world, :capture), do: capture_input(world)
 
   # THE EYE (`CrowdWatch`'s `:crowd` fact): the world draws the bars
   # (`marks/1`) and PRODUCTION's eye places them — `CrowdScan.place/4`, the

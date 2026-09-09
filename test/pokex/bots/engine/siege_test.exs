@@ -139,6 +139,35 @@ defmodule Pokex.Bots.Engine.SiegeTest do
       assert far.recall_gap_ok? == true
     end
 
+    # "Nunca há mistura: ou todos ou nenhum." One skull among bare heads is a
+    # misread — measured at 1% of 107 marks in his own skull-less morning, and
+    # it cost him a pile of four already biting.
+    test "one skull among bare heads is a misread, not an area" do
+      siege =
+        Siege.build(
+          eye([hostile(3, 0, skull?: true), hostile(3, 1), hostile(3, 2), hostile(3, 3)]),
+          4,
+          nil,
+          @config,
+          1_000
+        )
+
+      refute siege.heavy?
+    end
+
+    test "skulls on most of them is the area, whatever the odd bare head says" do
+      siege =
+        Siege.build(
+          eye([hostile(3, 0, skull?: true), hostile(3, 1, skull?: true), hostile(3, 2)]),
+          3,
+          nil,
+          @config,
+          1_000
+        )
+
+      assert siege.heavy?
+    end
+
     test "the brain's latch makes a skull-less picture heavy" do
       siege = Siege.build(eye([hostile(3, 0)]), 1, nil, @config, 1_000, heavy?: true)
 

@@ -664,4 +664,23 @@ defmodule PokexWeb.SimLiveTest do
       assert html =~ "a corda deixa ele vir"
     end
   end
+
+  # A run that killed the CHARACTER crashed the page: `Bench.ended/1` answers
+  # `:player_died` and the table had a word for the other three only.
+  describe "every ending the bench can report has a word" do
+    test "the four of them, and the worst one says whose death it was" do
+      for ending <- [:player_died, :died, :clean, :timeout] do
+        assert is_binary(PokexWeb.SimLive.ending_text(ending))
+        assert is_binary(PokexWeb.SimLive.ending_class(ending))
+      end
+
+      assert PokexWeb.SimLive.ending_text(:player_died) =~ "VOCÊ"
+      refute PokexWeb.SimLive.ending_text(:died) =~ "VOCÊ"
+    end
+
+    test "an ending nobody thought of still renders instead of taking the page down" do
+      assert PokexWeb.SimLive.ending_text(:something_new) == "something_new"
+      assert is_binary(PokexWeb.SimLive.ending_class(:something_new))
+    end
+  end
 end

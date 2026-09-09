@@ -869,13 +869,23 @@ defmodule PokexWeb.SimLive do
   # A run that ended with the pokemon down is not the same news as one that
   # ended with the ground clean, and a table where both read "clean" is a table
   # nobody looks twice at.
-  defp ending_text(:died), do: "caiu"
-  defp ending_text(:clean), do: "limpo"
-  defp ending_text(:timeout), do: "ficou gente"
+  # `Bench.ended/1` answers four, and the worst of them had no word here: a run
+  # that killed the CHARACTER took the page down with a `FunctionClauseError`
+  # instead of saying so. The ending nobody wrote a clause for is exactly the
+  # one worth reading.
+  @doc false
+  def ending_text(:player_died), do: "VOCÊ caiu"
+  def ending_text(:died), do: "caiu"
+  def ending_text(:clean), do: "limpo"
+  def ending_text(:timeout), do: "ficou gente"
+  def ending_text(other), do: to_string(other)
 
-  defp ending_class(:died), do: "font-semibold text-pk-danger"
-  defp ending_class(:clean), do: "text-pk-ok"
-  defp ending_class(_still_going), do: "text-pk-warn"
+  @doc false
+  def ending_class(ending) when ending in [:died, :player_died],
+    do: "font-semibold text-pk-danger"
+
+  def ending_class(:clean), do: "text-pk-ok"
+  def ending_class(_still_going), do: "text-pk-warn"
 
   defp failure_label(:blind), do: "tela ilegível"
   defp failure_label({:dead_key, key}), do: "tecla #{key} não sai"
@@ -2108,7 +2118,10 @@ defmodule PokexWeb.SimLive do
                 <span class="text-pk-ok">pokémon</span>
                 {(@world && @world.own.hp_pct) || "—"}% <span class="text-pk-text-3">·</span>
                 lido: {(@pokemon_fact && (@pokemon_fact.hp_pct || "não leu")) || "—"}
-                <span :if={@pokemon_fact && @pokemon_fact.fainted?} class="text-pk-danger">
+                <%!-- Read with Access, not the dot: the fact comes from the one WorldState
+                      table the whole run shares, and a missing key must not take the
+                      page down (a `KeyError` here killed 33 tests in one suite). --%>
+                <span :if={@pokemon_fact && @pokemon_fact[:fainted?]} class="text-pk-danger">
                   · caiu
                 </span>
               </p>

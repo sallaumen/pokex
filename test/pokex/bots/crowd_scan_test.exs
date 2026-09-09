@@ -194,6 +194,24 @@ defmodule Pokex.Bots.CrowdScanTest do
       assert length(reading.hostiles) == 2
     end
 
+    # In one of the 34 frames measured on 09/09 the pokémon was not in the
+    # picture and two monsters tied at 0.554 and 0.552 against the taught
+    # Torterra. Picking the winner of a coin toss IS the flipping he sees.
+    test "two bodies that look the same are no answer: the box and the health decide" do
+      SettingsStash.stash!(pokemon_sprite_box_px: 96, pokemon_track_min_similarity: 0.55)
+      teach!("Torterra", @pet_blue)
+
+      reading =
+        look_at([{2, 2}, {-2, 1}],
+          listed: 2,
+          pet_name: "Torterra",
+          body_color: [{{-2, 1}, @pet_blue}, {{2, 2}, @pet_blue}]
+        )
+
+      assert reading.pet == nil
+      assert length(reading.hostiles) == 2
+    end
+
     test "with nothing taught the eye reads as before" do
       reading = look_at([{2, 2}, {-2, 1}], listed: 2, pet_name: "Torterra")
 
@@ -249,12 +267,14 @@ defmodule Pokex.Bots.CrowdScanTest do
           {px + dx * @tile - div(bw, 2) - rx, py + dy * @tile - @tile - div(bh, 2) - ry}
         end)
 
-      # a body painted one colour, 96×96 around its centre (one tile under the bar)
+      # A body painted one colour, 96×96 around the middle of its ART — HALF a
+      # tile under the bar, which is where the client draws it (measured on his
+      # own frames 09/09). Its SQUARE is a whole tile under the bar; the picture
+      # overlaps upward.
       body =
-        case body_opt do
-          {{dx, dy}, color} -> {{px + dx * @tile - 48 - rx, py + dy * @tile - 48 - ry}, color}
-          nil -> nil
-        end
+        Enum.map(List.wrap(body_opt), fn {{dx, dy}, color} ->
+          {{px + dx * @tile - 48 - rx, py + dy * @tile - div(@tile, 2) - 48 - ry}, color}
+        end)
 
       rgba = for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>>, do: pixel(bars, geo, body, x, y)
       {:ok, %Frame{width: w, height: h, rgba: rgba, scale: 1.0}}
@@ -272,11 +292,11 @@ defmodule Pokex.Bots.CrowdScanTest do
     end
   end
 
-  defp body_pixel({{bx, by}, color}, x, y)
-       when x >= bx and x < bx + 96 and y >= by and y < by + 96,
-       do: color
-
-  defp body_pixel(_none_or_outside, _x, _y), do: <<224, 192, 128, 255>>
+  defp body_pixel(bodies, x, y) do
+    Enum.find_value(bodies, <<224, 192, 128, 255>>, fn {{bx, by}, color} ->
+      x >= bx and x < bx + 96 and y >= by and y < by + 96 and color
+    end)
+  end
 
   defp covers?({bx, by}, %{bar_w: bw, bar_h: bh}, x, y),
     do: x >= bx and x < bx + bw and y >= by and y < by + bh

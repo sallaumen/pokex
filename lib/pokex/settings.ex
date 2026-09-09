@@ -697,7 +697,12 @@ defmodule Pokex.Settings do
     # How much the evidence picture is shrunk before it is drawn.
     crowd_scan_evidence_shrink: 4,
     # "Colado" no pokémon: a hostile this many tiles from it (or fewer) is biting it.
-    engine_pin_tiles: 1,
+    # TWO since 09/09, on his call watching the eye work in the field: "se o
+    # pokémon tiver não apenas grudado no meu, mas também com uma distânciazinha
+    # de 1, no máximo 1 bloco ali, a gente deixa já o olho considerar como
+    # válido". One empty square between the two is a monster already in the
+    # fight, and waiting for it to step in buys nothing.
+    engine_pin_tiles: 2,
     # --- The watchman and the native sound (2026-09-07) -----------------------------------------
     # A Mac system sound for the sectors with no mute button (:mortal, :setup), played by
     # `Pokex.Bots.Siren` through `afplay` — heard with the game in front and the panel hidden.

@@ -192,12 +192,27 @@ defmodule Pokex.Bots.CrowdScan do
 
   # THE TAUGHT SPRITE WINS (09/09): "ele muitas vezes troca qual é o pokémon que
   # ele acha que é o meu — é importante usar a calibração do meu pokémon, três
-  # ou quatro imagens do Torterra de vários ângulos". Every mark's body (one
-  # tile under the bar) is scored against the taught library; the body that
-  # is his pokémon by name, above the tracker's own threshold and best of all,
-  # is the pet — whatever box or health the others show. Nothing taught, or
-  # nothing close enough (the notebook's tile is a third of the ultrawide's,
-  # and the library was taught there): the box and the health decide, as before.
+  # ou quatro imagens do Torterra de vários ângulos". Every mark's body is
+  # scored against the taught library; the body that is his pokémon by name,
+  # above the tracker's own threshold and clear of the next mark, is the pet —
+  # whatever box or health the others show. Nothing taught, or nothing close
+  # enough: the box and the health decide, as before.
+  #
+  # HALF A TILE, NOT A WHOLE ONE. The creature's SQUARE is a full tile under
+  # its bar (that is what `place/4` walks the point down by), but its ART is
+  # drawn overlapping upward, so the middle of the picture sits halfway. Aiming
+  # a whole tile down reads the ground under its feet, and the feature was
+  # inert in the field: MEASURED over 34 of his own frames (09/09, ultrawide,
+  # 81 marks), a whole tile scored 0.69 at best and cleared the floor 5 times;
+  # half a tile scores his Torterra at 0.79-0.94 with every other mark under
+  # 0.40, and clears the floor 23 times.
+  #
+  # And the winner has to be CLEAR of the runner-up. In the one frame of the 34
+  # where the pokémon was not in the picture, two monsters tied at 0.554 and
+  # 0.552 — a coin toss for "which one is mine", which is the very flipping he
+  # is complaining about. A tie is no answer: the box and the health decide.
+  @clear_by 0.15
+
   defp sprite_pet(frame, marks, tile, scale, opts) do
     name = Keyword.get_lazy(opts, :pet_name, &Pokex.Pokedex.Team.active/0)
     lib = Keyword.get_lazy(opts, :sprites, &Pokex.Bots.PokemonSprites.library/0)
@@ -206,25 +221,32 @@ defmodule Pokex.Bots.CrowdScan do
       aimed = Pokex.Vision.SpriteLibrary.aimed(lib)
       box = Pokex.Settings.get(:pokemon_sprite_box_px)
       floor = Pokex.Settings.get(:pokemon_track_min_similarity)
-      body_below = round(tile * scale)
+      body_below = round(tile * scale / 2)
 
       marks
       |> Enum.map(fn %{point: {x, y}} = mark ->
         window = {x - div(box, 2), y + body_below - div(box, 2), box, box}
         {mark, Pokex.Vision.SpriteLibrary.best_in(aimed, frame, window)}
       end)
-      |> Enum.filter(fn {_mark, hit} ->
-        hit != nil and hit.score >= floor and same_name?(hit.name, name)
-      end)
-      |> Enum.max_by(fn {_mark, hit} -> hit.score end, fn -> nil end)
-      |> case do
-        {mark, _hit} -> mark
-        nil -> nil
-      end
+      |> Enum.filter(fn {_mark, hit} -> hit != nil and same_name?(hit.name, name) end)
+      |> Enum.sort_by(fn {_mark, hit} -> -hit.score end)
+      |> clearly_best(floor)
     else
       nil
     end
   end
+
+  defp clearly_best([{mark, best} | rest], floor) do
+    runner_up =
+      case rest do
+        [{_mark, second} | _others] -> second.score
+        [] -> 0.0
+      end
+
+    if best.score >= floor and best.score - runner_up >= @clear_by, do: mark
+  end
+
+  defp clearly_best([], _floor), do: nil
 
   defp same_name?(taught, active), do: String.downcase(taught) == String.downcase(active)
 

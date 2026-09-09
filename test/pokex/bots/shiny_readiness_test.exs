@@ -78,7 +78,7 @@ defmodule Pokex.Bots.ShinyReadinessTest do
     check = ShinyReadiness.check()
 
     assert keys(check.gaps) == [:guard_off]
-    assert hd(check.gaps).href == "/"
+    assert hd(check.gaps).href == "/config/editores"
     assert check.armed == ["Electrode shiny"]
   end
 

@@ -26,7 +26,8 @@ defmodule Pokex.Bots.ShinyReadiness do
   @type t :: %{armed: [String.t()], gaps: [step], notes: [step]}
 
   @calibration "/calibration"
-  @panel "/"
+  # o cartão da guarda mora DENTRO do overlay dos Editores, não no painel: o
+  # ponteiro do /config dizia "/" e quem o seguia chegava numa tela sem cartão
   @editors "/config/editores"
   @config "/config"
 
@@ -58,26 +59,24 @@ defmodule Pokex.Bots.ShinyReadiness do
     ]
 
   defp gaps(rules, []) do
-    cond do
-      Enum.all?(rules, &(&1["proven"] == nil)) ->
-        [
-          step(
-            :unproven,
-            "#{quoted(rules)} sem prova do chão — uma regra não provada não varre nada",
-            @calibration,
-            "medir o chão"
-          )
-        ]
-
-      true ->
-        [
-          step(
-            :disabled,
-            "#{quoted(rules)} está desligada na lista de cores",
-            @calibration,
-            "ligar a regra"
-          )
-        ]
+    if Enum.all?(rules, &(&1["proven"] == nil)) do
+      [
+        step(
+          :unproven,
+          "#{quoted(rules)} sem prova do chão — uma regra não provada não varre nada",
+          @calibration,
+          "medir o chão"
+        )
+      ]
+    else
+      [
+        step(
+          :disabled,
+          "#{quoted(rules)} está desligada na lista de cores",
+          @calibration,
+          "ligar a regra"
+        )
+      ]
     end
   end
 
@@ -88,7 +87,7 @@ defmodule Pokex.Bots.ShinyReadiness do
         step(
           :guard_off,
           "a guarda anti-shiny está desligada — a cor está pronta e ninguém olha",
-          @panel,
+          @editors,
           "ligar a guarda"
         )
       ]

@@ -149,9 +149,36 @@ defmodule Pokex.Vision.ColorMarkTest do
       assert :none = ColorMark.dominant(f, {4, 4})
     end
 
-    test "clicking on near-black teaches nothing either" do
-      f = frame(8, 8, {8, 14, 9}, [])
+    # ISTO MUDOU EM 09/09, e a razão é dele: "justamente é um dos poucos Shinies
+    # Pretos do jogo". Preto não tem matiz pra ensinar, e recusar era recusar o
+    # bicho inteiro — agora o clique vira uma BANDA ESCURA.
+    test "clicking on near-black teaches a dark band" do
+      f = frame(8, 8, {17, 16, 16}, [])
+      assert {:dark, {r, g, b}} = ColorMark.dominant(f, {4, 4})
+      assert max(r, max(g, b)) <= 30
+    end
+
+    # …e cinza claro continua não ensinando nada: uma banda que pega pedra pega
+    # o mapa inteiro.
+    test "clicking on bright grey still teaches nothing" do
+      f = frame(8, 8, {130, 130, 132}, [])
       assert :none = ColorMark.dominant(f, {4, 4})
+    end
+
+    test "a dark band matches the black body and not the lit ground" do
+      [spec] = ColorMark.compile([%{dark: 30, spread: 12}])
+
+      f =
+        frame(16, 16, {120, 90, 60}, [
+          {{2, 2, 8, 8}, {17, 16, 16}}
+        ])
+
+      assert %{px: px, manchas: [%{px: blob, box: {l, t, r, b}}]} =
+               ColorMark.scan(f, [spec], cell_px: 4, min_cell_px: 4)
+
+      assert px == 64
+      assert blob == 64
+      assert {l, t, r, b} == {0, 0, 11, 11}
     end
 
     test "the median returns a tone that EXISTS on screen, never the average of two" do
@@ -169,6 +196,46 @@ defmodule Pokex.Vision.ColorMarkTest do
     test "a click on the frame's edge does not overflow the frame" do
       f = frame(8, 8, {40, 40, 40}, [{{0, 0, 3, 3}, @verde}])
       assert {:ok, @verde} = ColorMark.dominant(f, {0, 0})
+    end
+  end
+
+  # A PROVA NOS PIXELS DELE: o quadro que ele fotografou em 09/09 tentando
+  # ensinar o shiny preto, recortado longe do HUD. O corpo mede (17,16,16) e o
+  # chão é lava; a banda escura tem que separar os dois com folga.
+  describe "o shiny preto no quadro real" do
+    @fixture "test/fixtures/shiny/preto_na_lava.png"
+
+    test "a banda escura acha o bicho e deixa a lava de fora" do
+      {:ok, frame} = Frame.from_file(@fixture)
+      [spec] = ColorMark.compile([%{dark: 30, spread: 12}])
+
+      %{manchas: manchas} = ColorMark.scan(frame, [spec], min_cell_px: 6)
+
+      assert [maior | resto] = manchas
+      # o bicho ocupa o meio do recorte
+      {cx, cy} = maior.point
+      assert cx in 180..300, "a maior mancha tem que ser o bicho, não a borda"
+      assert cy in 130..280
+
+      segunda = resto |> Enum.map(& &1.px) |> Enum.max(fn -> 0 end)
+
+      assert maior.px >= 3 * max(segunda, 1),
+             "margem medida em 09/09: 4x com teto 30 (bicho #{maior.px}px, chão #{segunda}px)"
+    end
+
+    # …e o teto é a régua: afrouxá-lo faz o chão subir mais depressa que o
+    # bicho, que é por que a prova do chão existe e por que o padrão é apertado.
+    test "afrouxar o teto de luz encolhe a margem" do
+      {:ok, frame} = Frame.from_file(@fixture)
+
+      margem = fn teto ->
+        [spec] = ColorMark.compile([%{dark: teto, spread: 12}])
+        %{manchas: [maior | resto]} = ColorMark.scan(frame, [spec], min_cell_px: 6)
+        chao = resto |> Enum.map(& &1.px) |> Enum.max(fn -> 0 end)
+        maior.px / max(chao, 1)
+      end
+
+      assert margem.(30) > margem.(60)
     end
   end
 end

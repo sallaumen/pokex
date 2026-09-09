@@ -170,7 +170,9 @@ defmodule Pokex.Bots.ShinyGuard do
         result =
           ColorMark.scan(frame, rule.specs,
             min_cell_px: rule.min_cell_px,
-            forbidden: forbidden
+            # as caixas do personagem e do pokémon MAIS o que a prova do chão
+            # aprendeu ser o HUD do jogo (uma banda escura vê o próprio cliente)
+            forbidden: forbidden ++ Map.get(rule, :forbidden, [])
           )
 
         mancha = result.manchas |> List.first() |> on_screen(region, frame.scale)

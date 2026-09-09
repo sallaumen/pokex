@@ -76,7 +76,12 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
         rules
         |> Enum.flat_map(fn rule ->
           result =
-            ColorMark.scan(frame, rule.specs, min_cell_px: rule.min_cell_px, forbidden: forbidden)
+            ColorMark.scan(frame, rule.specs,
+              min_cell_px: rule.min_cell_px,
+              # …mais o HUD que a prova do chão aprendeu (uma banda escura vê o
+              # próprio cliente, e ele é mais alto que qualquer criatura)
+              forbidden: forbidden ++ Map.get(rule, :forbidden, [])
+            )
 
           case List.first(result.manchas) do
             %{px: px} = mancha when px >= rule.min_px ->

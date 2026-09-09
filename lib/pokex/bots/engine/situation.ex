@@ -256,8 +256,21 @@ defmodule Pokex.Bots.Engine.Situation do
 
   # Found by name: the precise way, and the only one that works when his pokémon
   # is not the first row.
-  defp by_name_or_by_absence(rows, mine, theirs, _inputs) when mine != [],
-    do: %{rows: rows, enemies: length(theirs), named: theirs, own_row_seen?: true}
+  #
+  # ONE row is his, never "every row with that name". The name is the SPECIES,
+  # and `bare/1` drops the "shiny " on top of that — so hunting the creature he
+  # has on the field made the whole pile read as his own row: five Vileplumes on
+  # screen, `enemies` 0, `worth_fighting?` false, and the brain answering
+  # "seguindo a rota" to a pile that was eating him. The namesakes go back where
+  # they belong, `named` included, so a boss of his own species can still be
+  # seen; which of them is HIS is the same tie-break the unreadable rows already
+  # use (`own_among/2`).
+  defp by_name_or_by_absence(rows, [_ | _] = mine, theirs, inputs) do
+    {_how, namesakes} = own_among(mine, Map.get(inputs, :own_hp))
+    others = theirs ++ namesakes
+
+    %{rows: rows, enemies: length(others), named: others, own_row_seen?: true}
+  end
 
   # Nothing matched by name, but his pokémon IS on the field — so one of these
   # rows is his and the reader could not spell it. If every row is legible
@@ -286,16 +299,17 @@ defmodule Pokex.Bots.Engine.Situation do
   defp by_name_or_by_absence(rows, _none, theirs, _not_out),
     do: %{rows: rows, enemies: rows, named: theirs, own_row_seen?: false}
 
-  # WHICH unreadable row is his, when no name can say it.
+  # WHICH of several candidate rows is his, when the name cannot separate them:
+  # the unreadable rows (no name at all) and the namesakes (the same species he
+  # has on the field). Both are the same question, so both get the same answer.
   #
   # His health is read twice, from two places that do not know about each other:
   # the Pokebar (`own_hp`) and the row's own track. They agree — measured on his
   # capture of 2026-08-27, the single remaining row read 67% while the Pokebar
-  # read 69 — and that agreement names the row without a single glyph. It is
-  # used only to CHOOSE among rows already known to be unreadable, and only when
-  # exactly one of them matches: two rows at the same health is a coin toss, and
-  # the fallback (the first, his own measurement of 2026-08-18: row 0 in 134 of
-  # 140 readings) is what a coin toss should defer to.
+  # read 69 — and that agreement names the row without a single glyph. It only
+  # decides when exactly one candidate matches: two rows at the same health is a
+  # coin toss, and the fallback (the first, his own measurement of 2026-08-18:
+  # row 0 in 134 of 140 readings) is what a coin toss should defer to.
   #
   # The slack is wide because the two readings are two different CAPTURES: the
   # battle feed and the party bar are read on their own clocks, and a pokémon

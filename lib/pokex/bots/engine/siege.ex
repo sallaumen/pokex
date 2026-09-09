@@ -13,7 +13,11 @@ defmodule Pokex.Bots.Engine.Siege do
 
     * `pinned` — biting the pokémon (`from_pet ≤ pin_tiles`);
     * `covered` — asleep: the stun is fresh and this creature stood where the
-      stun reached when it went out;
+      stun reached when it went out. "Stood where" is a GAME tile, not a place
+      on the screen: the eye measures from the character and the character
+      walks, so the cover carries the tile he was on and the comparison shifts
+      by however far he has gone since (`covered?/3`). No coordinate at either
+      end, or a floor change in between, and nobody is covered;
     * `loose` — awake and away from the pile;
     * `unseen` — on the list but not in the picture. With a fresh stun they
       are the pile stacked on itself (bars hide bars); without one they are
@@ -51,13 +55,19 @@ defmodule Pokex.Bots.Engine.Siege do
           asleep?: boolean
         }
 
-  @type cover :: %{at: integer, pet: {integer, integer} | nil, points: [{integer, integer}]}
+  @type cover :: %{
+          at: integer,
+          pet: {integer, integer} | nil,
+          pos: {integer, integer, integer} | nil,
+          points: [{integer, integer}]
+        }
 
   @type t :: %{
           read?: boolean,
           age_ms: non_neg_integer | nil,
           pet_seen?: boolean,
           pet: {integer, integer} | nil,
+          pos: {integer, integer, integer} | nil,
           pin: pos_integer,
           heavy?: boolean,
           hostiles: [hostile],
@@ -74,7 +84,8 @@ defmodule Pokex.Bots.Engine.Siege do
   list's count, the last stun's cover, the engine config and the clock.
 
   Options: `heavy?: true` when the brain's latch already declared the area
-  heavy for this fight.
+  heavy for this fight, and `pos:` the minimap tile he is standing on — the
+  frame the stun's cover is compared in (see `covered?/3`).
   """
   @spec build(map | nil, non_neg_integer | nil, cover | nil, map, integer, keyword) :: t
   def build(crowd, listed, cover, config, now, opts \\ [])
@@ -82,10 +93,12 @@ defmodule Pokex.Bots.Engine.Siege do
   def build(%{read?: true} = crowd, listed, cover, config, now, opts) do
     fresh? = fresh?(cover, config, now)
     pin = config.pin_tiles
+    pos = Keyword.get(opts, :pos)
+    shift = shift(cover, pos)
 
     hostiles =
       crowd.hostiles
-      |> Enum.map(&Map.put(&1, :asleep?, fresh? and covered?(&1, cover)))
+      |> Enum.map(&Map.put(&1, :asleep?, fresh? and covered?(&1, cover, shift)))
       |> Enum.sort_by(& &1.from_me)
 
     heavy? = Keyword.get(opts, :heavy?, false) or most_wear_skulls?(hostiles)
@@ -103,6 +116,7 @@ defmodule Pokex.Bots.Engine.Siege do
       age_ms: age(crowd, now),
       pet_seen?: crowd.pet != nil,
       pet: pet_offset(crowd.pet),
+      pos: pos,
       pin: pin,
       heavy?: heavy?,
       hostiles: hostiles,
@@ -115,12 +129,13 @@ defmodule Pokex.Bots.Engine.Siege do
     }
   end
 
-  def build(crowd, _listed, _cover, config, now, _opts) do
+  def build(crowd, _listed, _cover, config, now, opts) do
     %{
       read?: false,
       age_ms: age(crowd, now),
       pet_seen?: false,
       pet: nil,
+      pos: Keyword.get(opts, :pos),
       pin: config.pin_tiles,
       heavy?: false,
       hostiles: [],
@@ -140,6 +155,10 @@ defmodule Pokex.Bots.Engine.Siege do
 
   Without a pokémon in the picture there is no reach to measure from, and
   nobody is covered — the safe side of not knowing.
+
+  The points are written down in tiles from the CHARACTER, and the tile he
+  stood on goes with them: he walks, and `covered?/3` needs both ends to put
+  the two readings in the same frame.
   """
   @spec cover(t, map, integer) :: cover
   def cover(%{read?: true, pet_seen?: true} = siege, config, now) do
@@ -150,10 +169,11 @@ defmodule Pokex.Bots.Engine.Siege do
           is_integer(from_pet) and from_pet <= reach,
           do: {dx, dy}
 
-    %{at: now, pet: siege.pet, points: points}
+    %{at: now, pet: siege.pet, pos: siege.pos, points: points}
   end
 
-  def cover(_unread_or_no_pet, _config, now), do: %{at: now, pet: nil, points: []}
+  def cover(_unread_or_no_pet, _config, now),
+    do: %{at: now, pet: nil, pos: nil, points: []}
 
   @doc """
   WHERE TO PARK THE POKÉMON when the hunt stops for a pile: `gap` tiles from
@@ -224,11 +244,29 @@ defmodule Pokex.Bots.Engine.Siege do
 
   defp fresh?(_no_cover, _config, _now), do: false
 
-  # Asleep: a covered point within one tile of where the creature stands now.
-  defp covered?(%{dx: dx, dy: dy}, %{points: points}),
-    do: Enum.any?(points, fn {px, py} -> max(abs(px - dx), abs(py - dy)) <= 1 end)
+  # Asleep: a covered point within one tile of where the creature stands now —
+  # AND both readings put in the same frame first.
+  #
+  # The eye measures in tiles from the CHARACTER, and he walks: `stun_hold_ms`
+  # is seven seconds and the brain orders `route: :go` in half its phases, so a
+  # cover taken before a couple of steps describes a screen that has moved
+  # under it. A creature asleep on the floor has not moved at all, so its GAME
+  # tile is the thing that did not change — which is what `shift/2` restores by
+  # the tiles he walked. Read literally, an awake monster that walked into the
+  # offset the sleeping one used to occupy came back "dormindo", `loose` fell
+  # to zero, and `pile_closed?` opened the area on a pile that had not closed.
+  defp covered?(%{dx: dx, dy: dy}, %{points: points}, {sx, sy}),
+    do: Enum.any?(points, fn {px, py} -> max(abs(px - dx - sx), abs(py - dy - sy)) <= 1 end)
 
-  defp covered?(_hostile, _no_cover), do: false
+  defp covered?(_hostile, _no_cover, _unprovable_frame), do: false
+
+  # How far he has walked since the cover was taken, in tiles — `nil` when the
+  # two frames cannot be proven to be the same one (no coordinate at either
+  # end, or a floor change in between). An unprovable frame puts NOBODY to
+  # sleep: this number is the licence a revive is given on, and guessing it is
+  # the one mistake that costs the character.
+  defp shift(%{pos: {x1, y1, z}}, {x2, y2, z}), do: {x2 - x1, y2 - y1}
+  defp shift(_no_cover_or_no_coordinate, _now), do: nil
 
   defp pet_offset(%{dx: dx, dy: dy}), do: {dx, dy}
   defp pet_offset(_no_pet), do: nil

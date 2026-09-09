@@ -44,6 +44,19 @@ defmodule Pokex.Bots.Engine.SiegeTest do
     }
   end
 
+  # The tile he is standing on. It matters because the eye measures from HIM:
+  # the cover carries the tile it was taken on and the comparison is shifted by
+  # whatever he walked since (`Siege.covered?/3`).
+  @here {100, 200, 7}
+
+  defp cover(points, opts \\ []),
+    do: %{
+      at: Keyword.get(opts, :at, 500),
+      pet: {-1, 0},
+      pos: Keyword.get(opts, :pos, @here),
+      points: points
+    }
+
   describe "without an eye" do
     test "no reading at all: nothing is known and the gap is never open" do
       siege = Siege.build(nil, 3, nil, @config, 1_000)
@@ -82,8 +95,10 @@ defmodule Pokex.Bots.Engine.SiegeTest do
     end
 
     test "a fresh cover puts the creatures it reached to sleep" do
-      cover = %{at: 500, pet: {-1, 0}, points: [{-2, 0}]}
-      siege = Siege.build(eye([hostile(-2, 0, from_pet: 1)]), 1, cover, @config, 1_000)
+      siege =
+        Siege.build(eye([hostile(-2, 0, from_pet: 1)]), 1, cover([{-2, 0}]), @config, 1_000,
+          pos: @here
+        )
 
       assert siege.covered == 1
       assert siege.loose == 0
@@ -92,17 +107,24 @@ defmodule Pokex.Bots.Engine.SiegeTest do
     end
 
     test "the cover matches within one tile — the creature may have shifted" do
-      cover = %{at: 500, pet: {-1, 0}, points: [{-2, 0}]}
-      siege = Siege.build(eye([hostile(-3, 1, from_pet: 2)]), 1, cover, @config, 1_000)
+      siege =
+        Siege.build(eye([hostile(-3, 1, from_pet: 2)]), 1, cover([{-2, 0}]), @config, 1_000,
+          pos: @here
+        )
 
       assert siege.covered == 1
     end
 
     test "a stale cover covers nobody" do
-      cover = %{at: 0, pet: {-1, 0}, points: [{-2, 0}]}
-
       siege =
-        Siege.build(eye([hostile(-2, 0, from_pet: 1, skull?: true)]), 1, cover, @config, 5_000)
+        Siege.build(
+          eye([hostile(-2, 0, from_pet: 1, skull?: true)]),
+          1,
+          cover([{-2, 0}], at: 0),
+          @config,
+          5_000,
+          pos: @here
+        )
 
       assert siege.covered == 0
       assert siege.nearest_awake_from_me == 2
@@ -110,14 +132,81 @@ defmodule Pokex.Bots.Engine.SiegeTest do
     end
 
     test "whoever arrived after the stun matches no point and stays awake" do
-      cover = %{at: 500, pet: {-1, 0}, points: [{-2, 0}]}
-
       siege =
-        Siege.build(eye([hostile(-2, 0, from_pet: 1), hostile(4, 4)]), 2, cover, @config, 1_000)
+        Siege.build(
+          eye([hostile(-2, 0, from_pet: 1), hostile(4, 4)]),
+          2,
+          cover([{-2, 0}]),
+          @config,
+          1_000,
+          pos: @here
+        )
 
       assert siege.covered == 1
       assert siege.loose == 1
       assert siege.nearest_awake_from_me == 4
+    end
+  end
+
+  # O SONO É DE UM TILE DO JOGO, NÃO DE UM PONTO DA TELA. O olho mede a partir
+  # DELE e ele anda: `stun_hold_ms` são sete segundos, e metade das fases do
+  # cérebro manda `route: :go`. Uma cobertura tirada antes de dois passos
+  # descreve uma tela que já saiu do lugar.
+  describe "the cover while he walks" do
+    test "the sleeper is still asleep two tiles later — the offset moved, it did not" do
+      # a cobertura foi tirada em 100,200 com o bicho a {-2, 0}; ele andou dois
+      # tiles para leste, então o mesmo bicho parado agora está a {-4, 0}
+      siege =
+        Siege.build(eye([hostile(-4, 0, from_pet: 1)]), 1, cover([{-2, 0}]), @config, 1_000,
+          pos: {102, 200, 7}
+        )
+
+      assert siege.covered == 1
+      assert siege.recall_gap_ok? == true
+    end
+
+    test "whoever walked into the offset the sleeper left is AWAKE" do
+      # Ele andou dois tiles para leste. Um bicho ACORDADO a {-1, 0} da tela de
+      # agora está a um tile de distância do ponto {-2, 0} que a cobertura
+      # guardou — e ler a cobertura ao pé da letra o punha dormindo, zerava o
+      # `loose` e abria a área numa pilha que não tinha fechado.
+      siege =
+        Siege.build(eye([hostile(-1, 0, from_pet: 1)]), 1, cover([{-2, 0}]), @config, 1_000,
+          pos: {102, 200, 7}
+        )
+
+      assert siege.covered == 0
+      assert siege.loose == 0
+      assert siege.pinned == 1
+      assert siege.nearest_awake_from_me == 1
+      assert siege.recall_gap_ok? == false
+    end
+
+    test "a floor change is not a walk: the two frames cannot be compared at all" do
+      siege =
+        Siege.build(eye([hostile(-2, 0, from_pet: 1)]), 1, cover([{-2, 0}]), @config, 1_000,
+          pos: {100, 200, 8}
+        )
+
+      assert siege.covered == 0
+    end
+
+    test "no coordinate at either end puts nobody to sleep" do
+      blind_now =
+        Siege.build(eye([hostile(-2, 0, from_pet: 1)]), 1, cover([{-2, 0}]), @config, 1_000)
+
+      blind_then =
+        Siege.build(
+          eye([hostile(-2, 0, from_pet: 1)]),
+          1,
+          cover([{-2, 0}], pos: nil),
+          @config,
+          1_000,
+          pos: @here
+        )
+
+      assert blind_now.covered == 0
+      assert blind_then.covered == 0
     end
   end
 
@@ -177,8 +266,7 @@ defmodule Pokex.Bots.Engine.SiegeTest do
 
     test "unseen creatures are awake somewhere unless the stun is fresh" do
       awake = Siege.build(eye([]), 2, nil, @config, 1_000)
-      cover = %{at: 800, pet: {-1, 0}, points: []}
-      stacked = Siege.build(eye([]), 2, cover, @config, 1_000)
+      stacked = Siege.build(eye([]), 2, cover([], at: 800), @config, 1_000, pos: @here)
 
       assert awake.unseen == 2 and awake.recall_gap_ok? == false
       assert stacked.unseen == 2 and stacked.recall_gap_ok? == true
@@ -203,26 +291,31 @@ defmodule Pokex.Bots.Engine.SiegeTest do
           3,
           nil,
           @config,
-          1_000
+          1_000,
+          pos: @here
         )
 
       assert Siege.cover(siege, @config, 1_000) == %{
                at: 1_000,
                pet: {-1, 0},
+               pos: @here,
                points: [{-2, 0}, {2, 0}]
              }
     end
 
     test "without a pokemon in the picture nobody is covered" do
-      siege = Siege.build(eye([hostile(-2, 0, from_pet: nil)], pet: nil), 1, nil, @config, 1_000)
+      siege =
+        Siege.build(eye([hostile(-2, 0, from_pet: nil)], pet: nil), 1, nil, @config, 1_000,
+          pos: @here
+        )
 
-      assert Siege.cover(siege, @config, 1_000) == %{at: 1_000, pet: nil, points: []}
+      assert Siege.cover(siege, @config, 1_000) == %{at: 1_000, pet: nil, pos: nil, points: []}
     end
 
     test "without an eye there is no cover either" do
       siege = Siege.build(nil, 1, nil, @config, 1_000)
 
-      assert Siege.cover(siege, @config, 1_000) == %{at: 1_000, pet: nil, points: []}
+      assert Siege.cover(siege, @config, 1_000) == %{at: 1_000, pet: nil, pos: nil, points: []}
     end
   end
 
@@ -264,8 +357,6 @@ defmodule Pokex.Bots.Engine.SiegeTest do
     end
 
     test "a safe recall in a heavy area, with the pile asleep" do
-      cover = %{at: 500, pet: {-1, 0}, points: [{-2, 0}, {-2, 1}]}
-
       siege =
         Siege.build(
           eye([
@@ -273,9 +364,10 @@ defmodule Pokex.Bots.Engine.SiegeTest do
             hostile(-2, 1, from_pet: 1, skull?: true)
           ]),
           2,
-          cover,
+          cover([{-2, 0}, {-2, 1}]),
           @config,
-          1_000
+          1_000,
+          pos: @here
         )
 
       assert Siege.summary(siege) ==

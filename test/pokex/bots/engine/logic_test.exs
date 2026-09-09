@@ -25,6 +25,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # pergunta OUTRA coisa sobre pilhas de dois a quatro. O alvo tem o bloco dele.
   @config Config.merge(%{bunch_ms: 0, gather_target: 1})
 
+  # O TILE EM QUE ELE ESTÁ. Não é enfeite: é o quadro em que a cobertura do stun
+  # é comparada (`Siege.covered?/3`), porque o olho mede a partir DELE e ele
+  # anda. Um mundo sem coordenada não põe ninguém pra dormir.
+  @here {100, 200, 7}
+
   defp situation(overrides \\ %{}) do
     Map.merge(
       %{
@@ -44,7 +49,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
         # a segunda metade da régua (R6): quantos passos já foram andados
         # puxando ESTA pilha, e o contador monotônico do qual ela sai
         walked: 0,
-        walked_total: 0
+        walked_total: 0,
+        pos: @here
       },
       overrides
     )
@@ -644,7 +650,11 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert espera.phase == :resetting
       assert espera.route == :hold
       assert espera.fire == :hold
-      assert espera.why =~ "ainda não voltou na tela"
+      # A frase diz O QUE ESTÁ FALTANDO: a foto chega (`bar_seen?`), os
+      # cooldowns é que não voltaram. Dizer "a barra não voltou na tela" aqui
+      # mandava recalibrar um leitor que está funcionando.
+      assert espera.why =~ "a barra é lida, e os cooldowns ainda não voltaram nela"
+      refute espera.why =~ "ilegível"
     end
 
     test "a barra de volta NA FOTO libera a rota no mesmo tique" do
@@ -3202,7 +3212,9 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       {logic, segundo} = cerca_step(logic, mundo, 10_500)
       assert segundo.why =~ "controle na frente"
-      assert logic.stun_cover == %{at: 10_500, pet: {-1, 0}, points: [{-2, 0}, {-2, 1}]}
+
+      assert logic.stun_cover ==
+               %{at: 10_500, pet: {-1, 0}, pos: @here, points: [{-2, 0}, {-2, 1}]}
 
       {_logic, terceiro} = cerca_step(logic, mundo, 11_000)
       assert terceiro.revive == :now
@@ -3211,6 +3223,34 @@ defmodule Pokex.Bots.Engine.LogicTest do
                "o olho diria: olho: 2 colados dormindo · 1 solto a 4 tiles · 1 sem ver → revive seguro"
 
       assert terceiro.siege.gap == true
+    end
+
+    # …E O SONO SOBREVIVE AOS PASSOS DELE. A cobertura é escrita em tiles a
+    # partir do personagem, e ele anda: dois passos para leste e os MESMOS
+    # bichos parados aparecem dois tiles mais à esquerda na tela. Sem levar a
+    # coordenada junto, a pilha adormecida "acordava" a cada passo — e um bicho
+    # novo que pisasse no lugar dela era dado como dormindo.
+    test "the sleep survives his own steps: the frame moves, the sleepers do not" do
+      parado =
+        mobada(%{
+          crowd: eye([creature(-2, 0, from_pet: 1), creature(-2, 1, from_pet: 1)])
+        })
+
+      {logic, _abertura} = cerca_step(Logic.new(), parado, 10_000)
+      {logic, _segundo} = cerca_step(logic, parado, 10_500)
+      assert logic.stun_cover.pos == @here
+
+      # dois passos para leste: os mesmos dois bichos, sem sair do lugar
+      andou =
+        mobada(%{
+          crowd: eye([creature(-4, 0, from_pet: 1), creature(-4, 1, from_pet: 1)]),
+          pos: {102, 200, 7}
+        })
+
+      {_logic, terceiro} = cerca_step(logic, andou, 11_000)
+
+      assert terceiro.why =~ "2 colados dormindo"
+      assert terceiro.siege.covered == 2
     end
 
     # IN AUTO COMBO THE CHAIN ENDS IN THE CONTROL: the edge where it ends IS
@@ -3235,7 +3275,10 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert logic.stun_cover == nil
 
       {logic, orders} = Logic.step(logic, ended, @sem_stun, 12_500)
-      assert logic.stun_cover == %{at: 12_500, pet: {-1, 0}, points: [{-2, 0}, {-2, 1}]}
+
+      assert logic.stun_cover ==
+               %{at: 12_500, pet: {-1, 0}, pos: @here, points: [{-2, 0}, {-2, 1}]}
+
       assert orders.revive == :now
 
       assert orders.why =~

@@ -26,6 +26,12 @@ Este documento é o plano de implementação. Quem for implementar: leia a seç�
 > o que ele escolheu à mão), badge provada/sem-prova, liga-desliga e apagar.
 > Corpos pintados: o corpses.json dele não tinha amostras `painted` — no-op.
 >
+> **09/09:** PR 0 do plano `docs/superpowers/specs/2026-09-09-shiny-na-cacada-design.md`
+> — a guarda fotografa os três momentos (cor aparece, cor some com o último quadro
+> em que estava, lista cai com a cor na tela) em `~/.pokex/captures/shiny/` e
+> escreve `kind: "special"` no diário; o fato `:special` e o `{:shiny_seen, _}`
+> passam a carregar pontos de TELA.
+>
 > **O QUE FALTA:** o protocolo shiny completo (§8) — alvo preferido, corpo do
 > shiny real ensinado na primeira morte, "cor → qual linha da battle list".
 > O **chefe-por-cor JÁ ALIMENTA `heavy?`**: o `ShinyGuard` publica o fato

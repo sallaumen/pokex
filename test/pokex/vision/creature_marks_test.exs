@@ -174,6 +174,20 @@ defmodule Pokex.Vision.CreatureMarksTest do
                Enum.sort([{155, 207}, {457, 207}, {306, 358}, {457, 358}])
     end
 
+    # "Eles já renasceram com esse nome rosa, o que quer dizer que eles não são
+    # agressivos para a gente." A creature that stood up again beside him is
+    # drawn magenta — name and bar — and does not enter the battle list.
+    test "the respawned Magneton's bar is magenta, and his Torterra's is not" do
+      {:ok, frame} = Frame.from_png_file("test/fixtures/crowd/ultrawide_magneton_renascido.png")
+
+      marks = CreatureMarks.find(frame)
+
+      assert [
+               %{point: {232, 127}, hp_pct: 100, passive?: true},
+               %{point: {133, 278}, hp_pct: 100, passive?: false}
+             ] = marks
+    end
+
     test "one far Feraligatr alone" do
       {:ok, frame} = Frame.from_png_file("test/fixtures/crowd/feraligatr_far.png")
 

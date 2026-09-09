@@ -297,6 +297,36 @@ defmodule Pokex.Bots.CrowdScanTest do
       assert reading.pet == nil
     end
 
+    # "Muitas vezes a caçada está tão lenta que os monstros que eu matei
+    # começam a renascer aqui ao meu redor (…) eles já renasceram com esse nome
+    # rosa, o que quer dizer que eles não são agressivos para a gente. No seu
+    # detector de quantidade de inimigos, você não sabe disso." His own capture
+    # of 09/09 11:58, with one Magneton back on its feet next to his Torterra.
+    test "the one that respawned is not an enemy, and is counted apart" do
+      Calibration.save(%Calibration{
+        scale: 1.0,
+        screen_w: 400,
+        screen_h: 460,
+        tile_px: 151,
+        player_point: {108, 46}
+      })
+
+      SettingsStash.stash!(pokemon_sprite_box_px: 96, pokemon_track_min_similarity: 0.55)
+      {:ok, frame} = Frame.from_png_file("test/fixtures/crowd/ultrawide_magneton_renascido.png")
+
+      reading =
+        CrowdScan.look(
+          capture: fn _box, _name -> {:ok, frame} end,
+          listed: 0,
+          pet_name: "Torterra",
+          sprites: Pokex.Vision.SpriteLibrary.new(@taught, 10)
+        )
+
+      assert %{dx: 0, dy: 3} = reading.pet
+      assert reading.hostiles == []
+      assert reading.passive == 1
+    end
+
     defp empty_library do
       file = Path.join(System.tmp_dir!(), "vazia-#{System.unique_integer([:positive])}.json")
       on_exit(fn -> File.rm(file) end)

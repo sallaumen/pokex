@@ -1908,6 +1908,40 @@ defmodule PokexWeb.CalibrationLiveTest do
                Pokex.Vision.ColorRules.armed()
     end
 
+    # O PRINT DO COMPUTADOR DELE (09/09): "eu tenho prints dela aqui, e até de
+    # outros jogos usar isso para treinar". O TOM não tem escala; a CONTAGEM
+    # tem, e é por isso que a prova do chão continua sendo da tela viva.
+    @tag :tmp_dir
+    test "a print from disk becomes the photo and teaches the tone", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      png = Path.join(tmp, "print.png")
+
+      Pokex.PngFixtures.write!(png, [
+        [{40, 160, 60, 255}, {40, 160, 60, 255}],
+        [{40, 160, 60, 255}, {40, 160, 60, 255}]
+      ])
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      html =
+        view
+        |> file_input("#special-upload-form", :special_image, [
+          %{name: "print.png", content: File.read!(png), type: "image/png"}
+        ])
+        |> render_upload("print.png")
+
+      assert html =~ "print.png", "a tarja diz de onde veio a foto"
+      assert html =~ "não tem escala", "…e o que um arquivo pode e não pode fazer"
+      assert html =~ ~s(id="special-from-file")
+
+      # e o conta-gotas passa a valer NELA
+      html = render_click(view, "special_pick", %{"x" => 1, "y" => 1, "cw" => 2, "nw" => 2})
+      assert html =~ "40,160,60"
+    end
+
     @tag :tmp_dir
     test "a prova de ruído mede o chão, sobe o gatilho e ARMA a regra", %{
       conn: conn,

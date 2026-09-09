@@ -47,6 +47,17 @@ defmodule PokexWeb.CalibrationLive do
   # trair-se em um ou dois, e cada tom a mais é mais chão dentro do cone.
   @special_max_colors 3
 
+  # A FOTO QUE VEM DO COMPUTADOR DELE. "Eu tenho prints dela aqui, por exemplo,
+  # e até de outros jogos usar isso para treinar" (09/09).
+  #
+  # O TOM não tem escala: matiz e escuridão são de cada pixel, e um print a 2x
+  # ensina exatamente o mesmo tom que a tela. O que TEM escala é a CONTAGEM —
+  # `min_px` e o pico do chão são números de pixels, e num print maior eles
+  # crescem com a área. Por isso um arquivo ensina o TOM e nunca prova o chão:
+  # a prova continua sendo doze fotos da tela viva (📏 medir o chão), e é ela
+  # que fixa o gatilho e aprende o HUD.
+  @special_upload_max_bytes 30_000_000
+
   # A PROVA DE RUÍDO: quantas fotos do chão e de quanto em quanto tempo. Cinco
   # segundos de caçada normal — o bastante pra pegar o Torterra virando, a
   # grama passando e um bicho comum entrando na tela.
@@ -146,6 +157,13 @@ defmodule PokexWeb.CalibrationLive do
        special_msg: nil,
        special_floor: nil,
        special_rules: ColorRules.list()
+     )
+     |> allow_upload(:special_image,
+       accept: ~w(.png),
+       max_entries: 1,
+       max_file_size: @special_upload_max_bytes,
+       auto_upload: true,
+       progress: &special_upload_progress/3
      )}
   end
 
@@ -857,6 +875,13 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  def handle_event("special_cancel_upload", %{"ref" => ref}, socket),
+    do: {:noreply, cancel_upload(socket, :special_image, ref)}
+
+  # O formulário do arquivo só existe pro LiveView receber o upload; quem faz o
+  # trabalho é o progresso (`special_upload_progress/3`).
+  def handle_event("special_upload_change", _params, socket), do: {:noreply, socket}
+
   # O CONTA-GOTAS. O clique cai num pixel; quem ensina é o quadradinho ao redor
   # dele (`ColorMark.dominant/3`), senão o anti-aliasing entre o bicho e o chão
   # vira a cor de referência.
@@ -1220,6 +1245,55 @@ defmodule PokexWeb.CalibrationLive do
 
   # A leitura ao vivo do rascunho sobre a foto: px casados e a maior mancha. É
   # o que transforma "ajusta a tolerância" em medição em vez de chute.
+  # O arquivo chega, vira o quadro da vez e o conta-gotas passa a valer nele.
+  # Ele é COPIADO pro mesmo nome que a foto da tela usa, porque a página já
+  # sabe servir aquele arquivo — um caminho a menos pra divergir.
+  defp special_upload_progress(:special_image, entry, socket) do
+    if entry.done? do
+      {:noreply, consume_special_upload(socket, entry)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp consume_special_upload(socket, entry) do
+    destino = Path.join(Home.captures_dir(), "special_teach.png")
+
+    resultado =
+      consume_uploaded_entry(socket, entry, fn %{path: origem} ->
+        with :ok <- File.cp(origem, destino),
+             {:ok, frame} <- Frame.from_file(destino) do
+          {:ok, {:ok, frame}}
+        else
+          _nao_deu -> {:ok, :error}
+        end
+      end)
+
+    case resultado do
+      {:ok, frame} ->
+        socket
+        |> assign(
+          special_shot: %{
+            frame: frame,
+            v: System.system_time(:millisecond),
+            region: {0, 0, frame.width, frame.height},
+            file: entry.client_name
+          },
+          special_msg:
+            {:ok,
+             "“#{entry.client_name}” aberta (#{frame.width}×#{frame.height}) — clique no tom. " <>
+               "O gatilho e o HUD, só a tela viva mede: o tom não tem escala, a contagem tem."}
+        )
+        |> read_special()
+
+      _falhou ->
+        assign(socket,
+          special_msg:
+            {:error, "não consegui ler essa imagem — precisa ser PNG (o print do Mac já é)"}
+        )
+    end
+  end
+
   defp read_special(%{assigns: %{special_shot: nil}} = socket),
     do: assign(socket, special_reading: nil)
 
@@ -1399,6 +1473,13 @@ defmodule PokexWeb.CalibrationLive do
   defp special_zone(px, min) when px >= min, do: :hit
   defp special_zone(px, min) when px >= div(min, 2), do: :warn
   defp special_zone(_px, _min), do: :safe
+
+  defp upload_error_text(:too_large),
+    do: "essa imagem passa de 30MB — recorte o pedaço com o bicho e mande de novo"
+
+  defp upload_error_text(:not_accepted), do: "só PNG por aqui (o print do Mac já nasce PNG)"
+  defp upload_error_text(:too_many_files), do: "uma imagem por vez"
+  defp upload_error_text(other), do: "não deu pra abrir a imagem (#{inspect(other)})"
 
   defp photo_error(:no_anchor),
     do: "marque o seu personagem na calibração (ou salve a resolução da tela) antes de ensinar"
@@ -3244,9 +3325,34 @@ defmodule PokexWeb.CalibrationLive do
                     dispara.
                   </p>
                 </div>
-                <button id="special-shot-btn" class="btn btn-sm shrink-0" phx-click="special_shot">
-                  📸 Fotografar o quadro da busca
-                </button>
+                <div class="flex shrink-0 flex-col items-end gap-1.5">
+                  <button id="special-shot-btn" class="btn btn-sm" phx-click="special_shot">
+                    📸 Fotografar o quadro da busca
+                  </button>
+
+                  <%!-- …OU UM PRINT DO COMPUTADOR DELE. "Eu tenho prints dela
+                       aqui, e até de outros jogos usar isso para treinar"
+                       (09/09). O TOM não tem escala — matiz e escuridão são de
+                       cada pixel —, então um print ensina o mesmo tom que a
+                       tela. A CONTAGEM tem: o gatilho e o HUD continuam sendo
+                       medidos na tela viva, e a tarja no alto da foto diz isso
+                       enquanto o arquivo estiver aberto. --%>
+                  <form
+                    id="special-upload-form"
+                    phx-change="special_upload_change"
+                    phx-submit="special_upload_change"
+                  >
+                    <label
+                      id="special-upload"
+                      phx-drop-target={@uploads.special_image.ref}
+                      class="flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-pk-line-strong px-2.5 py-1.5 font-mono text-pk-meta text-pk-text-2 transition-colors hover:border-pk-ok/60 hover:text-pk-text"
+                    >
+                      <.icon name="hero-photo" class="size-3.5 shrink-0" />
+                      <span>ou solte um print aqui (PNG)</span>
+                      <.live_file_input upload={@uploads.special_image} class="sr-only" />
+                    </label>
+                  </form>
+                </div>
               </div>
 
               <p
@@ -3279,6 +3385,28 @@ defmodule PokexWeb.CalibrationLive do
                   cancelar
                 </button>
               </div>
+
+              <p
+                :for={err <- upload_errors(@uploads.special_image)}
+                id="special-upload-error"
+                class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
+              >
+                {upload_error_text(err)}
+              </p>
+
+              <p
+                :if={@special_shot && @special_shot[:file]}
+                id="special-from-file"
+                class="flex flex-wrap items-center gap-1.5 rounded-lg border border-pk-line-strong bg-pk-sunken px-3 py-1.5 text-pk-body text-pk-text-2"
+              >
+                <.icon name="hero-photo" class="size-3.5 shrink-0" />
+                <span>
+                  foto de arquivo (<b class="text-pk-text">{@special_shot.file}</b>): serve pra
+                  pegar o TOM, que não tem escala. O gatilho e o HUD só a tela viva mede —
+                  <b class="text-pk-text">📏 medir o chão</b>
+                  depois de salvar.
+                </span>
+              </p>
 
               <img
                 :if={@special_shot}

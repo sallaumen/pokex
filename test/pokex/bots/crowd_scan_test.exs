@@ -141,16 +141,35 @@ defmodule Pokex.Bots.CrowdScanTest do
       marks = [mark({3, 3}, pet?: true, hp: 100), mark({0, 2}, hp: 39), mark({-2, 1}, hp: 70)]
       taught = mark({-2, 1}).point
 
-      placed = CrowdScan.place(marks, @me, @tile, pet_hp: 39, pet_point: taught)
+      placed =
+        CrowdScan.place(marks, @me, @tile,
+          pet_hp: 39,
+          sprite: %{point: taught, score: 0.87}
+        )
 
       assert %{dx: -2, dy: 1, hp_pct: 70} = placed.pet
       assert Enum.map(placed.hostiles, & &1.hp_pct) == [39, 100]
     end
 
+    # A NOTA VIAJA JUNTO DO PONTO. Ela decidia e era jogada fora: o card do
+    # cerco não tinha como dizer o quanto ele acredita que aquele quadrado é o
+    # pokémon dele, e caía no "não se sabe por qual caminho" justamente quando
+    # a sprite ensinada era quem tinha decidido.
+    test "the sprite's score travels with the point, all the way to the reading" do
+      marks = [mark({-2, 1}, hp: 70)]
+
+      placed =
+        CrowdScan.place(marks, @me, @tile, sprite: %{point: mark({-2, 1}).point, score: 0.94})
+
+      assert %{by: :sprite, score: 0.94} = placed.pet
+    end
+
     test "a taught point matching no mark falls back to the box" do
       marks = [mark({3, 3}, pet?: true), mark({0, 2})]
 
-      assert %{dx: 3, dy: 3} = CrowdScan.place(marks, @me, @tile, pet_point: {1, 1}).pet
+      placed = CrowdScan.place(marks, @me, @tile, sprite: %{point: {1, 1}, score: 0.9})
+
+      assert %{dx: 3, dy: 3, by: :box, score: nil} = placed.pet
     end
   end
 
@@ -175,8 +194,15 @@ defmodule Pokex.Bots.CrowdScanTest do
           body_color: {{-2, 1}, @pet_blue}
         )
 
-      assert %{dx: -2, dy: 1} = reading.pet
+      assert %{dx: -2, dy: 1, by: :sprite} = reading.pet
       assert [%{dx: 2, dy: 2, from_pet: 4}] = reading.hostiles
+
+      # A NOTA CHEGA NA LEITURA. Ela era calculada, decidia, e morria no
+      # caminho entre `look/1` e `place/4`: `pet.score` voltava nil em toda
+      # leitura de verdade, e o card do cerco dizia "não se sabe por qual
+      # caminho" sobre o único caminho que sabia.
+      assert is_float(reading.pet.score)
+      assert reading.pet.score >= 0.55
     end
 
     test "a taught body of ANOTHER pokemon is not his" do

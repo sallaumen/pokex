@@ -196,11 +196,23 @@ defmodule Pokex.Bots.CrowdWatch do
   # -- the photos ----------------------------------------------------------------
 
   # The wait ended in a fight: a fresh picture is the opening.
+  #
+  # THROUGH THE SAME DOOR AS EVERY OTHER LOOK. This one used to call `look/1`
+  # straight, so switching the eye off did not switch it off: `state.last` was
+  # still a read reading, every opening took another capture — which set `last`
+  # again — and the `:crowd` fact he believed was gone kept being overwritten
+  # for the brain to build a siege from.
   defp photo_on_opening(%{last: %{read?: true}, last_phase: before} = state, %{phase: :engaged})
        when before in @waiting do
-    {reading, state} = look(state, now(), evidence: true)
-    save_photo(reading, "open")
-    state
+    case allowed(state, now()) do
+      :ok ->
+        {reading, state} = look(state, now(), evidence: true)
+        save_photo(reading, "open")
+        state
+
+      {:error, _off_or_no_hunt} ->
+        state
+    end
   end
 
   defp photo_on_opening(state, _orders), do: state

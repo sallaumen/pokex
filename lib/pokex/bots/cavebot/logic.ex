@@ -90,6 +90,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | :cooldown_revive
           | {:park, {integer, integer}}
           | {:skills, [Route.skill()]}
+          # the corner asked for a reset and the moment answered no, with the
+          # reading that decided it (`run_stop/4`)
+          | {:skip_reset, String.t() | nil}
           | {:block, atom}
 
   @type world :: %{
@@ -932,8 +935,8 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp fight(logic, world, now) do
     cond do
       clear?(world) -> stand_and_fight(logic, world, now)
-      retreat_ordered?(world) -> retreat(fight_clocks(logic, world, now), world, now)
-      walk_ordered?(world) -> follow_route(fight_clocks(logic, world, now), world, now)
+      retreat_ordered?(world) -> retreat(fight_clocks(logic, world), world, now)
+      walk_ordered?(world) -> follow_route(fight_clocks(logic, world), world, now)
       true -> logic |> stand_and_fight(world, now) |> park_or(world)
     end
   end
@@ -983,7 +986,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # used to survive the whole walk, so a short `:hold` tick with a clean screen fell straight
   # into `:post_fight` at an arbitrary corner (`next_stop/1` reads `wp_index - 1`, wherever it
   # happens to be, not where the pile died).
-  defp fight_clocks(logic, world, _now) do
+  defp fight_clocks(logic, world) do
     %{
       logic
       | since: logic.since |> Map.delete(:fight) |> Map.delete(:clear),
@@ -1156,6 +1159,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # Catcher must never freeze the hunt.
   defp post_fight(logic, world, now) do
     dwell_since = Map.get(logic.since, :dwell, now)
+    stop = next_stop(logic)
 
     cond do
       # A mob walking in during the stop is a FIGHT, not something to push
@@ -1166,7 +1170,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
       world.enemies > 0 or engaged?(world) -> enter_fight(logic, now)
       capturing?(world, now, logic.config.capture_wait_ms) -> {logic, :none}
       standing_by?(logic, now) -> {logic, :none}
-      next_stop(logic) -> run_stop(logic, next_stop(logic), world, now)
+      stop -> run_stop(logic, stop, world, now)
       # The stops above still ran — a :cooldown_revive IS the recovery — but the route does not
       # resume until the pokémon is back on its feet: the next leg is the next
       logic.recovering? -> {logic, :none}

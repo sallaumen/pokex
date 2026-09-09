@@ -23,6 +23,7 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.ReviveLedger
   alias Pokex.Bots.SkillClock
   alias Pokex.Bots.SkillMeter
+  alias Pokex.Bots.ShinyReadiness
   alias Pokex.Bots.SkillRack
   alias Pokex.Bots.HuntMode
   alias Pokex.Bots.Combat.Loadout
@@ -1133,6 +1134,18 @@ defmodule PokexWeb.CavebotLive do
     {:noreply, socket |> assign(notice: nil) |> reload_routes(name)}
   end
 
+  # UM CLIQUE, na tela onde ele já está: o interruptor da guarda mora no
+  # painel, e mandá-lo trocar de página pro último passo é o atrito que faz um
+  # ajuste de dez segundos virar "amanhã eu ligo".
+  def handle_event("arm_shiny_guard", _params, socket) do
+    Settings.put(:shiny_guard_enabled, true)
+
+    {:noreply,
+     socket
+     |> assign(:shiny, ShinyReadiness.check())
+     |> log_line(:macro, "✨ guarda anti-shiny ligada daqui")}
+  end
+
   # He marked the spot with his own hand: the waypoint under him becomes the
   # kill spot, and the point he clicked is where the pokémon will be parked
   # when the hunt runs this route.
@@ -2076,6 +2089,25 @@ defmodule PokexWeb.CavebotLive do
     end
   end
 
+  defp shiny_label(%{armed: []} = shiny), do: shiny_steps_label(shiny)
+
+  defp shiny_label(%{armed: names} = shiny) do
+    if ShinyReadiness.ready?(shiny),
+      do: "shiny armado: #{Enum.join(names, ", ")}",
+      else: shiny_steps_label(shiny)
+  end
+
+  defp shiny_steps_label(%{gaps: gaps}) do
+    case length(gaps) do
+      1 -> "shiny: 1 passo"
+      n -> "shiny: #{n} passos"
+    end
+  end
+
+  defp shiny_title(%{gaps: [], notes: []}), do: "a cor está provada, a guarda varre e a bola voa"
+  defp shiny_title(%{gaps: [], notes: notes}), do: Enum.map_join(notes, " · ", & &1.text)
+  defp shiny_title(%{gaps: gaps}), do: Enum.map_join(gaps, " · ", & &1.text)
+
   defp night_label(blockers) do
     case length(blockers) do
       0 -> "pronto pra noite"
@@ -2129,7 +2161,12 @@ defmodule PokexWeb.CavebotLive do
     # template pergunta por ela em oito lugares — pedir oito vezes é oito
     # leituras que podem discordar entre si dentro do mesmo desenho.
     rack = skill_rack(assigns.combat)
-    assigns = assigns |> assign(:rack, rack) |> assign(:blockers, night_blockers(rack))
+
+    assigns =
+      assigns
+      |> assign(:rack, rack)
+      |> assign(:blockers, night_blockers(rack))
+      |> assign(:shiny, ShinyReadiness.check())
 
     ~H"""
     <%!-- The widest page in the app, deliberately: this one holds a MAP of a
@@ -2206,6 +2243,33 @@ defmodule PokexWeb.CavebotLive do
             />
             {night_label(@blockers)}
           </div>
+
+          <%!-- O SEGUNDO SELO, e a pergunta é outra: o de cima diz "posso
+               dormir?", este diz "vou pegar um shiny?". Juntá-los deixaria a
+               noite âmbar por uma cor não ensinada, que não mata ninguém —
+               separados, cada um continua querendo dizer uma coisa só.
+
+               Ele nasce âmbar de propósito: o caminho do shiny cruza quatro
+               páginas e TODAS as suas faltas são silenciosas (guarda ligada
+               sobre zero regras lê "—/— px" pra sempre). O selo some sozinho
+               quando o último passo é dado. --%>
+          <div
+            id="cavebot-shiny"
+            class={[
+              "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-mono text-pk-meta font-bold",
+              if(ShinyReadiness.ready?(@shiny),
+                do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                else: "border-pk-warn-line bg-pk-warn-dim text-pk-warn"
+              )
+            ]}
+            title={shiny_title(@shiny)}
+          >
+            <.icon
+              name={if(ShinyReadiness.ready?(@shiny), do: "hero-sparkles", else: "hero-eye-slash")}
+              class="size-3.5 shrink-0"
+            />
+            {shiny_label(@shiny)}
+          </div>
           <p class="font-mono text-pk-meta text-pk-text-3">
             <span :if={hunt_progress(@hunt)} class="font-bold text-pk-ok">
               {hunt_progress(@hunt)} ·
@@ -2243,6 +2307,60 @@ defmodule PokexWeb.CavebotLive do
             class="flex items-center gap-1.5 text-pk-body text-pk-warn"
           >
             <.icon name="hero-exclamation-triangle" class="size-3.5 shrink-0" />{blocker}
+          </span>
+        </section>
+
+        <%!-- O CAMINHO DO SHINY, um passo por vez e com a porta ao lado. A
+             configuração dele mora em quatro páginas (a cor na calibração, a
+             prova do chão ali também, a guarda no painel, a bola nos editores)
+             e nada dizia a ORDEM — então cada passo faltando parecia uma noite
+             sem shiny. Um passo bloqueante por vez, porque ligar a guarda
+             antes de ensinar a cor arma um vigia sobre nada.
+
+             A guarda tem botão AQUI: é o único passo que é um clique, e ele
+             está justamente na tela onde ele passa a noite. --%>
+        <section
+          :if={@mode == :watch and (@shiny.gaps != [] or @shiny.notes != [])}
+          id="cavebot-shiny-list"
+          class="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pk-line bg-pk-sunken px-3 py-1.5"
+        >
+          <span
+            :for={step <- @shiny.gaps}
+            class="flex flex-wrap items-center gap-1.5 text-pk-body text-pk-warn"
+          >
+            <.icon name="hero-sparkles" class="size-3.5 shrink-0" />{step.text}
+            <button
+              :if={step.key == :guard_off}
+              id="shiny-arm"
+              type="button"
+              phx-click="arm_shiny_guard"
+              class="cursor-pointer rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 font-mono text-pk-meta font-bold text-pk-ok transition-colors hover:bg-pk-ok hover:text-pk-bg"
+            >
+              ligar agora
+            </button>
+            <.link
+              :if={step.key != :guard_off}
+              navigate={step.href}
+              class="cursor-pointer font-mono text-pk-meta text-pk-text-2 underline hover:text-pk-text"
+            >
+              {step.link}
+            </.link>
+          </span>
+
+          <%!-- Os dois que não impedem o shiny, só o pioram: a bola errada sai
+               do mesmo jeito, e sem a parada o corpo some antes da segunda
+               foto. Cinza, não âmbar — não são passo, são conselho. --%>
+          <span
+            :for={step <- @shiny.notes}
+            class="flex flex-wrap items-center gap-1.5 text-pk-body text-pk-text-2"
+          >
+            <.icon name="hero-information-circle" class="size-3.5 shrink-0" />{step.text}
+            <.link
+              navigate={step.href}
+              class="cursor-pointer font-mono text-pk-meta text-pk-text-3 underline hover:text-pk-text"
+            >
+              {step.link}
+            </.link>
           </span>
         </section>
 

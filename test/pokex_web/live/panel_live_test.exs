@@ -1978,4 +1978,47 @@ defmodule PokexWeb.PanelLiveTest do
       assert Pokex.Settings.get(:stop_after_action) == "logout"
     end
   end
+
+  # O medidor mudo: com zero regra armada ele lê "—/— px" pra sempre, e isso é
+  # indistinguível de uma noite sem shiny.
+  describe "the shiny card says what is missing" do
+    setup do
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      # a casa de teste é compartilhada pelo arquivo: uma regra ensinada por um
+      # teste vizinho faria este começar já com metade do caminho andado
+      clear = fn ->
+        :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+        Enum.each(Pokex.Vision.ColorRules.list(), &Pokex.Vision.ColorRules.delete(&1["slug"]))
+      end
+
+      clear.()
+      on_exit(clear)
+      Pokex.SettingsStash.stash!(shiny_guard_enabled: false)
+      :ok
+    end
+
+    test "with no colour taught the card names the missing step", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/config/editores")
+
+      assert view |> element("#shiny-gap") |> render() =~ "nenhuma cor de shiny ensinada"
+      refute has_element?(view, "#shiny-armed")
+    end
+
+    test "armed, it says whose colour it watches", %{conn: conn} do
+      {:ok, %{"slug" => slug}} =
+        Pokex.Vision.ColorRules.add(%{
+          "name" => "Electrode shiny",
+          "colors" => [%{"rgb" => [40, 160, 60], "tol_h" => 12, "tol_sv" => 30}],
+          "min_px" => 50
+        })
+
+      :ok = Pokex.Vision.ColorRules.mark_proven(slug, 3)
+      Pokex.Settings.put(:shiny_guard_enabled, true)
+
+      {:ok, view, _html} = live(conn, ~p"/config/editores")
+
+      assert view |> element("#shiny-armed") |> render() =~ "Electrode shiny"
+      refute has_element?(view, "#shiny-gap")
+    end
+  end
 end

@@ -168,6 +168,7 @@ defmodule PokexWeb.PanelLive do
        reposition_enabled: Settings.get(:reposition_enabled),
        support_waits_capture: Settings.get(:support_waits_capture),
        shiny_guard_enabled: Settings.get(:shiny_guard_enabled),
+       shiny_ready: Pokex.Bots.ShinyReadiness.check(),
        measure_walk: Settings.get(:cavebot_measure_walk),
        corpse_match_pct: round(Settings.get(:corpse_match_min_similarity) * 100),
        ball_key: Settings.get(:ball_key),
@@ -1078,7 +1079,12 @@ defmodule PokexWeb.PanelLive do
   def handle_event("toggle_shiny_guard", _params, socket) do
     value = not Settings.get(:shiny_guard_enabled)
     Settings.put(:shiny_guard_enabled, value)
-    {:noreply, assign(socket, shiny_guard_enabled: value)}
+
+    {:noreply,
+     assign(socket,
+       shiny_guard_enabled: value,
+       shiny_ready: Pokex.Bots.ShinyReadiness.check()
+     )}
   end
 
   # A SONDA de cor: varre AGORA o quadrado do SpotScan com as regras LIGADAS
@@ -2235,6 +2241,36 @@ defmodule PokexWeb.PanelLive do
             phx-click="toggle_shiny_guard"
           />
         </div>
+
+        <%!-- O QUE O MEDIDOR NÃO CONSEGUE DIZER. Com zero regra armada ele lê
+             "—/— px" pra sempre, e "pra sempre" é indistinguível de "nenhum
+             shiny passou". A linha diz qual é o passo que falta, com a porta;
+             armado, diz de quem é a cor que está sendo vigiada. --%>
+        <p
+          :if={@shiny_ready.gaps != []}
+          id="shiny-gap"
+          class="mt-2 flex flex-wrap items-center gap-1.5 rounded border border-pk-warn-line bg-pk-warn-dim px-2 py-1 text-pk-body text-pk-warn"
+        >
+          <.icon name="hero-eye-slash" class="size-3.5 shrink-0" />{hd(@shiny_ready.gaps).text}
+          <.link
+            :if={hd(@shiny_ready.gaps).key != :guard_off}
+            navigate={hd(@shiny_ready.gaps).href}
+            class="cursor-pointer font-mono text-pk-meta text-pk-text-2 underline hover:text-pk-text"
+          >
+            {hd(@shiny_ready.gaps).link}
+          </.link>
+        </p>
+
+        <p
+          :if={@shiny_ready.gaps == []}
+          id="shiny-armed"
+          class="mt-2 flex flex-wrap items-center gap-1.5 text-pk-body text-pk-ok"
+        >
+          <.icon name="hero-sparkles" class="size-3.5 shrink-0" />vigiando a cor de {Enum.join(
+            @shiny_ready.armed,
+            ", "
+          )}
+        </p>
 
         <div class="mt-2 flex flex-wrap items-center gap-2">
           <div class="flex min-w-[9rem] flex-1 items-center gap-2">

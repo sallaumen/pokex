@@ -2647,4 +2647,63 @@ defmodule PokexWeb.CavebotLiveTest do
       assert view |> element("#tile-capture") |> render() =~ "corpos na fila"
     end
   end
+
+  # O CAMINHO DO SHINY, na tela onde ele passa a noite: um passo por vez, com a
+  # porta ao lado, e a guarda a um clique daqui.
+  describe "the shiny seal" do
+    setup do
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      # a casa de teste é compartilhada pelo arquivo: uma regra ensinada por um
+      # teste vizinho faria este começar já com metade do caminho andado
+      clear = fn ->
+        :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+        Enum.each(Pokex.Vision.ColorRules.list(), &Pokex.Vision.ColorRules.delete(&1["slug"]))
+      end
+
+      clear.()
+      on_exit(clear)
+      Pokex.SettingsStash.stash!(shiny_guard_enabled: false)
+      :ok
+    end
+
+    defp teach_and_prove do
+      {:ok, %{"slug" => slug}} =
+        Pokex.Vision.ColorRules.add(%{
+          "name" => "Electrode shiny",
+          "colors" => [%{"rgb" => [40, 160, 60], "tol_h" => 12, "tol_sv" => 30}],
+          "min_px" => 50
+        })
+
+      :ok = Pokex.Vision.ColorRules.mark_proven(slug, 3)
+    end
+
+    test "with nothing taught it says how many steps and where to go", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/cavebot")
+
+      assert html =~ ~s(id="cavebot-shiny")
+      assert view |> element("#cavebot-shiny") |> render() =~ "shiny: 1 passo"
+      assert view |> element("#cavebot-shiny-list") |> render() =~ "nenhuma cor de shiny ensinada"
+      assert view |> element("#cavebot-shiny-list") |> render() =~ "/calibration"
+    end
+
+    test "the last step is one click from here, and the seal turns green", %{conn: conn} do
+      teach_and_prove()
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#cavebot-shiny-list") |> render() =~
+               "guarda anti-shiny está desligada"
+
+      view |> element("#shiny-arm") |> render_click()
+
+      assert Pokex.Settings.get(:shiny_guard_enabled)
+      assert view |> element("#cavebot-shiny") |> render() =~ "shiny armado: Electrode shiny"
+
+      # o passo bloqueante sai; o CONSELHO da bola fica, que é o que ele ainda
+      # ganha lendo (a bola padrão sai do mesmo jeito)
+      lista = view |> element("#cavebot-shiny-list") |> render()
+      refute lista =~ "guarda anti-shiny está desligada"
+      assert lista =~ "bola padrão"
+    end
+  end
 end

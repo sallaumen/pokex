@@ -305,6 +305,8 @@ defmodule Pokex.Settings.Locked do
     # --- Shiny (vision) ---
     shiny_always_ball: {"Shiny (visão)", "shiny sempre leva bola, mesmo com captura desligada"},
     special_color_scan_ms: {"Shiny (visão)", "varredura de cor a cada 0,7s"},
+    shiny_aim_max_candidates:
+      {"Shiny (visão)", "quantos alvos por varredura a mira por cor pode enfileirar"},
     special_color_confirm_frames: {"Shiny (visão)", "2 varreduras seguidas confirmam"},
     # --- Timers ---
     timers_tick_ms: {"Timers", "os timers conferem o relógio a cada 1s"},

@@ -267,6 +267,7 @@ defmodule Pokex.Settings do
     shiny_guard_enabled: false,
     # A shiny ALWAYS deserves a pokéball, even with capture_enabled off.
     shiny_always_ball: true,
+    shiny_aim_max_candidates: 3,
     # Colour-scan cadence (the SpotScan square) and how many CONSECUTIVE scans with a blob
     # confirm a sighting.
     special_color_scan_ms: 700,
@@ -915,6 +916,7 @@ defmodule Pokex.Settings do
     engine_boss_grit: 0..40,
     special_color_scan_ms: 50..5_000,
     special_color_confirm_frames: 1..5,
+    shiny_aim_max_candidates: 1..8,
     engine_stun_reach_tiles: 1..10,
     engine_reset_rearm_ms: 10_000..3_600_000,
     engine_kite_max_ms: 0..600_000,

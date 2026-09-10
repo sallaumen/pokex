@@ -342,6 +342,45 @@ defmodule Pokex.Bots.ShinyGuardTest do
     assert ShinyGuard.forbidden_boxes(sem_marca, frame, {400, 250, 200, 200}) != []
   end
 
+  # A LAVA MAIOR TAPAVA O BICHO. (A segunda mancha fica longe do meio: o quadrado
+  # de 3×3 tiles do personagem é terreno proibido e engoliria uma mancha ali.) Só a maior mancha era julgada, então o fato, o
+  # troféu, o diário e a bola apontavam pro cenário, e o shiny dois tiles ao lado
+  # não ficava "abaixo do limiar" — ficava sem ser olhado.
+  test "a bigger blob of scenery does not hide the creature's own", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+
+    frame =
+      frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [
+        {{10, 10, 120, 120}, @verde},
+        {{220, 220, 40, 40}, @verde}
+      ])
+
+    start_guard(fn _region, _name -> {:ok, frame} end)
+
+    assert eventually(fn ->
+             match?(
+               {:ok, %{vistos: [_, _]}},
+               WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
+             )
+           end),
+           "a segunda mancha tem que estar no fato, senão o bicho não foi nem olhado"
+  end
+
+  # …e a mesma região com OUTRA ampliação também não serve: o chão é uma contagem
+  # e as caixas do HUD são pixels do quadro, e os dois quadruplicam quando o
+  # backend de captura troca e serve a mesma região com o dobro da largura.
+  test "a proof from another scale does not scan either", %{region: region} do
+    slug = regra_provada(%{"name" => "Electrode shiny"})
+    :ok = ColorRules.mark_proven(slug, 3, [], region, 2.0)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    start_guard_journaling(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
+
+    assert_receive {:combat_log, :macro, aviso}, 2_000
+    assert aviso =~ "ampliação"
+    refute_receive {:journal, :special, _nada}, 500
+  end
+
   test "a proof from another frame does not scan, and says so once", %{region: region} do
     slug = regra_provada(%{"name" => "Electrode shiny"})
     :ok = ColorRules.mark_proven(slug, 3, [], {0, 0, 10, 10})

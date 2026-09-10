@@ -2145,6 +2145,11 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       assert html =~ "do HUD aprendidos", "aprendeu o pedaço parado"
 
+      # A PROVA GUARDA EM QUE AMPLIAÇÃO FOI MEDIDA, e é a da FOTO, não a da
+      # calibração: a foto é a testemunha do que foi contado. Aqui a calibração
+      # diz 2.0 e a foto do teste diz 1.0 — vale a foto.
+      assert [%{"proven" => %{"scale" => 1.0}}] = Pokex.Vision.ColorRules.list()
+
       # …e o gatilho é o de uma tela sem nada, não três vezes o HUD
       assert [%{min_px: 25}] = Pokex.Vision.ColorRules.armed()
     end

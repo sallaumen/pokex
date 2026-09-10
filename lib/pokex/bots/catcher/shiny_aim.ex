@@ -35,6 +35,7 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
   alias Pokex.Bots.ShinyGuard
   alias Pokex.Calibration
   alias Pokex.Perception.WorldState
+  alias Pokex.Settings
   alias Pokex.Vision.{ColorMark, ColorRules, Frame}
 
   # the eye walks at 1 s; its own `crowd_fact_max_age_ms` (600) is a fight cadence
@@ -114,13 +115,14 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
               forbidden: forbidden ++ Map.get(rule, :forbidden, [])
             )
 
-          case List.first(result.manchas) do
-            %{px: px} = mancha when px >= rule.min_px ->
-              [on_screen(mancha, rule, region, frame.scale)]
-
-            _small_or_none ->
-              []
-          end
+          # TODA MANCHA ACIMA DO GATILHO, não só a maior. Com a lava em 40.000 px
+          # e o bicho em 9.000, as duas passam do gatilho mas só a lava era
+          # olhada: o shiny ao lado não ficava "abaixo do limiar", ficava sem ser
+          # olhado. O teto existe porque aqui cada alvo vira uma bola.
+          result.manchas
+          |> Enum.filter(&(&1.px >= rule.min_px))
+          |> Enum.take(Settings.get(:shiny_aim_max_candidates))
+          |> Enum.map(&on_screen(&1, rule, region, frame.scale))
         end)
         |> Enum.reject(fn cand -> Enum.any?(bodies, &within?(&1, cand.point, tile_px)) end)
     end
@@ -149,12 +151,22 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
     }
   end
 
+  # QUALQUER CORPO VIVO, e o renascido é um deles. Magenta quer dizer que o bicho
+  # não vem atrás dele, não que o bicho não está lá: o cliente não o põe na lista
+  # de batalha e o olho o separa dos hostis, de modo que ele era invisível aqui —
+  # e a bola voava num pokémon vivo. Pior: gastas as bolas, o ponto entrava em
+  # `ignored` com o nome dele por 45 s, e o corpo de verdade daquele bicho, no
+  # mesmo tile, era vetado depois.
   defp bodies(%{read?: true} = crowd) do
-    hostiles = Map.get(crowd, :hostiles, []) |> Enum.map(& &1.point)
+    vivos =
+      crowd
+      |> Map.get(:hostiles, [])
+      |> Enum.map(& &1.point)
+      |> Enum.concat(Map.get(crowd, :passive_points, []))
 
     case Map.get(crowd, :pet) do
-      %{point: point} -> [point | hostiles]
-      _no_pet -> hostiles
+      %{point: point} -> [point | vivos]
+      _no_pet -> vivos
     end
   end
 

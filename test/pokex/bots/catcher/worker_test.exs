@@ -92,6 +92,11 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     send(worker, {:kill})
   end
 
+  # O olho (CrowdWatch) publica cada leitura no tópico do cérebro; o worker só
+  # precisa dos pontos de quem estava de pé.
+  defp saw_standing(worker, points),
+    do: send(worker, {:crowd, %{read?: true, hostiles: Enum.map(points, &%{point: &1})}})
+
   @tag :tmp_dir
   test "pending_corpses rides the snapshot: 1 with a ball in flight, 0 once resolved", %{
     worker: worker
@@ -910,11 +915,42 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
 
+    saw_standing(worker, [{130, 224}])
     world!(worker, corpses_obs([{130, 224}]))
 
     assert_receive {:performed, :high, acoes}, 1_000
     assert {:move, {130, 224}} in acoes
     assert {:press, Pokex.Settings.get(:ball_key)} in acoes
+  end
+
+  # AS BOLAS DE 10/09 NO TOOLBAR. A foto ensinada como "Shiny Golem" era chão de
+  # pedra cinza, e a varredura achou o corpo em cima dos ícones do topo do
+  # cliente (y=32). O olho não viu bicho nenhum ali — e é essa a prova que conta.
+  @tag :tmp_dir
+  test "hunting, a look-alike where no creature stood gets no ball", %{worker: worker} do
+    Settings.put(:player_mode, "hunt")
+    :ok = Worker.mode_changed(worker)
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+
+    saw_standing(worker, [{130, 224}])
+    world!(worker, corpses_obs([{700, 32}, {130, 224}]))
+
+    assert_receive {:performed, :high, acoes}, 1_000
+    assert {:move, {130, 224}} in acoes
+    refute {:move, {700, 32}} in acoes
+  end
+
+  @tag :tmp_dir
+  test "hunting, with no creature ever seen standing, nothing is thrown", %{worker: worker} do
+    Settings.put(:player_mode, "hunt")
+    :ok = Worker.mode_changed(worker)
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+
+    world!(worker, corpses_obs([{130, 224}]))
+
+    refute_receive {:performed, _p, _a}, 300
   end
 
   @tag :tmp_dir

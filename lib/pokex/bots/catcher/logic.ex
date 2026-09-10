@@ -100,6 +100,24 @@ defmodule Pokex.Bots.Catcher.Logic do
   def pending(%__MODULE__{queue: queue, throw: throw}),
     do: length(queue) + if(throw, do: 1, else: 0)
 
+  @doc """
+  The corpses of `obs` that lie where a creature was seen standing.
+
+  UM CORPO SÓ CAI ONDE UM BICHO ESTAVA. A varredura compara COR, e cor não sabe
+  o que é chão: numa caverna de pedra cinza, com um corpo cinza ensinado, a
+  pedra e o toolbar do cliente passavam de 80% (10/09 — 26 "corpos" numa tela
+  sem nenhum, bolas em cima dos ícones do topo). O olho sabe onde cada bicho
+  estava; um corpo a mais de um tile de todos eles não é corpo.
+
+  `spots` ausente (a pesca, o modo Parado: não há olho) deixa passar tudo, como
+  sempre passou. `spots: []` é o olho dizendo que não viu ninguém — e aí nada no
+  chão é corpo.
+  """
+  def admissible(%{corpses: corpses, spots: spots, spot_radius: radius}) when is_list(spots),
+    do: Enum.filter(corpses, fn corpse -> Enum.any?(spots, &near?(&1, corpse, radius)) end)
+
+  def admissible(%{corpses: corpses}), do: corpses
+
   defp confirm(%{throw: nil} = logic, _obs, _now), do: {logic, []}
 
   defp confirm(%{throw: throw, config: config} = logic, obs, now) do
@@ -226,7 +244,7 @@ defmodule Pokex.Bots.Catcher.Logic do
     busy = logic.queue ++ if logic.throw, do: [logic.throw.point], else: []
 
     fresh =
-      Enum.reject(obs.corpses, fn c ->
+      Enum.reject(admissible(obs), fn c ->
         Enum.any?(busy, &near?(&1, c, tolerance)) or vetoed?(logic, obs, c, tolerance)
       end)
 

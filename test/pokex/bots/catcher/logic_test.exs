@@ -173,6 +173,39 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     end
   end
 
+  # UM CORPO SÓ CAI ONDE UM BICHO ESTAVA DE PÉ.
+  #
+  # A varredura compara COR, e numa caverna de pedra cinza a pedra e o toolbar
+  # do cliente têm a cor de um corpo cinza: em 10/09 foram 26 "corpos no chão"
+  # numa tela sem nenhum, e bolas em y=32, em cima dos ícones do topo. O olho
+  # sabe onde cada bicho estava; fora dali não há corpo, qualquer que seja a
+  # nota da cor.
+  describe "a corpse only lies where a creature stood" do
+    defp seen(corpses, at, spots),
+      do: %{scanning?: true, corpses: corpses, captured_at: at, spots: spots, spot_radius: 100}
+
+    test "a look-alike far from every creature gets no ball" do
+      {logic, actions} =
+        Logic.step(armed(), seen([{1770, 32}, {400, 300}], 10, [{410, 290}]), 10)
+
+      assert [{:capture_sequence, {400, 300}, _name}, _log] = actions
+      assert logic.queue == []
+    end
+
+    test "when the eye saw nobody standing, nothing on the ground is a corpse" do
+      {logic, actions} = Logic.step(armed(), seen([{400, 300}], 10, []), 10)
+
+      assert actions == []
+      assert logic.queue == []
+    end
+
+    test "without the eye (fishing), every corpse is admitted as before" do
+      {_logic, actions} = Logic.step(armed(), obs([{1770, 32}], 10), 10)
+
+      assert [{:capture_sequence, {1770, 32}, _name}, _log] = actions
+    end
+  end
+
   describe "throw lifecycle" do
     defp dry_config(cap), do: Map.put(config(), :dry_balls_alarm, cap)
 

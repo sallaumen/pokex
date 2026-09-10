@@ -78,6 +78,8 @@ defmodule Pokex.Bots.Engine.Situation do
   guess must never look like one made on a name.
   """
 
+  alias Pokex.Bots.Engine.BattleRows
+
   @type t :: %{
           rows: non_neg_integer | nil,
           enemies: non_neg_integer | nil,
@@ -235,6 +237,12 @@ defmodule Pokex.Bots.Engine.Situation do
   defp read_battle(nil, _inputs),
     do: %{rows: nil, enemies: nil, named: [], own_row_seen?: nil}
 
+  # A LEITURA SEPARA, NÃO SUBTRAI. `enemies` era uma aritmética — a contagem
+  # crua menos a linha dele — e uma aritmética pode estar errada em um sem que
+  # ninguém a jusante perceba. Agora `Engine.BattleRows` devolve as duas listas
+  # e o número é `length(theirs)`: para o número mentir, a lista tem que mentir
+  # junto. Quem decide também passa a saber COMO a linha dele foi achada, que
+  # em duas noites do diário dele nunca foi pelo nome.
   defp read_battle(battle, inputs) do
     rows = length(Map.get(battle, :enemies, []))
     detail = Map.get(battle, :enemies_detail, [])
@@ -249,104 +257,20 @@ defmodule Pokex.Bots.Engine.Situation do
         %{rows: rows, enemies: rows, named: [], own_row_seen?: nil}
 
       true ->
-        {mine, theirs} = Enum.split_with(detail, &mine?(&1, Map.get(inputs, :own_name)))
-        by_name_or_by_absence(rows, mine, theirs, inputs)
-    end
-  end
-
-  # Found by name: the precise way, and the only one that works when his pokémon
-  # is not the first row.
-  #
-  # ONE row is his, never "every row with that name". The name is the SPECIES,
-  # and `bare/1` drops the "shiny " on top of that — so hunting the creature he
-  # has on the field made the whole pile read as his own row: five Vileplumes on
-  # screen, `enemies` 0, `worth_fighting?` false, and the brain answering
-  # "seguindo a rota" to a pile that was eating him. The namesakes go back where
-  # they belong, `named` included, so a boss of his own species can still be
-  # seen; which of them is HIS is the same tie-break the unreadable rows already
-  # use (`own_among/2`).
-  defp by_name_or_by_absence(rows, [_ | _] = mine, theirs, inputs) do
-    {_how, namesakes} = own_among(mine, Map.get(inputs, :own_hp))
-    others = theirs ++ namesakes
-
-    %{rows: rows, enemies: length(others), named: others, own_row_seen?: true}
-  end
-
-  # Nothing matched by name, but his pokémon IS on the field — so one of these
-  # rows is his and the reader could not spell it. If every row is legible
-  # nothing is taken away: a legible list that does not contain him means he
-  # really is not in it.
-  defp by_name_or_by_absence(rows, _none, theirs, %{own_out?: true} = inputs) do
-    case Enum.split_with(theirs, &(&1.name == nil)) do
-      {[], _all_legible} ->
-        %{rows: rows, enemies: rows, named: theirs, own_row_seen?: false}
-
-      {unreadable, legible} ->
-        {how, others} = own_among(unreadable, Map.get(inputs, :own_hp))
+        split =
+          BattleRows.split(detail, %{
+            name: Map.get(inputs, :own_name),
+            hp: Map.get(inputs, :own_hp),
+            out?: Map.get(inputs, :own_out?)
+          })
 
         %{
           rows: rows,
-          enemies: length(legible ++ others),
-          named: legible ++ others,
-          own_row_seen?: how
+          enemies: BattleRows.enemies(split),
+          named: split.theirs,
+          own_row_seen?: split.how
         }
     end
-  end
-
-  # He is not on the field, so no row is his — an unreadable row here is a
-  # monster whose name the glyphs do not know yet, and taking it off the count
-  # would be walking away from something real.
-  defp by_name_or_by_absence(rows, _none, theirs, _not_out),
-    do: %{rows: rows, enemies: rows, named: theirs, own_row_seen?: false}
-
-  # WHICH of several candidate rows is his, when the name cannot separate them:
-  # the unreadable rows (no name at all) and the namesakes (the same species he
-  # has on the field). Both are the same question, so both get the same answer.
-  #
-  # His health is read twice, from two places that do not know about each other:
-  # the Pokebar (`own_hp`) and the row's own track. They agree — measured on his
-  # capture of 2026-08-27, the single remaining row read 67% while the Pokebar
-  # read 69 — and that agreement names the row without a single glyph. It only
-  # decides when exactly one candidate matches: two rows at the same health is a
-  # coin toss, and the fallback (the first, his own measurement of 2026-08-18:
-  # row 0 in 134 of 140 readings) is what a coin toss should defer to.
-  #
-  # The slack is wide because the two readings are two different CAPTURES: the
-  # battle feed and the party bar are read on their own clocks, and a pokémon
-  # losing health fast is a different number in each. It only has to be narrow
-  # enough to tell one row from another, and it never decides the COUNT — his
-  # pokémon takes a row whether or not this says which one.
-  @hp_slack 8
-
-  defp own_among([first | rest], own_hp) when is_integer(own_hp) do
-    case Enum.filter([first | rest], &hp_near?(&1, own_hp)) do
-      [only] -> {:by_hp, Enum.reject([first | rest], &(&1 == only))}
-      _none_or_many -> {:unnamed, rest}
-    end
-  end
-
-  defp own_among([_first | rest], _no_hp), do: {:unnamed, rest}
-
-  defp hp_near?(%{hp_pct: pct}, own_hp) when is_number(pct),
-    do: abs(round(pct * 100) - own_hp) <= @hp_slack
-
-  defp hp_near?(_row_without_bar, _own_hp), do: false
-
-  defp mine?(_row, nil), do: false
-
-  defp mine?(%{name: name}, own_name) when is_binary(name) and is_binary(own_name),
-    do: bare(name) == bare(own_name)
-
-  defp mine?(_row, _own_name), do: false
-
-  # `team.json` says "Shiny Vileplume"; the panel reads "Vileplume" (his capture
-  # of 2026-08-11). The prefix is a property of the creature, not of the row, and
-  # it must never make the bot count itself among its enemies.
-  defp bare(name) do
-    name
-    |> String.trim()
-    |> String.downcase()
-    |> String.replace_prefix("shiny ", "")
   end
 
   # "Pararam de chegar" is the signal a gathering ends on, so only GROWTH

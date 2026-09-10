@@ -76,7 +76,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
 
       assert picture.rows == 4
       assert picture.enemies == 3
-      assert picture.own_row_seen? == true
+      assert picture.own_row_seen? == :by_name
     end
 
     # team.json says "Shiny Vileplume"; the panel reads "Vileplume" (his capture
@@ -87,7 +87,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
         |> Situation.build(@config, 1_000)
 
       assert picture.enemies == 1
-      assert picture.own_row_seen? == true
+      assert picture.own_row_seen? == :by_name
     end
 
     test "says so when his pokémon is NOT among the rows" do
@@ -264,7 +264,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
 
       assert picture.rows == 3
       assert picture.enemies == 2
-      assert picture.own_row_seen? == :unnamed
+      assert picture.own_row_seen? == :by_position
     end
 
     test "keeps the named list consistent with the discounted count" do
@@ -282,7 +282,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
       picture = picture_of(["Vespiquen", "Meganium", nil])
 
       assert picture.enemies == 2
-      assert picture.own_row_seen? == true
+      assert picture.own_row_seen? == :by_name
     end
 
     test "takes nothing away when every row is legible and none is his" do
@@ -315,7 +315,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
 
       assert picture.rows == 3
       assert picture.enemies == 2
-      assert picture.own_row_seen? == true
+      assert picture.own_row_seen? == :by_name
     end
 
     test "the namesakes come back into `named`, so a boss of his species is visible" do

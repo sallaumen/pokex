@@ -62,15 +62,15 @@ defmodule Pokex.Bots.Engine.NarrationTest do
   describe "a linha própria" do
     test "é dita quando passa a ser conhecível, com o nome do pokémon" do
       antes = tick(picture(%{own_row_seen?: nil}))
-      agora = tick(picture(%{own_row_seen?: true}))
+      agora = tick(picture(%{own_row_seen?: :by_name}))
 
       assert [_contagem_igual_nao_fala | _] = linhas = Narration.lines(antes, agora, "o Dugtrio")
       assert Enum.any?(linhas, &(&1 =~ "o Dugtrio ocupa uma linha"))
     end
 
     test "e um desconto feito por AUSÊNCIA nunca se parece com um feito por nome" do
-      antes = tick(picture(%{own_row_seen?: true}))
-      agora = tick(picture(%{own_row_seen?: :unnamed}))
+      antes = tick(picture(%{own_row_seen?: :by_name}))
+      agora = tick(picture(%{own_row_seen?: :by_position}))
 
       assert [linha] = Narration.lines(antes, agora, "o Dugtrio")
       assert linha =~ "nome saiu ilegível"

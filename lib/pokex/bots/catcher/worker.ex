@@ -256,7 +256,9 @@ defmodule Pokex.Bots.Catcher.Worker do
   # esvazia entre as fisgadas. Agora o cérebro avisa no fim da rodada, que é
   # quando os corpos estão no chão e a estrada já está parada.
   def handle_info({:capture_now}, %{logic: %Logic{state: :armed}} = state) do
-    {:noreply, advance(%{state | repiques: @repiques}, scan_obs(state))}
+    obs = scan_obs(state)
+    announce_cue(obs)
+    {:noreply, advance(%{state | repiques: @repiques}, obs)}
   end
 
   # kill = accelerator (both shapes: Task 5 drops the payload; tolerate the old one meanwhile).
@@ -554,7 +556,10 @@ defmodule Pokex.Bots.Catcher.Worker do
         Perception.mini_game_playing?() -> state
         # the shiny's corpse is aimed by colour on a fresh frame: no mode owns it
         match?(%{source: :shiny_aim}, obs) -> do_advance(state, obs)
-        Settings.get(:player_mode) == "still" -> do_advance(state, obs)
+        # PARADO É PARADO: modo Parado, ou caçada com a estrada segurada pelo
+        # cérebro. Este era o SEGUNDO portão do mesmo modo — consertar só o
+        # `scan_obs/1` deixava a varredura rodar e o resultado morrer aqui.
+        standing?() -> do_advance(state, obs)
         true -> state
       end
 
@@ -811,11 +816,54 @@ defmodule Pokex.Bots.Catcher.Worker do
   # palette equals its taught corpse's); moving/capture-off don't even look;
   # the mini-game owns the moment. nil = a step that proves nothing (Logic
   # ignores it), never a false confirmation.
+  # A CHAMADA DIZ O QUE ACHOU. "Não vi log, nada a respeito" (11/09) era metade
+  # da queixa: com o portão fechado o `scan_obs/1` devolvia `nil` e `advance/2`
+  # engolia, então uma captura que nunca começou e uma que não achou corpo eram
+  # a mesma tela em branco. `:macro` porque é o momento que ele procura no
+  # diário da manhã seguinte.
+  defp announce_cue(nil),
+    do:
+      log(:macro, "🎯 hora da bola — mas a varredura está fechada agora (luta, modo ou mini-game)")
+
+  defp announce_cue(%{corpses: []}),
+    do: log(:macro, "🎯 hora da bola — varri e não achei corpo nenhum no chão")
+
+  defp announce_cue(%{corpses: corpses}),
+    do: log(:macro, "🎯 hora da bola — #{length(corpses)} corpo(s) no chão")
+
+  defp announce_cue(_sem_leitura), do: :ok
+
   defp scan_obs(state) do
-    if state.combat_engaged? or Settings.get(:player_mode) != "still" or
+    if state.combat_engaged? or not standing?() or
          not capture_allowed?(state) or Perception.mini_game_playing?(),
        do: nil,
        else: state.scanner |> safe_scan() |> narrate()
+  end
+
+  # PARADO É PARADO, e escolher o modo não é a única forma de estar.
+  #
+  # Este portão perguntava `player_mode == "still"`, herança de quando a captura
+  # era só da pesca — e é por isso que ela NUNCA aconteceu numa caçada. Medido no
+  # diário dele de 10/09, a caçada inteira: 84 "mira pronta" e ZERO varreduras,
+  # ZERO bolas comuns. `scan_obs/1` devolvia `nil` em todo tique e `advance/2`
+  # engolia em silêncio, então não havia nem log pra ele desconfiar ("não vi log,
+  # nada a respeito").
+  #
+  # O que o detector de corpo precisa é da TELA parada, não do modo: ele acha
+  # mancha que não se move, e um personagem andando move tudo. Com a estrada
+  # SEGURADA pelo cérebro (`route: :hold`) ele está tão parado quanto no modo
+  # Parado — e é exatamente o instante que o `{:capture_now}` marca, depois da
+  # pilha morrer e o revive sair. A luta continua barrando pelo `combat_engaged?`
+  # logo acima, que é quem impede bolar um inimigo parado.
+  defp standing? do
+    Settings.get(:player_mode) == "still" or road_held?()
+  end
+
+  defp road_held? do
+    case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now()) do
+      {:ok, %{route: :hold}} -> true
+      _andando_velho_ou_ausente -> false
+    end
   end
 
   # A dying scanner (capture failed, corrupted calibration) becomes a blind
@@ -1077,9 +1125,11 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp mode_state(nil, _mode), do: :idle
   defp mode_state(_logic, "moving"), do: :manual
 
-  # In a hunt only the shiny gets a ball (`Catcher.ShinyAim`): "capturando" is
-  # true while the aim session lives, and a lie the rest of the night.
-  defp mode_state(%Logic{state: :armed}, "hunt"), do: :idle
+  # NA CAÇADA TAMBÉM SE CAPTURA, desde que o portão da varredura enxergue a
+  # estrada segurada (`standing?/0`). Esta cláusula respondia `:idle` porque só
+  # o shiny levava bola numa caçada — e enquanto isso foi verdade, dizer
+  # "capturando" seria mentira. Agora o contrário é que seria: a tela diria
+  # parado enquanto a bola sai.
 
   defp mode_state(%Logic{state: :armed}, _mode) do
     if Settings.get(:capture_enabled), do: :armed, else: :idle
@@ -1127,8 +1177,14 @@ defmodule Pokex.Bots.Catcher.Worker do
       state.aim != nil ->
         "mirando o corpo do shiny pela cor"
 
-      Settings.get(:player_mode) == "hunt" ->
-        "na caçada só o shiny leva bola"
+      # A CAÇADA ANDANDO NÃO VARRE — mas a caçada PARADA varre. O detector é de
+      # mancha que não se move, e um personagem andando move tudo; com a estrada
+      # segurada pelo cérebro ele está parado de verdade (`standing?/0`). Isto
+      # dizia "na caçada só o shiny leva bola", que era verdade enquanto o
+      # portão exigia o modo Parado — e era a única pista de que a captura nunca
+      # rodava numa caçada.
+      Settings.get(:player_mode) != "still" and not road_held?() ->
+        "andando — a bola sai quando a rota parar"
 
       state.combat_engaged? ->
         "esperando fim da luta"

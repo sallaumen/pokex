@@ -456,8 +456,10 @@ defmodule Pokex.Bots.CrowdScanTest do
       }
     end
 
+    # A mancha é o centro de massa da ARTE, meio tile acima do quadrado do bicho
+    # (o quadrado é a barra mais um tile inteiro).
     test "a blob on a body marks that body, with the px that made the claim" do
-      vistos = [%{name: "Charizard preto", px: 12_605, point: {620, 505}}]
+      vistos = [%{name: "Charizard preto", px: 12_605, point: {600, 425}}]
 
       assert %{hostiles: [um, dois]} =
                CrowdScan.mark_special(reading([{600, 500}, {900, 900}]), vistos, 151)
@@ -466,6 +468,25 @@ defmodule Pokex.Bots.CrowdScanTest do
       assert um.special_name == "Charizard preto"
       assert um.special_px == 12_605
       refute Map.has_key?(dois, :special?)
+    end
+
+    # O VIZINHO NÃO É O SHINY. Comparando com o âncora errado, o quadrado de cima
+    # e o da esquerda ficavam a um tile da mancha e eram pintados junto — três
+    # quadrados dizendo ser o troféu, e os bichos comuns perdendo o número da
+    # vida pra confiança do shiny.
+    test "the squares next door are not painted with it" do
+      vistos = [%{name: "Charizard preto", px: 12_605, point: {600, 425}}]
+
+      assert %{hostiles: [meio, cima, esquerda]} =
+               CrowdScan.mark_special(
+                 reading([{600, 500}, {600, 349}, {449, 500}]),
+                 vistos,
+                 151
+               )
+
+      assert meio.special? == true
+      refute Map.has_key?(cima, :special?)
+      refute Map.has_key?(esquerda, :special?)
     end
 
     test "a blob farther than a tile marks nobody" do

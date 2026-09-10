@@ -350,36 +350,19 @@ defmodule Pokex.Sim.Runner do
   # on a nest is `:fighting`, which is what makes the ruler run; walking between
   # them is `:walking`.
   #
-  # E A PERNA DE MOBADA VEM DA ROTA, não de um `false` cravado. Ela está GRAVADA
-  # (`Route.lure_leg?/2`) e a bancada já a lia; aqui a resposta era sempre
-  # "não". O cérebro usa esse campo pra saber que não é hora de atacar — "se não
-  # tá lutando, ele tá no modo mobado, onde ele não deveria atacar NUNCA" — e
-  # uma perna de mobada anunciada como luta é o oposto exato do que a perna
-  # existe pra fazer. Mesma regra da bancada, inclusive o estado: mobando é
-  # ANDAR, esteja o que estiver na tela.
-  #
   # E o `wp_index` é a perna em que a mão está, não zero: quem lê esse campo
   # conta esquinas com ele.
   defp publish_hunt(world, leg, now) do
-    luring? = luring?(world, leg)
-
     WorldState.put(
       :hunt,
       %{
-        state: if(not luring? and on_nest?(world), do: :fighting, else: :walking),
-        luring?: luring?,
+        state: if(on_nest?(world), do: :fighting, else: :walking),
         wp_index: leg,
         waypoints: length(world.route.waypoints),
         recovering?: false
       },
       now
     )
-  end
-
-  defp luring?(world, leg) do
-    count = length(world.route.waypoints)
-
-    count > 0 and Route.lure_leg?(world.route.waypoints, Integer.mod(leg - 1, count))
   end
 
   defp on_nest?(world) do

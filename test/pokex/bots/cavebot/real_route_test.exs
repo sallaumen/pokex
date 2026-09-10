@@ -38,8 +38,6 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
   # What counts as an implausible recorded measurement. It used to be the
   # Logic's own upper clamp; the clamp is gone (the measurement became a screen
   # suggestion), so the threshold now belongs to the test that goes looking for
-  # a wild one in his real route.
-  @wild_gather_ms 8_000
 
   setup %{tmp_dir: tmp} do
     File.cp!("test/support/fixtures/rota_real.json", Path.join(tmp, "routes.json"))
@@ -159,8 +157,11 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
 
     assert length(route.waypoints) == 45
     assert Route.floors(route) == [1, 2]
-    assert Enum.count(route.waypoints, &(&1.action == :lure_end)) == 5
-    assert Enum.any?(route.waypoints, &(&1.action == :lure_start))
+    # WHAT HIS HANDS PUT IN IT is the walk and the measurements. The marks the
+    # recorder used to infer from the clock are gone from the project, and a
+    # file that still carries them loads without them.
+    assert Enum.any?(route.waypoints, &((&1[:gather_ms] || 0) > 0))
+    refute Enum.any?(route.waypoints, &Map.has_key?(&1, :action))
   end
 
   # The whole point: a lap, on his data, without blocking.
@@ -174,9 +175,16 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
     assert {logic, _pos, seen} = result, "a caçada bloqueou: #{inspect(result)}"
 
     # every waypoint was the target at some point — no corner skipped, none
-    # visited twice in a row because it never advanced
-    assert Enum.uniq(seen) |> length() == 45
-    assert logic.state in [:walking, :post_fight]
+    # visited twice in a row because it never advanced. FORTY-FOUR, not 45:
+    # one pair of his corners sits inside the arrival tolerance, and a corner
+    # that asks for nothing is swallowed by the tick that reaches its
+    # neighbour (`chain_past_plain/3`). The `:lure_end` mark used to force a
+    # tick of its own there; nothing does now, and nothing should.
+    assert Enum.uniq(seen) |> length() == 44
+
+    # The lap CLOSED — where it stopped is where the 4000th tick fell, and on
+    # his route that is often mid-staircase: a step takes two or three probes.
+    assert logic.state in [:walking, :post_fight, :stairs]
   end
 
   test "it climbs and comes back down without ever blocking on a floor" do
@@ -187,32 +195,6 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
     result = walk_lap(logic, {upstairs.x, upstairs.y, upstairs.z}, 4_000)
 
     refute match?({:blocked, _reason, _index}, result)
-  end
-
-  # The measurement his own recording made at waypoint 3 is 12 seconds, three
-  # times the others. Obeyed, the hunt would stand there holding fire while
-  # the pile eats it — so the route itself is the regression test.
-  test "the twelve-second measurement in his route is NOT obeyed" do
-    route = real_route()
-    wild = Enum.find(route.waypoints, &((&1[:gather_ms] || 0) > @wild_gather_ms))
-
-    assert wild, "a rota real não tem mais a medição absurda — atualize a fixture"
-
-    index = Enum.find_index(route.waypoints, &(&1 == wild))
-
-    logic = %{
-      Logic.new(route, @cfg)
-      | combat_running?: true,
-        homed?: true,
-        wp_index: index,
-        last_pos: {wild.x - 1, wild.y, wild.z}
-    }
-
-    {logic, _action} = Logic.step(logic, world({wild.x, wild.y, wild.z}, logic), 1_000)
-
-    # the configured 4s, not the measured 12s
-    assert Logic.gathering?(logic, 4_500)
-    refute Logic.gathering?(logic, 5_200)
   end
 
   # THE staircase of 2026-08-11: waypoint 15 of his route is on floor 2, and
@@ -247,7 +229,7 @@ defmodule Pokex.Bots.Cavebot.RealRouteTest do
         )
 
       assert {logic, _pos, seen} = result, "a caçada bloqueou: #{inspect(result)}"
-      assert length(Enum.uniq(Enum.map(seen, &elem(&1, 0)))) == 45
+      assert length(Enum.uniq(Enum.map(seen, &elem(&1, 0)))) == 44
       assert logic.state in [:walking, :post_fight, :stairs]
 
       # …and every one of them was REACHED, floor included: the corner it left

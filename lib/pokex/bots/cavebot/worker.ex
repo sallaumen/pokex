@@ -60,7 +60,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.Perception.{Feed, WorldState}
-  alias Pokex.Pokedex.SkillProfile
   alias Pokex.Pokedex.Team
   alias Pokex.Settings
 
@@ -89,8 +88,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     capture_wait_ms: :cavebot_capture_wait_ms,
     pinned_probe_ms: :cavebot_pinned_probe_ms,
     stop_wait_ms: :cavebot_stop_wait_ms,
-    gather_wait_ms: :cavebot_gather_wait_ms,
-    fight_only_at_stops: :cavebot_fight_only_at_stops,
     stair_probe_ms: :cavebot_stair_probe_ms,
     stair_max_probes: :cavebot_stair_max_probes,
     stair_step_ms: :cavebot_stair_step_ms,
@@ -120,8 +117,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       reattach_attempts: 0,
       combat_state: :idle,
       combat_scenery: 0,
-      # what the hunt last ASKED of combat — kept only to narrate the edge
-      posture: :free_fight,
       held_keys: [],
       # the pokémon on the field, so a category the route ordered can become a
       # key. Kept here and refreshed on the event, never read per tick:
@@ -180,7 +175,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
           distance_tiles: %{dx: integer, dy: integer} | nil,
           hold_reason: String.t() | nil,
           comeback?: boolean,
-          luring?: boolean,
           last_action: %{text: String.t(), at: integer} | nil,
           started_at: integer | nil,
           ended_at: integer | nil,
@@ -232,7 +226,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   def handle_call(:halt, _from, %{logic: nil} = state), do: {:reply, :ok, state}
 
   def handle_call(:halt, _from, state) do
-    state = state |> release_walk() |> free_fire()
+    state = release_walk(state)
     BotSupervisor.safe_halt(state.combat)
 
     state =
@@ -347,12 +341,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
     state =
       %{state | logic: logic}
-      # BEFORE the action, always: the tick that STARTS Combat is the tick that
-      # must already have said what to do with the fire. Published after, the
-      # first thing Combat read was an absent posture fact — which it correctly
-      # takes for free fire — and it opened up on the crowd the hunt was about
-      # to gather.
-      |> publish_posture(now)
       |> publish_hunt(now)
       |> translate(action)
       |> note_arrival(wp_before, now)
@@ -365,39 +353,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     {:noreply, schedule_tick(state)}
   end
 
-  # What the hunt asks of Combat, republished EVERY tick.
-  #
-  # It is a fact on the blackboard, not a message, and that is the whole
-  # design: facts carry their age, so a hunt that dies (or blocks, or is
-  # stopped) simply stops refreshing this one and Combat reads it as stale —
-  # which it treats as free fire. A pacifist bot left behind by a dead cavebot
-  # is the failure this shape makes impossible; the heartbeat is what buys it.
-  defp publish_posture(state, now) do
-    posture = if Logic.hold_fire?(state.logic, now), do: :hold_fire, else: :free_fight
-
-    # …and WHAT to open with when the fire is released: his own combo from
-    # this kill spot, so the area damage lands on the whole pile instead of one
-    # straggler at a time, plus the categories he ORDERED there — already
-    # resolved to keys, because Combat has no business asking which pokémon is
-    # out.
-    WorldState.put(
-      :posture,
-      %{
-        posture: posture,
-        combo: Logic.combo(state.logic),
-        orders: skill_keys(state.loadout, Logic.orders(state.logic))
-      },
-      now
-    )
-
-    if posture != state.posture do
-      log(:macro, posture_text(posture))
-      %{state | posture: posture}
-    else
-      state
-    end
-  end
-
   # WHERE the hunt is, as a fact, for whoever needs to reason about the leg rather than about
   # the screen.
   defp publish_hunt(state, now) do
@@ -407,7 +362,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       :hunt,
       %{
         state: logic.state,
-        luring?: Logic.luring?(logic),
         wp_index: logic.wp_index,
         waypoints: length(logic.route.waypoints),
         recovering?: logic.recovering?,
@@ -420,18 +374,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     )
 
     state
-  end
-
-  defp posture_text(:hold_fire),
-    do: "🕊️ mobando: sem atacar — o combate está segurando o fogo"
-
-  defp posture_text(:free_fight), do: "⚔️ o bolo se juntou: o combate está liberado"
-
-  # Stopping for ANY reason frees Combat at once, instead of leaving it holding
-  # fire for as long as the fact takes to age out.
-  defp free_fire(state) do
-    WorldState.put(:posture, %{posture: :free_fight}, now())
-    %{state | posture: :free_fight}
   end
 
   # The combat snapshot, HEARD and remembered: the Logic receives the last
@@ -647,29 +589,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     end
   end
 
-  # The skill HE put at this corner — the aura in the middle of the pile,
-  # almost always. The category becomes a key here and not in the Logic,
-  # because the process that knows which pokémon is on the field is this one.
-  # A tap, never a hold, and only after the arrows are let go: a stuck key is
-  # the worst bug this system can produce.
-  def translate(state, {:skills, categories}) do
-    state = release_walk(state)
-
-    case skill_keys(state.loadout, categories) do
-      [] ->
-        log(
-          :macro,
-          "✨ não apertei nada aqui: #{Combat.Loadout.describe(state.loadout)} não tem #{skills_text(categories)}"
-        )
-
-        state
-
-      keys ->
-        fire_skills(state.body, keys)
-        state
-    end
-  end
-
   # "Cooldown Ressurect" (Lucas, 2026-08-10): reviving resets every skill cooldown, so the next
   # fight starts with a full bar instead of a wait — and it still does in this client (confirmed
   # 2026-08-24).
@@ -817,7 +736,7 @@ defmodule Pokex.Bots.Cavebot.Worker do
   # Worker (combat refused to start) — either way the reported state must be
   # :blocked while it lasts.
   defp stop_hunt(state, reason) do
-    state = %{release_walk(state) | counters: bump(state.counters, :blocks)} |> free_fire()
+    state = %{release_walk(state) | counters: bump(state.counters, :blocks)}
     broadcast({:cavebot_alarm, reason})
     log(:macro, block_text(reason))
 
@@ -873,46 +792,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       end
     end)
   end
-
-  # OFF the tick, like every other `perform` here: it is a call with an
-  # :infinity timeout and the Body may be several seconds deep in a capture —
-  # blocking this tick would freeze the hunt AND time out the page's own
-  # `status` call. The arrows are already down before the spawn (release_walk/1
-  # is synchronous), so letting go still happens strictly before the press.
-  #
-  # :high, not :normal, and the ORDERING is why: `hold/1` is answered inline by
-  # the Body loop while a `perform` sequence waits its turn in the queue. A
-  # press parked in the normal queue could still be pending when the NEXT tick
-  # holds the arrows back down — a press under a hold, exactly the bug the
-  # release above exists to prevent. :high preempts the queue and narrows that
-  # window to near-zero; it is the same trade `park_click/2` already takes.
-  #
-  # The answer is worth a log line: a refusal must SAY so instead of narrating
-  # a skill that never went out.
-  defp fire_skills(body, keys) do
-    actions = Enum.map(keys, &{:press, &1})
-    text = Enum.join(keys, ", ")
-
-    spawn(fn ->
-      case body.perform(actions, :high) do
-        :ok -> log(:macro, "✨ skill da rota: #{text}")
-        {:error, reason} -> log(:macro, "✨ o corpo recusou a skill: #{inspect(reason)}")
-        other -> log(:macro, "✨ a skill respondeu #{inspect(other)}")
-      end
-    end)
-  end
-
-  # The categories in their canonical order, deduplicated by KEY: two categories can land on the
-  # same key, and pressing it twice is not what he asked for.
-  defp skill_keys(loadout, categories) do
-    categories
-    |> Enum.reject(&(&1 == :single and not Settings.get(:combat_single_target)))
-    |> Enum.flat_map(&Combat.Loadout.keys(loadout, &1))
-    |> Enum.uniq()
-  end
-
-  defp skills_text(categories),
-    do: Enum.map_join(categories, ", ", &"#{SkillProfile.icon(&1)} #{SkillProfile.label(&1)}")
 
   defp park_click(state, point, where) do
     times = Settings.get(:cavebot_park_clicks)
@@ -1153,7 +1032,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
     pos_age_ms: nil,
     distance_tiles: nil,
     hold_reason: nil,
-    luring?: false,
     comeback?: false,
     last_action: nil,
     started_at: nil,
@@ -1189,9 +1067,6 @@ defmodule Pokex.Bots.Cavebot.Worker do
       pos_age_ms: state.pos_at && now - state.pos_at,
       distance_tiles: distance_tiles(state),
       hold_reason: hold_reason(state, now),
-      # gathering mobs instead of fighting them — "andando" on a mob leg and
-      # "andando" on a normal one are not the same thing to watch
-      luring?: Logic.luring?(logic),
       # a stop that ENDS the night and a stop that lasts 30 seconds look
       # identical from `state: :blocked` alone, and the screen must not tell
       # him to go fix something the hunt is about to fix itself

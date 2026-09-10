@@ -541,11 +541,8 @@ defmodule Pokex.Settings do
     cavebot_stop_wait_ms: 5_000,
     # After luring, the mobs take about four seconds to gather around the pokémon (his
     # measurement).
-    cavebot_gather_wait_ms: 4_000,
     # The recorder learns this pause from his own hands, and a learned number is only trusted
     # inside a plausible band: his real route came back with 2.0s, 3.3s and
-    cavebot_gather_wait_min_ms: 500,
-    cavebot_gather_wait_max_ms: 8_000,
     cavebot_clear_debounce_ms: 800,
     # Recording the route WHILE WALKING: a new waypoint only lands after walking this far since
     # the last one.
@@ -553,7 +550,6 @@ defmodule Pokex.Settings do
     # The last tiles are TAPPED, not held.
     cavebot_precise_tiles: 2,
     # THE STAIRCASE.
-    cavebot_fight_only_at_stops: true,
     cavebot_stair_probe_ms: 450,
     # STEPS, not ring entries: 16 is one full lap around the corner (each side and each
     # diagonal, with a step back to the middle between them), 32 is two — about 14
@@ -572,10 +568,8 @@ defmodule Pokex.Settings do
     cavebot_record_dwell_ms: 5_000,
     # …and standing still THIS long is a kill spot: he gathered a pile, killed it and picked it
     # up.
-    cavebot_record_fight_dwell_ms: 12_000,
     # Reading intentions off the clock is a big assist and a big assumption: off, the recording
     # is the plain list of places it always was.
-    cavebot_smart_recording: true,
     cavebot_fight_timeout_ms: 20_000,
     # --- Engine ---------------------------------------------------------------------------------
     # HIS RULER for when the pile is worth the area, moved several times (3, then 2, then
@@ -583,7 +577,7 @@ defmodule Pokex.Settings do
     # every value from 1 to 8 on his route) because `engine_gather_target` already decides
     # when the window closes and the simulated pile grows fast. In his game the ruler does
     # bite: a pair that never becomes a pile is a spent bar on two mobs.
-    engine_engage_from: 6,
+    engine_engage_from: 8,
     # Whether the hunt GATHERS a pile before hitting it.
     engine_gather_piles: true,
     # …and the patience on the other side: after this many steps with nobody new arriving,
@@ -868,9 +862,6 @@ defmodule Pokex.Settings do
     minimap_coord_ink: 40..255,
     hold_max_ms: 200..30_000,
     cavebot_capture_wait_ms: 0..600_000,
-    cavebot_gather_wait_ms: 0..60_000,
-    cavebot_gather_wait_min_ms: 0..60_000,
-    cavebot_gather_wait_max_ms: 0..120_000,
     rescue_confirm_ms: 0..10_000,
     rescue_stun_settle_ms: 0..10_000,
     rescue_blackout_ms: 0..10_000,
@@ -888,7 +879,6 @@ defmodule Pokex.Settings do
     cavebot_park_clicks: 1..10,
     cavebot_park_gap_ms: 0..5_000,
     cavebot_record_dwell_ms: 500..600_000,
-    cavebot_record_fight_dwell_ms: 1_000..600_000,
     cavebot_pinned_probe_ms: 200..30_000,
     cavebot_stop_wait_ms: 0..600_000,
     # 1 means "fight anything", which is a legal (if greedy) choice; the ceiling

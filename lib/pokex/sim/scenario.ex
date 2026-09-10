@@ -1090,15 +1090,11 @@ defmodule Pokex.Sim.Scenario do
             x: x,
             y: y,
             z: 7,
-            action: :walk,
             stops: [],
             at: nil,
             dwell_ms: nil,
             fight_ms: nil,
-            gather_ms: gather,
-            combo: [],
-            skills: [],
-            gather_wait_ms: nil
+            gather_ms: gather
           }
         end
     }
@@ -1116,35 +1112,26 @@ defmodule Pokex.Sim.Scenario do
   def hunt_field do
     %Route{
       name: "caçada de teste",
-      # …and one MOBBING stretch, marked the way his own routes are: the leg
-      # leaving `:lure_start` is walked gathering instead of fighting, and
-      # arriving at `:lure_end` ends it. Without a marked stretch the whole
-      # `:gathering` branch of the decision is unreachable, which is how a
-      # sweep of `engine_gather_piles` came to be a sweep of nothing.
       waypoints:
-        for {x, y, gather, fight, action} <- [
-              {1_000, 1_000, nil, nil, :walk},
-              {1_012, 1_000, 4_000, nil, :walk},
-              {1_012, 1_010, nil, nil, :lure_start},
-              {1_024, 1_010, nil, 3_000, :lure_end},
-              {1_024, 1_020, nil, nil, :walk},
-              {1_012, 1_020, 4_000, nil, :walk},
-              {1_000, 1_020, nil, nil, :walk},
-              {1_000, 1_010, nil, 3_000, :walk}
+        for {x, y, gather, fight} <- [
+              {1_000, 1_000, nil, nil},
+              {1_012, 1_000, 4_000, nil},
+              {1_012, 1_010, nil, nil},
+              {1_024, 1_010, nil, 3_000},
+              {1_024, 1_020, nil, nil},
+              {1_012, 1_020, 4_000, nil},
+              {1_000, 1_020, nil, nil},
+              {1_000, 1_010, nil, 3_000}
             ] do
           %{
             x: x,
             y: y,
             z: 7,
-            action: action,
             stops: [],
             at: nil,
             dwell_ms: nil,
             fight_ms: fight,
-            gather_ms: gather,
-            combo: [],
-            skills: [],
-            gather_wait_ms: nil
+            gather_ms: gather
           }
         end
     }
@@ -1181,7 +1168,6 @@ defmodule Pokex.Sim.Scenario do
             x: x,
             y: y,
             z: 7,
-            action: :walk,
             stops: [],
             at: nil,
             dwell_ms: nil,
@@ -1192,10 +1178,7 @@ defmodule Pokex.Sim.Scenario do
             # bichinho" nascia praticamente vazio: 1,19 monstro por tiro contra
             # os 3,82 do formigueiro.
             fight_ms: nil,
-            gather_ms: 2_000,
-            combo: [],
-            skills: [],
-            gather_wait_ms: nil
+            gather_ms: 2_000
           }
         end
     }
@@ -1234,15 +1217,11 @@ defmodule Pokex.Sim.Scenario do
             x: x,
             y: y,
             z: 7,
-            action: :walk,
             stops: [],
             at: nil,
             dwell_ms: nil,
             fight_ms: fight,
-            gather_ms: gather,
-            combo: [],
-            skills: [],
-            gather_wait_ms: nil
+            gather_ms: gather
           }
         end
     }

@@ -17,7 +17,7 @@ defmodule PokexWeb.CavebotLive do
 
   import PokexWeb.CavebotComponents
 
-  alias Pokex.Bots.Cavebot.{HandsRead, Photos, Recording, Route, Store, WalkTest, Worker}
+  alias Pokex.Bots.Cavebot.{HandsRead, Photos, Route, Store, WalkTest, Worker}
   alias Pokex.Bots.AreaProbe
   alias Pokex.Bots.Combat
   alias Pokex.Bots.ReviveLedger
@@ -29,7 +29,6 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Calibration
   alias Pokex.Perception
-  alias Pokex.Pokedex.SkillProfile
   alias Pokex.Settings
   alias Pokex.Sim.Fence
   alias Pokex.World
@@ -170,16 +169,9 @@ defmodule PokexWeb.CavebotLive do
        # counter, so a click too fast to catch by polling still shows up.
        middle_count: nil,
        middle_timer: nil,
-       # …and his KEYS: shift+1 opens a fight, shift+3 closes it, and the
-       # skills in between are the combo he really used there
+       # …and his KEYS: shift+1 opens a fight, shift+3 closes it, and what
+       # they measure is how long the fight took
        hands: HandsRead.new(),
-       # the combo being pressed RIGHT NOW, held in memory: writing it per
-       # drain rewrote the whole routes file eight times a second, mid-fight
-       pending_combo: [],
-       pending_index: nil,
-       # waypoints he marked with his own hands — never overwritten by the
-       # inference
-       hand_marked: [],
        safety: safety_snapshot()
      )}
   end
@@ -426,35 +418,10 @@ defmodule PokexWeb.CavebotLive do
     # gathering: "toda luta é uma parada na rota" (2026-08-11). It may lay the
     # waypoint itself, so the index is read after it.
     socket = if reading.fight_started?, do: mark_fight_here(socket), else: socket
-    socket = if reading.gathering_started?, do: mark_gathering_here(socket), else: socket
     index = length(socket.assigns.active_route.waypoints) - 1
 
-    socket
-    |> flush_if_moved_on(index)
-    |> buffer_combo(index, reading.combo)
-    |> settle(index, reading)
+    settle(socket, index, reading)
   end
-
-  # The combo GROWS across drains — he presses 4, then 1, then 3, and each look
-  # sees only its own slice — so it is collected in MEMORY. Writing it per
-  # drain meant `Store.add` reading, decoding, encoding and rewriting the whole
-  # routes file eight times a second, in the middle of a fight.
-  defp buffer_combo(socket, _index, []), do: socket
-
-  defp buffer_combo(socket, index, keys) do
-    assign(socket,
-      pending_index: index,
-      pending_combo: socket.assigns.pending_combo ++ keys
-    )
-  end
-
-  # He walked on: whatever he was pressing belongs to the waypoint he pressed
-  # it at, not to the one he reached afterwards.
-  defp flush_if_moved_on(%{assigns: %{pending_index: nil}} = socket, _index), do: socket
-
-  defp flush_if_moved_on(%{assigns: %{pending_index: index}} = socket, index), do: socket
-
-  defp flush_if_moved_on(socket, _index), do: flush_combo(socket)
 
   # A closed fight (his shift+3) or a measured huddle is a CONCLUSION — that
   # is when the disk hears about it, not every 120ms.
@@ -465,59 +432,31 @@ defmodule PokexWeb.CavebotLive do
       [fight_ms: reading.fight_ms, gather_ms: reading.gather_ms]
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
 
-    filed = Recording.lesson_index(socket.assigns.active_route, index)
-
     socket
     |> write_timings(index, timings)
-    |> flush_combo()
     |> then(
       &if reading.fight_ms,
-        do: assign(&1, notice: fight_note(reading, index, filed), notice_kind: :ok),
+        do: assign(&1, notice: fight_note(reading), notice_kind: :ok),
         else: &1
     )
   end
 
-  # Called when he moves on, when the fight closes, and when he stops
-  # recording: a combo he pressed and never closed with shift+3 is still what
-  # he pressed.
-  defp flush_combo(%{assigns: %{pending_combo: []}} = socket),
-    do: assign(socket, pending_index: nil)
-
-  defp flush_combo(%{assigns: %{pending_index: index, pending_combo: combo}} = socket) do
-    route = socket.assigns.active_route
-    existing = Enum.at(route.waypoints, Recording.lesson_index(route, index))[:combo] || []
-
-    socket
-    |> write_timings(index, combo: existing ++ combo)
-    |> assign(pending_combo: [], pending_index: nil)
-  end
-
   defp write_timings(socket, _index, []), do: socket
 
-  # The lesson goes to THIS fight's kill spot, not to the tile he was standing
-  # on when the shift+3 closed it: he kills, takes a step, and only then closes
-  # — four of the eight fights of Meganium 1 landed one waypoint past the "até
-  # aqui", where the hunt does not read. (Recording.lesson_index/3.)
+  # A MEDIÇÃO FICA ONDE FOI MEDIDA. Ela era mudada de canto pra cair no "até
+  # aqui" mais próximo — e "até aqui" deixou de existir: a caçada não lê marca
+  # nenhuma da rota, então o único lugar honesto pro número é o tile em que o
+  # cronômetro parou.
   defp write_timings(socket, index, timings) when is_integer(index) and index >= 0 do
     route = socket.assigns.active_route
-    updated = Route.set_timing(route, Recording.lesson_index(route, index), timings)
+    updated = Route.set_timing(route, index, timings)
     :ok = Store.add(updated)
     reload_routes(socket, updated.name)
   end
 
   defp write_timings(socket, _index, _timings), do: socket
 
-  # "aqui" only when it really was here: the lesson may have been filed on the
-  # kill spot one or two tiles back (`Recording.lesson_index/3`), and a notice
-  # that says "aqui" about another waypoint is one he cannot check.
-  defp fight_note(%{fight_ms: ms, combo: combo}, index, filed) do
-    base = "⚔️ luta de #{round(ms / 1000)}s medida #{fight_place(index, filed)}"
-    if combo == [], do: base, else: base <> " — skills #{Enum.join(combo, ", ")}"
-  end
-
-  # the waypoint numbers he reads on the page are 1-based
-  defp fight_place(index, index), do: "aqui"
-  defp fight_place(_index, filed), do: "e anotada no waypoint #{filed + 1}"
+  defp fight_note(%{fight_ms: ms}), do: "⚔️ luta de #{round(ms / 1000)}s medida aqui"
 
   defp read_middle_click(socket) do
     case Pokex.Rig.impl().middle_watch() do
@@ -611,27 +550,17 @@ defmodule PokexWeb.CavebotLive do
     match?(%{x: ^x, y: ^y, z: ^z}, List.last(waypoints))
   end
 
+  # O TEMPO PARADO É SÓ MEDIDA AGORA. Ele virava marca — meio minuto num canto
+  # o promovia a "até aqui" e o trecho anterior a "mobar daqui" — e era daí que
+  # saíam as marcas que ninguém tinha escolhido. Quem decide quando parar é a
+  # contagem de bichos ao redor, no cérebro; aqui fica só o número que a página
+  # mostra.
   defp write_dwell(socket, %Route{waypoints: waypoints} = route, dwell) do
     index = length(waypoints) - 1
     updated = Route.set_dwell(route, index, dwell)
-
-    {updated, note} =
-      if Pokex.Settings.get(:cavebot_smart_recording) do
-        Recording.infer_with_note(
-          updated,
-          index,
-          Pokex.Settings.get(:cavebot_record_fight_dwell_ms),
-          hand_marked: socket.assigns.hand_marked
-        )
-      else
-        {updated, nil}
-      end
-
     :ok = Store.add(updated)
 
-    socket
-    |> then(&if note, do: assign(&1, notice: note, notice_kind: :ok), else: &1)
-    |> reload_routes(updated.name)
+    reload_routes(socket, updated.name)
   end
 
   # A waypoint per tile would be noise — the client pathfinds between points, so
@@ -726,7 +655,6 @@ defmodule PokexWeb.CavebotLive do
 
         {:noreply,
          socket
-         |> flush_combo()
          |> stop_middle_watch()
          |> assign(
            recording?: false,
@@ -800,19 +728,6 @@ defmodule PokexWeb.CavebotLive do
     {:noreply, assign(socket, selected: selected)}
   end
 
-  # A waypoint is not only a place: it can carry a JOB. "Mobar daqui" … "até
-  # aqui" brackets the stretch the hunt walks GATHERING mobs — drawn blue on
-  # the map, and obeyed by the hunt itself in the next step.
-  def handle_event("set_waypoint_action", %{"index" => index, "action" => action}, socket) do
-    index = String.to_integer(index)
-    socket = remember_hand_mark(socket, index)
-
-    with_route(socket, fn route ->
-      action = decode_action(action)
-      {Route.set_action(route, index, action), "waypoint #{index + 1}: #{action_label(action)}"}
-    end)
-  end
-
   # What the hunt DOES at a waypoint once the fighting there stops: reset the
   # cooldowns on a revive, or simply stand still. A second axis, not more jobs
   # — the waypoint worth reviving at is usually the one already marked "até
@@ -824,31 +739,6 @@ defmodule PokexWeb.CavebotLive do
   # that could not have changed the route anyway.
   def handle_event("toggle_waypoint_stop", %{"index" => index, "stop" => stop}, socket) do
     toggle_stop(socket, String.to_integer(index), decode_stop(stop))
-  end
-
-  # The skill HE wants at this corner, said by category — the aura in the
-  # middle of the gathering is the case he asked for. Third axis, beside the
-  # job and the stops: the corner of the aura is usually the corner already
-  # marked "até aqui".
-  #
-  # A category nobody knows leaves before anything is named. It can only come
-  # from a forged event — the chips emit whitelisted values and nothing else —
-  # but `SkillProfile.label/1` has one clause per category and no catch-all, so
-  # naming a nil in the notice would kill this LiveView over a click that could
-  # not have changed the route anyway.
-  def handle_event("toggle_waypoint_skill", %{"index" => index, "skill" => raw}, socket) do
-    toggle_skill(socket, index, decode_skill(raw))
-  end
-
-  # The whole route's ruler: the number he dials down until he finds the limit
-  # where the pile still closes. An empty field hands the command back to
-  # /config.
-  def handle_event("set_route_gather_wait", %{"gather_wait_ms" => raw}, socket) do
-    ms = parse_ms(raw)
-
-    with_route(socket, fn route ->
-      {Route.set_gather_wait(route, ms), gather_wait_note("a rota", ms)}
-    end)
   end
 
   # A caçada de pé NÃO troca de modo: metade dos ajustes é lida ao vivo e a
@@ -868,16 +758,6 @@ defmodule PokexWeb.CavebotLive do
          notice_kind: :warn
        )}
     end
-  end
-
-  def handle_event("set_waypoint_gather_wait", %{"index" => index} = params, socket) do
-    index = String.to_integer(index)
-    ms = parse_ms(params["gather_wait_ms"])
-    socket = remember_hand_mark(socket, index)
-
-    with_route(socket, fn route ->
-      {Route.set_gather_wait(route, index, ms), gather_wait_note("o waypoint #{index + 1}", ms)}
-    end)
   end
 
   # The exact tile, typed by hand. A recording is a WALK, and a walk rounds:
@@ -947,15 +827,6 @@ defmodule PokexWeb.CavebotLive do
         |> assign(selected: index)
         |> with_route(&insert_here(&1, index, pos))
     end
-  end
-
-  # "de repente a gente não cria um botão para otimizar a rota e garantir que,
-  # quando ele começa a mobar, ele realmente sempre termina" (Lucas,
-  # 2026-08-11). Two passes: the middle clicks of ONE fight become one kill
-  # spot, and then every kill spot gets exactly one gathering leading into it.
-  # The walk itself is never touched — only what the corners MEAN.
-  def handle_event("tidy_marks", _params, socket) do
-    with_route(socket, &Recording.tidy/1)
   end
 
   # The pre-sleep checklist, on the hunt's own page. Same settings the panel
@@ -1248,44 +1119,7 @@ defmodule PokexWeb.CavebotLive do
   # when the hunt runs this route.
   # Same shape as the middle click below: the spot is where he STANDS when he
   # says so, so a waypoint is laid first if there is none here yet.
-  defp mark_fight_here(socket) do
-    socket = waypoint_here(socket)
-    route = socket.assigns.active_route
-    index = length(route.waypoints) - 1
-
-    if index >= 0 do
-      {updated, note} =
-        Recording.mark_fight_start(route, index, hand_marked: socket.assigns.hand_marked)
-
-      :ok = Store.add(updated)
-
-      socket
-      |> then(&if note, do: assign(&1, notice: note, notice_kind: :ok), else: &1)
-      |> reload_routes(updated.name)
-    else
-      socket
-    end
-  end
-
-  # …and shift+3 says the other half: from here on he is gathering again. On
-  # the spot he just closed it says nothing (see Recording.mark_gathering_start/3).
-  defp mark_gathering_here(socket) do
-    socket = waypoint_here(socket)
-    route = socket.assigns.active_route
-    index = length(route.waypoints) - 1
-
-    with true <- index >= 0,
-         {updated, note} when is_binary(note) <- Recording.mark_gathering_start(route, index) do
-      :ok = Store.add(updated)
-
-      socket
-      |> remember_hand_mark(index)
-      |> assign(notice: note, notice_kind: :ok)
-      |> reload_routes(updated.name)
-    else
-      _nothing_to_say -> socket
-    end
-  end
+  defp mark_fight_here(socket), do: waypoint_here(socket)
 
   defp waypoint_here(socket) do
     route = socket.assigns.active_route
@@ -1296,23 +1130,13 @@ defmodule PokexWeb.CavebotLive do
       else: socket
   end
 
+  # O CLIQUE DO MEIO PÕE UM CANTO, e mais nada. Ele marcava "até aqui" — o
+  # ponto onde a caçada parava de mobar — e essa decisão saiu da rota: quem
+  # decide parar é a contagem de bichos ao redor. O canto continua valendo,
+  # porque onde ele estaciona o pokémon É um lugar por onde a rota passa.
   defp mark_kill_click_here(socket) do
     socket = waypoint_here(socket)
-    route = socket.assigns.active_route
-    index = length(route.waypoints) - 1
-
-    if index >= 0 do
-      {updated, note} =
-        Recording.mark_kill_click(route, index, hand_marked: socket.assigns.hand_marked)
-
-      :ok = Store.add(updated)
-
-      socket
-      |> then(&if note, do: assign(&1, notice: note, notice_kind: :ok), else: &1)
-      |> reload_routes(updated.name)
-    else
-      socket
-    end
+    assign(socket, notice: "🖱️ canto marcado no clique do meio", notice_kind: :ok)
   end
 
   # The photos are a SIDE EFFECT of recording, never a gate on it: a failed
@@ -1404,7 +1228,6 @@ defmodule PokexWeb.CavebotLive do
   defp enemy_count(_none), do: 0
 
   defp hunt_state_text(nil), do: "parada"
-  defp hunt_state_text(%{luring?: true}), do: "mobando"
   defp hunt_state_text(%{state: state}), do: state_word(state)
 
   defp state_word(:walking), do: "andando"
@@ -1471,31 +1294,14 @@ defmodule PokexWeb.CavebotLive do
 
   defp selected_pair(_route, _none), do: []
 
-  # A mark he made HIMSELF outranks anything the clock infers: the recorder
-  # assists, it does not overrule.
-  defp remember_hand_mark(socket, index) do
-    update(socket, :hand_marked, &Enum.uniq([index | &1]))
-  end
-
-  # What the hunt does at a waypoint once the fighting stops. The atoms are the
-  # domain's (`Route.stop/0`); only these words are Portuguese. Whitelisted and
-  # never `String.to_atom/1` — the value comes from the DOM, and a stop nobody
-  # knows answers nil, which `Route.set_stop/4` leaves the route untouched for.
+  # Whitelist, never String.to_atom/1: the value comes from the DOM. A stop
+  # nobody knows answers nil, and the clause below drops the event rather than
+  # trying to name it.
   defp decode_stop(value), do: Enum.find(Route.stops(), &(Atom.to_string(&1) == value))
 
-  # Whitelist, never String.to_atom/1: the value comes from the DOM. A category
-  # nobody knows answers nil, and the handler above drops the event rather than
-  # trying to name it.
-  defp decode_skill(value), do: Enum.find(Route.skills(), &(Atom.to_string(&1) == value))
-
-  # The nil clause is the whole reason these are functions and not a `case`: a
-  # stop or a category nobody knows leaves HERE, before anything tries to name
-  # it.
   defp toggle_stop(socket, _index, nil), do: {:noreply, socket}
 
   defp toggle_stop(socket, index, stop) do
-    socket = remember_hand_mark(socket, index)
-
     with_route(socket, fn route ->
       on? = stop not in Route.stops_at(route.waypoints, index)
 
@@ -1503,56 +1309,6 @@ defmodule PokexWeb.CavebotLive do
        "waypoint #{index + 1}: #{stop_label(stop)} #{if on?, do: "ligado", else: "desligado"}"}
     end)
   end
-
-  defp toggle_skill(socket, _index, nil), do: {:noreply, socket}
-
-  defp toggle_skill(socket, index, skill) do
-    index = String.to_integer(index)
-    socket = remember_hand_mark(socket, index)
-
-    with_route(socket, fn route ->
-      on? = skill not in Route.skills_at(route.waypoints, index)
-
-      {Route.set_skill(route, index, skill, on?),
-       "waypoint #{index + 1}: #{SkillProfile.label(skill)} #{if on?, do: "ligada", else: "desligada"}"}
-    end)
-  end
-
-  # Every category paired with whether THIS waypoint carries it, read once per
-  # row. Each chip asking on its own walked the waypoint list twice over, for
-  # ten walks per row to answer one question about one place.
-  defp waypoint_skill_chips(wp) do
-    carried = List.wrap(wp[:skills])
-    Enum.map(Route.skills(), &{&1, &1 in carried})
-  end
-
-  # What this corner tells the pokémon to fire, as icons: the READ-ONLY half of
-  # the chips, so a 67-corner route reads at a glance instead of carrying 335
-  # buttons. Answered as a list of nothing or one, the same trick
-  # `selected_pair/2` uses, so a corner with no skill renders no badge at all.
-  defp skill_badge(wp) do
-    case List.wrap(wp[:skills]) do
-      [] ->
-        []
-
-      skills ->
-        [
-          {Enum.map_join(skills, " ", &SkillProfile.icon/1),
-           Enum.map_join(skills, ", ", &SkillProfile.label/1)}
-        ]
-    end
-  end
-
-  # An empty field is "I have no ruler here", which is not zero ("wait for
-  # nothing here"). Typed garbage becomes nil too, never a crash.
-  defp parse_ms(raw) when is_binary(raw) do
-    case Integer.parse(String.trim(raw)) do
-      {ms, ""} when ms >= 0 -> ms
-      _empty_or_junk -> nil
-    end
-  end
-
-  defp parse_ms(_absent), do: nil
 
   # "" é a AUSÊNCIA — a rota devolvendo a escolha pro /config —, e ela vem
   # primeiro porque é o estado em que toda rota nasce.
@@ -1580,33 +1336,8 @@ defmodule PokexWeb.CavebotLive do
 
   defp route_mode_note(_no_route, _hunt), do: ""
 
-  defp hunt_idle?(nil), do: true
   defp hunt_idle?(%{state: :idle}), do: true
   defp hunt_idle?(_running), do: false
-
-  # HONESTA SOBRE O QUE O RESPIRO É HOJE: o fallback de quando o cérebro não
-  # está falando. Com o cérebro falando, a régua do /config manda.
-  defp gather_wait_note(what, nil),
-    do:
-      "#{what} voltou ao respiro global do /config — que só vale quando o cérebro não está falando"
-
-  defp gather_wait_note(what, ms), do: "#{what} espera #{ms}ms o bolo fechar"
-
-  # What his hands measured, offered as a starting point — and only when it is
-  # plausible. The two settings that used to bound the Logic live here now: 12s
-  # measured at a kill spot is not him waiting for the pile, it is the recorder
-  # having timed something else.
-  #
-  # Answered as a list of nothing or one so the row asks once: `:if` plus the
-  # text ran the whole check twice on every kill spot.
-  defp gather_suggestion(%{gather_ms: ms}) when is_integer(ms) do
-    if ms >= Settings.get(:cavebot_gather_wait_min_ms) and
-         ms <= Settings.get(:cavebot_gather_wait_max_ms),
-       do: [ms],
-       else: []
-  end
-
-  defp gather_suggestion(_no_measurement), do: []
 
   defp stop_label(:cooldown_revive), do: "resetar cooldown"
   defp stop_label(:wait), do: "esperar"
@@ -1807,7 +1538,7 @@ defmodule PokexWeb.CavebotLive do
   defp keys_line(keys), do: Enum.join(keys, " ")
 
   defp taught_label(wp) do
-    [gather_part(wp), fight_part(wp), combo_part(wp)]
+    [gather_part(wp), fight_part(wp)]
     |> Enum.reject(&is_nil/1)
     |> case do
       [] -> nil
@@ -1820,11 +1551,6 @@ defmodule PokexWeb.CavebotLive do
 
   defp fight_part(%{fight_ms: ms}) when is_integer(ms), do: "luta #{seconds(ms)}"
   defp fight_part(_none), do: nil
-
-  defp combo_part(%{combo: [_ | _] = combo}),
-    do: "💥 " <> Enum.join(Recording.combo_intent(combo), " ")
-
-  defp combo_part(_none), do: nil
 
   defp seconds(ms), do: "#{Float.round(ms / 1000, 1)}s"
 
@@ -1937,34 +1663,6 @@ defmodule PokexWeb.CavebotLive do
 
   # The jobs a waypoint can carry, in the order the editor offers them. The
   # atoms are the domain's (`Route.action`); only the labels are Portuguese.
-  @waypoint_actions [
-    {:walk, "andar", "hero-arrow-long-right"},
-    {:lure_start, "mobar daqui", "hero-play"},
-    {:lure_end, "até aqui", "hero-stop"}
-  ]
-
-  defp waypoint_actions, do: @waypoint_actions
-
-  defp decode_action("lure_start"), do: :lure_start
-  defp decode_action("lure_end"), do: :lure_end
-  defp decode_action(_walk), do: :walk
-
-  defp action_label(action) do
-    Enum.find_value(@waypoint_actions, "andar", fn {a, label, _icon} -> a == action && label end)
-  end
-
-  # A stretch marked "mobar daqui" and never closed does not fail loudly — it
-  # lures the WHOLE loop, which reads as "the hunt stopped fighting". Say it
-  # where the marks are made.
-  defp lure_warning(%Route{} = route) do
-    case Route.lure_issue(route) do
-      :start_without_end -> "tem \"mobar daqui\" sem \"até aqui\" — o mob vale a rota inteira"
-      nil -> nil
-    end
-  end
-
-  defp lure_warning(_no_route), do: nil
-
   # The engine's facts, straight off the blackboard. Stale reads as absent: a
   # page that shows a decision nobody is making any more is worse than one that
   # shows none.
@@ -3153,31 +2851,6 @@ defmodule PokexWeb.CavebotLive do
                   id={"waypoint-job-#{index}"}
                   class="mt-2 flex flex-wrap items-center gap-1.5 border-t border-pk-warn-line pt-2"
                 >
-                  <span class="mr-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
-                    função
-                  </span>
-                  <button
-                    :for={{action, label, icon} <- waypoint_actions()}
-                    id={"waypoint-#{index}-#{action}"}
-                    phx-click="set_waypoint_action"
-                    phx-value-index={index}
-                    phx-value-action={action}
-                    aria-pressed={to_string(wp.action == action)}
-                    aria-label={"Waypoint #{index + 1}: #{label}"}
-                    class={[
-                      "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
-                      if(wp.action == action,
-                        do: "border-pk-info bg-pk-info-dim text-pk-info",
-                        else:
-                          "border-pk-line-strong text-pk-text-2 hover:border-pk-info/60 hover:text-pk-text"
-                      )
-                    ]}
-                  >
-                    <.icon name={icon} class="size-3.5" />{label}
-                  </button>
-
-                  <span class="mx-1 h-5 w-px bg-pk-warn-line"></span>
-
                   <button
                     :for={stop <- Route.stops()}
                     id={"waypoint-#{index}-#{stop}"}
@@ -3197,37 +2870,6 @@ defmodule PokexWeb.CavebotLive do
                     ]}
                   >
                     {stop_icon(stop)} {stop_label(stop)}
-                  </button>
-
-                  <span class="mx-1 h-5 w-px bg-pk-warn-line"></span>
-
-                  <%!-- The third axis: what the pokémon FIRES here, said by
-                  category. It lives beside the job and the stops for the
-                  reason they do — the corner of the aura is usually the
-                  corner already marked "até aqui" — and on the SELECTED
-                  waypoint only: five chips on each of his 67 corners is
-                  335 buttons for the handful of corners that carry one.
-                  A lit chip is an order; the key comes from whichever
-                  pokémon is in the field at the time. --%>
-                  <button
-                    :for={{skill, on?} <- waypoint_skill_chips(wp)}
-                    id={"waypoint-skill-#{index}-#{skill}"}
-                    phx-click="toggle_waypoint_skill"
-                    phx-value-index={index}
-                    phx-value-skill={skill}
-                    aria-pressed={to_string(on?)}
-                    aria-label={"Waypoint #{index + 1}: #{SkillProfile.label(skill)}"}
-                    title={SkillProfile.moment(skill)}
-                    class={[
-                      "flex h-8 cursor-pointer items-center gap-1 rounded-lg border px-2 font-mono text-pk-meta transition",
-                      if(on?,
-                        do: "border-pk-ok bg-pk-ok-dim text-pk-ok",
-                        else:
-                          "border-pk-line-strong text-pk-text-2 hover:border-pk-ok/60 hover:text-pk-text"
-                      )
-                    ]}
-                  >
-                    {SkillProfile.icon(skill)} {SkillProfile.label(skill)}
                   </button>
                 </div>
               </section>
@@ -3375,48 +3017,6 @@ defmodule PokexWeb.CavebotLive do
                   Waypoints
                 </h2>
                 <div class="flex items-center gap-3">
-                  <.form
-                    id="route-gather-wait"
-                    for={%{}}
-                    phx-submit="set_route_gather_wait"
-                    class="flex items-center gap-1"
-                  >
-                    <label
-                      for="route-gather-wait-input"
-                      class="font-mono text-pk-meta text-pk-text-3"
-                    >
-                      respiro da rota
-                    </label>
-                    <input
-                      type="number"
-                      id="route-gather-wait-input"
-                      name="gather_wait_ms"
-                      value={@active_route.gather_wait_ms}
-                      min="0"
-                      step="100"
-                      placeholder={Settings.get(:cavebot_gather_wait_ms)}
-                      class="pk-num w-24 rounded border border-pk-line-strong bg-pk-sunken px-1.5 py-0.5 text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                    />
-                    <span class="font-mono text-pk-meta text-pk-text-3">ms</span>
-                    <button
-                      id="route-gather-wait-save"
-                      class="cursor-pointer rounded border border-pk-line-strong px-1.5 py-0.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                    >
-                      guardar
-                    </button>
-                  </.form>
-                  <%!-- A REAL button: as a bare text link he never found it —
-                    "não consegui encontrar esse botão" (2026-08-14). --%>
-                  <button
-                    :if={@active_route.waypoints != []}
-                    id="tidy-marks"
-                    phx-click="tidy_marks"
-                    aria-label="Otimizar a rota: juntar marcas repetidas e fechar as mobadas"
-                    title="junta os cliques de uma luta só e garante uma mobada pra cada matança"
-                    class="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-pk-line-strong px-2.5 font-mono text-pk-meta font-semibold text-pk-text transition hover:border-pk-info/60 hover:text-pk-info"
-                  >
-                    <.icon name="hero-sparkles" class="size-3.5" /> otimizar rota
-                  </button>
                   <button
                     :if={@active_route.waypoints != []}
                     id="clear-route"
@@ -3441,15 +3041,6 @@ defmodule PokexWeb.CavebotLive do
 
               <p :if={@active_route.waypoints == []} class="mt-3 text-pk-body text-pk-text-2">
                 nenhum waypoint ainda — ande até o primeiro canto e marque
-              </p>
-
-              <p
-                :if={lure_warning(@active_route)}
-                id="lure-warning"
-                class="mt-3 flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
-              >
-                <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
-                {lure_warning(@active_route)}
               </p>
 
               <.route_doctor
@@ -3497,12 +3088,6 @@ defmodule PokexWeb.CavebotLive do
                     <span class="pk-num w-5 font-mono text-pk-meta text-pk-text-3">{index + 1}</span>
                     <span class="pk-num flex-1 font-mono text-pk-body text-pk-text">
                       {wp.x}, {wp.y}
-                      <span
-                        :if={wp.action != :walk}
-                        class="ml-1 rounded border border-pk-info-line bg-pk-info-dim px-1.5 py-0.5 text-pk-meta text-pk-info"
-                      >
-                        {action_label(wp.action)}
-                      </span>
                       <%!-- The floor is written only where it CHANGES: on a
                         one-floor route it would be noise on every line, and
                         on a route with stairs it is the whole story. --%>
@@ -3511,18 +3096,6 @@ defmodule PokexWeb.CavebotLive do
                         class="ml-1 rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 py-0.5 text-pk-meta text-pk-ok"
                       >
                         {stop_icon(stop)} {stop_label(stop)}
-                      </span>
-                      <%!-- What the pokémon fires here, READ-ONLY: the chips
-                        that change it live in the editor above, on the
-                        selected waypoint. The badge only shows up where
-                        there is something to say. --%>
-                      <span
-                        :for={{icons, labels} <- skill_badge(wp)}
-                        id={"waypoint-skills-#{index}"}
-                        title={labels}
-                        class="ml-1 rounded border border-pk-line-strong px-1.5 py-0.5 text-pk-meta text-pk-text-2"
-                      >
-                        {icons}
                       </span>
                       <span
                         :if={climb_label(@active_route.waypoints, index)}
@@ -3625,68 +3198,6 @@ defmodule PokexWeb.CavebotLive do
                       o que cada tecla faz
                     </.link>
                   </p>
-
-                  <%!-- The huddle only makes sense where the pile closes.
-                    Typed and SUBMITTED: the number is one he dials down
-                    again and again, so it needs somewhere to click that
-                    says the typing landed, the same way the park form
-                    does. --%>
-                  <.form
-                    :if={wp.action == :lure_end}
-                    id={"waypoint-gather-wait-#{index}"}
-                    for={%{}}
-                    phx-submit="set_waypoint_gather_wait"
-                    class="mt-1 flex flex-wrap items-center gap-1 pl-7"
-                  >
-                    <input type="hidden" name="index" value={index} />
-                    <label
-                      for={"gather-wait-input-#{index}"}
-                      class="font-mono text-pk-meta text-pk-text-3"
-                    >
-                      respiro
-                    </label>
-                    <input
-                      type="number"
-                      id={"gather-wait-input-#{index}"}
-                      name="gather_wait_ms"
-                      value={wp[:gather_wait_ms]}
-                      min="0"
-                      step="100"
-                      placeholder={
-                        @active_route.gather_wait_ms || Settings.get(:cavebot_gather_wait_ms)
-                      }
-                      class="pk-num w-20 rounded border border-pk-line-strong bg-pk-sunken px-1 py-0.5 text-pk-meta text-pk-text focus:border-pk-ok focus:outline-none"
-                    />
-                    <span class="font-mono text-pk-meta text-pk-text-3">ms</span>
-                    <button
-                      id={"waypoint-gather-wait-save-#{index}"}
-                      class="cursor-pointer rounded border border-pk-line-strong px-1.5 py-0.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                    >
-                      guardar
-                    </button>
-                    <%!-- What his hands measured, with somewhere to click that
-                      adopts it: reading a number and retyping it is the
-                      same work twice. `type="button"` because this sits
-                      INSIDE the form — a click here is the adoption, not a
-                      submit of whatever is in the field. It is the same
-                      command the field sends, so it is the same event. --%>
-                    <span
-                      :for={ms <- gather_suggestion(wp)}
-                      class="font-mono text-pk-meta text-pk-text-3"
-                    >
-                      (suas mãos esperaram {ms}ms aqui)
-                      <button
-                        type="button"
-                        id={"waypoint-gather-wait-adopt-#{index}"}
-                        phx-click="set_waypoint_gather_wait"
-                        phx-value-index={index}
-                        phx-value-gather_wait_ms={ms}
-                        class="ml-1 cursor-pointer rounded border border-pk-line-strong px-1.5 py-0.5 font-mono text-pk-meta font-bold text-pk-text-2 transition hover:border-pk-ok/60 hover:text-white"
-                      >
-                        usar {ms}ms
-                      </button>
-                    </span>
-                  </.form>
                 </li>
               </ol>
             </section>

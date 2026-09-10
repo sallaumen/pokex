@@ -33,8 +33,6 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
       post_kill_dwell_ms: 0,
       capture_wait_ms: 0,
       stop_wait_ms: 0,
-      gather_wait_ms: 0,
-      fight_only_at_stops: true,
       stair_probe_ms: 100_000,
       stair_max_probes: 3,
       stair_step_ms: 100,
@@ -66,7 +64,7 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
   describe "com o cérebro ligado" do
     defp lutando(logic) do
       {logic, :run_combat} = Logic.step(logic, world(), 0)
-      {logic, _} = Logic.step(logic, world(%{engine?: true, enemies: 1}), 50)
+      {logic, _} = Logic.step(logic, world(%{engine?: true, route_hold?: true, enemies: 1}), 50)
       assert logic.state == :fighting
       logic
     end
@@ -116,7 +114,7 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
     test "a hold stops the step" do
       logic = walking(logic())
 
-      {_logic, action} = Logic.step(logic, world(%{route_hold?: true}), 100)
+      {_logic, action} = Logic.step(logic, world(%{engine?: true, route_hold?: true}), 100)
 
       assert action == :none
     end
@@ -127,7 +125,7 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
     # place of a fight order.
     test "a hold with a spot parks the pokemon once, and again only after walking" do
       logic = walking(logic())
-      held = world(%{route_hold?: true, park: {2, 0}})
+      held = world(%{engine?: true, route_hold?: true, park: {2, 0}})
 
       {logic, first} = Logic.step(logic, held, 100)
       {logic, second} = Logic.step(logic, held, 200)
@@ -135,17 +133,25 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
       assert first == {:park, {2, 0}}
       assert second == :none
 
-      # the road walks again: the stop is over…
-      {logic, _walk} = Logic.step(logic, world(), 300)
+      # the brain releases the road and the hunt walks the stop off…
+      logic =
+        Enum.reduce(3..6, logic, fn tick, acc ->
+          {acc, _action} = Logic.step(acc, world(%{engine?: true}), tick * 100)
+          acc
+        end)
+
+      assert logic.state == :walking
+
       # …and the next hold parks anew
-      {_logic, again} = Logic.step(logic, held, 400)
+      {_logic, again} = Logic.step(logic, held, 700)
       assert again == {:park, {2, 0}}
     end
 
     test "a hold without a spot (no eye, or the pile on top of him) parks nothing" do
       logic = walking(logic())
 
-      {_logic, action} = Logic.step(logic, world(%{route_hold?: true, park: nil}), 100)
+      {_logic, action} =
+        Logic.step(logic, world(%{engine?: true, route_hold?: true, park: nil}), 100)
 
       assert action == :none
     end
@@ -153,7 +159,8 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
     test "the knob turns the park off" do
       logic = Logic.new(route(), %{config() | park_on_stop: false}) |> walking()
 
-      {_logic, action} = Logic.step(logic, world(%{route_hold?: true, park: {2, 0}}), 100)
+      {_logic, action} =
+        Logic.step(logic, world(%{engine?: true, route_hold?: true, park: {2, 0}}), 100)
 
       assert action == :none
     end
@@ -188,16 +195,18 @@ defmodule Pokex.Bots.Cavebot.EngineOrdersTest do
     # A deliberate stop must not spend the walk's patience — otherwise the wait
     # itself is what declares the hunt stuck, which is the bug the recovery hold
     # already had to fix once.
+    # A deliberate stop must not spend the walk's patience — otherwise the wait
+    # itself is what declares the hunt stuck.
     test "waiting on the engine never reads as stuck" do
       logic = walking(logic())
 
       logic =
         Enum.reduce(1..40, logic, fn tick, acc ->
-          {acc, :none} = Logic.step(acc, world(%{route_hold?: true}), tick * 1_000)
+          {acc, :none} = Logic.step(acc, world(%{engine?: true, route_hold?: true}), tick * 1_000)
           acc
         end)
 
-      assert logic.state == :walking
+      refute logic.state in [:stuck, :fight_stalled, :blocked]
     end
   end
 

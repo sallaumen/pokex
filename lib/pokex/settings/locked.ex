@@ -73,13 +73,9 @@ defmodule Pokex.Settings.Locked do
       {"Cavebot (andar)", "preso na mesma tile, 1s de andar responde se saiu"},
     cavebot_stop_wait_ms:
       {"Cavebot (andar)", "a parada 'esperar': 5s parado pros cooldowns voltarem"},
-    cavebot_gather_wait_min_ms: {"Cavebot (andar)", "piso do respiro aprendido na gravação"},
-    cavebot_gather_wait_max_ms: {"Cavebot (andar)", "teto do respiro aprendido na gravação"},
     cavebot_clear_debounce_ms: {"Cavebot (andar)", "tela limpa por 0,8s antes de a rota voltar"},
     cavebot_record_min_tiles: {"Cavebot (andar)", "gravando, um waypoint a cada 4 tiles andados"},
     cavebot_precise_tiles: {"Cavebot (andar)", "os últimos 2 tiles são tocados, não segurados"},
-    cavebot_fight_only_at_stops:
-      {"Cavebot (andar)", "só luta nas paradas, nunca no meio da escada"},
     cavebot_stair_probe_ms:
       {"Cavebot (andar)", "cada sonda da escada espera isto pela troca de andar"},
     cavebot_stair_max_probes: {"Cavebot (andar)", "32 sondas = duas voltas ao redor do canto"},
@@ -88,8 +84,6 @@ defmodule Pokex.Settings.Locked do
     cavebot_park_clicks: {"Cavebot (andar)", "cliques do estacionar"},
     cavebot_park_gap_ms: {"Cavebot (andar)", "intervalo entre os cliques do estacionar"},
     cavebot_record_dwell_ms: {"Cavebot (andar)", "parado 5s na gravação = parada 'esperar'"},
-    cavebot_record_fight_dwell_ms: {"Cavebot (andar)", "parado 12s na gravação = ponto de luta"},
-    cavebot_smart_recording: {"Cavebot (andar)", "a gravação lê o relógio pra adivinhar paradas"},
     cavebot_fight_timeout_ms: {"Cavebot (andar)", "20s de luta sem fim = a rota retoma"},
     # --- Combate (Tab) ---
     tab_key: {"Combate (Tab)", "a tecla do jogo que troca de alvo"},

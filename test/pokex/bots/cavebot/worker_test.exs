@@ -101,11 +101,9 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   alias Pokex.Bots.Cavebot.Worker
   alias Pokex.Bots.Cavebot.WorkerTest.FakeBody
   alias Pokex.Bots.Cavebot.WorkerTest.FakeCombat
-  alias Pokex.Bots.Combat.Loadout
   alias Pokex.Bots.InputGate
   alias Pokex.Journal
   alias Pokex.Perception.WorldState
-  alias Pokex.Pokedex.Team
   alias Pokex.SettingsStash
 
   @moduletag :tmp_dir
@@ -327,21 +325,16 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
                  x: 100,
                  y: 100,
                  z: 7,
-                 action: :walk,
                  stops: [],
                  at: nil,
                  dwell_ms: nil,
                  fight_ms: nil,
-                 gather_ms: nil,
-                 combo: [],
-                 skills: [],
-                 gather_wait_ms: nil
+                 gather_ms: nil
                },
                pos: nil,
                pos_age_ms: nil,
                distance_tiles: nil,
                hold_reason: nil,
-               luring?: false,
                comeback?: false,
                last_action: nil,
                counters: %{waypoints: 0, steps: 0, aborts: 0, comebacks: 0, blocks: 0}
@@ -356,113 +349,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:held, ["right", "down"]}, 1_000
   end
 
-  # "Eu acho que o modo de ataque começa primeiro e depois muda para mobado,
-  # mas ele já deveria iniciar o processo sabendo disso" (Lucas, 2026-08-11).
-  # His journal: Iniciar at 15:27:02, six pokémon killed one by one, and the
-  # first "🕊️ mobando" only at 15:27:57 — 55 seconds of free fire because
-  # combat was started before the hunt knew which leg it was on.
-  describe "starting a hunt already knowing what to do with the fire" do
-    test "combat is started with the posture ALREADY published", %{worker: worker} do
-      lure_route!()
-      :ok = Worker.run(worker)
-
-      # already INSIDE the mob stretch: the nearest corner is the second one,
-      # so the leg being walked is the one leaving "mobar daqui"
-      minimap!({200, 100, 7})
-      tick!(worker)
-
-      assert_receive {:posture_at_run, :hold_fire}, 1_000
-      assert_receive {:combat_cmd, :run}, 1_000
-    end
-
-    # O MODO DE COMBATE É DA ROTA, e chega junto com o arranque. Sem isto o
-    # combate resolveria o modo por conta própria e a mão poderia lutar num
-    # modo enquanto o cérebro decide noutro.
-    test "combat is started with the mode THIS route chose", %{worker: worker} do
-      {:ok, route} = Route.append(Route.new("rota barata"), {100, 100, 7})
-      :ok = route |> Route.set_mode(:economy) |> Store.add()
-      :ok = Worker.run(worker)
-
-      minimap!({10, 20, 7})
-      tick!(worker)
-
-      assert_receive {:combat_mode, :economy}, 1_000
-    end
-
-    test "a route that chose no mode arms combat with the default", %{worker: worker} do
-      route!()
-      :ok = Worker.run(worker)
-
-      minimap!({10, 20, 7})
-      tick!(worker)
-
-      assert_receive {:combat_mode, :auto_combo}, 1_000
-    end
-
-    test "with no position it waits instead of opening fire on the pile", %{worker: worker} do
-      lure_route!()
-      :ok = Worker.run(worker)
-
-      tick!(worker)
-
-      refute_receive {:combat_cmd, :run}, 200
-      assert Worker.status(worker).hold_reason =~ "não sei onde estou"
-    end
-
-    # AN EMPTY STRIP IS NOT AN UNREADABLE ONE, and saying the same sentence for
-    # both cost him a morning (2026-09-06): his browser sat over the top-right
-    # corner of the screen, exactly where the minimap is, and the hunt only ever
-    # said "a coordenada não está sendo lida" — so he went looking for a broken
-    # reader. When the reader says the band has NO ink, the hold says what that
-    # means and what to do about it.
-    # THE ONE THAT COST HIM THE AFTERNOON: the strip HAS the number, the atlas
-    # simply never learned this render. Saying "não está sendo lida" sent him
-    # back to a calibration that was already correct.
-    test "a strip whose font was never taught says to teach it", %{worker: worker} do
-      lure_route!()
-      :ok = Worker.run(worker)
-
-      WorldState.put(
-        :minimap,
-        %{pos: nil, coord_blank?: false, coord_unknown_font?: true},
-        System.monotonic_time(:millisecond)
-      )
-
-      tick!(worker)
-
-      reason = Worker.status(worker).hold_reason
-
-      assert reason =~ "não conheço",
-             "a linha tem que dizer que a fonte é nova: #{inspect(reason)}"
-
-      assert reason =~ "/calibration", "…e onde ensinar"
-    end
-
-    test "a blank strip says something is covering the minimap", %{worker: worker} do
-      lure_route!()
-      :ok = Worker.run(worker)
-
-      WorldState.put(
-        :minimap,
-        %{pos: nil, coord_blank?: true},
-        System.monotonic_time(:millisecond)
-      )
-
-      tick!(worker)
-
-      reason = Worker.status(worker).hold_reason
-
-      assert reason =~ "POR CIMA",
-             "a linha tem que dizer que algo está tapando: #{inspect(reason)}"
-
-      assert reason =~ "recalibre", "…e que a outra saída é a janela ter mudado de lugar"
-    end
-  end
-
-  # "ele mandou, mas mandou 1x só, e as vezes buga mesmo, nao vai, tem que
-  # mandar algumas vezes, umas 4x, pra ter certeza" (Lucas, 2026-08-11).
-  # WHERE is the brain's, by the eye (`Engine.Siege.park_spot/2`): two tiles
-  # toward the pile, on every stop — a recorded click at a corner is gone.
   describe "parking the pokémon" do
     # a route away from the character, so the road has a step to hold
     defp road!,
@@ -1036,15 +922,11 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              x: 100,
              y: 100,
              z: 7,
-             action: :walk,
              stops: [],
              at: nil,
              dwell_ms: nil,
              fight_ms: nil,
-             gather_ms: nil,
-             combo: [],
-             skills: [],
-             gather_wait_ms: nil
+             gather_ms: nil
            }
 
     assert status.pos == {10, 20, 7}
@@ -1152,7 +1034,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
              pos_age_ms: nil,
              distance_tiles: nil,
              hold_reason: nil,
-             luring?: false,
              comeback?: false,
              last_action: nil,
              started_at: nil,
@@ -1294,272 +1175,6 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     end
   end
 
-  # The hunt tells Combat to hold its fire by PUBLISHING A FACT, refreshed
-  # every tick. Nothing is commanded and nobody is remembered: Combat obeys a
-  # reading with an age, exactly like every other reading it makes.
-  describe "the posture the hunt asks of Combat" do
-    defp lure_route! do
-      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
-      {:ok, route} = Route.append(route, {200, 100, 7})
-      {:ok, route} = Route.append(route, {200, 200, 7})
-      :ok = Store.add(Route.set_action(route, 0, :lure_start) |> Route.set_action(2, :lure_end))
-      route
-    end
-
-    defp posture! do
-      case WorldState.get(:posture, 60_000, System.monotonic_time(:millisecond)) do
-        {:ok, %{posture: posture}} -> posture
-        other -> other
-      end
-    end
-
-    # "se não tá lutando, ele tá no modo mobado, onde ele não deveria atacar
-    # NUNCA usando a tecla tab — só quando parar de andar e realmente entrar no
-    # modo de luta" (Lucas, 2026-08-11). Walking is walking, marked or not.
-    test "a plain leg holds fire too: walking is not fighting", %{worker: worker} do
-      two_waypoint_route!()
-      :ok = Worker.run(worker)
-      minimap!({10, 20, 7})
-      tick!(worker)
-      tick!(worker)
-
-      assert posture!() == :hold_fire
-    end
-
-    test "…and the fire is free the moment the hunt STOPS to fight", %{worker: worker} do
-      two_waypoint_route!()
-      :ok = Worker.run(worker)
-      minimap!({10, 20, 7})
-      tick!(worker)
-      tick!(worker)
-
-      battle!([0, 1])
-      tick!(worker)
-
-      assert Worker.status(worker).state == :fighting
-      assert posture!() == :free_fight
-    end
-
-    test "the old rule is one setting away", %{worker: worker} do
-      SettingsStash.stash!(cavebot_fight_only_at_stops: false)
-      two_waypoint_route!()
-      :ok = Worker.run(worker)
-      minimap!({10, 20, 7})
-      tick!(worker)
-      tick!(worker)
-
-      assert posture!() == :free_fight
-    end
-
-    # Reaching waypoint 1 ("mobar daqui") on a clear screen: from the next tick
-    # on, the leg being walked is a mob leg.
-    defp reach_lure_start!(worker) do
-      lure_route!()
-      :ok = Worker.run(worker)
-      minimap!({100, 100, 7})
-      tick!(worker)
-      tick!(worker)
-      assert Worker.status(worker).wp_index == 1
-    end
-
-    test "on a mob leg it asks Combat to hold fire, and walks THROUGH the enemies", %{
-      worker: worker
-    } do
-      reach_lure_start!(worker)
-
-      battle!([0, 1, 2])
-      tick!(worker)
-
-      assert posture!() == :hold_fire
-      # a crowd on screen would stop any other leg; this one it walks
-      assert Worker.status(worker).state == :walking
-      assert_receive {:held, [_ | _]}, 1_000
-    end
-
-    test "past 'até aqui' the fact goes back to free fire", %{worker: worker} do
-      # the huddle is its own test below; here the pile is already around him
-      SettingsStash.stash!(cavebot_gather_wait_ms: 0)
-      reach_lure_start!(worker)
-      tick!(worker)
-      assert posture!() == :hold_fire
-
-      # arrive at waypoint 2, then at waypoint 3 ("até aqui")
-      minimap!({200, 100, 7})
-      tick!(worker)
-      minimap!({200, 200, 7})
-      tick!(worker)
-
-      assert Worker.status(worker).wp_index == 0
-
-      # past the gathering AND with the pile on screen, the hunt stops and the
-      # fire is free — the kill spot is a stop like any other
-      battle!([0, 1])
-      tick!(worker)
-
-      assert Worker.status(worker).state == :fighting
-      assert posture!() == :free_fight
-    end
-
-    # "quando termino de mobar, eu geralmente dá quatro segundos até todos os
-    # bichos se agruparem ao redor do meu" (Lucas, 2026-08-11).
-    test "arriving at 'até aqui' keeps holding fire while the pile closes in", %{worker: worker} do
-      SettingsStash.stash!(cavebot_gather_wait_ms: 30_000)
-      reach_lure_start!(worker)
-      tick!(worker)
-
-      minimap!({200, 100, 7})
-      tick!(worker)
-      minimap!({200, 200, 7})
-      tick!(worker)
-
-      # arrived at the end of the gathering, and STILL holding: they are
-      # walking in behind him
-      assert Worker.status(worker).wp_index == 0
-      assert posture!() == :hold_fire
-    end
-
-    test "stopping frees Combat at once, without waiting for the fact to age", %{worker: worker} do
-      reach_lure_start!(worker)
-      tick!(worker)
-      assert posture!() == :hold_fire
-
-      :ok = Worker.halt(worker)
-      assert posture!() == :free_fight
-    end
-
-    defp orders! do
-      case WorldState.get(:posture, 60_000, System.monotonic_time(:millisecond)) do
-        {:ok, fact} -> Map.get(fact, :orders)
-        other -> other
-      end
-    end
-
-    defp classify!(name, profile) do
-      {:ok, _} = Team.add(name)
-      Team.set_skills(name, profile)
-      Team.set_active(name)
-    end
-
-    # The kill spot's order rides the posture as KEYS, never as categories:
-    # Combat has no business asking which pokémon is out. Two hops have to
-    # survive the trip — the category the route stores, and the loadout of the
-    # pokémon he chose on /time.
-    test "the kill spot's orders travel already resolved to keys", %{worker: worker} do
-      # the worker's cached loadout is nil until the team file says otherwise;
-      # `set_active` broadcasts {:team_changed} from THIS process, so the
-      # refresh is already in the worker's mailbox before the first tick.
-      classify!("Vespiquen", %{"2" => :buffs})
-
-      {:ok, route} = Route.append(Route.new("cavena"), {100, 100, 7})
-      {:ok, route} = Route.append(route, {200, 100, 7})
-      {:ok, route} = Route.append(route, {200, 200, 7})
-
-      :ok =
-        Store.add(
-          route
-          |> Route.set_action(0, :lure_start)
-          |> Route.set_action(2, :lure_end)
-          |> Route.set_skill(2, :buffs, true)
-        )
-
-      :ok = Worker.run(worker)
-      minimap!({100, 100, 7})
-      tick!(worker)
-      tick!(worker)
-      minimap!({200, 100, 7})
-      tick!(worker)
-      minimap!({200, 200, 7})
-      tick!(worker)
-
-      # standing on the kill spot: the aura he ordered there, as Vespiquen's key
-      assert orders!() == ["2"]
-    end
-
-    test "away from the kill spot the posture carries no orders", %{worker: worker} do
-      classify!("Vespiquen", %{"2" => :buffs})
-      reach_lure_start!(worker)
-
-      assert orders!() == []
-    end
-  end
-
-  # The route stores a CATEGORY; the key is only known here, where the pokémon
-  # on the field is. `FakeBody` is already started by the module setup and
-  # already reports to this pid, so a minimal state is enough — `release_walk/1`
-  # with `held_keys: []` is a no-op.
-  describe "the route's skills" do
-    defp skill_state(loadout),
-      do: %{body: FakeBody, held_keys: [], loadout: loadout}
-
-    test "the corner's order becomes the key of the pokémon on the field and goes out via the Body" do
-      state = skill_state(Loadout.resolve("Vespiquen", %{"2" => :buffs}))
-
-      Worker.translate(state, {:skills, [:buffs]})
-
-      assert_receive {:performed, :high, [{:press, "2"}]}
-    end
-
-    # Changing pokémon changes the key without touching the route — the whole
-    # reason the route stores a category and not a key.
-    test "the same corner presses another key with another pokémon" do
-      state = skill_state(Loadout.resolve("Shiny Vileplume", %{"1" => :buffs}))
-
-      Worker.translate(state, {:skills, [:buffs]})
-
-      assert_receive {:performed, :high, [{:press, "1"}]}
-    end
-
-    test "two categories go out in order, without repeating a key" do
-      state = skill_state(Loadout.resolve("Gogoat", %{"1" => :buffs, "4" => :aoe}))
-
-      Worker.translate(state, {:skills, [:buffs, :aoe]})
-
-      assert_receive {:performed, :high, [{:press, "1"}, {:press, "4"}]}
-    end
-
-    # A route pointing at a skill this pokémon does not have must never wedge
-    # the hunt.
-    test "an unclassified category presses nothing and breaks nothing" do
-      state = skill_state(Loadout.resolve("Sunkern", %{"3" => :aoe}))
-
-      assert %{} = Worker.translate(state, {:skills, [:heal]})
-      refute_receive {:performed, _priority, _actions}, 50
-    end
-
-    test "with no pokémon on the field it presses nothing and breaks nothing" do
-      state = skill_state(nil)
-
-      assert %{} = Worker.translate(state, {:skills, [:buffs]})
-      refute_receive {:performed, _priority, _actions}, 50
-    end
-
-    # A stuck key is the worst bug this system can produce: the skill only goes
-    # out after the arrows have been let go.
-    #
-    # Received POSITIONALLY, never as two `assert_receive` patterns: those scan
-    # the mailbox and skip what does not match, so a press that arrived FIRST
-    # would pass both. `{:held, []}` is enqueued by `release_walk/1` before the
-    # press is even spawned, so mailbox order here IS send order — and the
-    # order is the whole assertion.
-    test "it lets go of the arrows before pressing" do
-      state = %{
-        skill_state(Loadout.resolve("Vespiquen", %{"2" => :buffs}))
-        | held_keys: ["right"]
-      }
-
-      Worker.translate(state, {:skills, [:buffs]})
-
-      assert_receive first
-      assert_receive second
-      assert {first, second} == {{:held, []}, {:performed, :high, [{:press, "2"}]}}
-    end
-  end
-
-  # `note_search/3` narrates the ring — "🪜 procurando a escada", "🪜 achei a
-  # escada" — and a staircase taken by TAP never enters `:stairs`, so the
-  # success this whole mechanism exists to create was silent while the failure
-  # was loud. In the journal, where he judges whether the tap helped, the two
-  # were indistinguishable.
   describe "taking the staircase with a tap leaves a trace" do
     defp took_the_stair(worker) do
       stair_route!()

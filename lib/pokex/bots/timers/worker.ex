@@ -157,10 +157,15 @@ defmodule Pokex.Bots.Timers.Worker do
     end
   end
 
+  # "Está mobando" passou a ser uma pergunta ao CÉREBRO. Era lida da postura que
+  # o cavebot publicava a partir das marcas `:lure_start`/`:lure_end` da rota —
+  # marcas que saíram do projeto, porque quando parar é a contagem de bichos ao
+  # redor e não uma anotação no mapa. A rota SEGURADA (`route: :hold`) é o mesmo
+  # instante com o dono certo: é quando a caçada para por causa de uma pilha.
   defp mobbing?(now) do
-    case WorldState.get(:posture, Settings.get(:posture_max_age_ms), now) do
-      {:ok, %{posture: :hold_fire}} -> true
-      _free_stale_or_missing -> false
+    case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now) do
+      {:ok, %{route: :hold}} -> true
+      _walking_stale_or_missing -> false
     end
   end
 

@@ -297,36 +297,6 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       assert logic.skips == 0
     end
 
-    test "searching for the stairs on a mob leg still holds the fire" do
-      route = descent() |> Route.set_action(1, :lure_start) |> Route.set_action(3, :lure_end)
-      logic = %{Logic.new(route, @cfg) | combat_running?: true, homed?: true, wp_index: 2}
-
-      {logic, {:nudge, _dx, _dy}} = Logic.step(logic, world({0, 7, 1}, 5), 100)
-
-      assert logic.state == :stairs
-      assert Logic.luring?(logic), "no meio da mobada a busca não pode liberar o fogo"
-    end
-
-    # …but only for a lap. A step takes two or three probes; a whole ring
-    # without one means something is IN THE WAY — often a mob standing on it —
-    # and holding the fire while the pile hits him is the worst of both.
-    test "after a full lap the fire is released and the pile becomes a fight" do
-      route = descent() |> Route.set_action(1, :lure_start) |> Route.set_action(3, :lure_end)
-      logic = %{Logic.new(route, @cfg) | combat_running?: true, homed?: true, wp_index: 2}
-
-      logic =
-        Enum.reduce(1..20, logic, fn tick, logic ->
-          {logic, _action} = Logic.step(logic, world({0, 7, 1}), tick * 500)
-          logic
-        end)
-
-      assert logic.state == :stairs
-      refute Logic.luring?(logic)
-
-      {logic, :none} = Logic.step(logic, world({0, 7, 1}, 4), 20 * 500 + 100)
-      assert logic.state == :fighting
-    end
-
     test "off a mob leg, an enemy still interrupts the search" do
       {logic, _} = descending(1)
 
@@ -892,129 +862,6 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
   # "ele vai andar sem atacar ninguém" (Lucas, 2026-08-10): between "mobar
   # daqui" and "até aqui" the hunt walks THROUGH the mobs, gathering them,
   # instead of stopping to fight each one.
-  describe "walking a mob stretch" do
-    defp lure_route do
-      {:ok, r} = Route.append(Route.new("r"), {0, 0, 7})
-      {:ok, r} = Route.append(r, {10, 0, 7})
-      {:ok, r} = Route.append(r, {10, 10, 7})
-      {:ok, r} = Route.append(r, {0, 10, 7})
-
-      # gather from waypoint 2 (index 1) until waypoint 4 (index 3)
-      r |> Route.set_action(1, :lure_start) |> Route.set_action(3, :lure_end)
-    end
-
-    defp walking_toward(index) do
-      %{Logic.new(lure_route(), @cfg) | combat_running?: true, wp_index: index, homed?: true}
-    end
-
-    # 03/09, 05:34: oito monstros atrás, o cérebro mandando segurar por nove
-    # segundos ("N inimigos vindo — esperando eles fecharem") e o trecho de mob
-    # andando sete waypoints por cima da ordem. "Vários monstros na tela e ele
-    # não parar de andar (…) muito perigoso." No trecho o pé anda enquanto o
-    # cérebro conta; quando ele diz que a pilha fechou, o pé para.
-    test "on the mob stretch, the brain asking to hold beats walk-through" do
-      mundo = %{pos: {5, 0, 7}, enemies: 5, combat_state: :idle, engine?: true}
-
-      {_logic, andando} = Logic.step(walking_toward(2), Map.put(mundo, :route_hold?, false), 100)
-      assert {:walk, _x, _y} = andando
-
-      {logic, parado} = Logic.step(walking_toward(2), Map.put(mundo, :route_hold?, true), 100)
-      assert parado == :none
-      assert logic.state == :walking, "segurar não é entrar na luta — o cérebro estoura a área"
-      assert Logic.luring?(logic)
-    end
-
-    test "the leg the hunt is ON is what counts, not the waypoint it left" do
-      # heading to index 1 = the leg 0 → 1, before the mark: a normal leg
-      refute Logic.luring?(walking_toward(1))
-
-      # heading to 2 and to 3 = the legs 1 → 2 → 3: inside the stretch
-      assert Logic.luring?(walking_toward(2))
-      assert Logic.luring?(walking_toward(3))
-
-      # heading back to 0 = the leg 3 → 0, out the other side of "até aqui"
-      refute Logic.luring?(walking_toward(0))
-    end
-
-    test "enemies on screen do NOT stop a mob leg — that is the whole point" do
-      logic = walking_toward(2)
-
-      {logic, {:walk, _dx, _dy}} = Logic.step(logic, world({5, 0, 7}, 4), 10)
-      assert logic.state == :walking
-    end
-
-    test "an engaged Combat does not hold the road either, while gathering" do
-      logic = walking_toward(2)
-
-      {logic, {:walk, _dx, _dy}} = Logic.step(logic, world({5, 0, 7}, 0, :fighting), 10)
-      assert logic.state == :walking
-    end
-
-    test "past 'até aqui' the pile is fought like any other" do
-      logic = walking_toward(0)
-
-      {logic, :none} = Logic.step(logic, world({0, 10, 7}, 4), 10)
-      assert logic.state == :fighting
-    end
-
-    # Entering the route at the nearest corner (#199) can drop the character
-    # INSIDE a mob stretch — restart the hunt while standing among the
-    # Venusaur and that is exactly what happens. It was reasoned to be
-    # harmless and never proven; here is the proof, because "I thought about
-    # it" is not a test.
-    test "restarting inside a stretch gathers from where it entered" do
-      logic = %{Logic.new(lure_route(), @cfg) | combat_running?: true}
-
-      # {9, 3} enters at waypoint index 1 — the "mobar daqui" itself, still
-      # ahead: the leg being walked is the plain one that leads INTO the mark
-      {logic, {:walk, _dx, _dy}} = Logic.step(logic, world({9, 3, 7}), 10)
-      assert logic.wp_index == 1
-      refute Logic.luring?(logic)
-
-      # and from the arrival on, it gathers — enemies BEFORE the mark are
-      # fought like anywhere else, so the arrival tick is a clear one
-      {logic, :none} = Logic.step(logic, world({10, 0, 7}), 20)
-      assert logic.wp_index == 2
-      assert Logic.luring?(logic)
-    end
-
-    test "restarting PAST the start mark gathers immediately, enemies and all" do
-      # {13, 8} enters at index 2, which sits INSIDE the marked stretch. The
-      # posture must come from the leg it entered on — before this, the
-      # decision was made on the un-homed index 0 and a crowd on screen
-      # stopped the hunt dead in the middle of the gathering.
-      logic = %{Logic.new(lure_route(), @cfg) | combat_running?: true}
-
-      {logic, {:walk, _dx, _dy}} = Logic.step(logic, world({13, 8, 7}, 2), 10)
-      assert logic.wp_index == 2
-      assert Logic.luring?(logic)
-      assert logic.state == :walking
-    end
-
-    test "a route with no marks never lures" do
-      logic = %{Logic.new(route(), @cfg) | combat_running?: true, homed?: true}
-
-      refute Logic.luring?(logic)
-      {logic, :none} = Logic.step(logic, world({5, 10, 7}, 1), 10)
-      assert logic.state == :fighting
-    end
-
-    # Arriving at "até aqui" is what ends the gathering — the hunt must not be
-    # left luring while it stands in the middle of everything it collected.
-    test "arriving at 'até aqui' ends the stretch on the same tick" do
-      logic = walking_toward(3)
-      assert Logic.luring?(logic)
-
-      {logic, :none} = Logic.step(logic, world({0, 10, 7}, 3), 10)
-      assert logic.wp_index == 0
-      refute Logic.luring?(logic)
-    end
-  end
-
-  # "Cooldown Ressurect ... Q -> Shift + Q na foto do pokemon -> Q, para
-  # reviver, o que faz com que ele recupere os cooldowns" (Lucas, 2026-08-10) —
-  # and its poor relation, the plain "esperar", for a pokémon with no revive to
-  # spend. Two stops, and the round they make together.
   describe "what the hunt does at a stop" do
     defp stop_route(stops) do
       {:ok, r} = Route.append(Route.new("r"), {10, 10, 7})
@@ -1202,65 +1049,6 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
   # bichos se agruparem ao redor do meu para daí eu voltar a mobar e matar todo
   # mundo" (Lucas, 2026-08-11). The pile is BEHIND him when he stops; hitting
   # the first one to arrive wastes the whole point of gathering.
-  describe "letting the pile close in" do
-    defp gather_route do
-      {:ok, r} = Route.append(Route.new("r"), {0, 0, 7})
-      {:ok, r} = Route.append(r, {10, 0, 7})
-      {:ok, r} = Route.append(r, {10, 10, 7})
-      r |> Route.set_action(0, :lure_start) |> Route.set_action(1, :lure_end)
-    end
-
-    defp arriving_at_end do
-      %{
-        Logic.new(gather_route(), @cfg)
-        | combat_running?: true,
-          homed?: true,
-          wp_index: 1,
-          last_pos: {9, 0, 7}
-      }
-    end
-
-    test "arriving at 'até aqui' keeps holding fire while they gather" do
-      logic = arriving_at_end()
-
-      {logic, :none} = Logic.step(logic, world({10, 0, 7}, 4), 1_000)
-      assert logic.wp_index == 2
-      assert Logic.gathering?(logic, 1_000)
-
-      # still holding two seconds later — they are still walking in
-      assert Logic.gathering?(logic, 3_000)
-
-      # …and free at four
-      refute Logic.gathering?(logic, 5_100)
-    end
-
-    test "the hunt does not walk away during the huddle" do
-      logic = arriving_at_end()
-      {logic, :none} = Logic.step(logic, world({10, 0, 7}, 4), 1_000)
-
-      # enemies on screen and the gathering window still open: it stands
-      {logic, :none} = Logic.step(logic, world({10, 0, 7}, 4), 2_000)
-      assert logic.state == :fighting
-    end
-
-    test "a plain waypoint has no huddle to wait for" do
-      logic = %{
-        Logic.new(route(), @cfg)
-        | combat_running?: true,
-          homed?: true,
-          wp_index: 1,
-          last_pos: {9, 10, 7}
-      }
-
-      {logic, _action} = Logic.step(logic, world({10, 10, 7}), 1_000)
-      refute Logic.gathering?(logic, 1_100)
-    end
-  end
-
-  # 2026-08-10: a stale scenery presumption swallowed the only real enemy —
-  # `enemies` (rows minus presumed scenery) read 0 while Combat held a live
-  # lock, the clear debounce ran out, and the hunt strolled off mid-fight.
-  # The count can lie; a held lock cannot: :tabbing/:fighting hold the road.
   describe "the fightable count can lie; an engaged Combat cannot" do
     test "walking with zero fightable rows but Combat engaged → fighting" do
       {l, :run_combat} = Logic.step(Logic.new(route(), @cfg), world({10, 10, 7}, 0, :fighting), 0)
@@ -1298,161 +1086,6 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :fighting), 0)
       {l, :none} = Logic.step(l, world({10, 10, 7}, 0, :fighting), 20_010)
       assert l.state == :fight_stalled
-    end
-  end
-
-  describe "the route's skills — the moment each one comes out" do
-    # Two corners: the first is walking with an AURA, the second is the kill
-    # spot. Arriving at each is what arms each thing.
-    defp aura_route do
-      {:ok, r} = Route.append(Route.new("meganium"), {10, 10, 5})
-      {:ok, r} = Route.append(r, {12, 10, 5})
-
-      r
-      |> Route.set_skill(0, :buffs, true)
-      |> Route.set_action(1, :lure_end)
-      |> Route.set_skill(1, :heal, true)
-    end
-
-    defp at_first_corner(route) do
-      logic = Logic.new(route, @cfg)
-      {logic, :run_combat} = Logic.step(logic, world({10, 10, 5}), 0)
-      Logic.step(logic, world({10, 10, 5}), 200)
-    end
-
-    test "arriving at a walking corner with a skill emits the order" do
-      {_logic, action} = at_first_corner(aura_route())
-
-      assert action == {:skills, [:buffs]}
-    end
-
-    # Once per arrival, never per tick: the next corner is already another
-    # destination.
-    test "the next tick does not repeat the order" do
-      {logic, _arrival} = at_first_corner(aura_route())
-      {_logic, again} = Logic.step(logic, world({10, 10, 5}), 400)
-
-      refute match?({:skills, _}, again)
-    end
-
-    test "a corner carrying no skill at all emits no order" do
-      {:ok, r} = Route.append(Route.new("lisa"), {10, 10, 5})
-      {:ok, r} = Route.append(r, {12, 10, 5})
-      {_logic, action} = at_first_corner(r)
-
-      refute match?({:skills, _}, action)
-    end
-
-    # At the kill spot the order does NOT come out as an action: it travels
-    # with the posture, because there is a burst there to get in front of.
-    test "at the kill spot the order goes to the posture, not to the action" do
-      {logic, _} = at_first_corner(aura_route())
-      {logic, action} = Logic.step(logic, world({12, 10, 5}), 1_000)
-
-      refute match?({:skills, _}, action)
-      assert Logic.orders(logic) == [:heal]
-    end
-
-    test "away from a kill spot there is no order for the burst" do
-      {logic, _} = at_first_corner(aura_route())
-
-      assert Logic.orders(logic) == []
-    end
-
-    # Giving up on a corner is LEAVING it. A skip never passes through the
-    # arrival, so the huddle stamp used to survive it — and `orders/1` reads
-    # the corner BEHIND the index, which after a skip is the corner the hunt
-    # could not reach. The burst of a place nobody arrived at is not an order.
-    test "skipping a corner disarms the huddle: nothing is ordered for it" do
-      {:ok, r} = Route.append(Route.new("meganium"), {10, 10, 5})
-      {:ok, r} = Route.append(r, {12, 10, 5})
-      {:ok, r} = Route.append(r, {14, 10, 5})
-
-      route =
-        r
-        |> Route.set_action(0, :lure_end)
-        |> Route.set_skill(1, :heal, true)
-        |> Route.set_timing(1, combo: ~w(4))
-
-      logic = Logic.new(route, @cfg)
-      {logic, :run_combat} = Logic.step(logic, world({10, 10, 5}), 0)
-      {logic, _arrival} = Logic.step(logic, world({10, 10, 5}), 200)
-
-      assert logic.wp_index == 1
-      assert Logic.gathering?(logic, 400)
-
-      # walled in on the way to corner 1: the walk times out, the retries run
-      # out, and the hunt gives that corner up
-      logic =
-        Enum.reduce(1..8, logic, fn tick, acc ->
-          if acc.skips == 0 do
-            {acc, _command} = Logic.step(acc, world({10, 10, 5}), 3_200 + tick * 100)
-            acc
-          else
-            acc
-          end
-        end)
-
-      assert logic.skips == 1
-      assert logic.wp_index == 2
-
-      assert Logic.orders(logic) == []
-      assert Logic.combo(logic) == []
-      refute Logic.gathering?(logic, 4_500)
-    end
-  end
-
-  describe "the huddle — the ruler beats the measurement" do
-    # Arrives at the kill spot (waypoint 1) at instant 1_000, which is when the
-    # huddle clock starts counting.
-    defp arrived_at_kill(edit) do
-      {:ok, r} = Route.append(Route.new("meganium"), {10, 10, 5})
-      {:ok, r} = Route.append(r, {12, 10, 5})
-      route = r |> Route.set_action(1, :lure_end) |> then(edit)
-
-      logic = Logic.new(route, @cfg)
-      {logic, :run_combat} = Logic.step(logic, world({10, 10, 5}), 0)
-      {logic, _} = Logic.step(logic, world({10, 10, 5}), 200)
-      {logic, _} = Logic.step(logic, world({12, 10, 5}), 1_000)
-      logic
-    end
-
-    test "with no ruler at all, it holds fire for the @cfg's 4s" do
-      logic = arrived_at_kill(& &1)
-
-      assert Logic.gathering?(logic, 4_900)
-      refute Logic.gathering?(logic, 5_100)
-    end
-
-    test "the route's ruler beats the global one" do
-      logic = arrived_at_kill(&Route.set_gather_wait(&1, 1_800))
-
-      assert Logic.gathering?(logic, 2_700)
-      refute Logic.gathering?(logic, 2_900)
-    end
-
-    test "the waypoint beats the route's ruler" do
-      logic =
-        arrived_at_kill(fn r ->
-          r |> Route.set_gather_wait(1_800) |> Route.set_gather_wait(1, 600)
-        end)
-
-      assert Logic.gathering?(logic, 1_500)
-      refute Logic.gathering?(logic, 1_700)
-    end
-
-    test "a zero on the waypoint frees the fire right away" do
-      logic = arrived_at_kill(&Route.set_gather_wait(&1, 1, 0))
-
-      refute Logic.gathering?(logic, 1_000)
-    end
-
-    # His hands' measurement stopped ruling: 569ms to 4534ms across the eight
-    # kill spots of Meganium 1 is not an order, it is a lottery.
-    test "the measured gather_ms no longer holds the fire" do
-      logic = arrived_at_kill(&Route.set_timing(&1, 1, gather_ms: 8_000))
-
-      refute Logic.gathering?(logic, 5_100)
     end
   end
 
@@ -1631,7 +1264,7 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       {:ok, r} = Route.append(r, {12, 10, 5})
       {:ok, r} = Route.append(r, {14, 10, 5})
 
-      route = r |> Route.set_action(1, :lure_end) |> Route.set_stop(1, :cooldown_revive, true)
+      route = Route.set_stop(r, 1, :cooldown_revive, true)
 
       logic = Logic.new(route, @cfg)
       {logic, :run_combat} = Logic.step(logic, world({10, 10, 5}), 0)
@@ -1741,15 +1374,6 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
       # corner 2 is one tile away (already "arrived"); corner 3 is two, so it
       # is where the walking actually resumes
       assert logic.wp_index == 2
-    end
-
-    test "a MARKED corner is never swallowed — its huddle and stops need the tick" do
-      route = Route.set_action(tight_route(), 1, :lure_end)
-      logic = walking_at(route, 0)
-
-      {logic, _action} = Logic.step(logic, world_at({2305, 30_014, 5}), 0)
-
-      assert logic.wp_index == 1
     end
 
     test "a corner carrying a stop is never swallowed either" do

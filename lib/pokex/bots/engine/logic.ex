@@ -970,70 +970,15 @@ defmodule Pokex.Bots.Engine.Logic do
   # step.
   defp normal(%{logic: %{state: :gathering}} = t), do: ruler(t)
 
-  # …E A LUTA EM ANDAMENTO TAMBÉM SOBREVIVE AO TRECHO DE MOB. O ramo do
-  # luring (logo abaixo) re-setava o estado pra :gathering a CADA tique,
-  # pisando no :bunching que a régua tinha acabado de abrir: o carimbo
-  # `bunch_from` renascia toda volta, "mais 2 passos pra puxar" recomeçava do
-  # zero eternamente, e o fogo NUNCA liberava enquanto o trecho durasse.
-  # Filmado na morte de 30/08 13:21 — 43 passos de mobada com 6-9 bichos
-  # mastigando, "estourando a área" decidido dezenas de vezes e nenhuma
-  # rajada solta: o cabo de guerra era o cérebro contra ele mesmo.
+  # …E A LUTA EM ANDAMENTO SOBREVIVE À RÉGUA. Um ramo que re-setava o estado
+  # pra :gathering a CADA tique pisava no :bunching que a régua tinha acabado
+  # de abrir: o carimbo renascia toda volta, "mais 2 passos pra puxar"
+  # recomeçava do zero eternamente, e o fogo NUNCA liberava. Filmado na morte
+  # de 30/08 13:21 — 43 passos de mobada com 6-9 bichos mastigando.
   defp normal(%{logic: %{state: state}} = t) when state in [:bunching, :engaged, :skipping],
     do: ruler(t)
 
   defp normal(%{hunt: %{state: :fighting}} = t), do: ruler(t)
-
-  # O TRECHO MARCADO À MÃO, que ele quer parar de marcar — e que continua aqui
-  # por um motivo medido, não por apego.
-  #
-  # A R6 junta pilha sozinha, mas só depois de ver o PRIMEIRO bicho: é dele que
-  # a contagem de passos começa. A marca sabe de algo que a foto não tem como
-  # saber — "tem bicho adiante, comece a recolher agora" — e numa rota esparsa
-  # essa dianteira vale 6% dos monstros (8,52 → 7,98 mortos/min, medido em
-  # 26/08 tirando este ramo). No circuito denso não muda nada: lá sempre há um
-  # primeiro bicho por perto.
-  #
-  # Ou seja: parar de marcar é uma escolha legítima e custa isso. Marcar não é
-  # mais NECESSÁRIO pra caçada mobar — é uma dianteira opcional.
-  defp normal(%{hunt: %{state: :walking, luring?: true}} = t) do
-    cond do
-      # Chefe na tela derruba a mobada na hora: puxar pilha com um ataque 10x
-      # atrás é colecionar mordida que ninguém paga.
-      Map.get(t.s, :heavy?, false) ->
-        engaged(%{t | logic: enter(t.logic, :engaged, t.now)})
-
-      # …e o sobrevivente da corrente também: quem tomou a área inteira e ficou
-      # de pé não é pilha pra puxar, é luta — a régua abre em cima dele.
-      survivor?(t.logic) ->
-        ruler(t)
-
-      t.config.gather_piles and pile_payable?(t) ->
-        {reset_fight(t.logic, :gathering),
-         Orders.walking(:gathering, t.band, "mobando: puxando a pilha, sem atacar")}
-
-      # "Não deveria estar andando por aí se eu não tenho nenhum cooldown
-      # disponível" (28/08, depois de morrer). Juntar seis bichos que não há
-      # barra pra matar nem revive pra comprá-la é escolher uma luta sem saída:
-      # a rota segue (R2 — andando eles perdem o interesse) e o fogo fica
-      # livre pra primeira tecla que voltar.
-      t.config.gather_piles ->
-        {reset_fight(t.logic, :travelling),
-         Orders.walking_and_firing(
-           :travelling,
-           t.band,
-           opening(t),
-           "sem barra e sem revive pra comprá-la — não abro pilha: seguindo a rota"
-         )}
-
-      # SEM JUNTAR, O TRECHO DE MOBADA É RÉGUA COMO QUALQUER OUTRO. Isto era
-      # "batendo enquanto ando" — a rota seguia andando com a pilha atrás, que
-      # é exatamente o que ele proibiu em 02/09 ("não dar mais nenhum passo,
-      # deixar os bichos virem até mim"). A régua para: conta quem chega, abre
-      # quando vale, e o teto bounds a espera.
-      true ->
-        ruler(t)
-    end
-  end
 
   defp normal(%{s: %{heavy?: true}} = t),
     do: engaged(%{t | logic: enter(t.logic, :engaged, t.now)})
@@ -1050,8 +995,17 @@ defmodule Pokex.Bots.Engine.Logic do
          revive: :prepare
        )}
     else
-      {reset_fight(t.logic, :travelling),
-       Orders.walking(:travelling, t.band, travelling_why(t.hunt))}
+      # …E ENTÃO A RÉGUA, ANDANDO. Isto respondia `:travelling` e ponto: a
+      # contagem só rodava quando a caçada já estava PARADA, e quem a parava
+      # era a marca de mobada da rota. Tirada a marca, sobrou um impasse — o
+      # cérebro não contava porque a caçada andava, e a caçada andava porque o
+      # cérebro não mandava parar.
+      #
+      # A régua conta enquanto ele anda (`still_sizing/1` responde
+      # `route: :go` para uma pilha que não vale) e SEGURA quando ela fecha:
+      # "o conceito de onde começa e onde termina vai de acordo com a
+      # quantidade de monstros que estão atrás de mim".
+      ruler(t)
     end
   end
 
@@ -1102,10 +1056,6 @@ defmodule Pokex.Bots.Engine.Logic do
     do: enemies <= ceiling
 
   defp quiet?(_unknown, _ceiling), do: false
-
-  defp travelling_why(%{state: :walking}), do: "andando a rota"
-  defp travelling_why(%{state: :post_fight}), do: "limpando o que ficou no chão"
-  defp travelling_why(%{state: state}), do: "a caçada está em #{state}"
 
   # --- THE RULER (R1) --------------------------------------------------------
   #

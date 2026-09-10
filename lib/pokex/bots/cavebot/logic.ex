@@ -29,7 +29,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   interval. Movement is what restores sight.
   """
 
-  alias Pokex.Bots.Cavebot.{Recording, Route}
+  alias Pokex.Bots.Cavebot.Route
 
   @enforce_keys [:route, :config]
   defstruct state: :walking,
@@ -48,10 +48,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
             skip_pos: nil,
             # which of this stop's actions already ran — one each, not one per tick
             stops_done: [],
-            # how long to let the pile close in HERE, resolved on arrival by
-            # `Route.gather_wait/3`: the corner's own ruler, else the route's,
-            # else the global number
-            gather_wait: nil,
             # where in the ring around a staircase the search is, and how many
             # steps it has actually taken (a ring tile the character already
             # stands on costs a cursor move, never a step)
@@ -89,7 +85,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
           | {:nudge, integer, integer}
           | :cooldown_revive
           | {:park, {integer, integer}}
-          | {:skills, [Route.skill()]}
           # the corner asked for a reset and the moment answered no, with the
           # reading that decided it (`run_stop/4`)
           | {:skip_reset, String.t() | nil}
@@ -132,12 +127,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
           blind_kick_ms: non_neg_integer,
           capture_wait_ms: non_neg_integer,
           stop_wait_ms: non_neg_integer,
-          gather_wait_ms: non_neg_integer,
           stair_probe_ms: non_neg_integer,
           stair_max_probes: non_neg_integer,
           stair_step_ms: non_neg_integer,
           stair_step_taps: non_neg_integer,
-          fight_only_at_stops: boolean,
           # send the pokémon where the brain says (two tiles toward the pile)
           # every time the road holds for one
           park_on_stop: boolean
@@ -157,7 +150,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
           homed?: boolean,
           skips: non_neg_integer,
           stops_done: [Route.stop()],
-          gather_wait: non_neg_integer | nil,
           probe: non_neg_integer,
           probe_steps: non_neg_integer,
           last_hp: integer | nil,
@@ -261,171 +253,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
   defp dispatch(%__MODULE__{state: :post_fight} = logic, world, now),
     do: post_fight(logic, world, now)
 
-  @doc """
-  Is the hunt walking a MOB stretch right now?
-
-  The leg being walked is the one LEAVING the previous waypoint (`wp_index` is where the
-  character is heading, not where it stands), so arriving at "gather from here" starts the
-  gathering and arriving at the kill spot ends it, both on the tick of the arrival. Read around
-  the loop, because the route is a loop.
-
-  The Worker turns this into the `:posture` fact Combat obeys; only a `:walking` hunt gathers,
-  and a hunt that is fighting or stuck is doing something else.
-
-  Searching for a staircase counts, for ONE lap of the ring. A step usually takes two or three
-  probes, and interrupting the gathering for those would waste the whole stretch. A full lap
-  without finding it means the hunt is not gathering any more, it is stuck at a door: the fire
-  is released, because standing still holding it while a pile hits him is the worst of both, and
-  because a mob standing ON the step is the commonest reason it cannot be taken.
-  """
-  @spec luring?(t) :: boolean
-  def luring?(%__MODULE__{state: :stairs, probe_steps: steps}) when steps > length(@stair_ring),
-    do: false
-
-  def luring?(%__MODULE__{state: state, route: %Route{waypoints: waypoints}, wp_index: index})
-      when waypoints != [] and state in [:walking, :stairs] do
-    Route.lure_leg?(waypoints, Integer.mod(index - 1, length(waypoints)))
-  end
-
-  def luring?(%__MODULE__{}), do: false
-
-  @doc """
-  Should Combat hold its fire right now?
-
-  His rule: while not fighting the character is in the gathering stance, where it should never
-  attack, and Tab belongs only to the moment it stops walking and really enters the fight. Every
-  fight is a STOP on the route, so the fire is free in exactly one state (`:fighting`) and held
-  everywhere else: walking (marked as a gathering or not), searching for a staircase, standing
-  on a stop. A hunt walking past a pokémon no longer collects a fight it never chose.
-
-  Holding also outlives the walking: after arriving at the kill spot the pile is still closing
-  in, and hitting the first straggler wastes the gathering (`gathering?/2`). That one applies
-  even in `:fighting`.
-
-  `cavebot_fight_only_at_stops: false` goes back to the old rule, where only a marked mob
-  stretch held the fire.
-  """
-  @spec hold_fire?(t, integer) :: boolean
-  def hold_fire?(%__MODULE__{} = logic, now) do
-    cond do
-      # Survival outranks the huddle: with the pokémon this low, waiting the gather_wait out is
-      # exactly the wait that kills it.
-      logic.recovering? -> false
-      gathering?(logic, now) -> true
-      not Map.get(logic.config, :fight_only_at_stops, true) -> luring?(logic)
-      true -> logic.state != :fighting
-    end
-  end
-
-  @doc """
-  Is the pile still walking in?
-
-  When he finishes gathering it takes about four seconds for every mob to group around his
-  pokémon before he goes back to killing them all. When he stops at the kill spot the pile is
-  BEHIND him, strung out along the way he came, and attacking the first one to arrive throws
-  away everything the gathering was for. So the fire stays held for `gather_wait_ms` after
-  arriving, and THEN the area damage lands on a crowd instead of on a straggler.
-
-  The Worker keeps publishing `:hold_fire` while this is true.
-  """
-  @spec gathering?(t, integer) :: boolean
-  def gathering?(%__MODULE__{since: since} = logic, now) do
-    case Map.get(since, :gather) do
-      nil -> false
-      at -> now - at < gather_wait(logic)
-    end
-  end
-
-  @doc """
-  The combo HE recorded at the kill spot the hunt is standing on, as intent (consecutive mashing
-  collapsed); `[]` anywhere else.
-
-  The Worker publishes it with the posture, and Combat fires it the moment the fire is released,
-  because killing one mob at a time is extremely slower. The pile is around the pokémon and the
-  area damage has to land on all of it at once.
-  """
-  @spec combo(t) :: [String.t()]
-  def combo(%__MODULE__{since: since} = logic) do
-    cond do
-      Map.has_key?(since, :gather) -> kill_spot_combo(logic)
-      # An aborted gather never reached its kill spot, but the combo he meant
-      # for this pile is recorded THERE — publish it so the freed fire opens
-      # with the full-mob answer, not one straggler at a time.
-      logic.recovering? -> destination_combo(logic)
-      true -> []
-    end
-  end
-
-  defp destination_combo(%__MODULE__{route: %Route{waypoints: []}}), do: []
-
-  defp destination_combo(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
-    len = length(waypoints)
-
-    0..(len - 1)//1
-    |> Enum.map(&Enum.at(waypoints, Integer.mod(logic.wp_index + &1, len)))
-    |> Enum.find(&(&1.action == :lure_end))
-    |> case do
-      nil -> []
-      wp -> Recording.combo_intent(wp[:combo] || [])
-    end
-  end
-
-  defp kill_spot_combo(%__MODULE__{route: %Route{waypoints: []}}), do: []
-
-  defp kill_spot_combo(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
-    index = Integer.mod(logic.wp_index - 1, length(waypoints))
-    Recording.combo_intent(Enum.at(waypoints, index)[:combo] || [])
-  end
-
-  @doc """
-  The categories HE ordered at the kill spot the hunt is standing on — `[]`
-  anywhere else.
-
-  Pair of `combo/1` and delivered by the same road (the `:posture` fact), for a
-  reason the `{:skills, _}` action could not solve: there is a burst here, and
-  an aura that comes out AFTER the area damage did nothing for anyone.
-  Travelling with the posture, Combat builds one list and the Body runs it in
-  order — the same solution that made the posture key work.
-
-  Category, never key: whoever has the pokémon on the field is the Worker.
-  """
-  @spec orders(t) :: [Route.skill()]
-  def orders(%__MODULE__{since: since} = logic) do
-    if Map.has_key?(since, :gather), do: kill_spot_skills(logic), else: []
-  end
-
-  defp kill_spot_skills(%__MODULE__{route: %Route{waypoints: []}}), do: []
-
-  defp kill_spot_skills(%__MODULE__{route: %Route{waypoints: waypoints}} = logic) do
-    Route.skills_at(waypoints, Integer.mod(logic.wp_index - 1, length(waypoints)))
-  end
-
-  # His ruler, resolved on arrival: the corner, else the route, else the global number
-  # (`Route.gather_wait/3`).
-  defp gather_wait(%__MODULE__{gather_wait: ms}) when is_integer(ms), do: ms
-  defp gather_wait(%__MODULE__{} = logic), do: config_gather_wait(logic)
-
-  defp config_gather_wait(%__MODULE__{config: config}), do: Map.get(config, :gather_wait_ms, 0)
-
-  # A kill spot's own skills do NOT come out on arrival: there is a burst to
-  # get in front of, so they travel with the posture (`orders/1`) instead. And
-  # the pokémon is no longer parked HERE by a recorded click: it parks wherever
-  # the road holds for a pile, two tiles toward it, by the eye (`park_or/2`).
-  defp on_arrival(_logic, %{action: :lure_end}), do: :none
-
-  # A walking corner carrying skills: the aura he presses himself in the middle
-  # of a mob stretch. Nothing is fighting here, so nobody is competing for the
-  # keyboard — the order goes out as an action and the Worker taps it. Once per
-  # arrival, like every other thing a corner does.
-  defp on_arrival(_logic, %{skills: [_ | _] = skills}), do: {:skills, skills}
-
-  defp on_arrival(_logic, _plain_arrival), do: :none
-
   # Arriving at the lure-end corner ("até aqui") starts the huddle clock; arriving anywhere
   # else clears it, so a stale stamp can never hold fire on a plain corner.
-  defp arrived(logic, wp, now) when is_map(wp) do
-    logic = arrived_at(logic, wp, now)
-
+  defp arrived(logic, _wp, _now) do
     %{
       logic
       | stops_done: [],
@@ -433,16 +263,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
         since: Map.delete(logic.since, :stair_tap)
     }
   end
-
-  defp arrived_at(logic, %{action: :lure_end} = wp, now),
-    do: %{
-      logic
-      | since: Map.put(logic.since, :gather, now),
-        gather_wait: Route.gather_wait(logic.route, wp, config_gather_wait(logic))
-    }
-
-  defp arrived_at(logic, _plain_corner, _now),
-    do: %{logic | since: Map.delete(logic.since, :gather), gather_wait: nil}
 
   @doc """
   Why the route is held by a pokémon on the FLOOR — `nil` while it is not.
@@ -493,39 +313,56 @@ defmodule Pokex.Bots.Cavebot.Logic do
     logic = home_if_sighted(logic, world)
 
     cond do
-      luring?(logic) -> lure_step(logic, world, now)
-      world.enemies > 0 -> enter_fight(logic, now)
-      # The COUNT can lie — `enemies` is rows minus presumed scenery, and a stale presumption
-      # once swallowed the only real enemy (2026-08-10: fightable read 0 over a
-      engaged?(world) -> enter_fight(logic, now)
-      # The pokémon is on the FLOOR: walking on drags the character alone into the next pile.
-      logic.recovering? -> {hold_patience(logic, now), :none}
-      # The ENGINE asking the road to wait.
-      Map.get(world, :route_hold?, false) -> hold(logic, world, now)
-      true -> follow_route(logic, world, now)
+      # THE BRAIN IS THE ONLY THING THAT STOPS THE FEET NOW. The tick that
+      # stops has nothing else to do, so it is the one that sends the pokémon.
+      stop_for_fight?(world) ->
+        logic |> enter_fight(now) |> park_or(world)
+
+      # …WITH THE POKÉMON ON THE FLOOR, ANYTHING ON SCREEN STOPS THEM. Walking
+      # on with nothing of his out there drags the character alone into the
+      # next pile, and the ruler does not rate a creature the pokémon cannot
+      # answer. This is not the route talking: it is the empty field.
+      logic.recovering? and (world.enemies > 0 or engaged?(world)) ->
+        enter_fight(logic, now)
+
+      logic.recovering? ->
+        {hold_patience(logic, now), :none}
+
+      true ->
+        follow_route(logic, world, now)
     end
   end
 
-  # The mob stretch's own three answers.
-  defp lure_step(logic, world, now) do
-    cond do
-      # A mob a bit bigger than the stretch expected: the pokémon is dying UNDER the pile being
-      # gathered, and finishing the leg finishes it.
-      logic.recovering? -> enter_fight(logic, now)
-      # The ENGINE asking the road to wait — the stretch's "walk through" only
-      # lasts until the brain says the pile is big.
-      Map.get(world, :route_hold?, false) -> hold(logic, world, now)
-      true -> follow_route(logic, world, now)
-    end
+  # WHO DECIDES TO STAND AND FIGHT — and it is not this module any more.
+  #
+  # It used to be the route: a leg bracketed `:lure_start`…`:lure_end` walked
+  # THROUGH whatever showed up, and every other leg entered the fight on the
+  # FIRST monster. The marks were laid automatically from how long he stood
+  # still, nobody ever tuned them, and the result on his own armed route was
+  # eight legs of forty-six where one creature stopped the hunt while the
+  # brain's ruler was set to five ("para de mobar e usa o combo com poucos mobs
+  # na tela"). Worse, the brain already outranked the whole thing where it
+  # mattered: `Combat.Worker.posture/0` obeys the engine's `fire` and drops the
+  # posture's whenever the `:orders` fact is fresh, which is every tick.
+  #
+  # So the count on screen decides, in the one place that has the whole picture
+  # (`Engine.Logic`: the ruler, the eye, the bands, the patience) and says so as
+  # `route: :hold`.
+  #
+  # …WITH NO BRAIN, THE OLD RULE IS THE FLOOR. `route_hold?` reads false both
+  # when the brain says walk and when there is no brain at all, and a hunt whose
+  # engine is off would otherwise walk past every monster forever. `engine?` is
+  # what separates the two, exactly as `walk_ordered?/1` already does.
+  defp stop_for_fight?(world) do
+    if Map.get(world, :engine?, false),
+      do: Map.get(world, :route_hold?, false),
+      else: world.enemies > 0 or engaged?(world)
   end
 
   # A deliberate stop does not spend the walk's patience — the same shape as
   # the Worker's frozen clocks under a closed input gate.
   defp hold_patience(logic, now),
     do: %{logic | since: Map.put(logic.since, :walk_progress, now)}
-
-  # The road holds for the brain — and the pokémon goes where the brain says.
-  defp hold(logic, world, now), do: park_or({hold_patience(logic, now), :none}, world)
 
   # THE PARK: the middle click that sends the pokémon two tiles toward the pile
   # (`Engine.Siege.park_spot/2`), ONCE per hold. It only ever fills a tick that
@@ -605,8 +442,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
         logic = note_progress(logic, pos, now)
 
-        {%{arrived(logic, wp, now) | wp_index: next, skips: 0, advance: :arrived},
-         on_arrival(logic, wp)}
+        {%{arrived(logic, wp, now) | wp_index: next, skips: 0, advance: :arrived}, :none}
 
       # A staircase is ONE key that moves TWO tiles. Holding the arrow takes the
       # step on the first press and keeps walking on the floor above until the
@@ -732,7 +568,12 @@ defmodule Pokex.Bots.Cavebot.Logic do
     tol = logic.config.arrival_tolerance
     wp = Enum.at(logic.route.waypoints, index)
 
-    if plain?(wp) and wp.z == z and abs(wp.x - x) <= tol and abs(wp.y - y) <= tol do
+    # A corner a STAIRCASE leaves from is never swallowed: the tap only works
+    # from that exact tile (`arrived_here?/6`), so chaining past it walks the
+    # hunt to the next corner with the step still untaken.
+    stair? = Route.stair_leg(logic.route.waypoints, index) != nil
+
+    if plain?(wp) and not stair? and wp.z == z and abs(wp.x - x) <= tol and abs(wp.y - y) <= tol do
       next = rem(index + 1, length(logic.route.waypoints))
       chain_past_plain(logic, pos, next, hops + 1)
     else
@@ -740,9 +581,9 @@ defmodule Pokex.Bots.Cavebot.Logic do
     end
   end
 
-  defp plain?(%{action: :walk} = wp), do: Map.get(wp, :stops, []) == []
-
-  defp plain?(_marked), do: false
+  # A corner is PLAIN when it asks for nothing: no stop to run there. It used
+  # to also have to be `action: :walk`, and the job is gone.
+  defp plain?(wp), do: Map.get(wp, :stops, []) == []
 
   # A hunt does not begin at waypoint 1: it begins at the CLOSEST corner of the route.
   defp home_in(%__MODULE__{homed?: true} = logic, _pos), do: logic
@@ -814,20 +655,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
   end
 
   # What ENDS the staircase search and sends the machine to fight, in the two
-  # moods it can be in. Recovering, the abandon rule of the walking state
-  # applies — a dying pokémon ends the search, and even a mob leg counts,
-  # because standing in a gathering with no health is how it dies. Healthy, a
-  # mob leg walks THROUGH what shows up, so only an unlured fight interrupts.
-  #
-  # One predicate rather than three `cond` arms: the two moods answer the same
-  # question and used to be spelled out separately, which is what pushed this
-  # function past its complexity budget when the two were merged.
+  # moods it can be in. Healthy, the same answer as the walking state: the brain
+  # says when a pile is worth standing for. Recovering, ANYTHING on screen ends
+  # it — standing on a doorway with no health in front of a creature the ruler
+  # does not rate is still how the pokémon dies.
   defp search_interrupted?(logic, world) do
-    fight? = world.enemies > 0 or engaged?(world)
-
     if logic.recovering?,
-      do: fight? or luring?(logic),
-      else: fight? and not luring?(logic)
+      do: world.enemies > 0 or engaged?(world) or stop_for_fight?(world),
+      else: stop_for_fight?(world)
   end
 
   defp probe_due?(%__MODULE__{since: since} = logic, now) do
@@ -923,23 +758,30 @@ defmodule Pokex.Bots.Cavebot.Logic do
         skips: logic.skips + 1,
         skip_pos: pos,
         last_pos: nil,
-        gather_wait: nil,
         stair_taps: 0,
         probe_steps: 0,
         stops_done: Route.stops(),
-        since: logic.since |> Map.drop([:gather, :stair_tap]) |> Map.put(:walk_progress, now)
+        since: logic.since |> Map.delete(:stair_tap) |> Map.put(:walk_progress, now)
     }
   end
 
   # Screen clear AND Combat disengaged: sustain the debounce before declaring the fight over.
   defp fight(logic, world, now) do
     cond do
-      clear?(world) -> stand_and_fight(logic, world, now)
+      clear?(world) -> standing(logic, world, now)
       retreat_ordered?(world) -> retreat(fight_clocks(logic, world), world, now)
       walk_ordered?(world) -> follow_route(fight_clocks(logic, world), world, now)
-      true -> logic |> stand_and_fight(world, now) |> park_or(world)
+      true -> standing(logic, world, now)
     end
   end
+
+  # THE PARK RIDES ON EVERY TICK THE HUNT SPENDS STANDING, the ones where the
+  # screen reads empty included: the brain holds the road as the pile is still
+  # walking in, and THAT is when the pokémon has to be sent to meet it. Parking
+  # only on the arm with something already on the list meant the click waited
+  # for the fight it exists to shape.
+  defp standing(logic, world, now),
+    do: logic |> stand_and_fight(world, now) |> park_or(world)
 
   defp retreat_ordered?(world),
     do: Map.get(world, :engine?, false) and Map.get(world, :route_back?, false)

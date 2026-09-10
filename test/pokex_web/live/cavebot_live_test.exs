@@ -487,6 +487,33 @@ defmodule PokexWeb.CavebotLiveTest do
 
       assert [%Route{waypoints: [%{action: :walk}]}] = Store.all()
     end
+
+    # A ROTA APAGADA DEBAIXO DA GRAVAÇÃO. Armar exige uma rota ativa, e nada
+    # garante que ela continue lá — apagar zera o `active_route`, e o
+    # `Store.all/0` degrada um `routes.json` ilegível para lista vazia. A partir
+    # daí `mark_kill_click_here/1` e `apply_hands/2` liam `.waypoints` de um nil
+    # e derrubavam a página a cada 120ms, levando a gravação junto.
+    test "the route deleted mid-recording does not take the page with it", %{conn: conn} do
+      put_pos({10, 20, 7})
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
+
+      view |> form("#new-route-form", %{"name" => "mob", "dungeon" => ""}) |> render_submit()
+      view |> element("#toggle-recording") |> render_click()
+
+      send(view.pid, {:world, :minimap, %{pos: {10, 20, 7}}})
+      render(view)
+
+      render_click(view, "delete_route", %{})
+      assert Store.all() == []
+
+      # o clique do meio E as teclas, os dois caminhos que liam a rota
+      clicks!(9, {1240, 655})
+      presses!([%{code: 18, shift?: true, at: 1_000}])
+      send(view.pid, :watch_middle)
+
+      assert render(view) =~ "Gravar"
+      assert Process.alive?(view.pid)
+    end
   end
 
   # The route knows a lot about his hunt now; the page has to SHOW it, or he
@@ -1201,6 +1228,24 @@ defmodule PokexWeb.CavebotLiveTest do
 
       assert html =~ "coordenada inválida"
       assert [%Route{waypoints: [%{x: 10, y: 10, z: 7}]}] = Store.all()
+    end
+
+    # Mesmo buraco do outro lado: o formulário lia `active_route.waypoints`
+    # ANTES do `with_route/2`, que é quem sabe responder a um nil. Enviado no
+    # instante em que a rota deixa de existir, derrubava a página inteira.
+    test "the form submitted after the route is gone does not take the page with it",
+         %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
+
+      view |> element("#map-waypoint-0") |> render_click()
+      render_click(view, "delete_route", %{})
+      assert Store.all() == []
+
+      render_submit(view, "move_waypoint_to", %{"index" => "0", "x" => "21", "y" => "11"})
+
+      assert Process.alive?(view.pid)
+      assert render(view) =~ "apagada"
     end
 
     test "'é aqui que eu estou' uses the live position", %{conn: conn} do

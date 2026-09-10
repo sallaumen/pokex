@@ -52,19 +52,36 @@ defmodule Pokex.Vision.ColorMark do
   # do shiny preto dele, mediana 0 e p90 4
   @default_spread_max 12
 
+  # O TETO DA CAIXA. Acima disto ela deixa de ser "esta cor" e vira um cone com
+  # outro nome: medido na foto dele, ±0 acende 239 px (a maior mancha com 221 e
+  # a segunda com 6), ±1 acende 293, ±4 já acende 402 com a segunda em 109. O
+  # joelho da curva é 1, e 8 é folga de sobra pra qualquer artefato de captura.
+  @max_box_tol 8
+
   @typedoc """
   Uma cor de referência compilada pra varredura: um cone de MATIZ, ou uma banda
   ESCURA pros tons que não têm matiz nenhum (o shiny preto).
   """
   @type spec ::
-          {h :: 0..359, s :: 0..255, v :: 0..255, tol_h :: pos_integer, tol_sv :: 0..255}
+          {:rgb, r :: 0..255, g :: 0..255, b :: 0..255, tol :: 0..8}
+          | {h :: 0..359, s :: 0..255, v :: 0..255, tol_h :: pos_integer, tol_sv :: 0..255}
           | {:dark, v_max :: 0..255, spread_max :: 0..255}
 
   @doc """
-  Compiles colours `%{rgb: {r, g, b}, tol_h: degrees, tol_sv: pct}` for the scan.
+  Compiles colours for the scan.
 
-  `tol_h` is the half-width of the hue cone in degrees; `tol_sv` is the saturation and
-  brightness slack in PERCENT (converted to the 0..255 scale here, once).
+  A CAIXA RGB (`%{rgb: {r, g, b}, tol: n}`) é a família certa para este jogo: as sprites são
+  fixas e a iluminação é sempre a mesma, então a cor de um bicho é EXATA e se repete quadro a
+  quadro (medido: 12 dos 12 tons mais comuns voltam bit a bit numa captura 10 minutos depois).
+  Uma caixa por canal fixa matiz, saturação E brilho de uma vez, e é o brilho que separa o
+  shiny do comum — o shiny dele é a mesma arte mais escura.
+
+  O CONE HSV (`%{rgb: {r, g, b}, tol_h: graus, tol_sv: pct}`) continua compilando, porque
+  regras gravadas antes usam esse formato. Ele é a família errada aqui e o motivo é
+  aritmético: escalar um RGB por um fator preserva matiz e saturação EXATAMENTE, de modo que o
+  cone aceita a mesma arte em qualquer luz — justo o eixo que carrega o sinal. Com os padrões
+  antigos (12°, 30%) o tom cinza-marrom que ele pegou aceitava 146.172 cores diferentes, das
+  quais 76% mais claras que a ensinada, incluindo o Hitmonlee COMUM.
   """
   def compile(colors) when is_list(colors), do: Enum.map(colors, &compile_one/1)
 
@@ -75,6 +92,10 @@ defmodule Pokex.Vision.ColorMark do
       {:dark, clamp(v_max, 1, 255),
        color |> Map.get(:spread, @default_spread_max) |> clamp(0, 255)}
 
+  # A CAIXA: três comparações por canal, sem divisão e sem conversão de escala.
+  defp compile_one(%{rgb: {r, g, b}, tol: tol}),
+    do: {:rgb, byte(r), byte(g), byte(b), clamp(tol, 0, @max_box_tol)}
+
   defp compile_one(%{rgb: {r, g, b}} = color) do
     {h, s, v} = hsv(r, g, b)
     tol_h = color |> Map.get(:tol_h, 12) |> max(1)
@@ -84,6 +105,9 @@ defmodule Pokex.Vision.ColorMark do
 
   defp clamp(n, lo, hi) when is_integer(n), do: n |> max(lo) |> min(hi)
   defp clamp(_not_a_number, lo, _hi), do: lo
+
+  defp byte(n) when is_integer(n), do: clamp(n, 0, 255)
+  defp byte(_bad), do: 0
 
   @doc """
   The teaching EYEDROPPER: the dominant colour of a small square around `{x, y}`, which is what
@@ -188,7 +212,27 @@ defmodule Pokex.Vision.ColorMark do
         do: Frame.at(frame, px, py)
   end
 
+  # UMA COR QUE ESTÁ NA TELA, sempre. A mediana por canal ordena os três canais
+  # SEPARADAMENTE e junta os três meios: o resultado é um RGB que pode não
+  # existir em pixel nenhum da foto. Medido na foto dele de 10/09: o tom ensinado
+  # (130,111,105) aparecia ZERO vezes nos 3,7 milhões de pixels. Com casamento
+  # por tolerância larga isso passava despercebido (o cone pegava a vizinhança);
+  # com casamento exato, que é o que arte de paleta fixa pede, ensinar uma cor
+  # inexistente é ensinar uma regra que nunca casa nada.
+  #
+  # Quem manda agora é a MODA — a cor mais repetida do quadradinho, que é uma
+  # cor de verdade da sprite. Empate resolve pela mais próxima da mediana, para
+  # não trocar de tom a cada clique no mesmo lugar.
   defp median(pixels) do
+    alvo = channel_median(pixels)
+
+    pixels
+    |> Enum.frequencies()
+    |> Enum.max_by(fn {cor, n} -> {n, -dist(cor, alvo)} end)
+    |> elem(0)
+  end
+
+  defp channel_median(pixels) do
     meio = div(length(pixels), 2)
 
     {
@@ -197,6 +241,9 @@ defmodule Pokex.Vision.ColorMark do
       pixels |> Enum.map(&elem(&1, 2)) |> Enum.sort() |> Enum.at(meio)
     }
   end
+
+  defp dist({r, g, b}, {rr, gg, bb}),
+    do: abs(r - rr) + abs(g - gg) + abs(b - bb)
 
   @doc """
   Scans the frame for the compiled colours.
@@ -260,6 +307,12 @@ defmodule Pokex.Vision.ColorMark do
   end
 
   defp matches?(_r, _g, _b, []), do: false
+
+  defp matches?(r, g, b, [{:rgb, rr, gg, bb, tol} | rest]) do
+    if abs(r - rr) <= tol and abs(g - gg) <= tol and abs(b - bb) <= tol,
+      do: true,
+      else: matches?(r, g, b, rest)
+  end
 
   defp matches?(r, g, b, [{:dark, v_max, spread_max} | rest]) do
     mx = max(r, max(g, b))

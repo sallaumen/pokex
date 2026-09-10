@@ -215,6 +215,41 @@ defmodule Pokex.Vision.ColorMarkTest do
     end
   end
 
+  # UMA COR QUE ESTA NA TELA. A mediana por canal ordena os tres canais separados
+  # e junta os tres meios: da um RGB que pode nao existir em pixel nenhum. Medido
+  # na foto dele de 10/09, o tom ensinado aparecia ZERO vezes nos 3,7 milhoes de
+  # pixels — e com casamento exato isso e uma regra que nunca casa nada.
+  describe "the eyedropper only ever teaches a colour that is on screen" do
+    test "a patch whose channel medians cross gives a real pixel, not an invented one" do
+      # tres tons reais; a mediana por canal deles seria (150,150,150), que nao
+      # existe em nenhum dos tres
+      pixels = [{110, 150, 190}, {150, 190, 110}, {190, 110, 150}]
+
+      frame = %Frame{
+        width: 3,
+        height: 1,
+        rgba: for({r, g, b} <- pixels, into: <<>>, do: <<r, g, b, 255>>)
+      }
+
+      assert {:ok, tom} = ColorMark.dominant(frame, {1, 0}, 1)
+      assert tom in pixels, "ensinou #{inspect(tom)}, que nao esta na foto"
+    end
+
+    test "the repeated colour of the patch wins, because that is the sprite" do
+      corpo = {90, 40, 120}
+      borda = {12, 10, 14}
+      pixels = [corpo, corpo, corpo, borda, borda]
+
+      frame = %Frame{
+        width: 5,
+        height: 1,
+        rgba: for({r, g, b} <- pixels, into: <<>>, do: <<r, g, b, 255>>)
+      }
+
+      assert {:ok, ^corpo} = ColorMark.dominant(frame, {2, 0}, 2)
+    end
+  end
+
   # A PROVA NOS PIXELS DELE: o quadro que ele fotografou em 09/09 tentando
   # ensinar o shiny preto, recortado longe do HUD. O corpo mede (17,16,16) e o
   # chão é lava; a banda escura tem que separar os dois com folga.
@@ -253,5 +288,44 @@ defmodule Pokex.Vision.ColorMarkTest do
 
       assert margem.(30) > margem.(60)
     end
+
+    # A FAMILIA CERTA PRA ARTE DE PALETA FIXA. O jogo nao tem variacao de luz e
+    # as sprites sao fixas, entao a cor de um bicho e EXATA e se repete quadro a
+    # quadro. O cone de matiz e cego justamente ao eixo que separa o shiny do
+    # comum: escalar um RGB por um fator preserva matiz e saturacao EXATAMENTE,
+    # de modo que o cone aceita a mesma arte em qualquer brilho.
+    test "the hue cone accepts the same art brighter; the rgb box does not" do
+      # o corpo do shiny preto dele mede (17,16,16)
+      corpo = {17, 16, 16}
+      # a mesma arte 60% mais clara: outro bicho, mesmo matiz e mesma saturacao
+      mais_claro = {27, 26, 26}
+
+      cone = ColorMark.compile([%{rgb: corpo, tol_h: 12, tol_sv: 30}])
+      caixa = ColorMark.compile([%{rgb: corpo, tol: 1}])
+
+      assert casou?(cone, mais_claro), "o cone aceita a arte mais clara — e o defeito"
+      refute casou?(caixa, mais_claro), "a caixa recusa: o brilho e o sinal"
+      assert casou?(caixa, corpo), "…e continua achando o tom ensinado"
+    end
+
+    test "on his real frame the box lights up scenery the cone floods" do
+      {:ok, frame} = Frame.from_file(@fixture)
+      lava = {130, 111, 105}
+
+      cone =
+        ColorMark.scan(frame, ColorMark.compile([%{rgb: lava, tol_h: 12, tol_sv: 30}]),
+          min_cell_px: 6
+        )
+
+      caixa = ColorMark.scan(frame, ColorMark.compile([%{rgb: lava, tol: 2}]), min_cell_px: 6)
+
+      assert cone.px > 10_000, "o cone acende o chao da caverna inteiro (#{cone.px}px)"
+      assert caixa.px < cone.px / 50, "a caixa quase nao acende (#{caixa.px}px)"
+    end
+  end
+
+  defp casou?(specs, {r, g, b}) do
+    frame = %Frame{width: 8, height: 8, rgba: :binary.copy(<<r, g, b, 255>>, 64)}
+    ColorMark.scan(frame, specs, min_cell_px: 1).px > 0
   end
 end

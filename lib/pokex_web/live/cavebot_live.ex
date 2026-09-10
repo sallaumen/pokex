@@ -1336,6 +1336,12 @@ defmodule PokexWeb.CavebotLive do
 
   defp route_mode_note(_no_route, _hunt), do: ""
 
+  # SEM CAÇADA NENHUMA É PARADO, e é o estado normal da página: `hunt` nasce
+  # `nil` no mount e só vira mapa quando um `{:cavebot, snapshot}` chega, que é
+  # quando ALGUMA caçada rodou. Sem esta cláusula, abrir o /cavebot com a frota
+  # parada desabilitava os botões de modo de combate e mandava "pare a caçada
+  # pra trocar" — a caçada que não estava rodando.
+  defp hunt_idle?(nil), do: true
   defp hunt_idle?(%{state: :idle}), do: true
   defp hunt_idle?(_running), do: false
 

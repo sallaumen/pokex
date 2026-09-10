@@ -1801,8 +1801,7 @@ defmodule Pokex.Bots.Engine.Logic do
       # mais 5 passos, fechar mais um, andar mais um pouquinho, juntar mais
       # monstros". The pile follows, and the walking is what makes it a pile.
       t.config.gather_piles and pile_payable?(t) ->
-        {reset_fight(%{t.logic | state: :gathering}, :gathering),
-         Orders.walking(:gathering, t.band, gathering_why(t))}
+        {start_gathering(t.logic, t.now), Orders.walking(:gathering, t.band, gathering_why(t))}
 
       # Barra vazia e sem revive que a compre: esta pilha não tem pagamento.
       # Mesma saída do teto de tempo — seguir a rota — e pelo mesmo motivo:
@@ -2031,7 +2030,16 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp patience_out?(t), do: some?(t.s) and out_of_patience?(t)
 
-  defp out_of_patience?(t), do: walked(t) >= t.config.patience_tiles
+  # PASSO DE PACIÊNCIA É PASSO DE ARRASTO. `walked` conta tiles desde que a pilha
+  # APARECEU, e até o #578 a régua só rodava com a caçada já parada na maioria
+  # das pernas — esses passos eram, de fato, passos dados atrás dos bichos.
+  # Correndo a régua andando, todo passo de rota entrou na conta: com o 6 dele,
+  # a paciência vencia em ~1,9s de caminhada normal e passava por cima do "para
+  # e luta a partir de 6" ("ele ainda está parando em poucos monstros na tela",
+  # 10/09). O carimbo `:gathering` é o que separa arrastar de simplesmente
+  # passar do lado — e no Auto Combo, que não junta pilha, não há arrasto nenhum.
+  defp out_of_patience?(t),
+    do: Map.has_key?(t.logic.since, :gathering) and walked(t) >= t.config.patience_tiles
 
   defp some?(%{enemies: n}) when is_integer(n) and n > 0, do: true
   defp some?(_none_or_unknown), do: false
@@ -2363,5 +2371,16 @@ defmodule Pokex.Bots.Engine.Logic do
   defp reset_fight(%{state: state} = logic, state), do: logic
 
   defp reset_fight(logic, state),
-    do: %{forget_kite(logic) | state: state, since: Map.drop(logic.since, [:sizing, :closing])}
+    do: %{
+      forget_kite(logic)
+      | state: state,
+        since: Map.drop(logic.since, [:sizing, :closing, :gathering])
+    }
+
+  # O instante em que o cérebro DECIDIU arrastar esta pilha. `put_new`: a decisão
+  # é uma só, e o carimbo tem que atravessar os tiques em que `enter_sizing/2`
+  # devolve o estado pra `:sizing` — senão ele renasceria a cada volta e a
+  # paciência nunca venceria (o mesmo defeito que já custou a mobada de 30/08).
+  defp start_gathering(logic, now),
+    do: %{logic | state: :gathering, since: Map.put_new(logic.since, :gathering, now)}
 end

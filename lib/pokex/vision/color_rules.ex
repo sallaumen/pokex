@@ -102,6 +102,39 @@ defmodule Pokex.Vision.ColorRules do
     end)
   end
 
+  # Um bicho ocupa da ordem de UM tile. O corpo do Charizard preto dele "passa
+  # do tile", então quatro tiles de cor sólida já é generoso: acima disso o
+  # gatilho não é alto, é inalcançável.
+  @max_creature_tiles 4
+
+  @doc """
+  Um número de pixels casados medido em TILES de cor sólida.
+
+  Pixel não diz nada a ele — ele mesmo escreveu isso ("não estou entendendo nem um pouco o
+  que são os pixels"). Tile diz: é o quadrado que ele vê no jogo. Toda vez que uma dessas
+  contas for pra tela, vai nesta unidade.
+  """
+  @spec tiles(number, pos_integer, number) :: float
+  def tiles(px, tile_px, scale) when tile_px > 0 and scale > 0 do
+    lado = tile_px * scale
+    px / (lado * lado)
+  end
+
+  @doc """
+  Um gatilho que nenhum bicho alcança.
+
+  Acontece quando o tom ensinado é do CENÁRIO e não do bicho: o chão medido sobe junto, o
+  método multiplica por três, e a regra fica provada, armada e muda — as duas do Charizard
+  dele pediam 14,6 e 6,0 tiles de cor sólida na tela (09/09).
+  """
+  @spec unreachable?(number, pos_integer, number) :: boolean
+  def unreachable?(px, tile_px, scale),
+    do: tiles(px, tile_px, scale) > @max_creature_tiles
+
+  @doc "O teto em tiles acima do qual um gatilho é inalcançável."
+  @spec max_creature_tiles() :: pos_integer
+  def max_creature_tiles, do: @max_creature_tiles
+
   @doc """
   Is this rule's proof still about the frame we are looking at now?
 

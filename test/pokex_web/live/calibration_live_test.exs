@@ -2033,7 +2033,11 @@ defmodule PokexWeb.CalibrationLiveTest do
       send(view.pid, {:floor_sample, slug})
       html = render(view)
 
-      assert html =~ "pico 25px", "a prova diz o chão que mediu"
+      # A MEDIDA EM TILES. "pico 25px" era verdade e não queria dizer nada — ele
+      # mesmo escreveu que não entende o que são os pixels; o quadrado do jogo
+      # ele enxerga.
+      assert html =~ "quase nada (25px)", "a prova diz o chão que mediu, na régua dele"
+      assert html =~ "quase nada (75px)", "e o gatilho na mesma régua"
       assert html =~ "provada · chão 25px"
 
       assert html =~ "falta LIGAR",
@@ -2090,6 +2094,59 @@ defmodule PokexWeb.CalibrationLiveTest do
       render(view)
 
       assert [%{min_px: 400}] = Pokex.Vision.ColorRules.armed()
+    end
+
+    # PROVADA, ARMADA E MUDA. Quando o tom ensinado é do cenário, o chão medido
+    # sobe junto, o método multiplica por três e sai um gatilho que nenhum bicho
+    # alcança. A mensagem dizia "regra PROVADA" e ele ia dormir achando que a
+    # noite estava armada.
+    @tag :tmp_dir
+    test "um gatilho que nenhum bicho alcança é dito como erro, não como prova", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      # tile pequeno: o bicho é miúdo nesta tela, então a tela toda de cor são
+      # centenas de tiles — o gatilho sai fora do alcance de qualquer bicho
+      Pokex.Calibration.save(%{complete_calibration() | tile_px: 20})
+      {:ok, _} = Fake.start_link(%{})
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      com_foto(view, cor_frame(64, 64, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}]))
+      render_click(view, "special_pick", %{"x" => 16, "y" => 16, "cw" => 64, "nw" => 64})
+      render_change(view, "special_form", %{"name" => "Chefe", "min_px" => "25"})
+      render_submit(view, "special_save", %{})
+
+      [%{"slug" => slug}] = Pokex.Vision.ColorRules.list()
+
+      {:ok, calib} = Pokex.Calibration.load()
+      {:ok, {_x, _y, w, h}} = SpotScan.region(calib)
+      File.mkdir_p!("/tmp/fake")
+
+      # a tela inteira é chão da cor: o pico sobe e o gatilho sai impossível
+      File.write!(
+        "/tmp/fake/special_floor.raw",
+        <<"PXRW", 1, w::32, h::32, cor_frame(w, h, @verde, []).rgba::binary>>
+      )
+
+      render_click(view, "special_floor", %{"slug" => slug})
+
+      :sys.replace_state(view.pid, fn state ->
+        update_in(state.socket.assigns.special_floor, &%{&1 | left: 1})
+      end)
+
+      send(view.pid, {:floor_sample, slug})
+      html = render(view)
+
+      assert html =~ "nenhum bicho tem esse tamanho"
+      assert html =~ "CENÁRIO"
+      refute html =~ "regra PROVADA"
+
+      # e o crachá da lista para de dizer que está tudo certo
+      refute html =~ "provada · chão"
     end
 
     # A CATRACA QUE PRENDIA. Uma medição ruim (o Tracker aberto) cravou 332.835

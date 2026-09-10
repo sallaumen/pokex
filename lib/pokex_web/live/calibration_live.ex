@@ -1440,13 +1440,69 @@ defmodule PokexWeb.CalibrationLive do
     assign(socket,
       special_floor: nil,
       special_rules: ColorRules.list(),
-      special_msg:
-        {:ok,
-         "chão de “#{entry["name"]}” medido em #{@floor_samples} fotos: pico #{peak}px" <>
-           chrome_text(chrome) <>
-           ". Gatilho em #{novo}px e regra PROVADA — #{vigia_estado()}"}
+      special_msg: floor_msg(entry["name"], peak, chrome, novo)
     )
   end
+
+  # A MEDIDA EM TILES, e o veredito junto. "Pico 110945px, gatilho 332835px,
+  # regra PROVADA" era verdade e não queria dizer nada: ele mesmo escreveu que
+  # não entende o que são os pixels. Em tiles a mesma frase se explica sozinha —
+  # o chão já cobria quase cinco tiles, o gatilho pedia catorze, e catorze tiles
+  # de cor sólida não existem em bicho nenhum. Uma regra assim fica provada,
+  # armada e MUDA, e nada dizia isso.
+  defp floor_msg(nome, peak, chrome, gatilho) do
+    {tile, scale} = ruler()
+
+    corpo =
+      "chão de “#{nome}” medido em #{@floor_samples} fotos: #{em_tiles(peak)} de cor" <>
+        chrome_text(chrome) <> ". Gatilho em #{em_tiles(gatilho)}"
+
+    if ColorRules.unreachable?(gatilho, tile, scale) do
+      {:error,
+       corpo <>
+         " — e nenhum bicho tem esse tamanho. O tom ensinado aparece no CENÁRIO, " <>
+         "não no bicho: apague esta cor e ensine de novo clicando no shiny."}
+    else
+      {:ok, corpo <> " e regra PROVADA — #{vigia_estado()}"}
+    end
+  end
+
+  defp ruler do
+    case Calibration.load() do
+      {:ok, calib} -> {Calibration.tile_px(calib), calib.scale || 1.0}
+      _uncalibrated -> {Calibration.tile_px(), 1.0}
+    end
+  end
+
+  # "0,0 tiles" seria honesto e inútil. Um chão que não chega a um décimo de
+  # tile é exatamente a notícia boa — o cenário mal casa com o tom — e merece a
+  # palavra, não o zero.
+  defp em_tiles(px) do
+    {tile, scale} = ruler()
+    tiles = ColorRules.tiles(px, tile, scale)
+
+    cond do
+      tiles < 0.1 -> "quase nada (#{px}px)"
+      tiles < 1.0 -> "#{decimal(tiles)} de um tile (#{px}px)"
+      true -> "#{decimal(tiles)} tiles (#{px}px)"
+    end
+  end
+
+  # O crachá é estreito: aqui vai só o número, e o pixel fica no title.
+  defp em_tiles_curto(px) do
+    {tile, scale} = ruler()
+    tiles = ColorRules.tiles(px, tile, scale)
+
+    if tiles < 0.1, do: "quase nada", else: "#{decimal(tiles)} tiles"
+  end
+
+  defp muda?(%{"min_px" => px}) do
+    {tile, scale} = ruler()
+    ColorRules.unreachable?(px, tile, scale)
+  end
+
+  defp decimal(float),
+    do: float |> :erlang.float_to_binary(decimals: 1) |> String.replace(".", ",")
 
   # DE QUEM É ESTE NÚMERO? A medição pode baixar o que a medição pôs, e não pode
   # encostar no que ele digitou. Quem separa os dois é a prova:
@@ -3750,12 +3806,25 @@ defmodule PokexWeb.CalibrationLive do
                     HUD ×{chrome_count(r)}
                   </span>
 
-                  <span class="pk-num font-mono text-pk-meta text-pk-text-3">
-                    gatilho {r["min_px"]}px
+                  <span
+                    class="pk-num font-mono text-pk-meta text-pk-text-3"
+                    title={"#{r["min_px"]}px de cor casada na tela"}
+                  >
+                    gatilho {em_tiles_curto(r["min_px"])}
                   </span>
 
+                  <%!-- PROVADA, ARMADA E MUDA: um gatilho maior que qualquer
+                       bicho é uma regra que varre a noite sem chance de
+                       disparar, e o crachá verde dizia que estava tudo certo. --%>
                   <span
-                    :if={r["proven"]}
+                    :if={r["proven"] && muda?(r)}
+                    class="rounded border border-pk-warn-line bg-pk-warn-dim px-1.5 font-mono text-pk-meta text-pk-warn"
+                    title="o tom ensinado aparece no cenário: o chão medido sobe junto e o gatilho sai maior que qualquer bicho"
+                  >
+                    nenhum bicho tem esse tamanho — ensine de novo
+                  </span>
+                  <span
+                    :if={r["proven"] && !muda?(r)}
                     class="rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 font-mono text-pk-meta text-pk-ok"
                     title={"chão medido em #{r["proven"]["at"]}"}
                   >

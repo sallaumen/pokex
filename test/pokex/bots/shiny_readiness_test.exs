@@ -42,6 +42,36 @@ defmodule Pokex.Bots.ShinyReadinessTest do
 
   defp keys(steps), do: Enum.map(steps, & &1.key)
 
+  # PROVADA, ARMADA E MUDA. O tom ensinado era do cenário, então o chão medido
+  # subiu junto e o método deixou um gatilho que nenhum bicho alcança — 14,6
+  # tiles de cor sólida. A regra dizia "provada" e o cartão dizia "a cor está
+  # pronta" enquanto o caçador varria a noite sem chance de disparar.
+  test "a trigger no creature can reach is the step, before the switch" do
+    slug = teach("Charizard preto")
+    :ok = ColorRules.update(slug, %{"min_px" => 332_835})
+    :ok = ColorRules.mark_proven(slug, 110_945)
+
+    check = ShinyReadiness.check()
+
+    refute ShinyReadiness.ready?(check)
+    assert [%{key: :unreachable, text: text, href: "/calibration"}] = check.gaps
+    assert text =~ "Charizard preto"
+    assert text =~ "tiles"
+    assert text =~ "cenário"
+  end
+
+  test "one reachable rule is enough to move on to the switch" do
+    muda = teach("Charizard preto")
+    :ok = ColorRules.update(muda, %{"min_px" => 332_835})
+    :ok = ColorRules.mark_proven(muda, 110_945)
+
+    boa = teach("Electrode verde")
+    :ok = ColorRules.update(boa, %{"min_px" => 900})
+    :ok = ColorRules.mark_proven(boa, 300)
+
+    assert [%{key: :guard_off}] = ShinyReadiness.check().gaps
+  end
+
   test "with nothing taught the first step is teaching the colour" do
     check = ShinyReadiness.check()
 

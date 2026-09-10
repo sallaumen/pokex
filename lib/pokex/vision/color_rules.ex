@@ -191,7 +191,11 @@ defmodule Pokex.Vision.ColorRules do
 
     %{
       "dark" => v_max |> positive(30) |> min(255),
-      "spread" => color |> Map.get("spread") |> positive(12) |> min(255),
+      # ZERO É UMA ESCOLHA. `positive/2` recusa o zero e devolvia 12, então o
+      # tom preto que ele apertou até a banda mais justa — o corpo do bicho dele
+      # mediu mediana 0 — era salvo TRÊS VEZES mais largo do que a prévia que
+      # ele acabara de aprovar na tela.
+      "spread" => color |> Map.get("spread") |> byte_or(12) |> min(255),
       "rgb" => [byte(r), byte(g), byte(b)]
     }
   end
@@ -209,6 +213,10 @@ defmodule Pokex.Vision.ColorRules do
 
   defp positive(v, _default) when is_integer(v) and v > 0, do: v
   defp positive(_bad, default), do: default
+
+  # …e onde o zero é legítimo, só o que não é número vira o padrão.
+  defp byte_or(v, _default) when is_integer(v) and v >= 0, do: v
+  defp byte_or(_bad, default), do: default
 
   defp mutate(slug, fun) do
     case Enum.split_with(list(), &(&1["slug"] == slug)) do

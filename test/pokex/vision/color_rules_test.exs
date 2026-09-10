@@ -167,6 +167,20 @@ defmodule Pokex.Vision.ColorRulesTest do
     end
   end
 
+  # ZERO É UMA ESCOLHA. O tom preto apertado até a banda mais justa (o corpo do
+  # bicho dele mediu mediana 0) era salvo três vezes mais largo do que a prévia
+  # que ele acabara de aprovar na tela.
+  test "a spread of zero is kept, not rewritten to the default" do
+    {:ok, entry} =
+      ColorRules.add(%{
+        "name" => "Preto",
+        "colors" => [%{"dark" => 40, "spread" => 0, "rgb" => [8, 8, 8]}]
+      })
+
+    assert [%{"spread" => 0}] = entry["colors"]
+    assert [%{"colors" => [%{"spread" => 0}]}] = ColorRules.list()
+  end
+
   test "apagar apaga; apagar de novo reclama" do
     %{"slug" => slug} = regra()
     :ok = ColorRules.delete(slug)

@@ -101,8 +101,16 @@ defmodule Pokex.Vision.Frame do
     end
   end
 
-  def at(%__MODULE__{} = frame, x, y) do
-    <<r, g, b, _a>> = binary_part(frame.rgba, (y * frame.width + x) * 4, 4)
+  # O CLIQUE NA ÚLTIMA FRAÇÃO DE PIXEL. O gancho do navegador manda a posição em
+  # pixels CSS fracionários e a página multiplica pela largura real: um clique a
+  # 399,9 de 400 vira a coluna 1920 de uma foto de 1920, e a leitura crua caía
+  # fora da binária e derrubava a LiveView — levando junto os tons que ele já
+  # tinha pegado. Quem pede o pixel de fora da foto recebe a borda.
+  def at(%__MODULE__{width: w, height: h} = frame, x, y) do
+    x = x |> max(0) |> min(w - 1)
+    y = y |> max(0) |> min(h - 1)
+
+    <<r, g, b, _a>> = binary_part(frame.rgba, (y * w + x) * 4, 4)
     {r, g, b}
   end
 

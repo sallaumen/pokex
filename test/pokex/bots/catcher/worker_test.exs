@@ -18,6 +18,7 @@ end
 defmodule Pokex.Bots.Catcher.WorkerTest do
   use ExUnit.Case, async: false
 
+  alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Catcher.WorkerTest.FakeBody
   alias Pokex.Bots.InputGate
@@ -124,13 +125,21 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       ball_types: [
         %{"key" => "f1", "name" => "Poké Ball"},
         %{"key" => "f2", "name" => "Aquática"}
-      ],
-      ball_rules: [
-        %{"trigger" => %{"kind" => "species", "value" => "Tentacool"}, "key" => "f2"}
       ]
     )
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+
+    # A ESCOLHA MORA NO CORPO ENSINADO: o nome que a mira devolve é o mesmo que
+    # o acervo guarda, então é lá que a bola é escolhida.
+    {:ok, 1} =
+      CorpseLibrary.add("Tentacool shiny", %Pokex.Vision.Frame{
+        width: 4,
+        height: 4,
+        rgba: :binary.copy(<<40, 200, 190, 255>>, 16)
+      })
+
+    :ok = CorpseLibrary.set_ball("tentacool-shiny", "f2")
 
     obs =
       corpses_obs([{130, 224}])
@@ -144,15 +153,12 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "a corpse no rule mentions keeps the ordinary ball, quietly", %{worker: worker} do
+  test "a corpse that chose no ball of its own keeps the ordinary one, quietly", %{worker: worker} do
     SettingsStash.stash!(
       ball_key: "f1",
       ball_types: [
         %{"key" => "f1", "name" => "Poké Ball"},
         %{"key" => "f2", "name" => "Aquática"}
-      ],
-      ball_rules: [
-        %{"trigger" => %{"kind" => "species", "value" => "Tentacool"}, "key" => "f2"}
       ]
     )
 
@@ -891,12 +897,47 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     |> Enum.find(fn done -> done or System.monotonic_time(:millisecond) > deadline end)
   end
 
-  # The Panel used to say "capturando" all hunt long while every gate was shut.
+  # A CAPTURA NUNCA ACONTECEU NUMA CAÇADA, e o diário dele prova: no dia 10/09
+  # inteiro, 84 "mira pronta" e ZERO varreduras, ZERO bolas comuns. O portão do
+  # `scan_obs/1` exigia `player_mode == "still"` — herança de quando a captura
+  # era só da pesca ("já funcionou um dia enquanto eu pescava"). Com a estrada
+  # SEGURADA pelo cérebro o personagem está tão parado quanto no modo Parado, e
+  # é esse o instante que o `{:capture_now}` marca.
   @tag :tmp_dir
-  test "in hunt mode the status is honest: idle with the reason, armed only while aiming" do
+  test "hunting with the road held, the ball goes out", %{worker: worker} do
+    Settings.put(:player_mode, "hunt")
+    :ok = Worker.mode_changed(worker)
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+
+    world!(worker, corpses_obs([{130, 224}]))
+
+    assert_receive {:performed, :high, acoes}, 1_000
+    assert {:move, {130, 224}} in acoes
+    assert {:press, Pokex.Settings.get(:ball_key)} in acoes
+  end
+
+  @tag :tmp_dir
+  test "hunting with the road WALKING, nothing is thrown", %{worker: worker} do
+    Settings.put(:player_mode, "hunt")
+    :ok = Worker.mode_changed(worker)
+
+    WorldState.put(:orders, %{route: :go}, System.monotonic_time(:millisecond))
+
+    world!(worker, corpses_obs([{130, 224}]))
+
+    refute_receive {:performed, _p, _a}, 300
+  end
+
+  # O painel dizia "capturando" a caçada inteira com todo portão fechado; depois
+  # passou a dizer "na caçada só o shiny leva bola", que era verdade enquanto a
+  # varredura exigia o modo Parado. Agora a caçada captura com a rota segurada,
+  # e o que a tela deve dizer é o que FALTA: parar.
+  @tag :tmp_dir
+  test "walking, the status says what is missing: the road stopping" do
     worker = start_hunt_worker()
 
-    assert %{state: :idle, hold_reason: "na caçada só o shiny leva bola"} = Worker.status(worker)
+    assert %{hold_reason: "andando — a bola sai quando a rota parar"} = Worker.status(worker)
 
     stage_aim([])
     send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})

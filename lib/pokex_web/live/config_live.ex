@@ -647,7 +647,8 @@ defmodule PokexWeb.ConfigLive do
       href: "/config/editores",
       icon: "hero-squares-plus",
       label: "Editores",
-      sub: "bolas, regras por espécie, varredura, estoque, reposição, guarda do shiny",
+      sub:
+        "bolas, varredura, estoque, reposição, guarda do shiny (a bola de cada corpo fica na Calibração)",
       keys: [
         # O CARTÃO DA GUARDA MORA AQUI, não no painel: ele fica dentro do
         # overlay dos Editores. O ponteiro dizia "/" e quem o seguia chegava
@@ -657,7 +658,6 @@ defmodule PokexWeb.ConfigLive do
         :ball_key,
         :ball_needs_click,
         :ball_types,
-        :ball_rules,
         :corpse_max_balls,
         :corpse_scan_radius_tiles,
         :corpse_match_min_similarity,

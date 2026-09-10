@@ -41,7 +41,6 @@ defmodule PokexWeb.Panel.SettingsOverlay do
     doc: "match_pct, ball_key, ball_needs_click, max_balls, radius_tiles, dry_balls_alarm"
 
   attr :ball_types, :list, required: true, doc: "as pokébolas do hotbar: key + name"
-  attr :ball_rules, :list, required: true, doc: "qual bola para qual corpo"
 
   attr :sweep_cfg, :map, required: true, doc: "enabled, interval_s, radius_tiles, side, msg"
 
@@ -487,67 +486,14 @@ defmodule PokexWeb.Panel.SettingsOverlay do
             <.group_header
               label="Qual bola para qual corpo"
               accent="bg-[#8f6ad1]"
-              note="o nome da criatura ganha do elemento dela, e os dois ganham da bola padrão"
+              note="agora fica em cada corpo do acervo, na Calibração"
             />
-            <div class="space-y-1 px-1">
-              <p :if={@ball_rules == []} class="font-mono text-pk-meta text-pk-text-3">
-                nenhuma regra — todo corpo leva a bola padrão
-              </p>
-              <form
-                :for={{rule, idx} <- Enum.with_index(@ball_rules)}
-                id={"ball-rule-#{idx}"}
-                phx-change="ball_rule_change"
-                class="flex items-center gap-2 font-mono text-pk-meta text-pk-text-2"
-              >
-                <input type="hidden" name="idx" value={idx} />
-                <select
-                  name="kind"
-                  aria-label="tipo do gatilho"
-                  class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-text focus:border-pk-ok focus:outline-none"
-                >
-                  <option value="species" selected={rule_kind(rule) == "species"}>espécie</option>
-                  <option value="element" selected={rule_kind(rule) == "element"}>elemento</option>
-                </select>
-                <input
-                  name="value"
-                  value={rule_value(rule)}
-                  aria-label="nome da espécie ou do elemento"
-                  phx-debounce="500"
-                  class="h-8 flex-1 rounded border border-pk-line-strong bg-pk-bg px-2 text-pk-text focus:border-pk-ok focus:outline-none"
-                />
-                <span class="text-pk-text-3">→</span>
-                <select
-                  name="key"
-                  aria-label="pokébola da regra"
-                  class="h-8 rounded border border-pk-line-strong bg-pk-bg px-1 text-pk-text focus:border-pk-ok focus:outline-none"
-                >
-                  <option
-                    :for={ball <- @ball_types}
-                    value={ball["key"]}
-                    selected={ball["key"] == rule["key"]}
-                  >
-                    {ball["key"]} · {ball["name"]}
-                  </option>
-                </select>
-                <button
-                  type="button"
-                  phx-click="ball_rule_remove"
-                  phx-value-idx={idx}
-                  aria-label="remover regra"
-                  class="px-1 text-pk-danger"
-                >
-                  ×
-                </button>
-              </form>
-              <button
-                id="ball-rule-add"
-                type="button"
-                phx-click="ball_rule_add"
-                class="font-mono text-pk-meta text-pk-text-3 hover:text-pk-text"
-              >
-                + regra
-              </button>
-            </div>
+            <p class="px-3 py-2 font-mono text-pk-meta text-pk-text-3">
+              A bola de cada corpo virou um seletor na linha dele, em
+              <.link navigate={~p"/calibration"} class="text-pk-ok underline">Calibração</.link>
+              → corpos ensinados. Ali a escolha fica ao lado da foto que reconhece o corpo, que é
+              quem dá o nome — em vez de uma segunda lista casando o mesmo nome escrito de novo.
+            </p>
 
             <%!-- The brute-force net UNDER the aimed capture. Deliberately its
                   own switch: this is what you turn on when you stopped trusting
@@ -922,10 +868,4 @@ defmodule PokexWeb.Panel.SettingsOverlay do
   defp sweep_side_label("right"), do: "só daqui pra direita"
   defp sweep_side_label("left"), do: "só daqui pra esquerda"
   defp sweep_side_label(_square), do: "quadrado completo"
-
-  defp rule_kind(%{"trigger" => %{"kind" => kind}}) when is_binary(kind), do: kind
-  defp rule_kind(_rule), do: "species"
-
-  defp rule_value(%{"trigger" => %{"value" => value}}) when is_binary(value), do: value
-  defp rule_value(_rule), do: ""
 end

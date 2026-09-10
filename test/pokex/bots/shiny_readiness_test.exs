@@ -22,10 +22,9 @@ defmodule Pokex.Bots.ShinyReadinessTest do
       shiny_guard_enabled: false,
       engine_capture_hold_ms: 6_000,
       ball_key: "f1",
-      ball_types: [%{"key" => "f1", "name" => "Poké Ball"}, %{"key" => "f3", "name" => "Ultra"}],
+      ball_types: [%{"key" => "f1", "name" => "Poké Ball"}, %{"key" => "f3", "name" => "Ultra"}]
       # a REALIDADE dele: a única regra de bola é de um pokémon de água da rota
       # de pesca, e nenhum shiny de caverna casa com ela
-      ball_rules: [%{"key" => "f1", "trigger" => %{"kind" => "species", "value" => "Krabby"}}]
     )
 
     :ok
@@ -248,14 +247,23 @@ defmodule Pokex.Bots.ShinyReadinessTest do
     assert hd(check.notes).text =~ "Poké Ball"
   end
 
-  test "a ball rule naming the shiny clears the ball note" do
+  # A bola do shiny agora é escolhida NA ENTRADA do acervo, ao lado da foto que
+  # o reconhece — não numa lista de regras à parte.
+  test "the shiny choosing its own ball clears the ball note" do
     slug = teach()
+    _ = slug
     :ok = ColorRules.mark_proven(slug, 3)
     Pokex.Settings.put(:shiny_guard_enabled, true)
+    Pokex.Settings.put(:ball_types, [%{"key" => "f3", "name" => "Ultra"}])
 
-    Pokex.Settings.put(:ball_rules, [
-      %{"key" => "f3", "trigger" => %{"kind" => "species", "value" => "Electrode shiny"}}
-    ])
+    {:ok, 1} =
+      Pokex.Bots.Catcher.CorpseLibrary.add("Electrode shiny", %Pokex.Vision.Frame{
+        width: 4,
+        height: 4,
+        rgba: :binary.copy(<<40, 200, 190, 255>>, 16)
+      })
+
+    :ok = Pokex.Bots.Catcher.CorpseLibrary.set_ball("electrode-shiny", "f3")
 
     assert ShinyReadiness.check().notes == []
   end

@@ -127,17 +127,21 @@ defmodule Pokex.Settings do
     # best peaks.
     ball_key: "f1",
     ball_needs_click: false,
-    # The balls on his hotbar. `ball_key` above is the DEFAULT — what an
-    # unrecognised corpse, or one no rule mentions, gets thrown at it.
+    # APOSENTADA NA PRÁTICA, ainda DECLARADA. A escolha da bola virou um campo do
+    # corpo ensinado (Calibração → corpos ensinados); ninguém lê esta lista. Ela
+    # continua no alfabeto porque tirar uma chave sem pôr outra faz este build se
+    # declarar mais velho que o `settings.json` dele e o Settings passa a LER sem
+    # ESCREVER, em silêncio (#506/#507 — medido: `older_build?` vira true). Sai
+    # de vez no PR que consertar o crachá.
+    ball_rules: [],
+    # As bolas do hotbar. `ball_key` acima é a PADRÃO — o que leva um corpo que
+    # ninguém reconheceu, ou um do acervo que não escolheu bola própria. QUAL
+    # bola para QUAL corpo mora na entrada do acervo (Calibração → corpos
+    # ensinados), não numa lista à parte: o acervo é quem dá o nome que a bola
+    # casa, e a lista antiga (`ball_rules`) era o mesmo dado num segundo lugar.
     ball_types: [
       %{"key" => "f1", "name" => "Poké Ball"},
       %{"key" => "f2", "name" => "Bola de aquáticos"}
-    ],
-    # WHICH ball for WHICH corpse, read like the combo triggers: naming the creature beats
-    # naming what it is made of, and both beat the default.
-    ball_rules: [
-      %{"trigger" => %{"kind" => "species", "value" => "Tentacool"}, "key" => "f2"},
-      %{"trigger" => %{"kind" => "species", "value" => "Krabby"}, "key" => "f2"}
     ],
     # The beat between positioning the cursor and firing the hotkey.
     capture_aim_settle_ms: 30,

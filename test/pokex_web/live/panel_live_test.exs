@@ -935,45 +935,20 @@ defmodule PokexWeb.PanelLiveTest do
   describe "which ball for which corpse" do
     setup do
       types = Pokex.Settings.get(:ball_types)
-      rules = Pokex.Settings.get(:ball_rules)
-
-      on_exit(fn ->
-        Pokex.Settings.put(:ball_types, types)
-        Pokex.Settings.put(:ball_rules, rules)
-      end)
+      on_exit(fn -> Pokex.Settings.put(:ball_types, types) end)
 
       :ok
     end
 
-    test "a rule written on the screen is the rule the aim obeys", %{conn: conn} do
-      Pokex.Settings.put(:ball_rules, [
-        %{"trigger" => %{"kind" => "species", "value" => "Rattata"}, "key" => "f2"}
-      ])
+    # A ESCOLHA MUDOU DE CASA. Ela era uma lista de regras aqui, casada por nome
+    # de espécie escrito de novo; agora é um seletor na linha de cada corpo do
+    # acervo, na Calibração — coberto em `calibration_live_test.exs`. O que
+    # sobra nesta tela é o hotbar (quais bolas existem), que continua sendo daqui.
+    test "the editors point at where the ball is chosen now", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/config/editores")
 
-      {:ok, view, _} = live(conn, ~p"/config/editores")
-
-      view
-      |> element("#ball-rule-0")
-      |> render_change(%{"idx" => "0", "kind" => "element", "value" => "Water", "key" => "f2"})
-
-      assert [%{"trigger" => %{"kind" => "element", "value" => "Water"}, "key" => "f2"}] =
-               Pokex.Settings.get(:ball_rules)
-
-      assert Pokex.Bots.Catcher.Balls.key_for("Tentacool") == "f2"
-    end
-
-    test "a rule can be added and thrown away", %{conn: conn} do
-      before = length(Pokex.Settings.get(:ball_rules))
-      {:ok, view, _} = live(conn, ~p"/config/editores")
-
-      view |> element("#ball-rule-add") |> render_click()
-      assert length(Pokex.Settings.get(:ball_rules)) == before + 1
-
-      view
-      |> element(~s(button[phx-click="ball_rule_remove"][phx-value-idx="0"]))
-      |> render_click()
-
-      assert length(Pokex.Settings.get(:ball_rules)) == before
+      assert html =~ "agora fica em cada corpo do acervo"
+      refute html =~ "ball-rule-add"
     end
 
     # Removing the last ball would leave nothing to throw AND a value Settings

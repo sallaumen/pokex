@@ -26,6 +26,10 @@ defmodule PokexWeb.CalibrationLibrary do
   Ordered by state, aimed first and vetoed last, each group alphabetical. The veto is a decision
   worth seeing together: scattered through the list, nobody remembers who turned what off.
   """
+  attr :balls, :list,
+    default: [],
+    doc: "as bolas do hotbar (`ball_types`), para o seletor de cada corpo"
+
   def taught_corpses(assigns) do
     assigns = assign(assigns, :entries, sort_by_state(assigns.entries))
 
@@ -35,7 +39,7 @@ defmodule PokexWeb.CalibrationLibrary do
         :for={c <- @entries}
         class={[
           "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-pk-line px-2 py-1.5",
-          "@xl:grid @xl:grid-cols-[0.125rem_minmax(6rem,13rem)_minmax(0,1fr)_auto_auto_auto_1.75rem]",
+          "@xl:grid @xl:grid-cols-[0.125rem_minmax(6rem,13rem)_minmax(0,1fr)_auto_auto_auto_auto_1.75rem]",
           if(CorpseLibrary.enabled?(c), do: "bg-pk-sunken", else: "bg-transparent opacity-70")
         ]}
       >
@@ -70,6 +74,31 @@ defmodule PokexWeb.CalibrationLibrary do
         <span class="pk-num shrink-0 font-mono text-pk-meta text-pk-text-3">
           {length(c["samples"])}/{CorpseLibrary.max_samples()} chãos
         </span>
+
+        <%!-- QUAL BOLA, no corpo que a reconhece. Antes isto era `ball_rules`,
+              uma lista à parte casada por nome de espécie escrito de novo, num
+              overlay do painel que ele não alcançava mais. O nome aqui é o
+              mesmo que chega em `Catcher.Balls.key_for/1`, então a escolha
+              pertence a esta linha. --%>
+        <form phx-change="corpse_ball" class="contents" id={"corpse-ball-#{c["slug"]}"}>
+          <input type="hidden" name="slug" value={c["slug"]} />
+          <select
+            id={"corpse-ball-select-#{c["slug"]}"}
+            name="key"
+            aria-label={"bola de #{c["name"]}"}
+            title="Qual bola jogar neste corpo. A padrão é a do /config."
+            class="select select-ghost h-7 shrink-0 px-1.5 font-mono text-pk-meta text-pk-text-2 focus:bg-pk-raised"
+          >
+            <option value="" selected={CorpseLibrary.ball(c) == nil}>bola padrão</option>
+            <option
+              :for={t <- @balls}
+              value={t["key"]}
+              selected={CorpseLibrary.ball(c) == t["key"]}
+            >
+              {t["name"]} ({t["key"]})
+            </option>
+          </select>
+        </form>
 
         <button
           id={"corpse-toggle-#{c["slug"]}"}

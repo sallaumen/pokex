@@ -143,6 +143,8 @@ defmodule PokexWeb.CalibrationLive do
        corpse_paint: @neutral_paint,
        corpse_msg: nil,
        corpse_list: CorpseLibrary.list(),
+       # as bolas do hotbar, pro seletor de cada corpo ensinado
+       ball_types: Pokex.Settings.get(:ball_types) || [],
        bar_target: bar_target,
        team_names: team_names(),
        pokemon_shot: nil,
@@ -1041,6 +1043,13 @@ defmodule PokexWeb.CalibrationLive do
       |> then(&(&1 && CorpseLibrary.enabled?(&1)))
 
     CorpseLibrary.set_enabled(slug, not ligado?)
+    {:noreply, assign(socket, corpse_list: CorpseLibrary.list())}
+  end
+
+  # A BOLA DESTE CORPO. Vazio volta pra padrão do /config — e é `Settings.get`
+  # a cada render, porque ele troca as bolas do hotbar entre caçadas.
+  def handle_event("corpse_ball", %{"slug" => slug, "key" => key}, socket) do
+    CorpseLibrary.set_ball(slug, if(key == "", do: nil, else: key))
     {:noreply, assign(socket, corpse_list: CorpseLibrary.list())}
   end
 
@@ -3734,6 +3743,7 @@ defmodule PokexWeb.CalibrationLive do
                 :if={@corpse_list != []}
                 entries={@corpse_list}
                 counts={@corpse_counts}
+                balls={@ball_types}
               />
             </section>
 

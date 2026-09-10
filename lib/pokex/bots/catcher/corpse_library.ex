@@ -54,6 +54,32 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   @doc "Deletes ONE sample (a bad photo); dropping the last sample removes the whole corpse."
   def delete_sample(slug, index), do: SpriteLibrary.delete_sample(library(), slug, index)
 
+  @doc "A bola escolhida NESTA entrada — nil quando ele não escolheu nenhuma."
+  @spec ball(map) :: String.t() | nil
+  defdelegate ball(entry), to: SpriteLibrary
+
+  @doc "Which ball this taught corpse asks for — nil means the default one."
+  @spec set_ball(String.t(), String.t() | nil) :: :ok
+  def set_ball(slug, key), do: SpriteLibrary.set_ball(library(), slug, key)
+
+  @doc """
+  A bola escolhida para o corpo chamado `name`, ou nil.
+
+  Casa pelo NOME porque é o nome que a mira devolve (`best/1` → `%{name: …}`),
+  o mesmo que chega em `Catcher.Balls.key_for/1`. Sem entrada, sem escolha.
+  """
+  @spec ball_for(String.t() | nil) :: String.t() | nil
+  def ball_for(name) when is_binary(name) do
+    alvo = String.downcase(String.trim(name))
+
+    case Enum.find(list(), &(String.downcase(&1["name"]) == alvo)) do
+      nil -> nil
+      entry -> SpriteLibrary.ball(entry)
+    end
+  end
+
+  def ball_for(_unrecognised), do: nil
+
   @doc "Sample thumbnail as a BMP data-URL."
   defdelegate thumb(sample), to: SpriteLibrary
 

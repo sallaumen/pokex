@@ -194,7 +194,8 @@ defmodule Pokex.Bots.ShinyReadiness do
         [
           step(
             :default_ball,
-            "o shiny vai levar a bola padrão (#{Balls.label(default)}) — nenhuma regra de bola cita o nome dele",
+            "o shiny vai levar a bola padrão (#{Balls.label(default)}) — ele não escolheu bola " <>
+              "própria no acervo da Calibração",
             @editors,
             "escolher a bola"
           )

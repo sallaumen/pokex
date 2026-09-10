@@ -174,7 +174,6 @@ defmodule PokexWeb.PanelLive do
        corpse_match_pct: round(Settings.get(:corpse_match_min_similarity) * 100),
        ball_key: Settings.get(:ball_key),
        ball_types: Settings.get(:ball_types),
-       ball_rules: Settings.get(:ball_rules),
        ball_needs_click: Settings.get(:ball_needs_click),
        corpse_max_balls: Settings.get(:corpse_max_balls),
        corpse_scan_radius_tiles: Settings.get(:corpse_scan_radius_tiles),
@@ -983,28 +982,6 @@ defmodule PokexWeb.PanelLive do
 
   def handle_event("ball_type_remove", %{"idx" => idx}, socket) do
     {:noreply, put_ball_list(socket, :ball_types, &delete_at(&1, idx))}
-  end
-
-  def handle_event(
-        "ball_rule_change",
-        %{"idx" => idx, "kind" => kind, "value" => value, "key" => key},
-        socket
-      ) do
-    rule = %{"trigger" => %{"kind" => kind, "value" => String.trim(value)}, "key" => key}
-    {:noreply, put_ball_list(socket, :ball_rules, &replace_at(&1, idx, rule))}
-  end
-
-  def handle_event("ball_rule_add", _params, socket) do
-    novo = %{
-      "trigger" => %{"kind" => "species", "value" => ""},
-      "key" => Settings.get(:ball_key)
-    }
-
-    {:noreply, put_ball_list(socket, :ball_rules, &(&1 ++ [novo]))}
-  end
-
-  def handle_event("ball_rule_remove", %{"idx" => idx}, socket) do
-    {:noreply, put_ball_list(socket, :ball_rules, &delete_at(&1, idx))}
   end
 
   # The blind sweep's switch and cadence. `mode_changed` is what makes the flip
@@ -3452,7 +3429,6 @@ defmodule PokexWeb.PanelLive do
           }
         }
         ball_types={@ball_types}
-        ball_rules={@ball_rules}
         sweep_cfg={
           %{
             enabled: @sweep_enabled,

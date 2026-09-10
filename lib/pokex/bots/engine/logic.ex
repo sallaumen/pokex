@@ -298,24 +298,50 @@ defmodule Pokex.Bots.Engine.Logic do
   defp stun!(logic, t),
     do: %{mark(logic, :stunned, t.now) | stun_cover: Siege.cover(t.siege, t.config, t.now)}
 
+  @eye_phases [:sizing, :gathering, :bunching]
+
   # The eye's sentence rides on every revive the brain gives or holds — and
   # only when there is an eye to speak: with no reading in the picture the
   # orders are exactly what they were, which is what keeps a night's diary
   # comparable with the one before.
   defp shadow_siege({logic, orders}, %{s: %{crowd: crowd}} = t) when not is_nil(crowd) do
-    if orders.revive in [:now, :prepare] or String.contains?(orders.why, "segurando o revive") do
-      {logic,
-       %{
-         orders
-         | why: orders.why <> " · o olho diria: " <> Siege.summary(t.siege),
-           siege: Siege.record(t.siege)
-       }}
-    else
-      {logic, orders}
+    cond do
+      speaks_of_eye?(orders) ->
+        {logic,
+         %{
+           orders
+           | why: orders.why <> " · o olho diria: " <> Siege.summary(t.siege),
+             siege: Siege.record(t.siege)
+         }}
+
+      orders.phase in @eye_phases ->
+        {logic, %{orders | siege: Siege.record(t.siege)}}
+
+      true ->
+        {logic, orders}
     end
   end
 
   defp shadow_siege(decision, _no_eye), do: decision
+
+  # …E TAMBÉM ENQUANTO A RÉGUA CONTA — MAS SÓ NO PAPEL, NÃO NA FRASE.
+  #
+  # O carimbo do olho só andava em decisão de revive, então o diário é CEGO
+  # exatamente na fase que decide o tamanho da pilha: nos 12.485 registros de
+  # 09/09 não há um único tique de `:sizing` ou `:bunching` com bloco `siege`.
+  # Sem isso não há como responder se o olho enxerga o bicho que a lista ainda
+  # não listou — a pergunta que decide se juntar pilha andando pode voltar (o
+  # motivo do desligamento, em `HuntMode`, é literalmente "os que perseguem FORA
+  # da tela não são contados").
+  #
+  # A FRASE FICA COMO ESTAVA, e isso não é detalhe: os números do olho mudam a
+  # cada tique, e os dois dedups deste caminho comparam `why` por igualdade
+  # (`Narration.decision/3` e `Engine.Worker.changed_mind?/2`). Colar o olho na
+  # frase das fases mais comuns da caçada seria o contador da corrente de novo —
+  # 54% do diário em frases únicas, consertado no #579.
+  defp speaks_of_eye?(orders) do
+    orders.revive in [:now, :prepare] or String.contains?(orders.why, "segurando o revive")
+  end
 
   # O SOBREVIVENTE DA CORRENTE. "Quando não consegue matar 1 pokémon com um
   # combo, sobra 1, ele sai correndo tentando mobar (…) quando tem 1 shiny

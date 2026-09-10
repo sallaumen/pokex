@@ -175,7 +175,11 @@ defmodule PokexWeb.ConfigLiveTest do
       {:ok, view, html} = live(conn, ~p"/config")
 
       assert html =~ "cfg-row-engine_engage_from"
-      assert html =~ "Para e luta a partir de"
+      assert html =~ "Para a rota e abre fogo com"
+      # A UNIDADE FORA DO RÓTULO é o conserto do corte: "(bichos)" vivia dentro
+      # do texto e era o pedaço que o `truncate` comia. Na tela dele o vizinho
+      # aparecia como "Andando com pouco bicho: mata dep…", sem dizer em quê.
+      assert html =~ "bichos"
 
       html =
         view
@@ -184,6 +188,18 @@ defmodule PokexWeb.ConfigLiveTest do
 
       assert Settings.get(:engine_engage_from) == 6
       assert html =~ "hero-check-circle"
+    end
+
+    # "Definitivamente faltava clareza no nome da régua e na descrição" (10/09).
+    # As duas linhas apareciam lado a lado com o mesmo 5, e a única frase que
+    # dizia que a de baixo passa por cima da de cima estava atrás do `(?)`.
+    test "who overrides whom is on the line, never only in the tooltip", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/config")
+
+      assert html =~ "Arrastando o bolo, desiste depois de"
+      assert html =~ "passos"
+      assert html =~ "nenhum modo arrasta hoje"
+      assert html =~ "é também o piso do alvo do bolo"
     end
 
     test "abaixo de quanto a barra lida conta como pokémon no chão", %{conn: conn} do

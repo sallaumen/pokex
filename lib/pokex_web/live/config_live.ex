@@ -312,25 +312,29 @@ defmodule PokexWeb.ConfigLive do
         %{
           key: :engine_engage_from,
           kind: :int,
-          label: "Para e luta a partir de (bichos)",
+          unit: "bichos",
+          label: "Para a rota e abre fogo com",
           hint:
-            "O número que manda. Com este tanto na lista o cavebot PARA e o cérebro estoura a área. " <>
-              "Com menos, segue andando e contando quem aparece. No Econômico é sempre 1.",
+            "O número que manda: com este tanto na LISTA de batalha o cavebot para e o cérebro " <>
+              "estoura a área. Com menos, segue andando e contando quem aparece. O alvo do bolo " <>
+              "nunca abaixa disto — vale o maior dos dois.",
           keywords: "encarar engajar engage lutar a partir bichos mínimo parar bolo"
         },
         %{
           key: :engine_patience_tiles,
           kind: :int,
-          label: "Andando com pouco bicho: mata depois de (passos)",
+          unit: "passos",
+          label: "Arrastando o bolo, desiste depois de",
           hint:
-            "Só vale com MENOS bicho que o número de cima: depois deste tanto de passos andando " <>
-              "com eles atrás, para e mata o que tem em vez de seguir arrastando.",
-          keywords: "paciência passos não veio mais ninguém arrastar"
+            "Passos dados com o bolo atrás sem ninguém novo chegar: cumpridos, para e mata o que " <>
+              "veio em vez de seguir puxando. Passo de rota comum NÃO conta — a conta só começa " <>
+              "quando a juntada começa, e nenhum modo junta hoje.",
+          keywords: "paciência passos não veio mais ninguém arrastar teto desistir"
         },
         %{
           key: :engine_bunch_ms,
           kind: :sec,
-          label: "Parado, esperar colarem por até",
+          label: "Parado, espera colarem por até",
           hint:
             "Já parado com o número de cima na lista: quanto esperar os bichos chegarem em cima " <>
               "do pokémon antes de estourar. Fecha antes se a contagem parar de mudar.",
@@ -867,6 +871,10 @@ defmodule PokexWeb.ConfigLive do
   defp shown(key, :min), do: div(Settings.get(key) || 0, 60_000)
   defp shown(key, _kind), do: Settings.get(key)
 
+  # A UNIDADE SAI DO RÓTULO. Ela vivia dentro do texto — "mata depois de (passos)" —
+  # e era justamente a parte que o `truncate` comia: na tela dele o botão aparecia
+  # como "Andando com pouco bicho: mata dep…", sem dizer em quê. Aqui ela é um
+  # campo, renderizado ao lado do número, onde não há o que cortar.
   defp unit(%{unit: unit}, _kind), do: unit
   defp unit(_row, :sec), do: "s"
   defp unit(_row, :min), do: "min"
@@ -969,7 +977,7 @@ defmodule PokexWeb.ConfigLive do
                     ]}></span>
                   </span>
                   <span class="min-w-0 flex-1">
-                    <span class="block truncate text-pk-body text-pk-text">{row.label}</span>
+                    <span class="block text-pk-body text-pk-text">{row.label}</span>
                     <.mode_line key={row.key} />
                   </span>
                   <.hint text={row.hint} />
@@ -984,7 +992,7 @@ defmodule PokexWeb.ConfigLive do
                   class="flex items-center gap-2.5 px-3 py-2"
                 >
                   <label for={"cfg-input-#{row.key}"} class="min-w-0 flex-1">
-                    <span class="block truncate text-pk-body text-pk-text">{row.label}</span>
+                    <span class="block text-pk-body text-pk-text">{row.label}</span>
                     <.mode_line key={row.key} />
                   </label>
                   <.hint text={row.hint} />
@@ -1028,7 +1036,7 @@ defmodule PokexWeb.ConfigLive do
 
                   <span
                     :if={unit(row, row.kind)}
-                    class="w-7 shrink-0 font-mono text-pk-meta text-pk-text-3"
+                    class="w-auto min-w-7 shrink-0 whitespace-nowrap font-mono text-pk-meta text-pk-text-3"
                   >
                     {unit(row, row.kind)}
                   </span>
@@ -1178,12 +1186,30 @@ defmodule PokexWeb.ConfigLive do
   # `HuntMode.engine_overrides/1`, a mesma lista que o cérebro obedece.
   attr :key, :atom, required: true
 
+  # QUEM MANDA NESTE BOTÃO, NA LINHA — nunca no tooltip. O par que confundiu o dono
+  # (10/09) era `engine_engage_from` e `engine_patience_tiles` lado a lado, os dois
+  # com 5: a única frase que dizia que o de baixo passa por cima do de cima estava
+  # atrás do `(?)`. Uma dependência que só aparece quando o mouse passa por cima é
+  # uma dependência que ninguém lê.
+  @depends %{
+    engine_patience_tiles:
+      "só conta passo dado ARRASTANDO — e nenhum modo arrasta hoje, " <>
+        "então este número não é olhado",
+    engine_engage_from: "é também o piso do alvo do bolo: vale o maior dos dois"
+  }
+
   defp mode_line(assigns) do
-    assigns = assign(assigns, :forced, forced_by_modes(assigns.key))
+    assigns =
+      assigns
+      |> assign(:forced, forced_by_modes(assigns.key))
+      |> assign(:depends, @depends[assigns.key])
 
     ~H"""
-    <span :if={@forced != []} class="block truncate font-mono text-pk-meta text-pk-text-3">
+    <span :if={@forced != []} class="block font-mono text-pk-meta text-pk-text-3">
       {Enum.map_join(@forced, " · ", fn {modo, valor} -> "no #{modo}: #{valor}" end)}
+    </span>
+    <span :if={@depends} class="block font-mono text-pk-meta text-pk-warn">
+      {@depends}
     </span>
     """
   end

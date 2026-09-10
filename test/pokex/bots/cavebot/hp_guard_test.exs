@@ -30,13 +30,6 @@ defmodule Pokex.Bots.Cavebot.HpGuardTest do
     r
   end
 
-  defp mob_route do
-    plain_route()
-    |> Route.set_action(0, :lure_start)
-    |> Route.set_action(1, :lure_end)
-    |> Route.set_timing(1, combo: ["3", "3", "4", "5"])
-  end
-
   defp walking(route \\ plain_route()) do
     %{Logic.new(route, @cfg) | combat_running?: true, homed?: true}
   end
@@ -54,9 +47,9 @@ defmodule Pokex.Bots.Cavebot.HpGuardTest do
   # mais nada — nem a rota, nem a mobada. O amarelo do cérebro é quem fecha a
   # rodada e revive; parado esperando 85% era só apanhar de graça.
   test "low HP with the pokemon standing does NOT hold the route" do
-    l = %{walking(mob_route()) | wp_index: 1, last_hp: 30}
+    l = %{walking(plain_route()) | wp_index: 1, last_hp: 30}
 
-    {l, action} = Logic.step(l, world({12, 10, 7}, 30, 3), 0)
+    {l, action} = Logic.step(l, world({12, 10, 7}, 30, 3) |> Map.put(:engine?, true), 0)
 
     assert l.state == :walking
     assert match?({:walk, _, _}, action)
@@ -94,21 +87,6 @@ defmodule Pokex.Bots.Cavebot.HpGuardTest do
 
     {l, :none} = Logic.step(l, %{down() | enemies: 2}, 200)
     assert l.state == :fighting
-  end
-
-  test "the freed fire carries the destination kill spot's combo" do
-    l = %{walking(mob_route()) | wp_index: 1}
-    {l, _} = Logic.step(l, Map.put(down({12, 10, 7}), :enemies, 3), 0)
-    {l, _} = Logic.step(l, Map.put(down({12, 10, 7}), :enemies, 3), 200)
-
-    assert Logic.combo(l) == ["3", "4", "5"]
-  end
-
-  test "a floor hold releases the fire even inside the huddle wait" do
-    l = %{walking(mob_route()) | wp_index: 1, state: :fighting, since: %{gather: 0}}
-
-    assert Logic.hold_fire?(l, 100)
-    refute Logic.hold_fire?(%{l | recovering?: true}, 100)
   end
 
   test "post_fight does not resume while the pokémon is down" do

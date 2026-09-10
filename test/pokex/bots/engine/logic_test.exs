@@ -76,25 +76,40 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
   defp step(logic \\ Logic.new(), world, now), do: Logic.step(logic, world, @config, now)
 
+  # A RÉGUA CORRE ANDANDO. Não existe mais "perna de mobada": o que decide se a
+  # caçada anda ou para é a contagem do que está ao redor, e ela roda em todo
+  # tique de estrada.
   describe "walking the route (green)" do
-    test "a plain leg walks with the fire held" do
-      {logic, orders} = step(world(), 1_000)
+    test "nothing worth the area keeps the road moving, counting who arrives" do
+      w = world(%{situation: situation(%{enemies: 1, worth_fighting?: false})})
+      {logic, orders} = step(w, 1_000)
 
-      assert logic.state == :travelling
+      assert logic.state in [:sizing, :gathering]
       assert orders.route == :go
       assert orders.fire == :hold
       assert orders.band == :green
     end
 
-    test "a gathering leg walks and says it is gathering" do
-      {logic, orders} = step(world(%{hunt: hunt(%{luring?: true})}), 1_000)
+    test "a pile that is not full yet is gathered ON THE MOVE" do
+      w = world()
+      {logic, orders} = Logic.step(Logic.new(), w, gathering_config(), 1_000)
 
       assert logic.state == :gathering
       assert orders.route == :go
       assert orders.fire == :hold
-      assert orders.why =~ "mobando"
+      assert orders.why =~ "juntando"
+    end
+
+    test "a pile that IS full stops the road — no mark anywhere said so" do
+      {_logic, orders} = step(world(), 1_000)
+
+      assert orders.route == :hold
     end
   end
+
+  # `gather_target` acima da contagem: a pilha ainda está enchendo, que é onde
+  # a juntada vive. O `@config` do arquivo fecha a janela em 1 de propósito.
+  defp gathering_config, do: %{@config | gather_target: 9, size_ceiling_ms: 60_000}
 
   # "Gastei minhas skills num bicho bobo" (28/08): a pilha que a régua já
   # chamou de "não vale a área" só está sendo limpa porque a paciência acabou —
@@ -143,40 +158,35 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # barra pra matar nem revive pra comprá-la é escolher uma luta sem saída.
   describe "pilha só se abre com o que pagar" do
     test "barra gasta mas revive ao alcance: junta como sempre (R3b paga)" do
-      w = world(%{situation: situation(%{spent?: true}), hunt: hunt(%{luring?: true})})
-      {logic, _orders} = step(w, 1_000)
+      w = world(%{situation: situation(%{spent?: true})})
+      {logic, _orders} = Logic.step(Logic.new(), w, gathering_config(), 1_000)
 
       assert logic.state == :gathering
     end
 
     test "barra gasta e revive fora de alcance: não abre pilha, segue atirando" do
-      w =
-        world(%{
-          situation: situation(%{spent?: true, revive_left: 0}),
-          hunt: hunt(%{luring?: true})
-        })
+      w = world(%{situation: situation(%{spent?: true, revive_left: 0})})
 
-      {logic, orders} = step(w, 1_000)
+      {logic, orders} = Logic.step(Logic.new(), w, gathering_config(), 1_000)
 
-      assert logic.state == :travelling
+      assert logic.state == :skipping
       assert orders.route == :go
-      assert orders.fire == :free
-      assert orders.why =~ "não abro pilha"
+      assert orders.fire == :hold
+      assert orders.why =~ "deixando essa pilha"
     end
 
     test "a barra esvaziando NO MEIO da régua larga a pilha, como o teto de tempo" do
-      juntando = world(%{hunt: hunt(%{luring?: true})})
-      {logic, _orders} = step(juntando, 1_000)
+      juntando = world()
+      {logic, _orders} = Logic.step(Logic.new(), juntando, gathering_config(), 1_000)
       assert logic.state == :gathering
 
       esvaziou =
         world(%{
           situation:
-            situation(%{enemies: 2, worth_fighting?: false, spent?: true, revive_left: 0}),
-          hunt: hunt(%{luring?: true})
+            situation(%{enemies: 2, worth_fighting?: false, spent?: true, revive_left: 0})
         })
 
-      {logic, orders} = Logic.step(logic, esvaziou, @config, 2_000)
+      {logic, orders} = Logic.step(logic, esvaziou, gathering_config(), 2_000)
 
       assert logic.state == :skipping
       assert orders.why =~ "deixando essa pilha"
@@ -3317,7 +3327,10 @@ defmodule Pokex.Bots.Engine.LogicTest do
       {_logic, orders} =
         cerca_step(
           Logic.new(),
-          world(%{situation: situation(%{crowd: eye([creature(4, 1)])})}),
+          world(%{
+            situation:
+              situation(%{enemies: 1, worth_fighting?: false, crowd: eye([creature(4, 1)])})
+          }),
           1_000
         )
 

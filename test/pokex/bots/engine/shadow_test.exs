@@ -141,7 +141,7 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   end
 
   test "the orders reach the blackboard", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell Gloom Vileplume))
     hunting(%{luring?: true})
     tick(worker)
 
@@ -154,7 +154,7 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   # trecho de mobada: o que muda é a rota ter escolhido o Econômico, e a
   # sobreposição de knobs desligar a mobada sem uma linha nova no `Logic`.
   test "o modo econômico não junta pilha", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell Gloom Vileplume))
     hunting(%{luring?: true, mode: :economy})
     tick(worker)
 
@@ -167,7 +167,7 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   # fortes, e lá "andar até eles chama ainda mais bicho" (02/09). Com a mesma
   # tela ele PARA: a rota segura e o fogo abre, porque seis já vale a área.
   test "o auto combo não junta: com a tela cheia ele para e abre", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell Gloom Vileplume))
     hunting(%{luring?: true, mode: :auto_combo})
     tick(worker)
 
@@ -176,7 +176,7 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   end
 
   test "with no hunt running there is nothing to decide", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell Gloom Vileplume))
     tick(worker)
 
     assert orders().phase == :idle
@@ -184,12 +184,12 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   end
 
   test "it says out loud what it would have done", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell Gloom Vileplume))
     hunting(%{state: :fighting})
     tick(worker)
 
     assert_receive {:engine_log, :macro, "quadro: 🧠" <> shadow}
-    assert shadow =~ "6 inimigos"
+    assert shadow =~ "8 inimigos"
     assert shadow =~ "caindo em cima"
     assert shadow =~ "[liberaria o fogo]"
   end
@@ -212,7 +212,7 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   end
 
   test "nobody obeys yet: the posture the fight reads is untouched", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell Gloom Vileplume))
     hunting(%{state: :fighting})
     tick(worker)
     tick(worker)
@@ -223,10 +223,10 @@ defmodule Pokex.Bots.Engine.ShadowTest do
   end
 
   test "halting takes the orders down with the picture", %{worker: worker} do
-    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell))
+    see(~w(Venonat Paras Venomoth Oddish Bellsprout Weepinbell Gloom Vileplume))
     hunting()
     tick(worker)
-    assert orders().phase == :travelling
+    assert orders().phase != nil
 
     :ok = Worker.halt(worker)
 

@@ -682,7 +682,6 @@ defmodule PokexWeb.ConfigLive do
       label: "Cavebot",
       sub: "rotas, respiro das paradas, tropeço, estacionar",
       keys: [
-        :cavebot_gather_wait_ms,
         :cavebot_block_retries,
         :cavebot_block_retry_ms,
         :area_probe_enabled,

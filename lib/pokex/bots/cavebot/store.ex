@@ -98,16 +98,17 @@ defmodule Pokex.Bots.Cavebot.Store do
     do:
       raise(ArgumentError, "sem a chave \"routes\": #{inspect(shapeless) |> String.slice(0, 80)}")
 
-  # `"z"` is read past on purpose: routes written before 2026-08-28 carry the
-  # floor they started on, and nothing has read it since `floors/1` started
-  # deriving the whole set from the waypoints. It leaves the file the next time
-  # the route is saved.
+  # KEYS READ PAST ON PURPOSE. `"z"` on the route (the floor it started on,
+  # dead since `floors/1` derives the whole set from the waypoints), and now
+  # `"action"`, `"combo"`, `"skills"` and `"gather_wait_ms"` on the waypoint —
+  # the mob-stretch marks and everything hanging off them. They stay in his
+  # file until the next save and are never read again: deleting a key nobody
+  # reads is not worth a migration, and a route saved once comes back clean.
   defp decode_route(map) do
     %Route{
       name: map["name"],
       dungeon: map["dungeon"],
       enabled?: map["enabled"] != false,
-      gather_wait_ms: decode_dwell(map["gather_wait_ms"]),
       mode: HuntMode.parse(map["mode"]),
       waypoints: Enum.map(map["waypoints"] || [], &decode_waypoint/1)
     }
@@ -119,34 +120,18 @@ defmodule Pokex.Bots.Cavebot.Store do
   # a second. MEASURED 2026-08-26 on the step alone: 0.7us per waypoint against
   # 0.4us — small next to the file read, and free.
   @stop_names Enum.map(Route.stops(), &{Atom.to_string(&1), &1})
-  @skill_names Enum.map(Route.skills(), &{Atom.to_string(&1), &1})
 
   defp decode_waypoint(%{"x" => x, "y" => y, "z" => z} = map),
     do: %{
       x: x,
       y: y,
       z: z,
-      action: decode_action(map["action"]),
       stops: decode_stops(map),
       at: decode_at(map["at"]),
       dwell_ms: decode_dwell(map["dwell_ms"]),
       fight_ms: decode_dwell(map["fight_ms"]),
-      gather_ms: decode_dwell(map["gather_ms"]),
-      combo: decode_combo(map["combo"]),
-      skills: decode_skills(map["skills"]),
-      gather_wait_ms: decode_dwell(map["gather_wait_ms"])
+      gather_ms: decode_dwell(map["gather_ms"])
     }
-
-  defp decode_combo(list) when is_list(list), do: Enum.filter(list, &is_binary/1)
-  defp decode_combo(_absent), do: []
-
-  # Whitelisted, like the action and the stops: `routes.json` is hand-editable
-  # and a typo in it must not mint an atom. Canonical order on the way out, not
-  # the file's order.
-  defp decode_skills(list) when is_list(list),
-    do: for({name, skill} <- @skill_names, name in list, do: skill)
-
-  defp decode_skills(_absent), do: []
 
   defp decode_at(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
@@ -170,19 +155,11 @@ defmodule Pokex.Bots.Cavebot.Store do
 
   defp decode_stops(_none), do: []
 
-  # Whitelisted, never `String.to_atom/1`: the file is user-editable, and a
-  # typo in it must not mint atoms. Anything unknown — including the missing
-  # key in every route recorded before waypoints had jobs — is a plain corner.
-  defp decode_action("lure_start"), do: :lure_start
-  defp decode_action("lure_end"), do: :lure_end
-  defp decode_action(_walk_or_unknown), do: :walk
-
   defp encode(%Route{} = route) do
     %{
       "name" => route.name,
       "dungeon" => route.dungeon,
       "enabled" => route.enabled?,
-      "gather_wait_ms" => route.gather_wait_ms,
       "mode" => encode_mode(route.mode),
       "waypoints" => Enum.map(route.waypoints, &encode_waypoint/1)
     }
@@ -193,15 +170,11 @@ defmodule Pokex.Bots.Cavebot.Store do
       "x" => x,
       "y" => y,
       "z" => z,
-      "action" => Atom.to_string(Map.get(waypoint, :action) || :walk),
       "stops" => Enum.map(Map.get(waypoint, :stops) || [], &Atom.to_string/1),
       "at" => encode_at(Map.get(waypoint, :at)),
       "dwell_ms" => Map.get(waypoint, :dwell_ms),
       "fight_ms" => Map.get(waypoint, :fight_ms),
-      "gather_ms" => Map.get(waypoint, :gather_ms),
-      "combo" => Map.get(waypoint, :combo) || [],
-      "skills" => Enum.map(Map.get(waypoint, :skills) || [], &Atom.to_string/1),
-      "gather_wait_ms" => Map.get(waypoint, :gather_wait_ms)
+      "gather_ms" => Map.get(waypoint, :gather_ms)
     }
 
   defp encode_mode(mode) when is_atom(mode) and not is_nil(mode), do: Atom.to_string(mode)

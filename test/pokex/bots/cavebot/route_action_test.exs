@@ -1,17 +1,15 @@
 defmodule Pokex.Bots.Cavebot.RouteActionTest do
   @moduledoc """
-  A waypoint stopped being only a place: it can carry a JOB. "Mobar daqui" and
-  "até aqui" (Lucas, 2026-08-10) mark a stretch of the route that is walked
-  gathering mobs instead of fighting them.
+  What a waypoint carries besides its place.
 
-  The route is a LOOP, so the stretch is read around the cycle — which is the
-  whole reason this lives in a pure function with its own tests instead of
-  inside a `for` in the template.
+  It used to carry a JOB too — "mobar daqui" … "até aqui" — and the hunt read
+  those marks to decide whether a monster on screen was worth stopping for.
+  That decision moved to the brain, which counts what is actually around him,
+  so the waypoint is a PLACE and a list of STOPS and nothing else.
   """
   use ExUnit.Case, async: true
 
   alias Pokex.Bots.Cavebot.Route
-  alias Pokex.Pokedex.SkillProfile
 
   defp route_of(coords) do
     Enum.reduce(coords, Route.new("r"), fn {x, y}, route ->
@@ -22,84 +20,6 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
 
   defp square, do: route_of([{0, 0}, {4, 0}, {4, 4}, {0, 4}])
 
-  defp lure_legs(%Route{waypoints: waypoints}) do
-    waypoints
-    |> Enum.with_index()
-    |> Enum.filter(fn {_wp, index} -> Route.lure_leg?(waypoints, index) end)
-    |> Enum.map(fn {_wp, index} -> index end)
-  end
-
-  describe "the job a waypoint carries" do
-    test "a recorded waypoint just walks" do
-      assert [%{action: :walk} | _rest] = square().waypoints
-    end
-
-    test "set_action/3 writes the job, and only on that waypoint" do
-      route = Route.set_action(square(), 1, :lure_start)
-
-      assert Enum.map(route.waypoints, & &1.action) == [:walk, :lure_start, :walk, :walk]
-    end
-
-    test "an unknown job, or an index nobody has, leaves the route untouched" do
-      route = square()
-
-      assert Route.set_action(route, 1, :teleport) == route
-      assert Route.set_action(route, 9, :lure_start) == route
-    end
-  end
-
-  describe "which legs are walked luring" do
-    # The leg LEAVING a waypoint is the one that carries its job: arriving at
-    # "mobar daqui" is what starts the gathering, and arriving at "até aqui"
-    # is what ends it — so the leg out of the end waypoint is a normal leg.
-    test "the stretch runs from the start waypoint up to the end waypoint" do
-      route =
-        square()
-        |> Route.set_action(1, :lure_start)
-        |> Route.set_action(3, :lure_end)
-
-      assert lure_legs(route) == [1, 2]
-    end
-
-    test "a plain route lures nowhere" do
-      assert lure_legs(square()) == []
-    end
-
-    test "the stretch wraps around the loop, because the route IS a loop" do
-      route =
-        square()
-        |> Route.set_action(3, :lure_start)
-        |> Route.set_action(1, :lure_end)
-
-      # 3 → 0 (the closing leg) → 1, and then back to normal
-      assert lure_legs(route) == [0, 3]
-    end
-
-    test "two stretches in one route are two stretches" do
-      route =
-        route_of([{0, 0}, {1, 0}, {2, 0}, {3, 0}, {4, 0}, {5, 0}])
-        |> Route.set_action(0, :lure_start)
-        |> Route.set_action(1, :lure_end)
-        |> Route.set_action(3, :lure_start)
-        |> Route.set_action(4, :lure_end)
-
-      assert lure_legs(route) == [0, 3]
-    end
-
-    # An unfinished mark is a real footgun for the hunt that will obey it: with
-    # no end, the gathering never stops and the character walks the whole route
-    # refusing to fight. The drawing shows it (everything blue) and the editor
-    # says it in words — see lure_issue/1.
-    test "a start with no end lures the whole loop" do
-      route = Route.set_action(square(), 2, :lure_start)
-
-      assert lure_legs(route) == [0, 1, 2, 3]
-    end
-  end
-
-  # A stop is a SECOND axis, not another job: the waypoint where the gathered
-  # pile dies is exactly the one worth reviving at, and it is already carrying
-  # "até aqui".
   describe "what the hunt does when it stops there" do
     test "a recorded waypoint does nothing beyond arriving" do
       assert [%{stops: []} | _rest] = square().waypoints
@@ -139,14 +59,13 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
       assert Route.set_stop(route, 1, :sweep, true) == route
     end
 
-    test "a waypoint can gather AND wait AND revive — they do not compete" do
+    test "a waypoint can wait AND revive — they do not compete" do
       route =
         square()
-        |> Route.set_action(3, :lure_end)
         |> Route.set_stop(3, :wait, true)
         |> Route.set_stop(3, :cooldown_revive, true)
 
-      assert %{action: :lure_end, stops: [:cooldown_revive, :wait]} = Enum.at(route.waypoints, 3)
+      assert %{stops: [:cooldown_revive, :wait]} = Enum.at(route.waypoints, 3)
     end
 
     test "stops_at/2 answers for the waypoint the hunt just reached" do
@@ -158,205 +77,10 @@ defmodule Pokex.Bots.Cavebot.RouteActionTest do
     end
   end
 
-  describe "an unfinished mark says so" do
-    test "a paired stretch is quiet" do
-      route =
-        square()
-        |> Route.set_action(1, :lure_start)
-        |> Route.set_action(3, :lure_end)
-
-      assert Route.lure_issue(route) == nil
-      assert Route.lure_issue(square()) == nil
-    end
-
-    test "a start with no end at all is the one that breaks the hunt" do
-      assert Route.lure_issue(Route.set_action(square(), 1, :lure_start)) == :start_without_end
-    end
-
-    # An extra "até aqui" costs nothing: it just marks another kill spot,
-    # which is exactly what it is. Crying wolf about it taught him to ignore
-    # the warning that DOES matter.
-    test "an end with no start is not a problem" do
-      assert Route.lure_issue(Route.set_action(square(), 1, :lure_end)) == nil
-    end
-
-    test "two gatherings closing on one end are both closed" do
-      route =
-        square()
-        |> Route.set_action(0, :lure_start)
-        |> Route.set_action(1, :lure_start)
-        |> Route.set_action(2, :lure_end)
-
-      assert Route.lure_issue(route) == nil
-    end
-  end
-
-  describe "skills — the waypoint's third axis" do
-    setup do
-      {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
-      {:ok, route} = Route.append(route, {12, 10, 5})
-      %{route: route}
-    end
-
-    test "is born carrying none", %{route: route} do
-      assert Route.skills_at(route.waypoints, 0) == []
-    end
-
-    # The test above would still pass if `append/3` stopped writing the field,
-    # because `skills_at/2` answers `[]` for an absent key too. The Store
-    # serialises exactly these two keys, so a fresh waypoint has to carry them.
-    test "a fresh waypoint carries both new keys, not just readable defaults", %{route: route} do
-      assert Map.fetch(hd(route.waypoints), :skills) == {:ok, []}
-      assert Map.fetch(hd(route.waypoints), :gather_wait_ms) == {:ok, nil}
-    end
-
-    test "turns a category on and off", %{route: route} do
-      route = Route.set_skill(route, 0, :buffs, true)
-      assert Route.skills_at(route.waypoints, 0) == [:buffs]
-
-      route = Route.set_skill(route, 0, :buffs, false)
-      assert Route.skills_at(route.waypoints, 0) == []
-    end
-
-    # The order is the canonical one, not the clicking one: two routes with the
-    # same skills have to produce the same key sequence.
-    test "keeps the canonical order, not the clicking order", %{route: route} do
-      route =
-        route
-        |> Route.set_skill(0, :single, true)
-        |> Route.set_skill(0, :buffs, true)
-
-      assert Route.skills_at(route.waypoints, 0) == [:buffs, :single]
-    end
-
-    test "turning one on twice does not double it", %{route: route} do
-      route = route |> Route.set_skill(0, :buffs, true) |> Route.set_skill(0, :buffs, true)
-      assert Route.skills_at(route.waypoints, 0) == [:buffs]
-    end
-
-    test "does not leak into the neighbouring waypoint", %{route: route} do
-      route = Route.set_skill(route, 0, :buffs, true)
-      assert Route.skills_at(route.waypoints, 1) == []
-    end
-
-    # Same rule as set_stop: a control that cannot act is a no-op, never an error.
-    test "an index nobody has, or a category nobody knows, changes nothing", %{route: route} do
-      assert Route.set_skill(route, 99, :buffs, true) == route
-      assert Route.set_skill(route, 0, :swim, true) == route
-      assert Route.skills_at(route.waypoints, 99) == []
-    end
-
-    # The Route reads the list off the Pokédex at COMPILE time, so a sixth
-    # category taught to the profile arrives here on its own. This pins that
-    # tie: the day someone writes a second literal back into the Route, the
-    # editor would offer a category whose label and icon the profile does not
-    # have — and the page would raise while RENDERING, on every load, not
-    # while clicking.
-    test "the categories are exactly the Pokédex's, in the same order" do
-      assert Route.skills() == SkillProfile.categories()
-    end
-  end
-
-  describe "gather_wait/3 — the huddle ruler" do
-    setup do
-      {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
-      %{route: route, wp: hd(route.waypoints)}
-    end
-
-    test "with nothing written down, the global number rules", %{route: route, wp: wp} do
-      assert Route.gather_wait(route, wp, 4_000) == 4_000
-    end
-
-    test "the route's own ruler beats the global one", %{route: route, wp: wp} do
-      route = Route.set_gather_wait(route, 1_800)
-      assert Route.gather_wait(route, wp, 4_000) == 1_800
-    end
-
-    test "the waypoint beats the route's ruler", %{route: route} do
-      route = route |> Route.set_gather_wait(1_800) |> Route.set_gather_wait(0, 600)
-      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 600
-    end
-
-    # Zero is a legitimate answer — "wait for nothing here" — and must not fall
-    # through to the next level.
-    test "zero is obeyed, it is not absence", %{route: route} do
-      route = route |> Route.set_gather_wait(1_800) |> Route.set_gather_wait(0, 0)
-      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 0
-    end
-
-    # And zero on the ROUTE's ruler is just as much an answer: "this whole hunt
-    # fires the moment it parks". What this pins is that a level which says a
-    # number settles it — reading zero as "nothing written here" anywhere in the
-    # chain would send the answer up to the global instead.
-    test "zero on the route's ruler is obeyed too", %{route: route, wp: wp} do
-      assert Route.gather_wait(Route.set_gather_wait(route, 0), wp, 4_000) == 0
-    end
-
-    test "erasing hands the answer back to the level above", %{route: route} do
-      route =
-        route
-        |> Route.set_gather_wait(1_800)
-        |> Route.set_gather_wait(0, 600)
-        |> Route.set_gather_wait(0, nil)
-
-      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 1_800
-    end
-
-    # What his hands measured stays stored and stays NOT in charge.
-    test "the measured gather_ms does not enter the sum", %{route: route} do
-      route = Route.set_timing(route, 0, gather_ms: 4_534)
-      assert Route.gather_wait(route, hd(route.waypoints), 1_000) == 1_000
-    end
-
-    # Same rule as every other control on this struct.
-    test "an index nobody has changes nothing", %{route: route} do
-      assert Route.set_gather_wait(route, 99, 600) == route
-    end
-  end
-
-  # Every route on disk today reaches these functions through
-  # Store.decode_waypoint/1, which builds a waypoint with neither `skills` nor
-  # `gather_wait_ms` — the fields are younger than his routes.json and there is
-  # no migration by design. So the reads have to be the tolerant kind, and a
-  # route made of such waypoints is the only thing that proves it.
+  # A waypoint written before these fields existed carries neither key.
   describe "a waypoint recorded before these fields existed" do
-    setup do
-      legacy = %{x: 10, y: 10, z: 5, action: :walk, stops: []}
-
-      %{route: %Route{name: "meganium", waypoints: [legacy]}, wp: legacy}
-    end
-
-    test "carries no skills instead of blowing up", %{route: route} do
-      assert Route.skills_at(route.waypoints, 0) == []
-    end
-
-    test "has no huddle of its own, so the levels above answer", %{route: route, wp: wp} do
-      assert Route.gather_wait(route, wp, 4_000) == 4_000
-      assert Route.gather_wait(Route.set_gather_wait(route, 1_800), wp, 4_000) == 1_800
-    end
-
-    test "can still be given a skill, and reads it back", %{route: route} do
-      on = Route.set_skill(route, 0, :buffs, true)
-      assert Route.skills_at(on.waypoints, 0) == [:buffs]
-
-      # Turning one OFF on a waypoint that never carried any is the other half
-      # of the tolerant read, and it must not raise either.
-      off = Route.set_skill(route, 0, :buffs, false)
-      assert Route.skills_at(off.waypoints, 0) == []
-    end
-
-    test "can still be given a huddle of its own, and reads it back", %{route: route} do
-      route = Route.set_gather_wait(route, 0, 600)
-
-      assert Route.gather_wait(route, hd(route.waypoints), 4_000) == 600
-    end
-
-    # `stops` is older than both new fields, so no route on disk lacks it —
-    # but set_stop/4 now shares the toggle with set_skill/4, and the tolerance
-    # is the whole point of sharing it. This is what keeps the next axis from
-    # having to rediscover it.
-    test "set_stop/4 survives a waypoint missing even the key it toggles", ctx do
-      %{route: %Route{} = route} = ctx
+    test "set_stop/4 survives a waypoint missing even the key it toggles" do
+      route = square()
       route = %{route | waypoints: Enum.map(route.waypoints, &Map.delete(&1, :stops))}
       route = Route.set_stop(route, 0, :wait, true)
 

@@ -1,5 +1,5 @@
 defmodule Pokex.Bots.Timers.WorkerTest do
-  # async: false — reads the shared blackboard (:posture) and the home dir.
+  # async: false — reads the shared blackboard (:orders) and the home dir.
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Timers.Worker
@@ -18,12 +18,12 @@ defmodule Pokex.Bots.Timers.WorkerTest do
     File.write!(Path.join(tmp, "pokedex.json"), JSON.encode!(@dataset))
     Application.put_env(:pokex, :pokedex_path, Path.join(tmp, "pokedex.json"))
     Application.put_env(:pokex, :home_dir, tmp)
-    WorldState.forget(:posture)
+    WorldState.forget(:orders)
 
     on_exit(fn ->
       Application.delete_env(:pokex, :pokedex_path)
       Pokex.TestHome.restore()
-      WorldState.forget(:posture)
+      WorldState.forget(:orders)
     end)
 
     :ok
@@ -56,12 +56,14 @@ defmodule Pokex.Bots.Timers.WorkerTest do
     {worker, body}
   end
 
+  # "Está mobando" é o CÉREBRO segurando a rota por uma pilha, e não mais a
+  # postura que o cavebot publicava a partir das marcas da rota.
   defp mobbing! do
-    WorldState.put(:posture, %{posture: :hold_fire, combo: []}, now())
+    WorldState.put(:orders, %{route: :hold, phase: :bunching}, now())
   end
 
   defp free_fight! do
-    WorldState.put(:posture, %{posture: :free_fight, combo: []}, now())
+    WorldState.put(:orders, %{route: :go, phase: :travelling}, now())
   end
 
   defp now, do: System.monotonic_time(:millisecond)
@@ -156,9 +158,9 @@ defmodule Pokex.Bots.Timers.WorkerTest do
       assert presses(body, 2) == ["1", "1"]
     end
 
-    # The clock is the posture FACT, which ages: a hunt that dies stops
+    # The clock is the orders FACT, which ages: a brain that dies stops
     # refreshing it and the stretch ends on its own.
-    test "a stale posture ends the stretch instead of leaving the aura armed" do
+    test "a stale order ends the stretch instead of leaving the aura armed" do
       classify!("Venusaur", %{"1" => :buffs})
 
       Store.put([
@@ -172,7 +174,7 @@ defmodule Pokex.Bots.Timers.WorkerTest do
       :ok = Worker.tick(worker)
       assert presses(body, 1) == ["1"]
 
-      WorldState.forget(:posture)
+      WorldState.forget(:orders)
       :ok = Worker.tick(worker)
 
       Process.sleep(2)

@@ -131,29 +131,6 @@ defmodule Pokex.Sim.RunnerTest do
     assert is_list(battle.enemies_detail)
   end
 
-  # A PERNA DE MOBADA NÃO É INVENÇÃO DESTE ARQUIVO: ela está gravada na rota, e
-  # a bancada já a lê (`Route.lure_leg?/2`). O runner respondia `luring?: false`
-  # cravado — e o cérebro usa esse campo pra saber que NÃO é hora de atacar
-  # ("se não tá lutando, ele tá no modo mobado, onde ele não deveria atacar
-  # NUNCA"). Cravado em false, o simulador media a aba que ele joga como se a
-  # mobada não existisse.
-  test "numa perna de mobada o fato :hunt diz que está mobando", %{server: server} do
-    rota = %{route() | waypoints: mobando()}
-    Runner.load(server, rota, seed: 1)
-    Runner.play(server)
-    Runner.tick_now(server)
-
-    assert {:ok, %{luring?: true, state: :walking}} =
-             WorldState.get(:hunt, :infinity, now())
-  end
-
-  defp mobando do
-    [
-      %{Enum.at(route().waypoints, 0) | action: :lure_start},
-      %{Enum.at(route().waypoints, 1) | action: :walk}
-    ]
-  end
-
   test "it publishes no mini game fact — a hunt never sees the capsule", %{server: server} do
     Runner.play(server)
     Runner.tick_now(server)

@@ -40,15 +40,11 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
                x: 10,
                y: 20,
                z: 7,
-               action: :walk,
                stops: [],
                at: nil,
                dwell_ms: nil,
                fight_ms: nil,
-               gather_ms: nil,
-               combo: [],
-               skills: [],
-               gather_wait_ms: nil
+               gather_ms: nil
              }
            ]
   end
@@ -93,15 +89,11 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
                x: 3,
                y: 4,
                z: 7,
-               action: :walk,
                stops: [],
                at: nil,
                dwell_ms: nil,
                fight_ms: nil,
-               gather_ms: nil,
-               combo: [],
-               skills: [],
-               gather_wait_ms: nil
+               gather_ms: nil
              }
            ]
   end
@@ -183,15 +175,11 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
                x: 1,
                y: 2,
                z: 7,
-               action: :walk,
                stops: [],
                at: nil,
                dwell_ms: nil,
                fight_ms: nil,
-               gather_ms: nil,
-               combo: [],
-               skills: [],
-               gather_wait_ms: nil
+               gather_ms: nil
              }
            ]
   end
@@ -234,29 +222,7 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
   # Waypoints gained a JOB after his routes were already recorded and walked:
   # every one of them must keep working, which means a missing key is a plain
   # walking corner — never a crash, never a lost route.
-  describe "the job a waypoint carries survives the disk" do
-    test "a marked route round-trips" do
-      {:ok, route} = Route.append(Route.new("mob"), {1, 2, 7})
-      {:ok, route} = Route.append(route, {3, 4, 7})
-
-      :ok = Store.add(Route.set_action(route, 1, :lure_start))
-
-      assert [%Route{waypoints: [%{action: :walk}, %{action: :lure_start}]}] = Store.all()
-    end
-
-    test "a route recorded before jobs existed reads as plain walking", %{tmp_dir: tmp} do
-      body =
-        JSON.encode!(%{
-          "routes" => [
-            %{"name" => "antiga", "z" => 7, "waypoints" => [%{"x" => 1, "y" => 2, "z" => 7}]}
-          ]
-        })
-
-      File.write!(Path.join(tmp, "routes.json"), body)
-
-      assert [%Route{waypoints: [%{action: :walk}]}] = Store.all()
-    end
-
+  describe "what a waypoint carries survives the disk" do
     # `:sweep` was a stop until 2026-08-28, written first as a single boolean
     # and later inside the list. Both shapes are on his disk, and dropping the
     # stop must not cost him the waypoints that carried it: the name simply
@@ -274,7 +240,6 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
                   "x" => 3,
                   "y" => 4,
                   "z" => 7,
-                  "action" => "lure_end",
                   "stops" => ["sweep", "cooldown_revive", "wait"]
                 }
               ]
@@ -287,7 +252,6 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
       assert [%Route{waypoints: [old_flag, in_the_list]}] = Store.all()
       assert old_flag.stops == []
       assert in_the_list.stops == [:cooldown_revive, :wait]
-      assert in_the_list.action == :lure_end
     end
 
     test "the stop list round-trips, in running order", %{tmp_dir: tmp} do
@@ -301,88 +265,42 @@ defmodule Pokex.Bots.Cavebot.StoreTest do
       assert [%Route{waypoints: [%{stops: [:cooldown_revive, :wait]}]}] = Store.all()
       assert File.read!(Path.join(tmp, "routes.json")) =~ "cooldown_revive"
     end
-
-    test "a job nobody knows reads as plain walking, never a new atom", %{tmp_dir: tmp} do
-      body =
-        JSON.encode!(%{
-          "routes" => [
-            %{
-              "name" => "estranha",
-              "z" => 7,
-              "waypoints" => [%{"x" => 1, "y" => 2, "z" => 7, "action" => "abracadabra_xyz"}]
-            }
-          ]
-        })
-
-      File.write!(Path.join(tmp, "routes.json"), body)
-
-      assert [%Route{waypoints: [%{action: :walk}]}] = Store.all()
-      assert_raise ArgumentError, fn -> String.to_existing_atom("abracadabra_xyz") end
-    end
   end
 
-  describe "the new fields on disk" do
-    test "skills and both rulers round-trip" do
-      {:ok, route} = Route.append(Route.new("meganium"), {10, 10, 5})
-
-      route =
-        route
-        |> Route.set_skill(0, :buffs, true)
-        |> Route.set_skill(0, :aoe, true)
-        |> Route.set_gather_wait(1_800)
-        |> Route.set_gather_wait(0, 600)
-
-      :ok = Store.add(route)
-      [read] = Store.all()
-
-      assert read.gather_wait_ms == 1_800
-      assert Route.skills_at(read.waypoints, 0) == [:buffs, :aoe]
-      assert Route.gather_wait(read, hd(read.waypoints), 4_000) == 600
-    end
-
-    test "nil does not become zero on the way there and back" do
-      {:ok, route} = Route.append(Route.new("sem régua"), {10, 10, 5})
-      :ok = Store.add(route)
-      [read] = Store.all()
-
-      assert read.gather_wait_ms == nil
-      assert hd(read.waypoints)[:gather_wait_ms] == nil
-      assert Route.gather_wait(read, hd(read.waypoints), 4_000) == 4_000
-    end
-
-    # The file is hand-editable: a typo in it can neither mint an atom nor break
-    # the reading of the whole route. Same rule the action and the stops follow.
-    #
-    # The literal JSON also pins the ruler's NAME on disk, at both levels. A
-    # round-trip test goes through encode AND decode, so renaming both sides at
-    # once would keep it green while resetting every route he already has to
-    # `nil` — his five routes live on this disk, not in a fixture.
-    test "a category nobody knows is dropped, and the ruler is read by its name" do
+  # KEYS READ PAST. The mob-stretch marks and everything hanging off them left
+  # the project; a file he already has still carries them and must load clean.
+  describe "the retired keys on his disk" do
+    test "a waypoint carrying the old marks loads without them" do
       File.write!(Path.join(Pokex.Home.dir(), "routes.json"), """
       {"routes":[{"name":"suja","dungeon":null,"z":5,"enabled":true,"gather_wait_ms":1800,
-      "waypoints":[{"x":1,"y":2,"z":5,"skills":["buffs","voar","aoe"],"gather_wait_ms":600}]}]}
+      "waypoints":[{"x":1,"y":2,"z":5,"action":"lure_end","combo":["3","4"],
+      "skills":["buffs","aoe"],"gather_wait_ms":600,"stops":["wait"]}]}]}
       """)
 
       [read] = Store.all()
+      [wp] = read.waypoints
 
-      assert Route.skills_at(read.waypoints, 0) == [:buffs, :aoe]
-      assert read.gather_wait_ms == 1_800
-      assert hd(read.waypoints)[:gather_wait_ms] == 600
-      assert Route.gather_wait(read, hd(read.waypoints), 4_000) == 600
+      assert {wp.x, wp.y, wp.z} == {1, 2, 5}
+      assert wp.stops == [:wait]
+      refute Map.has_key?(wp, :action)
+      refute Map.has_key?(wp, :combo)
+      refute Map.has_key?(wp, :skills)
+      refute Map.has_key?(wp, :gather_wait_ms)
+      refute Map.has_key?(read, :gather_wait_ms)
     end
 
-    # The five routes he already has were recorded before these fields existed.
-    test "an old route, without the fields, reads as empty" do
+    test "and they are gone from the file the next time it is saved" do
       File.write!(Path.join(Pokex.Home.dir(), "routes.json"), """
-      {"routes":[{"name":"antiga","dungeon":null,"z":5,"enabled":true,
-      "waypoints":[{"x":1,"y":2,"z":5,"action":"lure_end","stops":["sweep"]}]}]}
+      {"routes":[{"name":"suja","enabled":true,
+      "waypoints":[{"x":1,"y":2,"z":5,"action":"lure_end","combo":["3"]}]}]}
       """)
 
       [read] = Store.all()
+      :ok = Store.add(read)
+      body = File.read!(Path.join(Pokex.Home.dir(), "routes.json"))
 
-      assert read.gather_wait_ms == nil
-      assert Route.skills_at(read.waypoints, 0) == []
-      assert Route.gather_wait(read, hd(read.waypoints), 4_000) == 4_000
+      refute body =~ "lure_end"
+      refute body =~ "combo"
     end
   end
 

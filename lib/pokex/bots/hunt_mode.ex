@@ -23,7 +23,7 @@ defmodule Pokex.Bots.HuntMode do
   ## The resolution order is route FIRST
 
   The same bot is used on different kinds of route, so the mode belongs to the hunt profile,
-  with the global setting as the floor underneath it. It is the same order `Route.gather_wait/3`
+  with the global setting as the floor underneath it. It is the same order the route's own
   already uses for the huddle ruler, and for the same reason: what is true of one dungeon is not
   true of the next.
 

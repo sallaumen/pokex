@@ -11,8 +11,8 @@ defmodule Pokex.Bots.Engine.Inputs do
   It is the fourth time this shape of defect is paid for: the bench
   reimplemented the opening combo instead of calling `Strategy` (#358), built
   its world from two seed knobs and ignored the /sim table (#358), treated a
-  six-key burst as one instantaneous event (#367), and pinned `luring?` to
-  false. A decision input the bench DERIVES is a decision input that can drift;
+  six-key burst as one instantaneous event (#367). A decision input the bench
+  DERIVES is a decision input that can drift;
   one it CALLS cannot.
   """
 

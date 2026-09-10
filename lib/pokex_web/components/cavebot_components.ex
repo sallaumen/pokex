@@ -205,7 +205,7 @@ defmodule PokexWeb.CavebotComponents do
           y1={leg.from.y}
           x2={leg.to.x}
           y2={leg.to.y}
-          stroke={if leg.luring?, do: "var(--color-pk-info)", else: "var(--color-pk-ok-line)"}
+          stroke="var(--color-pk-ok-line)"
           stroke-width={leg_width(leg)}
           stroke-linecap="round"
           stroke-dasharray={leg_dash(leg)}
@@ -234,7 +234,7 @@ defmodule PokexWeb.CavebotComponents do
         <polygon
           :for={leg <- @legs}
           points="0,-1 0,1 2,0"
-          fill={if leg.luring?, do: "var(--color-pk-info)", else: "var(--color-pk-ok)"}
+          fill="var(--color-pk-ok)"
           opacity={
             if on_floor?(leg.from, @floor) and on_floor?(leg.to, @floor), do: "0.7", else: "0.2"
           }
@@ -269,7 +269,7 @@ defmodule PokexWeb.CavebotComponents do
             r={@view.unit * if @selected == index, do: 1.6, else: 1.1}
             fill={dot_fill(wp, index)}
             stroke={dot_stroke(wp, @selected == index)}
-            stroke-width={if wp.action == :walk, do: "2", else: "3"}
+            stroke-width={if wp.stops == [], do: "2", else: "3"}
             vector-effect="non-scaling-stroke"
             class="cursor-pointer"
             phx-click="select_waypoint"
@@ -339,13 +339,11 @@ defmodule PokexWeb.CavebotComponents do
         </p>
 
         <p
-          :if={Enum.any?(@legs, & &1.luring?) or Enum.any?(@waypoints, &(&1.action == :lure_end))}
-          id="map-lure-legend"
+          :if={Enum.any?(@waypoints, &(&1.stops != []))}
+          id="map-stop-legend"
           class="flex items-center gap-1.5 text-pk-info"
         >
-          <span class="h-0.5 w-4 rounded-full bg-pk-info"></span>
-          trecho de mob <span class="ml-1.5 size-2 rounded-full bg-pk-info"></span>
-          matança
+          <span class="size-2 rounded-full bg-pk-info"></span> parada depois da luta
         </p>
       </div>
     </div>
@@ -361,7 +359,6 @@ defmodule PokexWeb.CavebotComponents do
   defp on_floor?(%{z: z}, floor), do: z == floor
   defp on_floor?(_no_floor, _floor), do: true
 
-  defp leg_width(%{luring?: true}), do: "3"
   defp leg_width(%{closing?: true}), do: "1.5"
   defp leg_width(_plain), do: "2"
 
@@ -371,19 +368,18 @@ defmodule PokexWeb.CavebotComponents do
   defp leg_dash(%{closing?: true}), do: "4 4"
   defp leg_dash(_plain), do: nil
 
-  # The kill spot is SOLID: "mobar daqui" and "até aqui" carried the same dot,
-  # and the one place everything dies is the one place worth spotting first.
-  defp dot_fill(%{action: :lure_end}, _index), do: "var(--color-pk-info)"
-  defp dot_fill(%{action: :walk}, 0), do: "var(--color-pk-ok-dim)"
-  defp dot_fill(%{action: :walk}, _index), do: "var(--color-pk-surface)"
-  defp dot_fill(_marked, _index), do: "var(--color-pk-info-dim)"
+  # O CANTO É UM CANTO. O ponto azul era a "matança" que a rota marcava, e a
+  # rota deixou de marcar isso: quem decide onde a caçada para é a contagem de
+  # bichos ao redor, não uma anotação no mapa. O que ainda distingue um ponto é
+  # o que ele CARREGA — a parada de reset — e a seleção.
+  defp dot_fill(%{stops: [_ | _]}, _index), do: "var(--color-pk-info-dim)"
+  defp dot_fill(_wp, 0), do: "var(--color-pk-ok-dim)"
+  defp dot_fill(_wp, _index), do: "var(--color-pk-surface)"
 
   defp dot_stroke(_wp, true), do: "var(--color-pk-warn)"
-  defp dot_stroke(%{action: :walk}, _selected), do: "var(--color-pk-ok)"
-  defp dot_stroke(_marked, _selected), do: "var(--color-pk-info)"
+  defp dot_stroke(%{stops: [_ | _]}, _selected), do: "var(--color-pk-info)"
+  defp dot_stroke(_wp, _selected), do: "var(--color-pk-ok)"
 
-  defp job_suffix(%{action: :lure_start} = wp), do: " (andar #{wp.z}) — mobar daqui"
-  defp job_suffix(%{action: :lure_end} = wp), do: " (andar #{wp.z}) — mobar até aqui"
   defp job_suffix(wp), do: " (andar #{wp.z})"
 
   # Every leg the hunt walks, INCLUDING the one that closes the loop: they are
@@ -402,7 +398,6 @@ defmodule PokexWeb.CavebotComponents do
         from: from,
         to: to,
         arrow: CavebotMap.arrow(from, to),
-        luring?: Route.lure_leg?(waypoints, index),
         climb_to: Route.floor_change(waypoints, index),
         closing?: index == count - 1
       }
@@ -415,8 +410,6 @@ defmodule PokexWeb.CavebotComponents do
   # Colour is never the only carrier: what the drawing shows in blue, the
   # screen reader hears in words.
   defp map_summary(waypoints, pos) do
-    lured = Enum.count(0..(length(waypoints) - 1)//1, &Route.lure_leg?(waypoints, &1))
-
     base =
       "Mapa da rota: #{length(waypoints)} waypoints, #{CavebotMap.total_tiles(waypoints)} tiles"
 
@@ -424,7 +417,6 @@ defmodule PokexWeb.CavebotComponents do
 
     base
     |> then(&if length(floors) > 1, do: &1 <> ", andares #{Enum.join(floors, " e ")}", else: &1)
-    |> then(&if lured > 0, do: &1 <> ", #{lured} perna(s) em modo mob", else: &1)
     |> then(&if pos, do: &1 <> ", personagem em #{elem(pos, 0)}, #{elem(pos, 1)}", else: &1)
   end
 
@@ -741,7 +733,6 @@ defmodule PokexWeb.CavebotComponents do
   defp since_text(false, _started, ended, _hunt), do: "parada às #{wall_clock(ended)}"
 
   defp running_word(%{state: state}) when state in [:blocked, :stuck], do: "parada no lugar"
-  defp running_word(%{luring?: true}), do: "mobando"
   defp running_word(_running), do: "rodando"
 
   defp wall_clock(ms) do

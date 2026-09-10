@@ -55,14 +55,11 @@ defmodule Pokex.Bots.Cavebot.RouteEditTest do
   # so except walking the whole route again.
   describe "correcting a point by hand" do
     test "move_to/3 rewrites the place and leaves everything else alone" do
-      route =
-        route_of([{1, 1}, {3, 3}])
-        |> Route.set_action(1, :lure_end)
-        |> Route.set_stop(1, :wait, true)
+      route = Route.set_stop(route_of([{1, 1}, {3, 3}]), 1, :wait, true)
 
       moved = Route.move_to(route, 1, {4, 9, 6})
 
-      assert %{x: 4, y: 9, z: 6, action: :lure_end, stops: [:wait]} = Enum.at(moved.waypoints, 1)
+      assert %{x: 4, y: 9, z: 6, stops: [:wait]} = Enum.at(moved.waypoints, 1)
     end
 
     test "correcting the FIRST point moves only that waypoint's floor" do

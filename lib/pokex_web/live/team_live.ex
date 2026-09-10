@@ -12,9 +12,7 @@ defmodule PokexWeb.TeamLive do
   @behaviour PokexWeb.CharacterAware
 
   alias Pokex.Bots.Capture
-  alias Pokex.Bots.Cavebot.Recording
   alias Pokex.Bots.Combat.{Loadout, Strategy}
-  alias Pokex.Bots.Cavebot.Store, as: RouteStore
   alias Pokex.Pokedex
   alias Pokex.Pokedex.SkillProfile
   alias Pokex.Pokedex.Team
@@ -173,23 +171,12 @@ defmodule PokexWeb.TeamLive do
     {:noreply, assign_team(socket)}
   end
 
-  # Where his keys ALREADY live, so this page stops talking about a different
-  # game than the other two: the routes hold the combo his hands recorded, and
-  # Settings holds what Combat presses on its own.
-  #
-  # Read on mount and on a character switch, NOT inside `assign_team/2`: that
-  # one runs on every level keystroke, and `RouteStore.all/0` reads and decodes
-  # the whole routes file (the disk lesson from the recording audit).
+  # Where his keys live now. A ROTA NÃO GUARDA MAIS COMBO: o combo gravado saiu
+  # do projeto junto com as marcas de mobada, porque a abertura é do cérebro
+  # (`Engine.Logic`) e o que a rota guardava era só reserva pra um pokémon sem
+  # skill classificada. O que sobra é o que ele configurou.
   defp assign_hands(socket) do
-    used =
-      RouteStore.all()
-      |> Recording.habitual_skills()
-      |> SkillProfile.in_firing_order()
-
-    assign(socket,
-      used_keys: used,
-      combat_keys: Pokex.Settings.get(:skill_keys) || []
-    )
+    assign(socket, combat_keys: Pokex.Settings.get(:skill_keys) || [])
   end
 
   # A bar of his own, or the shared calibration standing in for it — said as an
@@ -410,13 +397,7 @@ defmodule PokexWeb.TeamLive do
                 here looking for "o combo de cada um" and found neither the word
                 nor a hint of which screen owns it. --%>
           <p id="skills-map" class="mb-2 text-pk-body leading-relaxed text-pk-text-2">
-            Tuas teclas vivem em três lugares.
-            <.link navigate={~p"/cavebot"} class="text-pk-info hover:underline">
-              A rota gravada
-            </.link>
-            guarda o combo que tuas mãos apertaram em cada matança — as teclas que
-            tu repete são <span id="skills-map-recorded" class="font-mono text-pk-text">{keys_text(@used_keys)}</span>,
-            e é essa sequência que a caçada dispara hoje.
+            Tuas teclas vivem em dois lugares.
             <.link navigate={~p"/config"} class="text-pk-info hover:underline">
               O combate
             </.link>
@@ -478,7 +459,7 @@ defmodule PokexWeb.TeamLive do
               open?={@open_skills == row.name}
               removing?={@removing == row.name}
               keys={hotbar_keys(row)}
-              used={@used_keys}
+              used={[]}
               warn?={true}
             />
           </ul>
@@ -503,7 +484,7 @@ defmodule PokexWeb.TeamLive do
               open?={@open_skills == row.name}
               removing?={@removing == row.name}
               keys={hotbar_keys(row)}
-              used={@used_keys}
+              used={[]}
               warn?={false}
             />
           </ul>

@@ -374,6 +374,10 @@ defmodule Pokex.Bots.Engine.SiegeTest do
                "olho (caveira): 2 colados dormindo · ninguém solto · 0 sem ver → revive seguro"
     end
 
+    # `seen` e `pet` ao lado de `unseen`: a diferença sozinha não diz qual lado
+    # se moveu. Com os dois no papel dá pra perguntar depois se o olho subcontou
+    # ou se a lista carregava bicho fora da tela — a pergunta que decide se
+    # juntar pilha andando pode voltar.
     test "the record is numbers only" do
       siege = Siege.build(eye([hostile(-2, 0, from_pet: 1)]), 3, nil, @config, 1_000)
 
@@ -384,7 +388,9 @@ defmodule Pokex.Bots.Engine.SiegeTest do
                covered: 0,
                loose: 0,
                unseen: 2,
-               gap: false
+               gap: false,
+               seen: 1,
+               pet: true
              }
     end
   end

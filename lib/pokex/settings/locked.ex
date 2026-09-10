@@ -210,12 +210,15 @@ defmodule Pokex.Settings.Locked do
     minimap_px_per_tile: {"Minimapa (visão)", "medido: 2px por tile"},
     # --- O modo decide ---
     engine_gather_piles: {"O modo decide", "juntar bicho andando: nenhum modo faz"},
-    # A NOTA ANTIGA MENTIA: dizia "sem juntar andando, este número nunca é
-    # olhado". É olhado em TODO tique de juntada — `bolo_cheio?` cobra os dois,
-    # o piso ("para e luta a partir de") e este alvo, e vale o MAIOR dos dois.
+    # …E ESTA NOTA VOLTOU A MENTIR, ao contrário. Ela foi corrigida uma vez para
+    # "é olhado em TODO tique de juntada" — verdade enquanto havia juntada. Com
+    # os dois modos declarando `gather_piles: false` e o #580 exigindo o carimbo
+    # `:gathering`, `bolo_cheio?` não roda em nenhum tique do bot vivo: este
+    # alvo está sombreado pelo piso. É a causa estrutural da medição do #557
+    # ("alvo 6/8/10 é idêntico"), que na época pareceu coincidência.
     engine_gather_target:
       {"O modo decide",
-       "o alvo que a régua persegue; o 'para e luta a partir de' é o piso, e vale o maior dos dois"},
+       "o alvo da juntada — sem juntada, nenhum tique o consulta; quem decide é o piso"},
     engine_kite_when_spent: {"O modo decide", "recuar com a barra vazia"},
     # --- Where the monsters are (vision) ---
     crowd_scan_radius_tiles:

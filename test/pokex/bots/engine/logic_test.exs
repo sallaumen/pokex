@@ -3250,8 +3250,35 @@ defmodule Pokex.Bots.Engine.LogicTest do
                covered: 0,
                loose: 1,
                unseen: 2,
-               gap: false
+               gap: false,
+               seen: 2,
+               pet: true
              }
+    end
+
+    # O DIÁRIO PRECISA VER A RÉGUA CONTANDO. O carimbo do olho só andava em
+    # decisão de revive, e por isso os 12.485 registros de 09/09 não têm um
+    # único tique de `:sizing`/`:bunching` com o bloco — cego justamente na fase
+    # que decide o tamanho da pilha. A FRASE não muda: os números do olho mudam
+    # a cada tique e os dois dedups do caminho comparam `why` por igualdade.
+    test "the ruler's own phases file the eye without speaking of it" do
+      contando =
+        world(%{
+          situation:
+            situation(%{
+              enemies: 1,
+              worth_fighting?: false,
+              crowd: eye([creature(3, 0)])
+            })
+        })
+
+      {_logic, orders} = step(contando, 10_000)
+
+      assert orders.phase in [:sizing, :gathering, :bunching]
+      assert orders.route == :go
+      refute orders.why =~ "o olho diria"
+      assert orders.siege.seen == 1
+      assert orders.siege.pet == true
     end
 
     test "an order without a revive does not speak of the eye" do

@@ -218,7 +218,14 @@ defmodule Pokex.Bots.Engine.Siege do
       covered: siege.covered,
       loose: siege.loose,
       unseen: siege.unseen,
-      gap: siege.recall_gap_ok?
+      gap: siege.recall_gap_ok?,
+      # QUANTOS O OLHO VIU, ao lado de quantos a lista listou. `unseen` já é a
+      # diferença dos dois, mas uma diferença não diz qual lado se moveu: com
+      # `seen` e `pet` no papel dá pra perguntar depois se o olho subcontou ou
+      # se a lista é que carregava bicho fora da tela. É a pergunta que decide
+      # se a juntada de pilha andando pode voltar.
+      seen: length(siege.hostiles),
+      pet: siege.pet_seen?
     }
   end
 

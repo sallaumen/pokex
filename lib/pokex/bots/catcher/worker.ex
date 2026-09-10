@@ -837,7 +837,21 @@ defmodule Pokex.Bots.Catcher.Worker do
     if state.combat_engaged? or not standing?() or
          not capture_allowed?(state) or Perception.mini_game_playing?(),
        do: nil,
-       else: state.scanner |> safe_scan() |> narrate()
+       else: state.scanner |> safe_scan() |> narrate() |> with_pos()
+  end
+
+  # ONDE ELE ESTAVA quando esta foto foi tirada. O juiz da captura
+  # (`Catcher.Logic.confirm/3`) pergunta se o corpo continua no mesmo ponto de
+  # TELA, e um passo do personagem desloca a tela inteira — sem esta âncora, uma
+  # caçada andando dá toda bola por capturada. Ausente (minimapa ilegível) o
+  # juiz simplesmente não usa: não saber onde ele está nunca vira "andou".
+  defp with_pos(nil), do: nil
+
+  defp with_pos(obs) do
+    case WorldState.get(:minimap, Settings.get(:cavebot_minimap_fact_max_age_ms), now()) do
+      {:ok, %{pos: {_, _, _} = pos}} -> Map.put(obs, :pos, pos)
+      _sem_leitura -> obs
+    end
   end
 
   # PARADO É PARADO, e escolher o modo não é a única forma de estar.

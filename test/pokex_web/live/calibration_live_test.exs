@@ -21,6 +21,20 @@ defmodule PokexWeb.CalibrationLiveTest do
     :ok
   end
 
+  # O BOTAO QUE PROVA O ALARME. "Acho que a gente ja tem esse alerta, mas
+  # garantir que esta funcionando, que dai a gente comeca por ai" (10/09): o
+  # setor `:shiny` estava na lista de alarmes desde 30/07 e ninguem nunca o
+  # transmitiu.
+  test "the shiny alarm test button broadcasts the real sighting alarm", %{conn: conn} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element("#special-alarm-test") |> render_click()
+
+    assert_receive {:rule_alarm, :shiny, texto}, 500
+    assert texto =~ "teste do alerta"
+  end
+
   defp rows(w, h, color), do: List.duplicate(List.duplicate(color, w), h)
 
   # A tela de 200×150 com uma barra de `count` slots no retângulo `region`

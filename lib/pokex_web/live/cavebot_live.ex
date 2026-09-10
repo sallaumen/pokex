@@ -328,13 +328,28 @@ defmodule PokexWeb.CavebotLive do
   # em um ponto da minha tela" (2026-08-11). Better than the clock in both
   # directions — it says exactly WHERE, and standing still is invisible to the
   # coordinate reader anyway.
-  def handle_info(:watch_middle, %{assigns: %{recording?: true}} = socket) do
+  def handle_info(:watch_middle, %{assigns: %{recording?: true, active_route: %Route{}}} = socket) do
     {:noreply,
      socket
      |> read_middle_click()
      |> read_his_keys()
      |> schedule_middle_watch()}
   end
+
+  # A ROTA PODE SUMIR DEBAIXO DA GRAVAÇÃO. Armar exige uma rota ativa
+  # (`toggle_recording`), e nada garante que ela continue lá: apagar a rota
+  # chama `reload_routes(socket, nil)`, desarmar a última rota deixa o
+  # `default_active/1` sem ninguém, e `Store.all/0` degrada um `routes.json`
+  # ilegível para lista VAZIA de propósito — que é o arquivo que a própria
+  # gravação reescreve a cada marca. Daí em diante `mark_kill_click_here/1` e
+  # `apply_hands/2` liam `active_route.waypoints` de um nil e derrubavam a
+  # LiveView a cada 120ms, levando junto a gravação em curso.
+  #
+  # A batida continua, só o trabalho é pulado: parar de reagendar deixaria a
+  # tela dizendo "gravando" com o laço morto, e escolher outra rota não
+  # ressuscitaria nada.
+  def handle_info(:watch_middle, %{assigns: %{recording?: true}} = socket),
+    do: {:noreply, schedule_middle_watch(socket)}
 
   def handle_info(:watch_middle, socket), do: {:noreply, socket}
 
@@ -843,6 +858,14 @@ defmodule PokexWeb.CavebotLive do
   # The exact tile, typed by hand. A recording is a WALK, and a walk rounds:
   # the staircase he could not take was one tile wide and the recorded corner
   # sat beside it ("tem como eu editar na mao pontos da rota?", 2026-08-11).
+  # `active_route` é lida com portão: um formulário enviado no instante em que a
+  # rota deixa de existir (ele apagou noutra aba, ou o `routes.json` ficou
+  # ilegível e o `Store.all/0` devolveu lista vazia) derrubava a página inteira
+  # em vez de não fazer nada. É o mesmo portão que o `with_route/2` logo abaixo
+  # já aplica ao resto da edição.
+  def handle_event("move_waypoint_to", _params, %{assigns: %{active_route: nil}} = socket),
+    do: {:noreply, socket}
+
   def handle_event("move_waypoint_to", %{"index" => index} = params, socket) do
     index = String.to_integer(index)
 

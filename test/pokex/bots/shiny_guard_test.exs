@@ -87,6 +87,11 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
   defp frame_com_mancha({_x, _y, w, h}), do: frame(w, h, {40, 40, 40}, bicho(70, 90))
 
+  # TRES bichos da cor no mesmo quadro, os tres fora do quadrado proibido do
+  # personagem (que fica no meio dos 280x280 da regiao do teste)
+  defp holofote({_x, _y, w, h}),
+    do: frame(w, h, {40, 40, 40}, bicho(70, 60) ++ bicho(230, 60) ++ bicho(70, 250))
+
   # o mesmo bicho, mas com a arte dele pintada do azul que o acervo aprendeu: a
   # sprite ensinada e recortada MEIO tile abaixo da barra (o centro em 70,70)
   @azul_dele {20, 40, 220}
@@ -411,6 +416,51 @@ defmodule Pokex.Bots.ShinyGuardTest do
     # …e UMA VEZ, nao a cada varredura: com a cadencia de 50ms do teste, uma
     # gaveta lida por uma chave e escrita por outra enche o feed de combate.
     refute_receive {:combat_log, :macro, _de_novo}, 600
+  end
+
+  # O DISJUNTOR DO HOLOFOTE (10/09). "cheio de falso alerta, nao apareceu nenhum
+  # shiny e agora ta alertando quase sempre com qualquer monstro que aparece".
+  # Medido nos quadros de falso alerta dele: a banda quase-preta do Shiny Golem
+  # passava do gatilho em 4 a 17 manchas por quadro. Um shiny e UMA mancha.
+  #
+  # E calar aqui vale mais que calar o alarme: o fato `:special` liga `heavy?` e
+  # `worth_fighting?` no cerebro, entao um tom holofote punha o bot em postura de
+  # CHEFE o tempo todo.
+  test "a tone that lights up many places is a floodlight, not a sighting", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    SettingsStash.stash!(shiny_max_blobs: 2)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    start_guard_journaling(fn _region, _name -> {:ok, holofote(region)} end)
+
+    refute_receive {:journal, :special, _nada}, 800
+    assert_receive {:combat_log, :macro, aviso}, 2_000
+    assert aviso =~ "holofote"
+  end
+
+  # …e o fato tambem fica limpo, que e o que desarma a postura de chefe.
+  test "a floodlight rule leaves the :special fact clean", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    SettingsStash.stash!(shiny_max_blobs: 2)
+
+    start_guard(fn _region, _name -> {:ok, holofote(region)} end)
+
+    assert eventually(fn ->
+             match?(
+               {:ok, %{especial?: false}},
+               WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
+             )
+           end)
+  end
+
+  # …e UMA mancha continua passando: o disjuntor nao pode calar o shiny.
+  test "one blob is still a sighting with the ceiling on", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    SettingsStash.stash!(shiny_max_blobs: 2)
+
+    start_guard_journaling(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
+
+    assert_receive {:journal, :special, %{tag: "seen"}}, 2_000
   end
 
   # O POKEMON DELE NAO E CACA. "o shiny venossaur e meu proprio pokemon poxa, nao

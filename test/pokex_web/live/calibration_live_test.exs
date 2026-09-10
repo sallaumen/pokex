@@ -2264,6 +2264,70 @@ defmodule PokexWeb.CalibrationLiveTest do
       refute html =~ "provada · chão"
     end
 
+    # O TOM HOLOFOTE NAO SE PROVA (10/09). "cheio de falso alerta, nao apareceu
+    # nenhum shiny e agora ta alertando quase sempre com qualquer monstro que
+    # aparece". A prova do chao mede a cena PARADA e crava o gatilho em 3x o pico
+    # dela, de modo que ela SEMPRE passa em si mesma: ela dizia "esta cena nao
+    # dispara" e armava a regra. Quem traz a cor e o bicho que entra na tela
+    # depois. Medido nos quadros dele: a banda quase-preta acendia 83 a 210
+    # manchas por quadro e o gatilho medido foi 120px.
+    @tag :tmp_dir
+    test "a tone that lights up dozens of places is refused, not proven", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      # uma tela GRANDE de propósito: o quadrado proibido do personagem tapa
+      # quase toda a tela de 100x75 dos outros testes, e aqui a foto precisa de
+      # espaço pra dezenas de manchas
+      Pokex.Calibration.save(%{
+        complete_calibration()
+        | screen_w: 600,
+          screen_h: 400,
+          player_point: {300, 200},
+          tile_px: 20
+      })
+
+      {:ok, _} = Fake.start_link(%{})
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      ensina_regra(view, cor_frame(64, 64, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}]))
+      [%{"slug" => slug}] = Pokex.Vision.ColorRules.list()
+
+      {:ok, calib} = Pokex.Calibration.load()
+      {:ok, {_x, _y, w, h}} = SpotScan.region(calib)
+
+      # o chao vem salpicado do MESMO tom em dezenas de lugares: nenhum deles
+      # grande, todos acima do que uma celula conta
+      # 4px de cor a cada 16: cada salpico cabe numa celula de 8px e deixa uma
+      # celula fria entre ele e o vizinho, entao sao manchas separadas
+      salpicos =
+        for i <- 0..399,
+            x = rem(i, 20) * 16,
+            y = div(i, 20) * 16,
+            x + 4 < w and y + 4 < h,
+            do: {{x, y, 4, 4}, @verde}
+
+      File.mkdir_p!("/tmp/fake")
+
+      File.write!(
+        "/tmp/fake/special_floor.raw",
+        <<"PXRW", 1, w::32, h::32, cor_frame(w, h, {40, 40, 40}, salpicos).rgba::binary>>
+      )
+
+      render_click(view, "special_floor", %{"slug" => slug})
+      medir_o_chao(view, slug)
+      html = render(view)
+
+      assert html =~ "lugares diferentes por foto"
+      assert html =~ "nada foi provado"
+      refute html =~ "provada · chão", "uma regra recusada nao pode ficar com cracha de provada"
+      assert Pokex.Vision.ColorRules.armed() == [], "…nem chegar ao vigia"
+    end
+
     # A CATRACA QUE PRENDIA. Uma medição ruim (o Tracker aberto) cravou 332.835
     # na regra dele e nenhuma medição nova conseguia mais baixar: a regra ficava
     # morta, marcada como "provada", e a única saída era apagá-la.

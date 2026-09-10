@@ -269,6 +269,20 @@ defmodule Pokex.Settings do
     shiny_always_ball: true,
     shiny_aim_max_candidates: 3,
     shiny_needs_creature: true,
+    # O DISJUNTOR DO HOLOFOTE. Um tom que acende em muitos lugares ao mesmo
+    # tempo não está identificando um bicho: está acendendo a tela.
+    #
+    # Medido nos quadros que a própria guarda salvou nos falsos alertas dele de
+    # 10/09 (regra "Shiny Golem", banda quase-preta + cone roxo, gatilho 120px,
+    # já descontados o HUD aprendido e o quadrado do personagem):
+    #
+    # | manchas acima do gatilho | 5, 6, 6, 9, 16 (mediana 6) |
+    # | teto 4 | cala 5 de 5 quadros |
+    # | teto 6 | cala 2 de 5 |
+    #
+    # Um shiny de verdade é UMA mancha; a maior mancha desses quadros tinha
+    # 7.000px contra um gatilho de 120.
+    shiny_max_blobs: 4,
     # Colour-scan cadence (the SpotScan square) and how many CONSECUTIVE scans with a blob
     # confirm a sighting.
     special_color_scan_ms: 700,
@@ -916,6 +930,7 @@ defmodule Pokex.Settings do
     special_color_scan_ms: 50..5_000,
     special_color_confirm_frames: 1..5,
     shiny_aim_max_candidates: 1..8,
+    shiny_max_blobs: 1..30,
     engine_stun_reach_tiles: 1..10,
     engine_reset_rearm_ms: 10_000..3_600_000,
     engine_kite_max_ms: 0..600_000,

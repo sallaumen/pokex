@@ -17,7 +17,7 @@ defmodule PokexWeb.PanelLive do
   alias Pokex.Bots.SkillBar
   alias Pokex.Bots.StockAlerts
   alias Pokex.Calibration
-  alias Pokex.Vision.ColorRules
+  alias Pokex.Vision.TileRuler
   alias Pokex.Diagnostics.Report
   alias Pokex.Layout.Sentinel
   alias Pokex.Perception.DisplayFeeds
@@ -1875,29 +1875,12 @@ defmodule PokexWeb.PanelLive do
   end
 
   # A RÉGUA DELE É O TILE. "264131/85331 px" é a mesma frase que ele já disse não
-  # entender; "2,9 de 0,9 tiles" ele lê olhando a tela — e vê na hora que a
-  # mancha é maior que o gatilho.
-  defp shiny_tiles(nil), do: "—"
-
-  defp shiny_tiles(px) do
-    tile = Calibration.tile_px()
-    tiles = ColorRules.tiles(px, tile, scale_now())
-
-    if tiles < 0.1,
-      do: "quase nada",
-      else:
-        (tiles |> :erlang.float_to_binary(decimals: 1) |> String.replace(".", ",")) <> " tiles"
-  end
+  # entender; "2,9 tiles de 0,9" ele lê olhando a tela — e vê na hora que a
+  # mancha passou do gatilho.
+  defp shiny_tiles(px), do: TileRuler.label(px)
 
   defp px_label(nil), do: "—"
   defp px_label(px), do: to_string(px)
-
-  defp scale_now do
-    case Calibration.load() do
-      {:ok, %{scale: scale}} when is_number(scale) and scale > 0 -> scale
-      _uncalibrated -> 1.0
-    end
-  end
 
   # Sem regra ARMADA não há régua, e `min` chega nil: em Elixir um átomo é
   # MAIOR que qualquer número, então `nil <= 0` é falso e a divisão explodia —

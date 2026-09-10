@@ -25,7 +25,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.ScreenScale
   alias Pokex.Settings
   alias Pokex.Vision
-  alias Pokex.Vision.{ColorMark, ColorRules, Frame}
+  alias Pokex.Vision.{ColorMark, ColorRules, Frame, TileRuler}
 
   # A regra de cor em rascunho: o que o conta-gotas vai enchendo antes de virar
   # acervo. Nasce com as tolerâncias-semente do plano (matiz apertado, S/V
@@ -1476,13 +1476,11 @@ defmodule PokexWeb.CalibrationLive do
   # de cor sólida não existem em bicho nenhum. Uma regra assim fica provada,
   # armada e MUDA, e nada dizia isso.
   defp floor_msg(entry, fotos, peak, chrome, gatilho) do
-    {tile, scale} = ruler()
-
     corpo =
       "chão de “#{entry["name"]}” medido em #{fotos} fotos: #{em_tiles(peak)} de cor" <>
         chrome_text(chrome) <> ". Gatilho em #{em_tiles(gatilho)}"
 
-    if ColorRules.unreachable?(gatilho, tile, scale) do
+    if TileRuler.unreachable?(gatilho) do
       {:error,
        corpo <>
          " — e nenhum bicho tem esse tamanho. Sobrou cenário na conta: ou o tom ensinado " <>
@@ -1493,42 +1491,12 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  defp ruler do
-    case Calibration.load() do
-      {:ok, calib} -> {Calibration.tile_px(calib), calib.scale || 1.0}
-      _uncalibrated -> {Calibration.tile_px(), 1.0}
-    end
-  end
-
-  # "0,0 tiles" seria honesto e inútil. Um chão que não chega a um décimo de
-  # tile é exatamente a notícia boa — o cenário mal casa com o tom — e merece a
-  # palavra, não o zero.
-  defp em_tiles(px) do
-    {tile, scale} = ruler()
-    tiles = ColorRules.tiles(px, tile, scale)
-
-    cond do
-      tiles < 0.1 -> "quase nada (#{px}px)"
-      tiles < 1.0 -> "#{decimal(tiles)} de um tile (#{px}px)"
-      true -> "#{decimal(tiles)} tiles (#{px}px)"
-    end
-  end
+  defp em_tiles(px), do: "#{TileRuler.label(px)} (#{px}px)"
 
   # O crachá é estreito: aqui vai só o número, e o pixel fica no title.
-  defp em_tiles_curto(px) do
-    {tile, scale} = ruler()
-    tiles = ColorRules.tiles(px, tile, scale)
+  defp em_tiles_curto(px), do: TileRuler.label(px)
 
-    if tiles < 0.1, do: "quase nada", else: "#{decimal(tiles)} tiles"
-  end
-
-  defp muda?(%{"min_px" => px}) do
-    {tile, scale} = ruler()
-    ColorRules.unreachable?(px, tile, scale)
-  end
-
-  defp decimal(float),
-    do: float |> :erlang.float_to_binary(decimals: 1) |> String.replace(".", ",")
+  defp muda?(%{"min_px" => px}), do: TileRuler.unreachable?(px)
 
   # DE QUEM É ESTE NÚMERO? A medição pode baixar o que a medição pôs, e não pode
   # encostar no que ele digitou. Quem separa os dois é a prova:

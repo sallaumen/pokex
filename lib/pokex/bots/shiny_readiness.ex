@@ -21,6 +21,7 @@ defmodule Pokex.Bots.ShinyReadiness do
   alias Pokex.Bots.Catcher.Balls
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Calibration
+  alias Pokex.Vision.TileRuler
   alias Pokex.Settings
   alias Pokex.Vision.ColorRules
 
@@ -160,26 +161,9 @@ defmodule Pokex.Bots.ShinyReadiness do
       ]
   end
 
-  # A régua é a da tela DELE: o mesmo bicho rende quatro vezes mais pixels numa
-  # tela ampliada, e o tile do notebook é um quarto do tile do ultrawide.
-  defp ruler do
-    case Calibration.load() do
-      {:ok, calib} -> {Calibration.tile_px(calib), calib.scale || 1.0}
-      _uncalibrated -> {Calibration.tile_px(), 1.0}
-    end
-  end
+  defp reachable?(rule), do: not TileRuler.unreachable?(rule.min_px)
 
-  defp reachable?(rule) do
-    {tile, scale} = ruler()
-    not ColorRules.unreachable?(rule.min_px, tile, scale)
-  end
-
-  defp tiles_of(rule) do
-    {tile, scale} = ruler()
-    tiles = ColorRules.tiles(rule.min_px, tile, scale)
-
-    :erlang.float_to_binary(tiles, decimals: 1) <> " tiles"
-  end
+  defp tiles_of(rule), do: TileRuler.label(rule.min_px)
 
   defp quoted_armed(%{name: name}), do: "a cor “#{name}”"
 

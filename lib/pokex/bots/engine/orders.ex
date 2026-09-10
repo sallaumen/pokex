@@ -65,7 +65,8 @@ defmodule Pokex.Bots.Engine.Orders do
           revive: :hold | :now | :prepare,
           why: String.t(),
           siege: map | nil,
-          park: {integer, integer} | nil
+          park: {integer, integer} | nil,
+          capture: :none | :now
         }
 
   @doc "The route goes and the hands stay down."
@@ -119,7 +120,14 @@ defmodule Pokex.Bots.Engine.Orders do
       siege: Keyword.get(opts, :siege),
       # where the pokémon is sent when the road holds for a pile, in tiles from
       # him (`Engine.Siege.park_spot/2`); nil = nowhere, the road obeys once per stop
-      park: Keyword.get(opts, :park)
+      park: Keyword.get(opts, :park),
+      # A HORA DA BOLA, dita uma vez: `:now` só no tique em que a rodada fecha
+      # (a pilha morreu e o revive foi confirmado). O Catcher é movido a evento
+      # e o evento que ele tinha — `{:kill}` do Combat — significa "a lista de
+      # batalha ZEROU", que no Auto Combo quase nunca acontece: 5 eventos na
+      # noite inteira de 09/09. Este é o mesmo instante que ele descreveu —
+      # "logo depois de matar e usar o revive, a próxima ação é capturar".
+      capture: Keyword.get(opts, :capture, :none)
     }
   end
 end

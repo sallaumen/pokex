@@ -460,13 +460,16 @@ defmodule Pokex.Bots.Engine.Logic do
   # right sequence. Splitting it again to buy a lower complexity score would
   # undo exactly that, so the check is off for this head and this head only.
   defp decide(t) do
-    t = %{t | logic: audit_reset(t)}
+    judged = audit_reset(t)
+    closed? = round_closed?(t.logic, judged)
+    t = %{t | logic: judged}
 
     t
     |> choose()
     |> hold_until_reset_seen(t)
     |> shadow_siege(t)
     |> hold_for_capture(t)
+    |> cue_capture(closed?)
     |> with_park(t)
   end
 
@@ -2096,6 +2099,23 @@ defmodule Pokex.Bots.Engine.Logic do
   # ler. Passada essa janela, com o pokémon em campo e a barra AINDA vazia, o
   # reset não aconteceu — seja porque o jogo não zera nada, seja porque a
   # leitura mente. As duas conclusões pedem a mesma coisa: parar de pagar.
+  # A RODADA FECHOU: tinha um revive pendente e o juiz encerrou o caso neste
+  # tique. É o instante que ele descreveu — "logo depois da gente terminar de
+  # matar os monstros, que a gente usa aquele revive, a próxima ação vai ser
+  # capturar os pokémons ao redor". A borda, não o estado: a bola é chamada uma
+  # vez por rodada, não a cada tique de estrada limpa.
+  defp round_closed?(before, depois),
+    do:
+      Map.has_key?(before.since, :reset_pending) and
+        not Map.has_key?(depois.since, :reset_pending)
+
+  # …e a chamada viaja NA ORDEM, como todo o resto. O Catcher já sabe mirar,
+  # jogar e publicar o fato `:capture`; a estrada já para sozinha enquanto ele
+  # mira (`hold_for_capture/2`) e o `post_fight` do cavebot já espera a bola
+  # (`capturing?/3`). Faltava só quem dissesse quando começar.
+  defp cue_capture({logic, orders}, true), do: {logic, %{orders | capture: :now}}
+  defp cue_capture(decision, _round_still_open), do: decision
+
   defp audit_reset(%{logic: %{reset_broken_at: at}} = t) when is_integer(at) do
     if t.now - at >= t.config.reset_rearm_ms,
       do: %{t.logic | reset_broken_at: nil},

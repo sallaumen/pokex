@@ -843,6 +843,58 @@ defmodule Pokex.Bots.Engine.LogicTest do
       refute cedo.why =~ "ms"
     end
 
+    # A CAPTURA NUNCA ACONTECIA NA CAÇADA. O Catcher é movido a evento, e o
+    # evento que ele tinha (`{:kill}` do Combat) significa "a lista de batalha
+    # ZEROU" — no Auto Combo a tela dele quase nunca zera: 5 desses no diário de
+    # 09/09 inteiro, contra 299 aberturas de luta. Ele mesmo notou que
+    # funcionava pescando, onde é um peixe por vez.
+    #
+    # A chamada é a BORDA em que a rodada fecha (a pilha morreu e o revive foi
+    # confirmado), que é o instante que ele descreveu: "logo depois de matar e
+    # usar o revive, a próxima ação vai ser capturar os pokémons ao redor".
+    test "the round closing calls for the ball, once" do
+      pedindo =
+        world(%{
+          situation:
+            situation(%{
+              enemies: 1,
+              combo_left_ms: 0,
+              combo_since_end_ms: 500,
+              spent?: true,
+              own_hp: 100
+            }),
+          hunt: hunt(%{state: :walking}),
+          hands: %{opening: ["r"], single: [], crowd: []}
+        })
+
+      {logic, pedido} = reset_step(Logic.new(), pedindo, 10_000)
+      assert pedido.revive == :now
+      assert pedido.capture == :none, "a bola não é chamada no PEDIDO do revive"
+      assert Map.has_key?(logic.since, :reset_pending)
+
+      # a barra volta cheia e o pokémon está em campo: o juiz encerra o caso
+      voltou =
+        world(%{
+          situation:
+            situation(%{
+              enemies: 0,
+              combo_left_ms: 0,
+              spent?: false,
+              own_out?: true,
+              own_hp: 100
+            }),
+          hunt: hunt(%{state: :walking}),
+          hands: %{opening: ["r"], single: [], crowd: []}
+        })
+
+      {logic, fechou} = reset_step(logic, voltou, 10_600)
+      assert fechou.capture == :now, "a rodada fechou: é a hora da bola"
+      refute Map.has_key?(logic.since, :reset_pending)
+
+      {_logic, depois} = reset_step(logic, voltou, 10_800)
+      assert depois.capture == :none, "uma vez por rodada, não a cada tique"
+    end
+
     # Fora do Auto Combo `combo_left_ms` é nil, e nil não é "acabou agora".
     test "sem corrente nenhuma a regra não existe" do
       economico =

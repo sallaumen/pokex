@@ -193,6 +193,12 @@ defmodule Pokex.Bots.Engine.Worker do
     # against what the bot actually did, for a night, before anything changes.
     WorldState.put(:orders, orders, now)
 
+    # …MAS A HORA DA BOLA É UMA BORDA, e uma borda não sobrevive num fato com
+    # idade: o Catcher olharia o `:orders` no tique errado e perderia a única
+    # volta em que ela vale. Esta é a exceção, e é por isso que ela é uma
+    # mensagem: sai uma vez por rodada, no instante em que a rodada fecha.
+    if orders.capture == :now, do: broadcast({:capture_now})
+
     state
     |> narrate(picture, orders)
     |> watch_hp_blindness(picture, now)

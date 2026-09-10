@@ -29,6 +29,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Catcher.Sweep
   alias Pokex.Bots.Combat.Worker
+  alias Pokex.Bots.Engine
   alias Pokex.Bots.InputGate
   alias Pokex.Calibration
   alias Pokex.Perception
@@ -111,6 +112,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   @impl true
   def init(%{body: body, scanner: scanner, aimer: aimer, auto_tick?: auto_tick?}) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, Engine.Worker.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     # a SHINY sighting overrides capture_enabled for the next ball
@@ -245,6 +247,17 @@ defmodule Pokex.Bots.Catcher.Worker do
     do: {:noreply, advance(state, scan_obs(state))}
 
   def handle_info(:wake, state), do: {:noreply, state}
+
+  # A HORA DA BOLA, dita pelo cérebro. O `{:kill}` do Combat só sai quando a
+  # LISTA DE BATALHA ZERA (`Combat.Logic`, o contador `counters.fights`), e no
+  # Auto Combo a tela dele quase nunca zera: o diário de 09/09 tem 5 desses numa
+  # noite de 299 aberturas de luta, e por isso a captura simplesmente não
+  # acontecia na caçada — funcionava pescando, onde é um peixe por vez e a lista
+  # esvazia entre as fisgadas. Agora o cérebro avisa no fim da rodada, que é
+  # quando os corpos estão no chão e a estrada já está parada.
+  def handle_info({:capture_now}, %{logic: %Logic{state: :armed}} = state) do
+    {:noreply, advance(%{state | repiques: @repiques}, scan_obs(state))}
+  end
 
   # kill = accelerator (both shapes: Task 5 drops the payload; tolerate the old one meanwhile).
   # Vision is ANCHORED HERE: the kill says a corpse just fell on an adjacent

@@ -2819,6 +2819,25 @@ defmodule PokexWeb.CavebotLiveTest do
       assert view |> element("#siege-mirror") |> render() =~ "ligado"
     end
 
+    # UM LAÇO SÓ. O tique se reagendava com um timer sem dono: desligar e
+    # religar dentro dos dois segundos deixava o antigo vivo e passavam a
+    # existir dois laços, cada um tirando uma foto da tela inteira.
+    test "toggling the mirror off and on keeps a single loop", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      view |> element("#siege-mirror") |> render_click()
+      antes = :sys.get_state(view.pid).socket.assigns.mirror_timer
+
+      view |> element("#siege-mirror") |> render_click()
+      assert :sys.get_state(view.pid).socket.assigns.mirror_timer == nil
+      assert Process.read_timer(antes) == false
+
+      view |> element("#siege-mirror") |> render_click()
+      depois = :sys.get_state(view.pid).socket.assigns.mirror_timer
+      assert is_reference(depois)
+      assert depois != antes
+    end
+
     # O ESPELHO SAI COM ELE. `patch` pros Editores não desmonta a página, e a
     # foto seguia sendo tirada e empurrada pro navegador atrás de uma tela que
     # não a desenha.

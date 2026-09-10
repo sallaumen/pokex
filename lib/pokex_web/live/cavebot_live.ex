@@ -133,6 +133,7 @@ defmodule PokexWeb.CavebotLive do
        crowd: with_special(crowd_fact()),
        crowd_photo: nil,
        mirror?: false,
+       mirror_timer: nil,
        # The simulator's fence points the eyes at a world that is not the game.
        # Free to read (`:persistent_term`), and re-read on the heartbeat.
        sim_armed?: Fence.armed?(),
@@ -199,7 +200,8 @@ defmodule PokexWeb.CavebotLive do
     if mode == :watch do
       {:noreply, assign(socket, mode: mode)}
     else
-      {:noreply, assign(socket, mode: mode, mirror?: false, crowd_photo: nil)}
+      cancel_mirror(socket)
+      {:noreply, assign(socket, mode: mode, mirror?: false, mirror_timer: nil, crowd_photo: nil)}
     end
   end
 
@@ -262,15 +264,21 @@ defmodule PokexWeb.CavebotLive do
   # tela dele mostra e o que o olho diz que leu. Cara demais pra ficar ligada
   # sozinha (a evidência é uma imagem inteira por socket), então nasce
   # desligada e se desliga sozinha ao sair do modo assistir.
+  # PELO OLHO, NÃO POR FORA DELE. Isto chamava `CrowdScan.look/1` direto, sem os
+  # três números que o olho passa (a lista de batalha, a vida do pokémon, a
+  # dele): a leitura do espelho dizia "0 sem ver" onde a verdade é "não sei", e
+  # sem a vida do pokémon o Torterra dele aparecia como bicho hostil no quadro
+  # em que a sprite empata. Também furava o interruptor do olho no /config.
   def handle_info(:mirror, %{assigns: %{mirror?: true}} = socket) do
-    reading = Pokex.Bots.CrowdScan.look(evidence: true)
-    Process.send_after(self(), :mirror, @mirror_ms)
+    reading = Pokex.Bots.CrowdWatch.look_now()
 
     {:noreply,
-     assign(socket,
+     socket
+     |> assign(
        crowd: reading |> Map.delete(:evidence) |> with_special(),
        crowd_photo: Map.get(reading, :evidence) || socket.assigns.crowd_photo
-     )}
+     )
+     |> schedule_mirror()}
   end
 
   def handle_info(:mirror, socket), do: {:noreply, socket}
@@ -339,6 +347,23 @@ defmodule PokexWeb.CavebotLive do
   def handle_info(:watch_middle, socket), do: {:noreply, socket}
 
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # UM LAÇO SÓ. O tique se reagendava com um timer sem dono: desligar e religar
+  # o espelho dentro dos dois segundos deixava o timer antigo vivo, ele achava o
+  # espelho ligado de novo e passava a reagendar por conta — dois laços tirando
+  # uma foto da tela inteira cada, pra sempre, e mais um a cada volta do
+  # interruptor.
+  defp schedule_mirror(socket) do
+    cancel_mirror(socket)
+    assign(socket, mirror_timer: Process.send_after(self(), :mirror, @mirror_ms))
+  end
+
+  defp cancel_mirror(%{assigns: %{mirror_timer: ref}}) when is_reference(ref) do
+    Process.cancel_timer(ref)
+    :ok
+  end
+
+  defp cancel_mirror(_none), do: :ok
 
   @middle_watch_ms 120
 
@@ -954,11 +979,11 @@ defmodule PokexWeb.CavebotLive do
   # funcionamento do nosso sistema de forma inteligente" (09/09).
   def handle_event("toggle_mirror", _params, socket) do
     ligado? = not socket.assigns.mirror?
-    if ligado?, do: send(self(), :mirror)
+    if ligado?, do: send(self(), :mirror), else: cancel_mirror(socket)
 
     {:noreply,
      socket
-     |> assign(mirror?: ligado?)
+     |> assign(mirror?: ligado?, mirror_timer: nil)
      |> assign(crowd_photo: if(ligado?, do: socket.assigns.crowd_photo, else: nil))
      |> log_line(:macro, if(ligado?, do: "🪞 espelho ligado", else: "🪞 espelho desligado"))}
   end

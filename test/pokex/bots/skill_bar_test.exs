@@ -7,6 +7,13 @@ defmodule Pokex.Bots.SkillBarTest do
 
   @settings %{skill_bar_count: 7, skill_ready_min_saturation: 40, skill_ready_min_vivid_pct: 7}
 
+  # Os limiares que a caçada dele roda de verdade (`Pokex.Settings` default).
+  @his_settings %{
+    skill_bar_count: 9,
+    skill_ready_min_saturation: 25,
+    skill_ready_min_vivid_pct: 7
+  }
+
   defp on_field(region, count) do
     {:ok, _} = Pokex.Pokedex.Team.add("Bulbasaur")
     Pokex.Pokedex.Team.set_bar("Bulbasaur", %{region: region, count: count, refs: nil})
@@ -109,6 +116,44 @@ defmodule Pokex.Bots.SkillBarTest do
     ready = SkillBar.ready_keys(slots)
     assert ["2", "6", "7"] -- ready == []
     assert Enum.all?(["1", "3", "4", "5"], &(&1 not in ready))
+  end
+
+  # A BARRA DO SHINY SLOWKING, 09/09: nove teclas prontas na tela e o bot
+  # anunciando sete em cooldown — "só o 2 e o 9 estão disponíveis". Os ícones
+  # desse bicho são de ARTE BRANCA (4% a 15% de pixels puro-branco no slot,
+  # contra os ~2% que só o rótulo da tecla põe), e o branco era o proxy da
+  # contagem nos DOIS portões: a calibração recusou o ref de sete slots e a
+  # leitura vetou os mesmos sete. O jogo, esse, não escreveu número nenhum.
+  @tag :tmp_dir
+  test "white ICON ART is not a countdown: a slot with no ref and no digit is ready" do
+    {:ok, frame} = Frame.from_file("test/fixtures/skill_bar/slowking_pronto.raw")
+    on_field({0, 0, frame.width, frame.height}, 9)
+
+    # os refs que a calibração DELE guardou desta mesma barra: sete nil
+    Team.set_bar("Bulbasaur", %{
+      region: {0, 0, frame.width, frame.height},
+      count: 9,
+      refs: [nil, {82, 84, 98}, nil, nil, nil, nil, nil, nil, {129, 115, 143}]
+    })
+
+    slots = SkillBar.slots_from_frame(frame, @his_settings)
+
+    assert Enum.map(slots, & &1.counting?) == List.duplicate(false, 9)
+
+    assert SkillBar.ready_keys(slots) == ~w(1 2 3 4 5 6 7 8 9)
+  end
+
+  # O veto de branco sai, o CHÃO de cor fica: um slot sem ref e sem número
+  # ainda precisa parecer um ícone aceso. As teclas 8 e 9 desta barra são
+  # cinza morto (saturação 6 e 8) e continuam frias.
+  @tag :tmp_dir
+  test "dropping the white veto does not promote a dead slot with no ref" do
+    {:ok, frame} = Frame.from_file("test/fixtures/skill_bar/quatro_contando.raw")
+    on_field({0, 0, frame.width, frame.height}, 9)
+
+    slots = SkillBar.slots_from_frame(frame, @his_settings)
+
+    assert slots |> SkillBar.states() |> Enum.drop(7) == [:cooldown, :cooldown]
   end
 
   # Um ref tirado com a contagem na tela é um ref envenenado — e agora a

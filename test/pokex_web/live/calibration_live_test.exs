@@ -43,6 +43,17 @@ defmodule PokexWeb.CalibrationLiveTest do
   # Every mark the numbered run asks for, plus the ones it never asks about —
   # the shape of a screen that is already calibrated. 100x75 points is the
   # 200x150 fixture at scale 2.0, so the shot and the marks agree on the screen.
+  # O TILE PEQUENO das provas do chão: a medição agora apaga o quadrado do
+  # personagem e o do pokémon, como o caçador faz, e com o tile de 151 do
+  # ultrawide esse quadrado cobre esta tela de teste inteira.
+  # AS DOZE FOTOS DE VERDADE. Antes isto forçava `left: 1` e mandava UMA amostra,
+  # de modo que a prova fechava com uma foto só — nunca exercitando o quórum do
+  # HUD nem o piso de fotos que uma medição precisa ter.
+  defp medir_o_chao(view, slug) do
+    Enum.each(1..12, fn _foto -> send(view.pid, {:floor_sample, slug}) end)
+    render(view)
+  end
+
   defp complete_calibration do
     %Calibration{
       scale: 2.0,
@@ -2007,7 +2018,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
       on_exit(fn -> Pokex.TestHome.restore() end)
 
-      Pokex.Calibration.save(complete_calibration())
+      Pokex.Calibration.save(%{complete_calibration() | tile_px: 20})
       {:ok, _} = Fake.start_link(%{})
 
       {:ok, view, _html} = live(conn, "/calibration")
@@ -2026,11 +2037,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert html =~ "medindo o chão"
 
       # a última foto da série fecha a prova
-      :sys.replace_state(view.pid, fn state ->
-        update_in(state.socket.assigns.special_floor, &%{&1 | left: 1})
-      end)
-
-      send(view.pid, {:floor_sample, slug})
+      medir_o_chao(view, slug)
       html = render(view)
 
       # A MEDIDA EM TILES. "pico 25px" era verdade e não queria dizer nada — ele
@@ -2053,7 +2060,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
       on_exit(fn -> Pokex.TestHome.restore() end)
 
-      Pokex.Calibration.save(complete_calibration())
+      Pokex.Calibration.save(%{complete_calibration() | tile_px: 20})
       {:ok, _} = Fake.start_link(%{})
       {:ok, view, _html} = live(conn, "/calibration")
 
@@ -2072,11 +2079,7 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       render_click(view, "special_floor", %{"slug" => slug})
 
-      :sys.replace_state(view.pid, fn state ->
-        update_in(state.socket.assigns.special_floor, &%{&1 | left: 1})
-      end)
-
-      send(view.pid, {:floor_sample, slug})
+      medir_o_chao(view, slug)
       render(view)
 
       assert [%{min_px: 400}] = Pokex.Vision.ColorRules.armed()
@@ -2086,14 +2089,64 @@ defmodule PokexWeb.CalibrationLiveTest do
       # apagava.
       render_click(view, "special_floor", %{"slug" => slug})
 
-      :sys.replace_state(view.pid, fn state ->
-        update_in(state.socket.assigns.special_floor, &%{&1 | left: 1})
-      end)
-
-      send(view.pid, {:floor_sample, slug})
+      medir_o_chao(view, slug)
       render(view)
 
       assert [%{min_px: 400}] = Pokex.Vision.ColorRules.armed()
+    end
+
+    # O HUD APRENDIDO SAÍA DA MENSAGEM E FICAVA NA CONTA. O pico rejeitava uma
+    # mancha por igualdade exata de caixa, mas as caixas guardadas são a UNIÃO
+    # das variantes: nenhuma mancha é igual à união, então o HUD que a prova
+    # acabara de aprender continuava inteiro dentro do pico — e o gatilho saía
+    # três vezes ele. A mensagem dizia "2 pedaços do HUD aprendidos e recusados
+    # pra sempre" no mesmo fôlego.
+    @tag :tmp_dir
+    test "the learned HUD really leaves the peak", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      Pokex.Calibration.save(%{complete_calibration() | tile_px: 20})
+      {:ok, _} = Fake.start_link(%{})
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      # uma regra de tom PRETO: só a banda escura aprende o HUD
+      com_foto(view, cor_frame(64, 64, {200, 200, 200}, [{{10, 10, 14, 14}, {8, 8, 8}}]))
+      render_click(view, "special_pick", %{"x" => 16, "y" => 16, "cw" => 64, "nw" => 64})
+      render_change(view, "special_form", %{"name" => "Preto", "min_px" => "25"})
+      render_submit(view, "special_save", %{})
+
+      [%{"slug" => slug}] = Pokex.Vision.ColorRules.list()
+
+      {:ok, calib} = Pokex.Calibration.load()
+      {:ok, {_x, _y, w, h}} = SpotScan.region(calib)
+      File.mkdir_p!("/tmp/fake")
+
+      render_click(view, "special_floor", %{"slug" => slug})
+
+      # A CAIXA OSCILA. É o caso real: o dígito do cooldown pisca e o retângulo
+      # do HUD cresce e encolhe uma célula de 8px entre as fotos. Doze fotos
+      # idênticas não provam nada — com elas até a rejeição por igualdade exata
+      # funcionava.
+      html =
+        Enum.reduce(1..12, nil, fn foto, _antes ->
+          largura = 40 + rem(foto, 2) * 8
+
+          File.write!(
+            "/tmp/fake/special_floor.raw",
+            <<"PXRW", 1, w::32, h::32,
+              cor_frame(w, h, {200, 200, 200}, [{{0, 0, largura, 40}, {8, 8, 8}}]).rgba::binary>>
+          )
+
+          send(view.pid, {:floor_sample, slug})
+          render(view)
+        end)
+
+      assert html =~ "do HUD aprendidos", "aprendeu o pedaço parado"
+
+      # …e o gatilho é o de uma tela sem nada, não três vezes o HUD
+      assert [%{min_px: 25}] = Pokex.Vision.ColorRules.armed()
     end
 
     # PROVADA, ARMADA E MUDA. Quando o tom ensinado é do cenário, o chão medido
@@ -2134,15 +2187,11 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       render_click(view, "special_floor", %{"slug" => slug})
 
-      :sys.replace_state(view.pid, fn state ->
-        update_in(state.socket.assigns.special_floor, &%{&1 | left: 1})
-      end)
-
-      send(view.pid, {:floor_sample, slug})
+      medir_o_chao(view, slug)
       html = render(view)
 
       assert html =~ "nenhum bicho tem esse tamanho"
-      assert html =~ "CENÁRIO"
+      assert html =~ "Sobrou cenário na conta"
       refute html =~ "regra PROVADA"
 
       # e o crachá da lista para de dizer que está tudo certo
@@ -2161,7 +2210,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
       on_exit(fn -> Pokex.TestHome.restore() end)
 
-      Pokex.Calibration.save(complete_calibration())
+      Pokex.Calibration.save(%{complete_calibration() | tile_px: 20})
       {:ok, _} = Fake.start_link(%{})
       {:ok, view, _html} = live(conn, "/calibration")
 
@@ -2184,18 +2233,14 @@ defmodule PokexWeb.CalibrationLiveTest do
 
         render_click(view, "special_floor", %{"slug" => slug})
 
-        :sys.replace_state(view.pid, fn state ->
-          update_in(state.socket.assigns.special_floor, &%{&1 | left: 1})
-        end)
-
-        send(view.pid, {:floor_sample, slug})
+        medir_o_chao(view, slug)
         render(view)
       end
 
       # a medição de ontem, com o Tracker aberto: a tela inteira é chão da cor
       medir.(cor_frame(w, h, @verde, []))
       assert [%{min_px: travado}] = Pokex.Vision.ColorRules.armed()
-      assert travado > 20_000
+      assert travado > 5_000
 
       # a medição de hoje, com a tela limpa
       medir.(cor_frame(w, h, {40, 40, 40}, []))

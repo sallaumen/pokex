@@ -242,8 +242,20 @@ defmodule Pokex.Bots.ShinyGuard do
             forbidden: forbidden ++ Map.get(rule, :forbidden, [])
           )
 
+        # TODA MANCHA ACIMA DO GATILHO. Pegar só a maior fazia a lava tapar o
+        # bicho: as duas passam do gatilho, mas só a lava era olhada, e o shiny
+        # dois tiles ao lado não ficava "abaixo do limiar" — ficava sem ser
+        # olhado. O vigia não arremessa, então anunciar todas não custa bola
+        # nenhuma, e é o que faz o quadrado certo acender no cartão do cerco.
+        achadas =
+          result.manchas
+          |> Enum.filter(&(&1.px >= rule.min_px))
+          |> Enum.map(&on_screen(&1, region, frame.scale))
+
+        # A confirmação e o refratário seguem olhando a MAIOR: uma segunda mancha
+        # no mesmo quadro não é um segundo avistamento.
         mancha = result.manchas |> List.first() |> on_screen(region, frame.scale)
-        hit? = mancha != nil and mancha.px >= rule.min_px
+        hit? = achadas != []
 
         # O MEDIDOR MOSTRA O QUE DECIDE. Ele mostrava `result.px` — TODOS os
         # pixels casados na tela — contra um gatilho que se aplica à MAIOR
@@ -251,7 +263,7 @@ defmodule Pokex.Bots.ShinyGuard do
         # medidor gritava "shiny!" com a guarda calada, e ele não tinha como
         # saber qual dos dois estava mentindo.
         {advance(state, rule, mancha, hit?), max(best, (mancha && mancha.px) || 0),
-         if(hit?, do: [{rule, mancha} | vistos], else: vistos)}
+         Enum.map(achadas, &{rule, &1}) ++ vistos}
       end)
 
     state = keepsake(state, vistos, frame)

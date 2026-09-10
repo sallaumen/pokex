@@ -30,6 +30,14 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
   # screen {116, 116}
   defp frame_com_mancha, do: frame(300, 300, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}])
 
+  # a lava dele: uma mancha grande da mesma cor, longe do bicho
+  defp frame_com_duas_manchas,
+    do:
+      frame(300, 300, {40, 40, 40}, [
+        {{10, 10, 60, 60}, @verde},
+        {{200, 200, 14, 14}, @verde}
+      ])
+
   defp rules do
     [
       %{
@@ -60,6 +68,25 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     assert_in_delta sy, 117, 2
     assert_in_delta fx, 17, 2
     assert_in_delta fy, 17, 2
+  end
+
+  # A LAVA MAIOR TAPAVA O BICHO. Pegando só a maior mancha, o shiny dois tiles ao
+  # lado não ficava "abaixo do limiar" — ficava sem ser olhado.
+  test "every blob past the trigger is a candidate, up to the ceiling" do
+    candidatos = ShinyAim.judge(frame_com_duas_manchas(), @region, rules(), [], crowd([]), @tile)
+
+    assert length(candidatos) == 2
+    # a maior primeiro: a fila da bola segue a força da prova
+    assert [%{px: maior}, %{px: menor}] = candidatos
+    assert maior > menor
+  end
+
+  # E O TETO, porque cada alvo é uma bola.
+  test "the ceiling caps how many balls one scan can queue" do
+    Pokex.SettingsStash.stash!(shiny_aim_max_candidates: 1)
+
+    assert [_uma] =
+             ShinyAim.judge(frame_com_duas_manchas(), @region, rules(), [], crowd([]), @tile)
   end
 
   # O RENASCIDO É UM CORPO VIVO. A lista de batalha não o carrega e `hostiles` o

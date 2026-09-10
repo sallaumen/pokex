@@ -342,6 +342,30 @@ defmodule Pokex.Bots.ShinyGuardTest do
     assert ShinyGuard.forbidden_boxes(sem_marca, frame, {400, 250, 200, 200}) != []
   end
 
+  # A LAVA MAIOR TAPAVA O BICHO. (A segunda mancha fica longe do meio: o quadrado
+  # de 3×3 tiles do personagem é terreno proibido e engoliria uma mancha ali.) Só a maior mancha era julgada, então o fato, o
+  # troféu, o diário e a bola apontavam pro cenário, e o shiny dois tiles ao lado
+  # não ficava "abaixo do limiar" — ficava sem ser olhado.
+  test "a bigger blob of scenery does not hide the creature's own", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+
+    frame =
+      frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [
+        {{10, 10, 120, 120}, @verde},
+        {{220, 220, 40, 40}, @verde}
+      ])
+
+    start_guard(fn _region, _name -> {:ok, frame} end)
+
+    assert eventually(fn ->
+             match?(
+               {:ok, %{vistos: [_, _]}},
+               WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
+             )
+           end),
+           "a segunda mancha tem que estar no fato, senão o bicho não foi nem olhado"
+  end
+
   # …e a mesma região com OUTRA ampliação também não serve: o chão é uma contagem
   # e as caixas do HUD são pixels do quadro, e os dois quadruplicam quando o
   # backend de captura troca e serve a mesma região com o dobro da largura.

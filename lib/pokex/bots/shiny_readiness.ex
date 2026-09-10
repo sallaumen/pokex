@@ -19,6 +19,7 @@ defmodule Pokex.Bots.ShinyReadiness do
   """
 
   alias Pokex.Bots.Catcher.Balls
+  alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Calibration
   alias Pokex.Settings
   alias Pokex.Vision.ColorRules
@@ -94,7 +95,40 @@ defmodule Pokex.Bots.ShinyReadiness do
   # falar: a regra dizia "provada", o cartão dizia "a cor está pronta", e o
   # caçador varria a noite inteira sem chance de disparar. Vem ANTES de "ligue o
   # caçador" porque ligar um vigia mudo não é o passo dele.
+  # A QUARTA PORTEIRA, que só o caçador conhecia. `ColorRules.armed/0` diz
+  # "ligada e provada", mas o caçador ainda separa as regras cuja prova é DESTE
+  # quadro (`proof_fits?/2`) e varre só com elas. Mexer no raio da busca, remarcar
+  # o personagem ou trocar de tela aposenta todas as provas de uma vez: o
+  # caçador passa a varrer com nenhuma regra e este cartão dizia "armado" a noite
+  # inteira. O aviso que existe sai no feed de combate, que nenhuma tela mostra.
   defp gaps(_rules, armed) do
+    case Enum.split_with(armed, &ColorRules.proof_fits?(&1, region_now())) do
+      {[], [velha | _outras]} ->
+        [
+          step(
+            :stale_proof,
+            "#{quoted_armed(velha)} foi provada em outro quadro — mudou o raio da busca, o " <>
+              "ponto do personagem ou a tela, e o caçador não varre com ela. Meça o chão de novo.",
+            @calibration,
+            "medir o chão"
+          )
+        ]
+
+      {servem, _velhas} ->
+        reach_gaps(servem)
+    end
+  end
+
+  defp region_now do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, region} <- SpotScan.region(calib) do
+      region
+    else
+      _sem_quadro -> nil
+    end
+  end
+
+  defp reach_gaps(armed) do
     case Enum.split_with(armed, &reachable?/1) do
       {[], [muda | _outras]} ->
         [

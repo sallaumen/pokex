@@ -38,6 +38,11 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Settings
 
   @topic "catcher"
+
+  # Quanto tempo o lugar onde um bicho estava de pé continua valendo como lugar
+  # de corpo. A rodada leva da corrente ao revive e à hora da bola uns 4-8 s; 20 s
+  # cobre isso sem deixar o chão da pilha anterior valer pra próxima.
+  @standing_memory_ms 20_000
   @kill_topic "combat:kill"
 
   # After a kill whose scan found nothing, re-look at these delays. Not a knob:
@@ -145,6 +150,9 @@ defmodule Pokex.Bots.Catcher.Worker do
        # the previous scan (consecutive dedup)
        count: %{},
        vistos: MapSet.new(),
+       # onde o olho viu bicho de pé: %{{pos, ponto} => quando}. Um corpo só
+       # pode estar num desses lugares (`Catcher.Logic.admissible/1`).
+       standing: %{},
        # session scoreboard (reset on each start): scans done, scans with a
        # target, and blind scans
        scans: 0,
@@ -242,6 +250,12 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   @impl true
   def handle_info({:world, _key, _obs}, state), do: {:noreply, state}
+
+  # O OLHO DIZ ONDE CADA BICHO ESTÁ (`CrowdWatch`, a cada ~250 ms, no tópico do
+  # cérebro). Quando a hora da bola chega eles já morreram e sumiram da leitura,
+  # por isso o lugar é guardado enquanto estão de pé.
+  def handle_info({:crowd, %{read?: true, hostiles: hostiles}}, state),
+    do: {:noreply, remember_standing(state, hostiles)}
 
   def handle_info(:wake, %{logic: %Logic{state: :armed}} = state),
     do: {:noreply, advance(state, scan_obs(state))}
@@ -828,8 +842,24 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp announce_cue(%{corpses: []}),
     do: log(:macro, "🎯 hora da bola — varri e não achei corpo nenhum no chão")
 
-  defp announce_cue(%{corpses: corpses}),
-    do: log(:macro, "🎯 hora da bola — #{length(corpses)} corpo(s) no chão")
+  defp announce_cue(%{corpses: corpses} = obs) do
+    case {length(corpses), length(Logic.admissible(obs))} do
+      {n, n} ->
+        log(:macro, "🎯 hora da bola — #{n} corpo(s) no chão")
+
+      {n, 0} ->
+        log(
+          :macro,
+          "🎯 hora da bola — #{n} mancha(s) com cor de corpo, nenhuma onde o olho viu um bicho de pé: nenhuma bola"
+        )
+
+      {n, k} ->
+        log(
+          :macro,
+          "🎯 hora da bola — #{k} corpo(s) onde um bicho estava de pé (#{n - k} mancha(s) longe da luta, sem bola)"
+        )
+    end
+  end
 
   defp announce_cue(_sem_leitura), do: :ok
 
@@ -837,7 +867,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     if state.combat_engaged? or not standing?() or
          not capture_allowed?(state) or Perception.mini_game_playing?(),
        do: nil,
-       else: state.scanner |> safe_scan() |> narrate() |> with_pos()
+       else: state.scanner |> safe_scan() |> narrate() |> with_pos() |> with_spots(state)
   end
 
   # ONDE ELE ESTAVA quando esta foto foi tirada. O juiz da captura
@@ -848,10 +878,56 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp with_pos(nil), do: nil
 
   defp with_pos(obs) do
-    case WorldState.get(:minimap, Settings.get(:cavebot_minimap_fact_max_age_ms), now()) do
-      {:ok, %{pos: {_, _, _} = pos}} -> Map.put(obs, :pos, pos)
-      _sem_leitura -> obs
+    case current_pos() do
+      nil -> obs
+      pos -> Map.put(obs, :pos, pos)
     end
+  end
+
+  defp current_pos do
+    case WorldState.get(:minimap, Settings.get(:cavebot_minimap_fact_max_age_ms), now()) do
+      {:ok, %{pos: {_, _, _} = pos}} -> pos
+      _sem_leitura -> nil
+    end
+  end
+
+  # ONDE OS BICHOS ESTAVAM DE PÉ, na tela desta foto. Só na caçada: na pesca e
+  # no modo Parado não há olho, e a varredura segue julgando sozinha como
+  # sempre julgou. Pontos vistos de OUTRO lugar do mapa não valem — a tela andou
+  # junto; sem uma das leituras de posição, não dá pra dizer que andou.
+  defp with_spots(nil, _state), do: nil
+
+  defp with_spots(obs, state) do
+    if Settings.get(:player_mode) == "still",
+      do: obs,
+      else:
+        Map.merge(obs, %{
+          spots: spots_here(state.standing, Map.get(obs, :pos)),
+          spot_radius: Calibration.tile_px()
+        })
+  end
+
+  defp remember_standing(state, hostiles) do
+    at = now()
+    pos = current_pos()
+    seen = Map.new(for %{point: {_, _} = point} <- hostiles, do: {{pos, point}, at})
+
+    standing =
+      state.standing
+      |> Map.reject(fn {_where, seen_at} -> at - seen_at > @standing_memory_ms end)
+      |> Map.merge(seen)
+
+    %{state | standing: standing}
+  end
+
+  defp spots_here(standing, pos) do
+    at = now()
+
+    for {{seen_pos, point}, seen_at} <- standing,
+        at - seen_at <= @standing_memory_ms,
+        seen_pos == nil or pos == nil or seen_pos == pos,
+        uniq: true,
+        do: point
   end
 
   # PARADO É PARADO, e escolher o modo não é a única forma de estar.

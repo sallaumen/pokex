@@ -205,6 +205,28 @@ defmodule Pokex.Vision.ColorRulesTest do
     assert ColorRules.proof_fits?(armada, {{0, 0, 100, 100}, 2.0})
   end
 
+  # A CAIXA RGB atravessa o disco inteira, e uma folga 0 (casamento exato) e uma
+  # escolha legitima: e a mais forte que arte de paleta fixa permite.
+  test "an rgb box survives the round trip, exact tolerance included" do
+    {:ok, _e} =
+      ColorRules.add(%{
+        "name" => "Hitmonlee shiny",
+        "colors" => [%{"rgb" => [90, 40, 120], "tol" => 0}]
+      })
+
+    assert [%{"colors" => [%{"rgb" => [90, 40, 120], "tol" => 0}]}] = ColorRules.list()
+
+    [armada] = ColorRules.list()
+    assert [{:rgb, 90, 40, 120, 0}] = ColorRules.specs_for(armada)
+  end
+
+  test "a box tolerance beyond the ceiling is brought back to it" do
+    {:ok, _e} =
+      ColorRules.add(%{"name" => "Larga", "colors" => [%{"rgb" => [1, 2, 3], "tol" => 90}]})
+
+    assert [%{"colors" => [%{"tol" => 8}]}] = ColorRules.list()
+  end
+
   test "apagar apaga; apagar de novo reclama" do
     %{"slug" => slug} = regra()
     :ok = ColorRules.delete(slug)

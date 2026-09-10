@@ -36,6 +36,10 @@ defmodule PokexWeb.CalibrationLive do
   @special_draft %{
     name: "",
     colors: [],
+    # A FOLGA DA CAIXA, por canal. 1 é o joelho da curva medido na foto dele:
+    # ±0 acende 239px com a segunda mancha em 6, ±1 acende 293 com a segunda em
+    # 27, ±4 já acende 402 com a segunda em 109.
+    tol: 1,
     tol_h: 12,
     tol_sv: 30,
     dark_v: 30,
@@ -915,6 +919,7 @@ defmodule PokexWeb.CalibrationLive do
     draft = %{
       draft
       | name: Map.get(params, "name", draft.name),
+        tol: int_param(params, "tol", draft.tol, 0, 8),
         tol_h: int_param(params, "tol_h", draft.tol_h, 1, 60),
         tol_sv: int_param(params, "tol_sv", draft.tol_sv, 1, 100),
         dark_v: int_param(params, "dark_v", draft.dark_v, 1, 120),
@@ -1364,10 +1369,17 @@ defmodule PokexWeb.CalibrationLive do
   defp special_verdict(%{dominancia: d}) when d >= @dominancia_quase, do: :quase
   defp special_verdict(_espalhado), do: :espalhado
 
-  defp verdict_word(:nada), do: "esse tom não está nesta foto"
-  defp verdict_word(:separa), do: "separa: acha UM alvo e mais nada"
-  defp verdict_word(:quase), do: "quase: acha o alvo, mas o chão também responde"
-  defp verdict_word(:espalhado), do: "não separa: esse tom está espalhado pela foto"
+  # O NÚMERO NA FRASE. Ele VÊ o destaque na foto e conta com os olhos ("pega os
+  # corpos mortos ali"); a frase dizia "espalhado" sem dizer quanto. Com o número
+  # a frase vira a mesma coisa que ele está vendo.
+  defp verdict_word(:nada, _leitura), do: "esse tom não está nesta foto"
+  defp verdict_word(:separa, _leitura), do: "separa: acha UM alvo e mais nada"
+
+  defp verdict_word(:quase, %{manchas: n}),
+    do: "quase: acha o alvo, mas o chão também responde (#{n} lugares)"
+
+  defp verdict_word(:espalhado, %{manchas: n}),
+    do: "não separa: esse tom casou em #{n} lugares diferentes desta foto"
 
   defp verdict_hint(:nada),
     do: "clique EM CIMA da cor diferente do bicho — o que está pego não aparece aqui"
@@ -1377,19 +1389,24 @@ defmodule PokexWeb.CalibrationLive do
   defp verdict_hint(:quase),
     do: "aperte o tom (menos folga de luz, teto mais baixo) até o resto sumir"
 
+  # E O CONSELHO CERTO. Antes mandava trocar o tom, que é a metade errada do
+  # problema: o tom dele estava certo e a FOLGA é que estava larga. Medido na foto
+  # dele: o mesmo tom passou de 134 lugares pra 5, com a única mancha grande em
+  # cima do bicho, só apertando a folga.
   defp verdict_hint(:espalhado),
-    do: "é cenário, não bicho — tire este tom e pegue um detalhe que só ele tem"
+    do:
+      "aperte o “tom ±” até 0 — a cor da sprite é exata. Se ainda casar em muito lugar, aí sim o tom é do cenário: tire e pegue um detalhe que só o bicho tem"
 
   defp draft_specs(draft), do: ColorMark.compile(Enum.map(draft.colors, &draft_spec(&1, draft)))
 
   defp draft_spec(%{dark?: true}, draft), do: %{dark: draft.dark_v, spread: draft.dark_spread}
-  defp draft_spec(%{rgb: rgb}, draft), do: %{rgb: rgb, tol_h: draft.tol_h, tol_sv: draft.tol_sv}
+  defp draft_spec(%{rgb: rgb}, draft), do: %{rgb: rgb, tol: draft.tol}
 
   defp color_attrs(%{dark?: true, rgb: {r, g, b}}, draft),
     do: %{"dark" => draft.dark_v, "spread" => draft.dark_spread, "rgb" => [r, g, b]}
 
   defp color_attrs(%{rgb: {r, g, b}}, draft),
-    do: %{"rgb" => [r, g, b], "tol_h" => draft.tol_h, "tol_sv" => draft.tol_sv}
+    do: %{"rgb" => [r, g, b], "tol" => draft.tol}
 
   # Uma foto do chão AGORA, lida pela regra salva. Falha de captura vale zero e
   # não derruba a medição: um quadro perdido não é chão limpo nem sujo.
@@ -1667,8 +1684,8 @@ defmodule PokexWeb.CalibrationLive do
     hue_fields =
       if hue?,
         do: [
-          {"tol_h", "matiz ±°", draft.tol_h, "quanto o tom pode virar"},
-          {"tol_sv", "luz ±%", draft.tol_sv, "folga de brilho e saturação"}
+          {"tol", "tom ±", draft.tol,
+           "folga por canal. 0 é a cor exata da sprite — este jogo não tem variação de luz, então exato é o que separa o shiny do comum"}
         ],
         else: []
 
@@ -3776,7 +3793,7 @@ defmodule PokexWeb.CalibrationLive do
                       }
                       class="size-4 shrink-0"
                     />
-                    {verdict_word(special_verdict(@special_reading))}
+                    {verdict_word(special_verdict(@special_reading), @special_reading)}
                   </p>
 
                   <p class="mt-0.5 text-pk-body text-pk-text-2">

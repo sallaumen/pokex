@@ -214,6 +214,13 @@ defmodule Pokex.Vision.ColorRules do
     }
   end
 
+  # A CAIXA RGB: a cor exata da sprite mais uma folga por canal. É a família certa
+  # pra este jogo (sprites fixas, luz sempre igual) e a única que enxerga o eixo
+  # que separa o shiny do comum, que é o BRILHO.
+  defp normalize_color(%{"rgb" => [r, g, b], "tol" => tol}),
+    do: %{"rgb" => [byte(r), byte(g), byte(b)], "tol" => tol |> byte_or(1) |> min(8)}
+
+  # …e o cone de matiz, que regras gravadas antes usam.
   defp normalize_color(%{"rgb" => [r, g, b]} = color) do
     %{
       "rgb" => [byte(r), byte(g), byte(b)],
@@ -301,6 +308,11 @@ defmodule Pokex.Vision.ColorRules do
   defp spec_of(%{"dark" => v_max} = c),
     do: %{dark: v_max, spread: Map.get(c, "spread", 12)}
 
+  defp spec_of(%{"tol" => tol} = c) do
+    [r, g, b] = c["rgb"]
+    %{rgb: {r, g, b}, tol: tol}
+  end
+
   defp spec_of(c) do
     [r, g, b] = c["rgb"]
     %{rgb: {r, g, b}, tol_h: c["tol_h"], tol_sv: c["tol_sv"]}
@@ -362,6 +374,10 @@ defmodule Pokex.Vision.ColorRules do
 
   defp sane_color(%{"dark" => v} = color) when is_integer(v),
     do: [normalize_color(Map.put(color, "rgb", rgb_of(color)))]
+
+  defp sane_color(%{"rgb" => [r, g, b], "tol" => tol} = color)
+       when is_integer(r) and is_integer(g) and is_integer(b) and is_integer(tol),
+       do: [normalize_color(color)]
 
   defp sane_color(%{"rgb" => [r, g, b]} = color)
        when is_integer(r) and is_integer(g) and is_integer(b),

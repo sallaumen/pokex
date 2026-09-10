@@ -58,7 +58,15 @@ defmodule Pokex.Vision.CreatureMarks do
   @white_min 200
   @white_spread 40
   @ink_max_min 140
-  @ink_min_max 60
+  # O PISO QUE CEGAVA O BICHO SELVAGEM. Isto era 60, e a barra do Hitmonlee que
+  # ele estava caçando é preenchida com (80,161,80) — um verde LAVADO, não o
+  # (0,188,0) vivo. `min = 80` não passava por "< 60", então o único bicho
+  # selvagem da tela dele não existia pro olho. `ink?/3` é só a peneira BARATA
+  # que escolhe onde olhar; quem decide é `rectangle/3`, com moldura preta nos
+  # quatro lados e miolo preenchimento-depois-preto. Afrouxar aqui custa
+  # candidatos, não acerto — e areia (224,192,128) e pele (237,188,135), que a
+  # documentação promete recusar, seguem fora com folga.
+  @ink_min_max 100
 
   @type mark :: %{
           point: {integer, integer},

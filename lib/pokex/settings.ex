@@ -268,6 +268,7 @@ defmodule Pokex.Settings do
     # A shiny ALWAYS deserves a pokéball, even with capture_enabled off.
     shiny_always_ball: true,
     shiny_aim_max_candidates: 3,
+    shiny_needs_creature: true,
     # Colour-scan cadence (the SpotScan square) and how many CONSECUTIVE scans with a blob
     # confirm a sighting.
     special_color_scan_ms: 700,

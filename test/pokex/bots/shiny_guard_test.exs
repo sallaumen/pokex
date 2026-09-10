@@ -20,7 +20,12 @@ defmodule Pokex.Bots.ShinyGuardTest do
     :persistent_term.erase({ColorRules, :cache})
     :ets.delete(:pokex_world, :special)
     :ets.delete(:pokex_world, :battle)
-    SettingsStash.stash!(shiny_guard_enabled: true, special_color_scan_ms: 50)
+
+    SettingsStash.stash!(
+      shiny_guard_enabled: true,
+      special_color_scan_ms: 50,
+      shiny_needs_creature: true
+    )
 
     on_exit(fn -> Pokex.TestHome.restore() end)
 
@@ -61,9 +66,26 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
   # um frame do tamanho da REGIÃO do SpotScan, com a mancha verde LONGE das
   # caixas proibidas (personagem no centro)
-  defp frame_com_mancha({_x, _y, w, h}) do
-    frame(w, h, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}])
+  # O QUADRO REALISTA: uma mancha da cor COM a barra de vida do bicho em cima. O
+  # vigia so conta cor que esta em cima de bicho VIVO, e quem prova que ha um
+  # bicho ali e a barra que o cliente desenha. O corpo fica UM TILE (40 no teste)
+  # abaixo do centro da barra.
+  #
+  # Armadilha: `frame/4` pinta o PRIMEIRO retalho que casa, entao o preenchimento
+  # da barra tem que vir ANTES da moldura preta.
+  @tile_teste 40
+
+  defp bicho(cx, cy) do
+    bar_y = cy - @tile_teste - 2
+
+    [
+      {{cx - 5, cy - 7, 14, 14}, @verde},
+      {{cx - 12, bar_y + 1, 22, 2}, {0, 188, 0}},
+      {{cx - 13, bar_y, 27, 4}, {0, 0, 0}}
+    ]
   end
+
+  defp frame_com_mancha({_x, _y, w, h}), do: frame(w, h, {40, 40, 40}, bicho(70, 90))
 
   defp regra_provada(attrs \\ %{}) do
     {:ok, %{"slug" => slug}} =
@@ -244,10 +266,10 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
     assert_receive {:shiny_seen, %{point: {sx, sy}}}, 2_000
 
-    # the patch is 14x14 at (10,10) in the frame: its centre is (17,17) from the region origin
+    # o bicho do quadro de teste tem o corpo em (70,90) do quadro
     {rx, ry, _w, _h} = region
-    assert_in_delta sx, rx + 17, 4
-    assert_in_delta sy, ry + 17, 4
+    assert_in_delta sx, rx + 70, 6
+    assert_in_delta sy, ry + 90, 6
 
     assert {:ok, %{vistos: [%{point: {^sx, ^sy}}]}} =
              WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
@@ -342,6 +364,38 @@ defmodule Pokex.Bots.ShinyGuardTest do
     assert ShinyGuard.forbidden_boxes(sem_marca, frame, {400, 250, 200, 200}) != []
   end
 
+  # A PENEIRA MAIS FORTE DE TODAS. O cliente desenha uma barra de vida sobre cada
+  # criatura VIVA, e o olho sabe acha-las. Uma mancha de cor SEM bicho embaixo e
+  # cenario por definicao — o chao, uma caixa de madeira, um CORPO no chao (que
+  # nao tem barra). Era isso que ele estava vendo destacado: "pega os pokemons
+  # que estao no chao mortos ali".
+  test "colour with no creature under it is scenery, and is not a sighting", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    # a mesma mancha de cor, SEM a barra: cenario
+    so_cor = frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [{{60, 80, 40, 40}, @verde}])
+
+    start_guard_journaling(fn _region, _name -> {:ok, so_cor} end)
+
+    refute_receive {:journal, :special, _nada}, 800
+    assert_receive {:combat_log, :macro, aviso}, 2_000
+    assert aviso =~ "sem bicho embaixo"
+  end
+
+  # …e com o interruptor desligado ele volta a contar, porque a cegueira do olho
+  # nao pode ser a unica coisa entre ele e um shiny.
+  test "with the switch off, colour alone counts again", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    SettingsStash.stash!(shiny_needs_creature: false)
+
+    so_cor = frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [{{60, 80, 40, 40}, @verde}])
+
+    start_guard_journaling(fn _region, _name -> {:ok, so_cor} end)
+
+    assert_receive {:journal, :special, %{tag: "seen"}}, 2_000
+  end
+
   # A LAVA MAIOR TAPAVA O BICHO. (A segunda mancha fica longe do meio: o quadrado
   # de 3×3 tiles do personagem é terreno proibido e engoliria uma mancha ali.) Só a maior mancha era julgada, então o fato, o
   # troféu, o diário e a bola apontavam pro cenário, e o shiny dois tiles ao lado
@@ -349,11 +403,10 @@ defmodule Pokex.Bots.ShinyGuardTest do
   test "a bigger blob of scenery does not hide the creature's own", %{region: region} do
     regra_provada(%{"name" => "Electrode shiny"})
 
+    # dois BICHOS, um com muito mais cor casada que o outro: o vigia tem que
+    # olhar os dois, e nao so o maior
     frame =
-      frame(elem(region, 2), elem(region, 3), {40, 40, 40}, [
-        {{10, 10, 120, 120}, @verde},
-        {{220, 220, 40, 40}, @verde}
-      ])
+      frame(elem(region, 2), elem(region, 3), {40, 40, 40}, bicho(70, 90) ++ bicho(200, 210))
 
     start_guard(fn _region, _name -> {:ok, frame} end)
 

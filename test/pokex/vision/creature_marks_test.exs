@@ -194,6 +194,18 @@ defmodule Pokex.Vision.CreatureMarksTest do
       assert [%{point: {121, 61}, hp_pct: 100, skull?: true, pet?: false}] =
                CreatureMarks.find(frame)
     end
+
+    # A BARRA LAVADA. O piso de tinta era 60, e a barra do bicho selvagem que ele
+    # estava cacando e preenchida com (80,161,80) — um verde LAVADO, nao o
+    # (0,188,0) vivo. `min = 80` nao passava por "< 60", entao o unico selvagem
+    # da tela dele nao existia pro olho: no quadro inteiro de 10/09 o `find`
+    # devolvia UMA marca e o Venusaur roxo, que e o shiny, ficava de fora.
+    test "the washed-out green bar of a wild creature is a mark too" do
+      {:ok, frame} = Frame.from_png_file("test/fixtures/crowd/barra_verde_lavada.png")
+
+      assert [%{hp_pct: hp}] = CreatureMarks.find(frame)
+      assert hp in 80..95, "a barra esta em 88%"
+    end
   end
 
   describe "his notebook screen (tile 36, same bar)" do

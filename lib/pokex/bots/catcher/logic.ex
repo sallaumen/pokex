@@ -120,11 +120,12 @@ defmodule Pokex.Bots.Catcher.Logic do
           {:log, "confirmação inconclusiva (observação tardia) em #{point_str(throw.point)}"}
         ])
 
-      # A LENTE ERRADA NÃO PROVA NADA — como um quadro de aquecimento. Vem DEPOIS
-      # do teto duro de propósito: se a lente desta bola calar (a sessão de mira
-      # fecha por TTL), é o teto que a solta, senão ela fica na conta pra sempre
-      # e `aim_done?/1` nunca fecha a caçada.
-      source_of(obs) != Map.get(throw, :source, :corpse_scan) ->
+      # UM QUADRO QUE NÃO É DESTA BOLA não prova nada — como um quadro de
+      # aquecimento: a lente errada, ou a tela de outro lugar do mapa. Vem DEPOIS
+      # do teto duro de propósito: se a lente calar (a sessão de mira fecha por
+      # TTL) ou ele nunca mais parar no mesmo ponto, é o teto que solta a bola,
+      # senão ela fica na conta pra sempre e `aim_done?/1` nunca fecha a caçada.
+      blind_frame?(throw, obs) ->
         {logic, []}
 
       # OTHER species present at the point: the original corpse is GONE — captured.
@@ -263,6 +264,12 @@ defmodule Pokex.Bots.Catcher.Logic do
       balls: 1,
       at: now,
       name: name_in(obs, point, logic.config.corpse_match_tolerance_px),
+      # ONDE ELE ESTAVA quando a bola saiu. O juiz do `confirm/3` pergunta se o
+      # corpo continua no mesmo ponto de TELA, e isso só é prova enquanto o
+      # personagem não anda: um passo desloca a tela inteira e o corpo "some" do
+      # ponto sem ninguém ter capturado nada. Enquanto a captura era só do modo
+      # Parado a âncora era garantida de graça; na caçada, não é.
+      from: Map.get(obs, :pos),
       # DE QUAL LENTE ESTA BOLA É. Duas leituras alimentam um `Logic` só e cada
       # uma vê um conjunto diferente de corpos: a varredura só conhece os corpos
       # ensinados na biblioteca de sprites, a mira por cor só conhece manchas da
@@ -278,6 +285,16 @@ defmodule Pokex.Bots.Catcher.Logic do
   end
 
   defp maybe_throw(logic, _obs, _now), do: {logic, []}
+
+  # As duas formas de um quadro não valer pra ESTA bola: veio da outra lente, ou
+  # foi tirado de outro lugar do mapa.
+  defp blind_frame?(throw, obs),
+    do: source_of(obs) != Map.get(throw, :source, :corpse_scan) or walked?(throw, obs)
+
+  # Sem uma das duas leituras não dá pra afirmar que andou — e afirmar que NÃO
+  # andou é o lado que mente. Só o par lido decide, e só a igualdade absolve.
+  defp walked?(%{from: {_, _, _} = from}, %{pos: {_, _, _} = to}), do: from != to
+  defp walked?(_sem_ancora, _sem_leitura), do: false
 
   defp prune_ignored(logic, now) do
     %{logic | ignored: Map.filter(logic.ignored, fn {_point, entrada} -> ate(entrada) > now end)}

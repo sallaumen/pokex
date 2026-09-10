@@ -133,6 +133,46 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     assert Logic.next_wake(logic, 900) == nil
   end
 
+  # A ÂNCORA DA CONFIRMAÇÃO É A TELA, e a tela anda com ele.
+  #
+  # `confirm/3` decide "capturado" perguntando se o corpo sumiu do PONTO DE TELA
+  # onde a bola caiu. Isso é prova enquanto o personagem não anda — o que o modo
+  # Parado garantia de graça. Abrindo a captura pra caçada (#590), um passo
+  # desloca a tela inteira e o corpo "some" sem ninguém ter capturado nada: o
+  # diário de 11/09 tem 89 "capturado" com os corpos ainda no chão.
+  describe "a confirmação com o personagem andando" do
+    defp with_pos(corpses, at, pos),
+      do: %{scanning?: true, corpses: corpses, captured_at: at, pos: pos}
+
+    test "he walked: an empty point proves nothing" do
+      {logic, _} = Logic.step(armed(), with_pos([{100, 200}], 10, {10, 10, 7}), 10)
+
+      # a bola voou, o corpo sumiu do ponto — mas ele deu um passo
+      {logic, actions} = Logic.step(logic, with_pos([], 900, {11, 10, 7}), 900)
+
+      assert actions == [], "andar não pode virar captura"
+      assert logic.throw != nil, "a bola continua pendente até ele parar"
+    end
+
+    test "he stood still: an empty point IS the capture" do
+      {logic, _} = Logic.step(armed(), with_pos([{100, 200}], 10, {10, 10, 7}), 10)
+
+      {_logic, actions} = Logic.step(logic, with_pos([], 900, {10, 10, 7}), 900)
+
+      assert Enum.any?(actions, &match?({:log, "capturado" <> _}, &1))
+    end
+
+    # Não saber onde ele está nunca pode virar "andou": sem as duas leituras o
+    # juiz volta a ser o de antes, que é o comportamento que já rodava.
+    test "with no position read at all, the old judgement stands" do
+      {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
+
+      {_logic, actions} = Logic.step(logic, obs([], 900), 900)
+
+      assert Enum.any?(actions, &match?({:log, "capturado" <> _}, &1))
+    end
+  end
+
   describe "throw lifecycle" do
     defp dry_config(cap), do: Map.put(config(), :dry_balls_alarm, cap)
 

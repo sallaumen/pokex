@@ -509,6 +509,14 @@ defmodule Pokex.Settings do
     hunt_mode: "auto_combo",
     # The combo key and how long it occupies the hands.
     auto_combo_key: "r",
+    # NÃO BAIXE ISTO OLHANDO A BARRA. `spent?`/`ready == 0` é o jogo ACEITANDO
+    # as skills (mediana 201ms, pior caso 2234ms no diário de 09/09), não
+    # entregando o dano. Medido pela contagem caindo, nas mesmas 429 correntes:
+    # a última morte de cada corrente vem em 1206ms na mediana, 3819ms no p90 e
+    # 4624ms no p99. Os 4s cobrem 98,2% das mortes; 3,5s cobre 94,5% (a medida
+    # dele de 01/09, a olho); 2,5s cortaria ~1 corrente em 4 antes da última
+    # skill — e cortar a corrente é recolher o pokémon com bicho acordado, que é
+    # a morte de 03/09 16:20.
     auto_combo_window_ms: 4_000,
     defense_mode_key: "shift+3",
     attack_mode_key: "shift+1",

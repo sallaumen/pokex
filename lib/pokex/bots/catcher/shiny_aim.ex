@@ -31,12 +31,13 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
   """
 
   alias Pokex.Bots.Capture
+  alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.ShinyGuard
   alias Pokex.Calibration
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
-  alias Pokex.Vision.{ColorMark, ColorRules, Frame}
+  alias Pokex.Vision.{ColorMark, ColorRules, Frame, SpriteLibrary}
 
   # the eye walks at 1 s; its own `crowd_fact_max_age_ms` (600) is a fight cadence
   @crowd_max_age_ms 1_500
@@ -105,6 +106,10 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
         []
 
       bodies ->
+        # A LISTA NEGRA, resolvida uma vez pra varredura inteira.
+        recusados = CorpseLibrary.aimed()
+        piso = Settings.get(:corpse_match_min_similarity)
+
         rules
         |> Enum.flat_map(fn rule ->
           result =
@@ -119,8 +124,15 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
           # e o bicho em 9.000, as duas passam do gatilho mas só a lava era
           # olhada: o shiny ao lado não ficava "abaixo do limiar", ficava sem ser
           # olhado. O teto existe porque aqui cada alvo vira uma bola.
+          # …E NENHUMA MAIOR QUE UM BICHO. O corte por tamanho vinha DEPOIS do
+          # teto de candidatos, então um aglomerado de cenário de dez tiles não
+          # só levava bola: ele ocupava as vagas e EXPULSAVA o bicho da lista.
+          # Recusar antes do teto é o que promove o shiny pras vagas livres.
           result.manchas
-          |> Enum.filter(&(&1.px >= rule.min_px))
+          |> Enum.filter(
+            &(&1.px >= rule.min_px and creature_sized?(&1.box, tile_px, frame.scale))
+          )
+          |> Enum.reject(&refused?(&1, frame, recusados, piso))
           |> Enum.take(Settings.get(:shiny_aim_max_candidates))
           |> Enum.map(&on_screen(&1, rule, region, frame.scale))
         end)
@@ -171,6 +183,32 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
   end
 
   defp bodies(_nil_or_unread), do: :unknown
+
+  # O CORPO QUE ELE NÃO QUER. O veto por corpo já existia — desligar uma entrada
+  # do acervo põe `aimed?: false` — mas só era lido na varredura por sprite, e
+  # durante a caçada quem joga bola é ESTE caminho, que nunca consultou o acervo.
+  # Um corpo cadastrado e desligado levava bola do mesmo jeito. A recusa vem
+  # ANTES do teto de candidatos, senão ela só economiza bola em vez de abrir vaga
+  # pro bicho.
+  defp refused?(%{point: {fx, fy}}, frame, lib, piso) do
+    box = Settings.get(:corpse_sprite_box_px)
+    meia = div(box, 2)
+
+    case SpriteLibrary.best_in(lib, frame, {fx - meia, fy - meia, box, box}) do
+      %{aimed?: false, score: score} -> score >= piso
+      _sem_veto -> false
+    end
+  end
+
+  # Um bicho ocupa da ordem de um tile; o corpo do Charizard preto dele "passa do
+  # tile". Três tiles de lado é folga de sobra, e o chão da caverna inteiro não
+  # cabe nisso.
+  @max_creature_tiles_side 3
+
+  defp creature_sized?({l, t, r, b}, tile_px, scale) do
+    lado = round(tile_px * scale) * @max_creature_tiles_side
+    r - l + 1 <= lado and b - t + 1 <= lado
+  end
 
   defp within?({ax, ay}, {bx, by}, tolerance),
     do: abs(ax - bx) <= tolerance and abs(ay - by) <= tolerance

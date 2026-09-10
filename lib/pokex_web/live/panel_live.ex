@@ -17,6 +17,7 @@ defmodule PokexWeb.PanelLive do
   alias Pokex.Bots.SkillBar
   alias Pokex.Bots.StockAlerts
   alias Pokex.Calibration
+  alias Pokex.Vision.ColorRules
   alias Pokex.Diagnostics.Report
   alias Pokex.Layout.Sentinel
   alias Pokex.Perception.DisplayFeeds
@@ -1873,8 +1874,30 @@ defmodule PokexWeb.PanelLive do
     end
   end
 
-  defp shiny_px_label(nil), do: "—"
-  defp shiny_px_label(px), do: to_string(px)
+  # A RÉGUA DELE É O TILE. "264131/85331 px" é a mesma frase que ele já disse não
+  # entender; "2,9 de 0,9 tiles" ele lê olhando a tela — e vê na hora que a
+  # mancha é maior que o gatilho.
+  defp shiny_tiles(nil), do: "—"
+
+  defp shiny_tiles(px) do
+    tile = Calibration.tile_px()
+    tiles = ColorRules.tiles(px, tile, scale_now())
+
+    if tiles < 0.1,
+      do: "quase nada",
+      else:
+        (tiles |> :erlang.float_to_binary(decimals: 1) |> String.replace(".", ",")) <> " tiles"
+  end
+
+  defp px_label(nil), do: "—"
+  defp px_label(px), do: to_string(px)
+
+  defp scale_now do
+    case Calibration.load() do
+      {:ok, %{scale: scale}} when is_number(scale) and scale > 0 -> scale
+      _uncalibrated -> 1.0
+    end
+  end
 
   # Sem regra ARMADA não há régua, e `min` chega nil: em Elixir um átomo é
   # MAIOR que qualquer número, então `nil <= 0` é falso e a divisão explodia —
@@ -2285,13 +2308,17 @@ defmodule PokexWeb.PanelLive do
 
         <div class="mt-2 flex flex-wrap items-center gap-2">
           <div class="flex min-w-[9rem] flex-1 items-center gap-2">
-            <span class={[
-              "font-mono text-pk-title font-bold tabular-nums",
-              shiny_px_class(@shiny_px, @shiny_min_px)
-            ]}>
-              {shiny_px_label(@shiny_px)}<span class="text-pk-meta font-normal text-pk-text-3">/{shiny_px_label(
-                @shiny_min_px
-              )} px</span>
+            <span
+              class={[
+                "font-mono text-pk-title font-bold tabular-nums",
+                shiny_px_class(@shiny_px, @shiny_min_px)
+              ]}
+              title={"#{px_label(@shiny_px)} de #{px_label(@shiny_min_px)} pixels de cor casada"}
+            >
+              {shiny_tiles(@shiny_px)}
+              <span class="text-pk-meta font-normal text-pk-text-3">
+                de {shiny_tiles(@shiny_min_px)}
+              </span>
             </span>
             <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-pk-line">
               <div

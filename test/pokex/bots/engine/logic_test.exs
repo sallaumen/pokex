@@ -105,6 +105,29 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert orders.route == :hold
     end
+
+    # "Ele ainda está parando em poucos monstros na tela, fora do que deveria
+    # ser" (10/09, com `engage_from: 6` e `patience_tiles: 6` na tela dele).
+    # `walked` conta tiles desde que a pilha APARECEU, e desde o #578 a régua
+    # roda andando: seis passos de rota normal são ~1,9s, então a paciência
+    # vencia antes de qualquer coisa e passava por cima do "para e luta a partir
+    # de 6". Passo de paciência é passo de ARRASTO — e no Auto Combo, que não
+    # junta pilha, não existe arrasto nenhum.
+    test "patience does not fire on route steps when nothing is being dragged" do
+      config = %{@config | patience_tiles: 6, engage_from: 6, gather_piles: false}
+
+      w =
+        world(%{
+          situation:
+            situation(%{enemies: 2, worth_fighting?: false, walked: 99, walked_total: 99})
+        })
+
+      {logic, orders} = Logic.step(Logic.new(), w, config, 1_000)
+
+      assert orders.route == :go, "duas na tela com a régua em 6 não param a caçada"
+      refute logic.state == :engaged
+      refute orders.why =~ "paciência"
+    end
   end
 
   # `gather_target` acima da contagem: a pilha ainda está enchendo, que é onde
@@ -129,8 +152,15 @@ defmodule Pokex.Bots.Engine.LogicTest do
       })
     end
 
+    # A paciência só vence sobre passo de ARRASTO, então o cérebro precisa ter
+    # decidido arrastar esta pilha antes — é o que o primeiro tique faz.
+    defp arrastando_e_cansado(w) do
+      {logic, _} = Logic.step(Logic.new(), w, @config, 9_800)
+      Logic.step(logic, w, @config, 10_000)
+    end
+
     test "paciência esgotada num bicho bobo abre com UMA tecla" do
-      {logic, orders} = step(small_world(%{}), 10_000)
+      {logic, orders} = arrastando_e_cansado(small_world(%{}))
 
       assert logic.state == :engaged
       assert orders.fire == :free
@@ -139,7 +169,9 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     test "a pilha que vale a área segue abrindo inteira" do
       {_logic, orders} =
-        step(small_world(%{enemies: 6, worth_fighting?: true, stable_for_ms: 9_999}), 10_000)
+        arrastando_e_cansado(
+          small_world(%{enemies: 6, worth_fighting?: true, stable_for_ms: 9_999})
+        )
 
       assert orders.opening == ~w(2 3 4)
     end
@@ -147,7 +179,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "sem mão pequena composta, o desconhecido abre inteiro (fail-open)" do
       w = small_world(%{})
       w = %{w | hands: Map.put(w.hands, :small, [])}
-      {_logic, orders} = step(w, 10_000)
+      {_logic, orders} = arrastando_e_cansado(w)
 
       assert orders.opening == ~w(2 3 4)
     end
@@ -2631,11 +2663,15 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     # A paciência segue sendo o teto: um bolo que nunca enche não segura a
     # caçada pra sempre.
+    # DOIS TIQUES, e o primeiro é a decisão de arrastar: paciência conta passo
+    # de arrasto, e o carimbo `:gathering` nasce no tique que decide.
     test "…ou quando a paciência acaba, com o bolo pela metade" do
       curta = Config.merge(%{@bolo | patience_tiles: 10})
 
-      {_logic, orders} = Logic.step(Logic.new(), juntando(3, 12), curta, 1_000)
+      {logic, primeiro} = Logic.step(Logic.new(), juntando(3, 12), curta, 1_000)
+      {_logic, orders} = Logic.step(logic, juntando(3, 12), curta, 1_200)
 
+      assert primeiro.phase == :gathering
       assert orders.phase in [:bunching, :engaged]
     end
 

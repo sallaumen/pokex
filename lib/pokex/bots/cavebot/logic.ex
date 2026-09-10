@@ -315,14 +315,25 @@ defmodule Pokex.Bots.Cavebot.Logic do
     cond do
       # THE BRAIN IS THE ONLY THING THAT STOPS THE FEET NOW. The tick that
       # stops has nothing else to do, so it is the one that sends the pokémon.
-      stop_for_fight?(world) ->
+      stop_for_fight?(world) and anything_on_screen?(world) ->
         logic |> enter_fight(now) |> park_or(world)
+
+      # …MAS UM `:hold` QUE NÃO É LUTA NÃO É LUTA. O cérebro segura a estrada
+      # com a tela LIMPA por vários motivos — a captura de um shiny
+      # (`:capturing`) e a espera do reset (`:resetting`, que a R11 abre
+      # justamente com a pilha limpa). Entrar em `:fighting` ali fazia o
+      # debounce do fim de luta correr sozinho e `post_fight` disparar a parada
+      # de um canto QUALQUER: na rota `magneton` dele isso é um segundo F4 em
+      # cima do revive que o cérebro tinha acabado de pedir. Parado é parado —
+      # o estacionar continua saindo, que é o que a parada existe pra fazer.
+      stop_for_fight?(world) ->
+        park_or({hold_patience(logic, now), :none}, world)
 
       # …WITH THE POKÉMON ON THE FLOOR, ANYTHING ON SCREEN STOPS THEM. Walking
       # on with nothing of his out there drags the character alone into the
       # next pile, and the ruler does not rate a creature the pokémon cannot
       # answer. This is not the route talking: it is the empty field.
-      logic.recovering? and (world.enemies > 0 or engaged?(world)) ->
+      logic.recovering? and anything_on_screen?(world) ->
         enter_fight(logic, now)
 
       logic.recovering? ->
@@ -353,11 +364,21 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # when the brain says walk and when there is no brain at all, and a hunt whose
   # engine is off would otherwise walk past every monster forever. `engine?` is
   # what separates the two, exactly as `walk_ordered?/1` already does.
+  # …E O ALVO TRAVADO VETA, COM CÉREBRO OU SEM. A conta pode mentir:
+  # `world.enemies` é a lista crua menos a cenografia que o Combat APRENDEU, com
+  # TTL de minutos, e uma presunção velha já engoliu o único inimigo real
+  # (2026-08-10). Este veto existia no `walk/3` de antes com esse comentário e
+  # saiu junto com as marcas de mobada; o cérebro não lê `combat_state` em lugar
+  # nenhum, então nada rio acima o substituiu. Só ACRESCENTA parada: nunca faz a
+  # caçada andar quando o cérebro mandou parar.
   defp stop_for_fight?(world) do
     if Map.get(world, :engine?, false),
-      do: Map.get(world, :route_hold?, false),
-      else: world.enemies > 0 or engaged?(world)
+      do: Map.get(world, :route_hold?, false) or engaged?(world),
+      else: anything_on_screen?(world)
   end
+
+  # A mesma pergunta em três lugares, escrita uma vez.
+  defp anything_on_screen?(world), do: world.enemies > 0 or engaged?(world)
 
   # A deliberate stop does not spend the walk's patience — the same shape as
   # the Worker's frozen clocks under a closed input gate.
@@ -661,7 +682,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
   # does not rate is still how the pokémon dies.
   defp search_interrupted?(logic, world) do
     if logic.recovering?,
-      do: world.enemies > 0 or engaged?(world) or stop_for_fight?(world),
+      do: anything_on_screen?(world) or stop_for_fight?(world),
       else: stop_for_fight?(world)
   end
 

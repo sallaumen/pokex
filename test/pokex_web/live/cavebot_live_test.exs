@@ -903,6 +903,24 @@ defmodule PokexWeb.CavebotLiveTest do
 
       assert html =~ ~s(id="none-armed")
     end
+
+    # A página nasce com `hunt: nil` e só recebe um snapshot quando ALGUMA
+    # caçada roda. Sem caçada é exatamente a hora de escolher o modo da rota, e
+    # era a única hora em que os botões vinham desabilitados, com um aviso
+    # mandando parar a caçada que não estava rodando.
+    test "with no hunt running at all the mode buttons are usable", %{conn: conn} do
+      {:ok, a} = Route.append(Route.new("teste"), {10, 10, 5})
+      :ok = Store.add(%{a | enabled?: true})
+
+      {:ok, view, html} = live(conn, ~p"/cavebot?modo=editar")
+
+      refute html =~ "pare a caçada pra trocar"
+
+      html = view |> element("#route-mode-auto_combo") |> render_click()
+
+      refute html =~ "pare a caçada antes de trocar o modo de combate"
+      assert Enum.find(Store.all(), &(&1.name == "teste")).mode == :auto_combo
+    end
   end
 
   # "to fazendo justamente uma rota com 2 andares, com escadas" (Lucas,

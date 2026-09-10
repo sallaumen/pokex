@@ -1454,6 +1454,68 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
 
       assert logic.state == :fight_stalled
     end
+
+    # A CONTA PODE MENTIR, e o alvo travado no combate não. `world.enemies` é a
+    # lista crua menos a cenografia que o Combat APRENDEU, com TTL de minutos:
+    # uma presunção velha já engoliu o único inimigo real (2026-08-10). Andando,
+    # o veto do alvo travado saiu quando as marcas de mobada saíram, e o cérebro
+    # não enxerga `combat_state` em lugar nenhum — nada rio acima o substitui.
+    test "a locked target stops the feet even when the brain says walk" do
+      cego = mundo(%{engine?: true, route_hold?: false, enemies: 0, combat_state: :fighting})
+
+      {logic, action} = Logic.step(%{lutando() | state: :walking}, cego, 100)
+
+      assert action == :none, "não se anda arrastando um bicho que o combate segurou"
+      assert logic.state == :fighting
+    end
+  end
+
+  # UM `:hold` QUE NÃO É LUTA NÃO É LUTA. O cérebro segura a estrada por vários
+  # motivos com a tela limpa — a captura de um shiny (`:capturing`) e a espera
+  # do reset (`:resetting`, que nasce da R11 justamente com a pilha limpa).
+  # Entrar em `:fighting` ali faz o depurador do fim de luta correr sozinho e
+  # `post_fight` disparar a parada de um canto qualquer — inclusive o
+  # `:cooldown_revive`, em cima do revive que o cérebro acabou de pedir.
+  describe "a estrada segurada com a tela limpa" do
+    defp parado_limpo(route) do
+      %{Logic.new(route, @cfg) | state: :walking, combat_running?: true}
+    end
+
+    defp segurado do
+      %{
+        pos: {10, 10, 7},
+        enemies: 0,
+        combat_state: :hunting,
+        engine?: true,
+        route_hold?: true,
+        capture_pending: 0,
+        capture_changed_at: nil
+      }
+    end
+
+    test "holding on a clear screen never becomes a fight" do
+      {logic, action} = Logic.step(parado_limpo(route()), segurado(), 100)
+
+      assert logic.state == :walking
+      assert action == :none
+    end
+
+    # A parada vai no canto ANTERIOR ao índice atual, que é o que `next_stop/1`
+    # lê (`wp_index - 1`) — é justamente o "canto qualquer" do defeito.
+    test "and it never runs a corner's stop" do
+      {:ok, r} = Route.append(Route.new("r"), {10, 10, 7})
+      {:ok, r} = Route.append(r, {20, 10, 7})
+      logic = parado_limpo(Route.set_stop(r, 1, :cooldown_revive, true))
+
+      {acoes, logic} =
+        Enum.map_reduce(0..40, logic, fn tick, acc ->
+          {acc, action} = Logic.step(acc, segurado(), tick * 200)
+          {action, acc}
+        end)
+
+      refute :cooldown_revive in acoes, "o revive de canto não pode sair numa estrada segurada"
+      assert logic.state == :walking
+    end
   end
 
   # ESPERAR COOLDOWN NÃO É TRAVAR. Com quatro Magnetons e a barra gasta a tela

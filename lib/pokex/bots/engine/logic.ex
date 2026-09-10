@@ -1909,15 +1909,19 @@ defmodule Pokex.Bots.Engine.Logic do
   # vira `:engaged` aqui (idempotente), pra que depois do reset, se sobrou
   # bicho, a régua continue em "matando o que já abriu" e a corrente saia de
   # novo — "quantas vezes precisarmos até matar o shiny".
+  # A FRASE NÃO CARREGA O RELÓGIO. Ela trazia "(#{left}ms)", e esse número mudava
+  # a cada tique — o que derrotava os dois dedups do caminho, que comparam `why`
+  # por igualdade: o do feed (`Narration.decision/3`) e o do diário
+  # (`Engine.Worker.changed_mind?/2`). Medido no diário dele de 09/09: 6787
+  # registros em 2842 frases diferentes, 54,4% do diário inteiro, para 421
+  # correntes. A decisão é a mesma nos dois tiques; quanto falta é do relógio.
   defp combo_running(t) do
-    left = Map.get(t.s, :combo_left_ms, 0)
-
     {enter(t.logic, :engaged, t.now),
      Orders.standing_and_firing(
        :engaged,
        t.band,
        opening(t),
-       "corrente saindo (#{left}ms) — parado até ela acabar, sem chamar mais ninguém"
+       "corrente saindo — parado até ela acabar, sem chamar mais ninguém"
      )}
   end
 

@@ -789,6 +789,28 @@ defmodule Pokex.Bots.Engine.LogicTest do
       refute :now in [a.revive, b.revive]
     end
 
+    # O contador de milissegundos na frase derrotava TODO dedup do caminho: o do
+    # feed (`Narration.decision/3` compara `why` por igualdade) e o do diário
+    # (`Engine.Worker.changed_mind?/2`, idem). Na noite de 09/09 isso deu 6787
+    # registros em 2842 frases diferentes — 54,4% do diário inteiro — para 421
+    # correntes. A frase é a mesma decisão os dois tiques; o quanto falta é do
+    # relógio, não da razão.
+    test "the chain's sentence is one sentence, not one per tick" do
+      chain = fn left ->
+        world(%{
+          situation: situation(%{enemies: 1, combo_left_ms: left, spent?: true, own_hp: 100}),
+          hunt: hunt(%{state: :walking}),
+          hands: %{opening: ["r"], single: [], crowd: []}
+        })
+      end
+
+      {logic, cedo} = reset_step(Logic.new(), chain.(2_400), 10_000)
+      {_logic, tarde} = reset_step(logic, chain.(200), 10_500)
+
+      assert cedo.why == tarde.why
+      refute cedo.why =~ "ms"
+    end
+
     # Fora do Auto Combo `combo_left_ms` é nil, e nil não é "acabou agora".
     test "sem corrente nenhuma a regra não existe" do
       economico =

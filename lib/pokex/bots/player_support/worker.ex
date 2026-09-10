@@ -77,8 +77,16 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       # The CHARACTER's HP: the red bar of the "Pokémon" panel, which despite its name is
       # his, not the pokémon's.
       player_hp: nil,
+      # o último número da Pokebar e desde quando ele é o mesmo: uma barra
+      # pregada num valor baixo não é uma leitura
+      hp_same_value: nil,
+      hp_same_since: nil,
+      frozen_said?: false,
       player_low_since: nil,
       player_alarmed?: false,
+      # o logout do personagem sai UMA vez por episódio: a barra passa por
+      # todas as alturas abaixo do corte enquanto ele morre
+      player_bailed?: false,
       last_rescue_at: nil,
       # The last time the brain asked for a revive while his switch was off.
       last_switch_warn_at: nil,
@@ -334,47 +342,16 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
           watch_player(
             case pokebar(calib) do
               {:ok, hp} ->
-                publish_pokemon_fact(%{hp_pct: hp, readable?: true, fainted?: false})
-
-                act(
-                  judge_revive_effect(%{
-                    state
-                    | prev_hp_pct: state.hp_pct,
-                      hp_pct: hp,
-                      error: nil,
-                      # a bar that reads again is the proof he is back: the death
-                      # trail resets, and only a NEW live reading can arm it
-                      unreadable_streak: 0,
-                      last_seen_hp: hp,
-                      fainted?: false,
-                      counters: bump(state.counters, :reads)
-                  })
-                )
+                pokebar_read(state, hp)
 
               # The region doesn't look like the bar (minimized party window, or no Pokémon out
               # of the ball): UNKNOWN — clear the reading so nothing can act on a stale/garbage
               # value, and say why in the panel.
               :unrecognized ->
-                state =
-                  %{
-                    state
-                    | hp_pct: nil,
-                      prev_hp_pct: nil,
-                      gate: nil,
-                      unreadable_streak: state.unreadable_streak + 1,
-                      error: "barra de vida não reconhecida (janela do Pokémon minimizada?)"
-                  }
-                  |> maybe_revive_fallen()
-                  |> maybe_retry_fallen()
-                  |> say_unreadable()
-
-                publish_pokemon_fact(%{
-                  hp_pct: nil,
-                  readable?: false,
-                  fainted?: state.fainted?
-                })
-
-                state
+                pokebar_unreadable(
+                  state,
+                  "barra de vida não reconhecida (janela do Pokémon minimizada?)"
+                )
 
               # The game is not in front, or came back less than the settle ago: the region
               # reads the panel, not the Pokebar. Unknown — and NOT the fallen path, which
@@ -426,6 +403,105 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # the red fill is "hot" to the column reader like the green, the empty rail (56,71,71) is
   # off, and the 683/720 text on top is discounted by design. Measured on his real frame: 95%
   # read against 683/720 = 94.9%.
+  # UMA BARRA QUE NÃO MEXE NÃO É UMA LEITURA. Medido na morte de 10/09: a
+  # Pokebar devolveu EXATAMENTE 1% em 25 leituras seguidas, 22,3 segundos, e nesse
+  # tempo três revives foram pagos e o personagem sangrou de cheio até morrer. A
+  # bag dele tinha 1.500 revives: o que não havia era pokémon em campo — a barra
+  # de skills dele ficou ilegível no MESMO segundo em que o número congelou.
+  #
+  # Abaixo deste teto uma barra viva muda a cada segundo: ou o bicho cai, ou
+  # alguém cura. Parada, ela é a região mostrando outra coisa — e um número
+  # parado alimentava calado toda decisão, inclusive o veredito que acusou a bag
+  # de vazia e mandou sair do jogo.
+  @frozen_hp_max 10
+
+  # A leitura boa da Pokebar — a não ser que ela tenha parado de mexer.
+  defp pokebar_read(state, hp) do
+    state = note_hp_repeat(state, hp)
+
+    if frozen_hp?(state) do
+      state
+      |> say_frozen(hp)
+      |> pokebar_unreadable("barra do pokémon PREGADA em #{hp}% — ele não está no campo")
+    else
+      publish_pokemon_fact(%{hp_pct: hp, readable?: true, fainted?: false})
+
+      act(
+        judge_revive_effect(%{
+          state
+          | prev_hp_pct: state.hp_pct,
+            hp_pct: hp,
+            error: nil,
+            # a bar that reads again is the proof he is back: the death
+            # trail resets, and only a NEW live reading can arm it
+            unreadable_streak: 0,
+            last_seen_hp: hp,
+            fainted?: false,
+            counters: bump(state.counters, :reads)
+        })
+      )
+    end
+  end
+
+  defp note_hp_repeat(%{hp_same_value: hp} = state, hp), do: state
+
+  defp note_hp_repeat(state, hp),
+    do: %{state | hp_same_value: hp, hp_same_since: now(), frozen_said?: false}
+
+  # UMA VEZ POR CONGELAMENTO, e no setor que fura o mudo: era exatamente esta
+  # frase que faltava. Enquanto o número não mexia, o painel dizia 1% com toda a
+  # calma do mundo e nada no jogo inteiro estava estranhando.
+  defp say_frozen(%{frozen_said?: true} = state, _hp), do: state
+
+  defp say_frozen(state, hp) do
+    segundos = div(now() - state.hp_same_since, 1000)
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:rule_alarm, :mortal,
+       "🩸 a barra do pokémon está PREGADA em #{hp}% há #{segundos}s — ele não está no " <>
+         "campo, e você está sozinho na pilha"}
+    )
+
+    broadcast_log(
+      :macro,
+      "🩸 barra do pokémon PREGADA em #{hp}% há #{segundos}s — leitura descartada; " <>
+        "ele não está no campo (a barra de skills dele também some quando isso acontece)"
+    )
+
+    %{state | frozen_said?: true}
+  end
+
+  defp frozen_hp?(%{hp_same_value: hp, hp_same_since: since})
+       when is_integer(hp) and hp <= @frozen_hp_max and is_integer(since) do
+    limite = Settings.get(:pokemon_hp_frozen_ms)
+    is_integer(limite) and limite > 0 and now() - since >= limite
+  end
+
+  defp frozen_hp?(_moving_or_healthy), do: false
+
+  # O caminho de "não sei": o número sai de cena, a trilha da morte anda, e o
+  # painel diz POR QUE. Vale pro recorte que não parece uma barra e pro número
+  # que parou de mexer — nos dois casos o que existe é a ausência de leitura.
+  defp pokebar_unreadable(state, motivo) do
+    state =
+      %{
+        state
+        | hp_pct: nil,
+          prev_hp_pct: nil,
+          gate: nil,
+          unreadable_streak: state.unreadable_streak + 1,
+          error: motivo
+      }
+      |> maybe_revive_fallen()
+      |> maybe_retry_fallen()
+      |> say_unreadable()
+
+    publish_pokemon_fact(%{hp_pct: nil, readable?: false, fainted?: state.fainted?})
+    state
+  end
+
   defp watch_player(state, calib) do
     case calib.player_hp_region do
       region when is_tuple(region) -> watch_player_at(state, region)
@@ -512,15 +588,40 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
         %{state | player_low_since: nil, player_alarmed?: false}
 
       state.player_hp >= floor + 10 ->
-        %{state | player_low_since: nil, player_alarmed?: false}
+        %{state | player_low_since: nil, player_alarmed?: false, player_bailed?: false}
 
       state.player_hp >= floor ->
         %{state | player_low_since: nil}
 
       true ->
-        player_low(%{state | player_low_since: state.player_low_since || now()})
+        %{state | player_low_since: state.player_low_since || now()}
+        |> player_low()
+        |> player_bail()
     end
   end
+
+  # A AÇÃO MORA MAIS EMBAIXO QUE O AVISO, e não pode depender do grito. O grito
+  # sai UMA vez por episódio, na altura em que a barra cruzou o aviso; a vida
+  # continua caindo depois dele, e era exatamente aí — 4% em 10/09, com o
+  # pokémon fora do campo e sete bichos em cima — que o logout precisava sair.
+  # Amarrado ao grito, ele nasceria com a altura do primeiro quadro e nunca mais
+  # seria perguntado.
+  defp player_bail(%{player_bailed?: true} = state), do: state
+
+  defp player_bail(%{player_low_since: since} = state) when is_integer(since) do
+    corte = Settings.get(:player_hp_logout_pct)
+
+    if Settings.get(:player_hp_logout) and is_integer(corte) and state.player_hp <= corte and
+         now() - since >= @player_low_confirm_ms do
+      broadcast_log(:macro, "🚪 vida do PERSONAGEM em #{state.player_hp}% — SAINDO do jogo")
+      Logout.request("vida do personagem em #{state.player_hp}%")
+      %{state | player_bailed?: true}
+    else
+      state
+    end
+  end
+
+  defp player_bail(state), do: state
 
   # The revive EFFECT judge, charged on every HP reading.
   defp judge_revive_effect(state) do
@@ -529,6 +630,21 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   end
 
   defp scream_if_dead(state, :quiet), do: state
+
+  # O AVISO DO PRIMEIRO. Não pede ação, e é a única coisa que chega a tempo: na
+  # morte de 10/09 a barra do pokémon ficou pregada em 1% por 22 segundos
+  # enquanto três revives eram pagos, e a primeira palavra sobre isso saiu no
+  # terceiro — 23 s depois, com o personagem já morto.
+  defp scream_if_dead(state, :warn) do
+    broadcast_log(
+      :macro,
+      "🩸 revive pago e a barra do pokémon NÃO mexeu (#{state.hp_pct || "?"}%) — " <>
+        "ou a bag está sem revive, ou ele não está no campo. No terceiro: " <>
+        dry_text(Settings.get(:revive_dry_action))
+    )
+
+    state
+  end
 
   defp scream_if_dead(state, :scream) do
     n = ReviveEffect.streak(state.revive_judge)
@@ -539,18 +655,22 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
       @topic,
+      # NÃO ACUSE A BAG PRIMEIRO. Em 10/09 esta linha disse "a BAG está sem
+      # revive? Repõe AGORA" com 1.500 revives na bag dele: o que faltava era
+      # POKÉMON EM CAMPO. As duas causas pedem a mesma ação e merecem o mesmo
+      # peso na frase — uma acusação errada manda ele procurar no lugar errado.
       {:rule_alarm, :mortal,
-       "🩸 #{n} revives pagos e NENHUM efeito — a BAG está sem revive? " <>
-         "Repõe AGORA — #{dry_text(acao)}"}
+       "🩸 #{n} revives pagos e NENHUM efeito — bag sem revive, OU o pokémon não " <>
+         "está em campo (confira a barra dele) — #{dry_text(acao)}"}
     )
 
     broadcast_log(
       :macro,
-      "🩸 #{n} revives pagos sem a vida voltar — bag sem revive (ou o jogo surdo ao F4); " <>
-        dry_text(acao)
+      "🩸 #{n} revives pagos sem a vida voltar — bag sem revive, pokémon fora de campo, " <>
+        "ou o jogo surdo à tecla; " <> dry_text(acao)
     )
 
-    dry_act(acao, "#{n} revives sem efeito — bag sem revive")
+    dry_act(acao, "#{n} revives sem efeito — bag sem revive ou pokémon fora de campo")
     state
   end
 
@@ -585,13 +705,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       :macro,
       "⚠️ a vida do PERSONAGEM caiu a #{state.player_hp}% — " <>
         if(Settings.get(:player_hp_logout),
-          do: "pedindo LOGOUT agora",
+          do: "saio do jogo se chegar em #{Settings.get(:player_hp_logout_pct)}%",
           else: "confere o jogo (ligue player_hp_logout pra ele sair sozinho)"
         )
     )
-
-    if Settings.get(:player_hp_logout),
-      do: Logout.request("vida do personagem em #{state.player_hp}%")
 
     %{state | player_alarmed?: true}
   end

@@ -274,11 +274,12 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "with player_hp_logout on, the warning says the logout was requested", %{
+    test "with player_hp_logout on, the warning says at what height it will leave", %{
       body: body,
       red: red
     } do
       Settings.put(:player_hp_logout, true)
+      Settings.put(:player_hp_logout_pct, 20)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(6)}]})
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
 
@@ -286,7 +287,49 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert :ok = Worker.run(worker)
 
       assert_receive {:game_log, :macro, log}, 3_000
-      assert log =~ "pedindo LOGOUT"
+      assert log =~ "saio do jogo se chegar em 20%"
+    end
+
+    # A ACAO MORA MAIS EMBAIXO QUE O AVISO. Na morte de 10/09 o bot LEU o
+    # personagem a 4% dezoito segundos antes de ele morrer, gritou, e nao fez
+    # nada: a saida dependia de um interruptor desligado, e mesmo ligado ela
+    # nascia amarrada ao grito — que sai UMA vez, na altura do primeiro quadro.
+    @tag :tmp_dir
+    test "below the logout cut it leaves the game, not only shouts", %{body: body, red: red} do
+      Settings.put(:player_hp_logout, true)
+      Settings.put(:player_hp_logout_pct, 35)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(6)}]})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert eventually_log(~r/SAINDO do jogo/, 4_000)
+    end
+
+    # …e acima do corte ele so avisa: sair do jogo e caro, e o aviso existe
+    # justamente pra ele nao ter que sair de toda arranhao.
+    @tag :tmp_dir
+    test "between the warning floor and the logout cut it only shouts", %{body: body, red: red} do
+      Settings.put(:player_hp_logout, true)
+      Settings.put(:player_hp_logout_pct, 10)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(6)}]})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:rule_alarm, :mortal, _grito}, 3_000
+      refute eventually_log(~r/SAINDO do jogo/, 600)
+    end
+
+    defp eventually_log(regex, timeout) do
+      receive do
+        {:game_log, :macro, text} ->
+          if Regex.match?(regex, text), do: true, else: eventually_log(regex, timeout)
+      after
+        timeout -> false
+      end
     end
 
     # A ZERO THAT COMES FROM A FULL BAR IN ONE TICK IS NOT A DEATH (2026-09-07:
@@ -1317,7 +1360,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       SettingsStash.stash!(
         rescue_enabled: true,
         pokemon_hp_fainted_below_pct: 35,
-        fainted_revive_cooldown_ms: 15_000
+        fainted_revive_cooldown_ms: 15_000,
+        pokemon_hp_frozen_ms: 300
       )
 
       :ok
@@ -1337,6 +1381,23 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
         Fake.start_link(%{
           capture: [{:ok, low}, {:ok, gone}, {:ok, gone}, {:ok, gone}, {:ok, gone}, {:ok, gone}]
         })
+    end
+
+    # UMA BARRA QUE NAO MEXE NAO E UMA LEITURA (morte de 10/09): a Pokebar
+    # devolveu EXATAMENTE 1% em 25 leituras seguidas, 22,3 segundos, enquanto
+    # tres revives eram pagos e o personagem sangrava ate morrer. A bag dele
+    # tinha 1.500 revives; o que nao havia era pokemon em campo — e a barra de
+    # skills dele ficou ilegivel no MESMO segundo em que o numero congelou.
+    @tag :tmp_dir
+    test "a bar pinned at a dying value stops being a reading", %{tmp: tmp, body: body} do
+      pregada = hp_png(tmp, "pinned.png", 2)
+      {:ok, _} = Fake.start_link(%{capture: List.duplicate({:ok, pregada}, 60)})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert await_log("PREGADA") =~ "não está no campo"
     end
 
     @tag :tmp_dir
@@ -2048,7 +2109,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       seca_o_juiz(worker)
 
       assert_receive {:rule_alarm, :mortal, texto}, 2_000
-      assert texto =~ "BAG está sem revive"
+      assert texto =~ "bag sem revive, OU o pokémon não está em campo"
       assert texto =~ "SAINDO do jogo"
     end
 

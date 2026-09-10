@@ -49,7 +49,7 @@ defmodule Pokex.Bots.PlayerSupport.ReviveEffect do
 
   @doc """
   One health reading. Closes an expired probe (healed resets it, not healed is a strike) and
-  answers `{judge, :quiet | :scream}`, with `:scream` at most once per
+  answers `{judge, :quiet | :warn | :scream}` — `:warn` on the FIRST break, `:scream` at most once per
   #{div(@scream_refractory_ms, 1000)}s window.
   """
   def tick(judge, hp, _now) when is_integer(hp) and hp >= @healed_floor,
@@ -78,6 +78,13 @@ defmodule Pokex.Bots.PlayerSupport.ReviveEffect do
       do: {%{judge | screamed_at: now}, :scream},
       else: {judge, :quiet}
   end
+
+  # O PRIMEIRO PAGAMENTO SEM EFEITO JÁ É NOTÍCIA. O grito espera três, que na
+  # cadência real são 23 segundos — e na morte de 10/09 o personagem tinha
+  # CINCO. Ficar calado até o terceiro é entregar o diagnóstico depois do
+  # enterro; um aviso no primeiro não pede ação nenhuma e chega a tempo de ele
+  # olhar a tela.
+  defp verdict(%{streak: 1} = judge, _now), do: {judge, :warn}
 
   defp verdict(judge, _now), do: {judge, :quiet}
 

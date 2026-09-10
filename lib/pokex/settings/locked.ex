@@ -314,6 +314,9 @@ defmodule Pokex.Settings.Locked do
     # --- Timers ---
     timers_tick_ms: {"Timers", "os timers conferem o relógio a cada 1s"},
     # --- Pokémon HP (vision) ---
+    pokemon_hp_frozen_ms:
+      {"Pokémon (vida)",
+       "barra pregada no mesmo número baixo por este tempo deixa de contar como leitura"},
     pokemon_hp_min_brightness:
       {"Vida do pokémon (visão)", "coluna cheia = pixel colorido: brilho mínimo"},
     pokemon_hp_min_saturation: {"Vida do pokémon (visão)", "…e saturação mínima"},

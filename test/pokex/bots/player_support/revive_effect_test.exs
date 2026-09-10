@@ -26,7 +26,7 @@ defmodule Pokex.Bots.PlayerSupport.ReviveEffectTest do
   end
 
   test "three paid without a heal = shout; the fourth stays quiet in the refractory window" do
-    {judge, :quiet} = paga_e_falha(ReviveEffect.new(), 50, 0)
+    {judge, :warn} = paga_e_falha(ReviveEffect.new(), 50, 0)
     {judge, :quiet} = paga_e_falha(judge, 40, 10_000)
     {judge, :scream} = paga_e_falha(judge, 30, 20_000)
     {judge, :quiet} = paga_e_falha(judge, 20, 30_000)
@@ -34,18 +34,19 @@ defmodule Pokex.Bots.PlayerSupport.ReviveEffectTest do
   end
 
   test "after the refractory window the shout returns" do
-    {judge, :quiet} = paga_e_falha(ReviveEffect.new(), 50, 0)
+    {judge, :warn} = paga_e_falha(ReviveEffect.new(), 50, 0)
     {judge, :quiet} = paga_e_falha(judge, 40, 10_000)
     {judge, :scream} = paga_e_falha(judge, 30, 20_000)
     {_judge, :scream} = paga_e_falha(judge, 20, 200_000)
   end
 
   test "a heal in the middle resets the series: a restocked bag does not inherit the breaks" do
-    {judge, :quiet} = paga_e_falha(ReviveEffect.new(), 50, 0)
+    {judge, :warn} = paga_e_falha(ReviveEffect.new(), 50, 0)
     {judge, :quiet} = paga_e_falha(judge, 40, 10_000)
     {judge, :quiet} = ReviveEffect.tick(judge, 95, 20_000)
     assert ReviveEffect.streak(judge) == 0
-    {_judge, :quiet} = paga_e_falha(judge, 40, 30_000)
+    # …e a série recomeça do zero: a primeira quebra da nova série avisa de novo
+    {_judge, :warn} = paga_e_falha(judge, 40, 30_000)
   end
 
   test "a reset revive on a full pokemon opens no probe: there is no heal to measure" do
@@ -56,7 +57,7 @@ defmodule Pokex.Bots.PlayerSupport.ReviveEffectTest do
 
   test "the fainted one needing insistence counts a strike directly" do
     judge = ReviveEffect.new()
-    {judge, :quiet} = ReviveEffect.fallen_again(judge, 0)
+    {judge, :warn} = ReviveEffect.fallen_again(judge, 0)
     {judge, :quiet} = ReviveEffect.fallen_again(judge, 3_000)
     {judge, :scream} = ReviveEffect.fallen_again(judge, 6_000)
     assert ReviveEffect.streak(judge) == 3
@@ -66,7 +67,7 @@ defmodule Pokex.Bots.PlayerSupport.ReviveEffectTest do
     judge = ReviveEffect.paid(ReviveEffect.new(), 40, 0)
     {judge, :quiet} = ReviveEffect.tick(judge, nil, 5_000)
     assert ReviveEffect.streak(judge) == 0, "cego cedo demais não condena"
-    {judge, :quiet} = ReviveEffect.tick(judge, nil, 11_000)
+    {judge, :warn} = ReviveEffect.tick(judge, nil, 11_000)
     assert ReviveEffect.streak(judge) == 1
   end
 

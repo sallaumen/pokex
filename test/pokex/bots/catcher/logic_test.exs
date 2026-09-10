@@ -20,6 +20,36 @@ defmodule Pokex.Bots.Catcher.LogicTest do
 
   defp obs(corpses, at), do: %{scanning?: true, corpses: corpses, captured_at: at}
 
+  defp obs(corpses, at, source),
+    do: %{scanning?: true, source: source, corpses: corpses, captured_at: at}
+
+  # CADA LENTE JULGA A SUA BOLA. A varredura de corpos não conhece o corpo do
+  # shiny (é a razão de a mira por cor existir), então a ausência dele numa
+  # leitura da varredura não é prova de captura nenhuma — e vice-versa.
+  test "a reading from the other detector proves nothing about this ball" do
+    {logic, acoes} = Logic.step(armed(), obs([{100, 200}], 10, :shiny_aim), 10)
+    assert Enum.any?(acoes, &match?({:capture_sequence, {100, 200}, _}, &1))
+
+    {logic, acoes} = Logic.step(logic, obs([], 900), 900)
+    assert acoes == []
+    assert logic.counters.captures == 0
+
+    {logic, acoes} = Logic.step(logic, obs([], 1_000, :shiny_aim), 1_000)
+    assert Enum.any?(acoes, &match?({:log, _}, &1))
+    assert logic.counters.captures == 1
+  end
+
+  # E A VÁLVULA: uma bola cuja lente calou não pode ficar presa pra sempre. O
+  # teto duro tem que vir ANTES da conferência de lente.
+  test "past the hard ceiling any reading releases the ball" do
+    {logic, _} = Logic.step(armed(), obs([{100, 200}], 10, :shiny_aim), 10)
+
+    {logic, acoes} = Logic.step(logic, obs([], 70_000), 70_000)
+
+    assert Enum.any?(acoes, &match?({:log, _}, &1))
+    assert logic.throw == nil
+  end
+
   test "a corpse observation throws ONE ball and awaits confirmation" do
     {logic, actions} = Logic.step(armed(), obs([{100, 200}], 10), 10)
     assert Enum.any?(actions, &match?({:capture_sequence, {100, 200}, _}, &1))

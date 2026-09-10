@@ -120,6 +120,13 @@ defmodule Pokex.Bots.Catcher.Logic do
           {:log, "confirmação inconclusiva (observação tardia) em #{point_str(throw.point)}"}
         ])
 
+      # A LENTE ERRADA NÃO PROVA NADA — como um quadro de aquecimento. Vem DEPOIS
+      # do teto duro de propósito: se a lente desta bola calar (a sessão de mira
+      # fecha por TTL), é o teto que a solta, senão ela fica na conta pra sempre
+      # e `aim_done?/1` nunca fecha a caçada.
+      source_of(obs) != Map.get(throw, :source, :corpse_scan) ->
+        {logic, []}
+
       # OTHER species present at the point: the original corpse is GONE — captured.
       # (Missing a name on either side falls to the presence branches below: conservative.)
       outra_especie?(obs, throw, config.corpse_match_tolerance_px) ->
@@ -255,7 +262,12 @@ defmodule Pokex.Bots.Catcher.Logic do
       point: point,
       balls: 1,
       at: now,
-      name: name_in(obs, point, logic.config.corpse_match_tolerance_px)
+      name: name_in(obs, point, logic.config.corpse_match_tolerance_px),
+      # DE QUAL LENTE ESTA BOLA É. Duas leituras alimentam um `Logic` só e cada
+      # uma vê um conjunto diferente de corpos: a varredura só conhece os corpos
+      # ensinados na biblioteca de sprites, a mira por cor só conhece manchas da
+      # cor. Sem isto, a ausência numa lente dava por capturada a bola da outra.
+      source: source_of(obs)
     }
 
     # The name rides ALONG with the action, not just in the throw record: the
@@ -273,6 +285,9 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   defp ate(%{ate: expiry}), do: expiry
   defp ate(expiry) when is_integer(expiry), do: expiry
+
+  # A varredura de corpos não se nomeia; a mira por cor sim (`ShinyAim.obs/3`).
+  defp source_of(obs), do: Map.get(obs, :source, :corpse_scan)
 
   defp present?(corpses, point, tolerance),
     do: Enum.any?(corpses, &near?(&1, point, tolerance))

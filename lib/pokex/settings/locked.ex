@@ -307,6 +307,9 @@ defmodule Pokex.Settings.Locked do
        "só conta cor que estiver em cima de um bicho vivo (a barra de vida prova)"},
     shiny_aim_max_candidates:
       {"Shiny (visão)", "quantos alvos por varredura a mira por cor pode enfileirar"},
+    shiny_max_blobs:
+      {"Shiny (visão)",
+       "acima de quantas manchas o tom vira holofote e a regra cala (um shiny é UMA mancha)"},
     special_color_confirm_frames: {"Shiny (visão)", "2 varreduras seguidas confirmam"},
     # --- Timers ---
     timers_tick_ms: {"Timers", "os timers conferem o relógio a cada 1s"},

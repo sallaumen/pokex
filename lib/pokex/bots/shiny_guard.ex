@@ -264,10 +264,27 @@ defmodule Pokex.Bots.ShinyGuard do
         # nenhuma, e é o que faz o quadrado certo acender no cartão do cerco.
         # A cerca compara PIXELS DO QUADRO com pixels do quadro: ela vem antes da
         # conversão pra pontos de tela, senão são duas réguas diferentes.
-        peneira =
-          result.manchas
-          |> Enum.filter(&(&1.px >= rule.min_px))
-          |> CreatureFence.sort(corpos, tile_frame)
+        acima = Enum.filter(result.manchas, &(&1.px >= rule.min_px))
+
+        # O DISJUNTOR DO HOLOFOTE. Um tom que passa do gatilho em muitos lugares
+        # ao mesmo tempo não está identificando um bicho: está acendendo a tela.
+        # Medido nos quadros de falso alerta dele de 10/09, a banda quase-preta
+        # do Shiny Golem passava do gatilho em 4 a 17 manchas por quadro, com a
+        # maior 60x acima dele — e um shiny é UMA mancha.
+        #
+        # Calar aqui vale muito mais que calar o alarme: o fato `:special` liga
+        # `heavy?` E `worth_fighting?` no cérebro (Situation), então um tom
+        # holofote põe o bot em postura de CHEFE o tempo todo — "não sei por que
+        # ele tá usando skill enquanto anda em mobs com poucos inimigos" (10/09).
+        # A prova do chão não pega isso: ela mede a cena PARADA e crava o gatilho
+        # em 3x o pico dela, então ela sempre passa em si mesma; quem traz a cor
+        # é o bicho que entra na tela depois.
+        {peneira, state} =
+          if length(acima) > Settings.get(:shiny_max_blobs) do
+            {CreatureFence.sort([], corpos, tile_frame), note_floodlight(state, rule, acima)}
+          else
+            {CreatureFence.sort(acima, corpos, tile_frame), state}
+          end
 
         achadas = Enum.map(peneira.quarry, &on_screen(&1, region, frame.scale))
 
@@ -296,6 +313,26 @@ defmodule Pokex.Bots.ShinyGuard do
     state = keepsake(state, vistos, frame)
     publish_special(vistos, frame.scale)
     broadcast_reading(state, best)
+  end
+
+  # …e o holofote também tem voz, uma vez por elenco: calar em silêncio seria a
+  # mesma coisa que a regra não existir, e ele ficaria com um vigia armado que
+  # nunca apita sem saber por quê.
+  defp note_floodlight(state, rule, manchas) do
+    chave = {rule.slug, :floodlight}
+    marca = length(manchas)
+
+    if marca == Map.get(state.refused, chave) do
+      state
+    else
+      announce(
+        "🚨 #{rule.name}: o tom passou do gatilho em #{marca} lugares neste quadro — " <>
+          "isso é holofote, não bicho. A regra está calada até você reensinar um tom " <>
+          "que só o shiny tem (o preto quase puro é contorno de TODA sprite do jogo)"
+      )
+
+      %{state | refused: Map.put(state.refused, chave, marca)}
+    end
   end
 
   # O POKÉMON DELE TEM NOME NA TELA. Calado, isto seria a mesma coisa que a

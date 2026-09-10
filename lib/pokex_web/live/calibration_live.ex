@@ -1516,6 +1516,56 @@ defmodule PokexWeb.CalibrationLive do
     # (ele é preto e cinza), e ali uma mancha que se repete é o mundo parado —
     # o Torterra passando devagar —, que é chão de verdade e tem que contar.
     chrome = if rule_dark?(entry), do: chrome_of(samples), else: []
+    espalhamento = scatter(samples, chrome)
+
+    if espalhamento > @manchas_demais,
+      do: refuse_floor(socket, entry, espalhamento),
+      else: prove_floor(socket, slug, samples, entry, chrome)
+  end
+
+  # O TOM HOLOFOTE NÃO SE PROVA. A prova do chão mede a cena PARADA e crava o
+  # gatilho em 3x o pico dela, de modo que ela sempre passa em si mesma: ela diz
+  # "esta cena não dispara" e mais nada. Quem traz a cor é o bicho que entra na
+  # tela DEPOIS — e um tom que já acende em dezenas de lugares na cena parada vai
+  # acender em todos eles com bicho junto. Medido nos quadros de falso alerta
+  # dele de 10/09: a banda quase-preta do Shiny Golem acendia 83 a 210 manchas
+  # por quadro DEPOIS de descontar o HUD, e o gatilho medido foi 120px.
+  defp refuse_floor(socket, entry, quantas) do
+    culpa =
+      if rule_dark?(entry),
+        do:
+          " O tom é uma BANDA ESCURA, e o preto quase puro é o contorno de TODA sprite " <>
+            "do jogo: ele nunca vai separar um bicho do outro.",
+        else: ""
+
+    assign(socket,
+      special_floor: nil,
+      special_msg:
+        {:error,
+         "nada foi provado: esse tom acende em #{quantas} lugares diferentes por foto, " <>
+           "mesmo sem contar o HUD.#{culpa} Apague esse tom e clique numa cor que SÓ o " <>
+           "shiny tem, com o “tom ±” em 0, até o quadro dizer “separa”."}
+    )
+  end
+
+  # A MEDIANA DE MANCHAS POR FOTO, fora do HUD: uma foto com o Torterra passando
+  # não pode condenar o tom sozinha, nem uma foto de sorte absolvê-lo.
+  defp scatter(samples, chrome) do
+    samples
+    |> Enum.map(fn manchas ->
+      Enum.count(manchas, fn m -> not Enum.any?(chrome, &overlaps?(&1, m.box)) end)
+    end)
+    |> median()
+  end
+
+  defp median([]), do: 0
+
+  defp median(numbers) do
+    ordenados = Enum.sort(numbers)
+    Enum.at(ordenados, div(length(ordenados), 2))
+  end
+
+  defp prove_floor(socket, slug, samples, entry, chrome) do
     peak = floor_peak(samples, chrome)
     sugerido = max(3 * peak, 20)
 

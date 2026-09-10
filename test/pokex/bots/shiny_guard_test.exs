@@ -87,6 +87,28 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
   defp frame_com_mancha({_x, _y, w, h}), do: frame(w, h, {40, 40, 40}, bicho(70, 90))
 
+  # o mesmo bicho, mas com a arte dele pintada do azul que o acervo aprendeu: a
+  # sprite ensinada e recortada MEIO tile abaixo da barra (o centro em 70,70)
+  @azul_dele {20, 40, 220}
+
+  defp frame_do_pokemon_dele({_x, _y, w, h}),
+    do: frame(w, h, {40, 40, 40}, bicho(70, 90) ++ [{{22, 22, 96, 96}, @azul_dele}])
+
+  defp ensina_pokemon_dele(name) do
+    {r, g, b} = @azul_dele
+
+    crop = %Frame{
+      width: 96,
+      height: 96,
+      rgba: :binary.copy(<<r, g, b, 255>>, 96 * 96),
+      scale: 1.0
+    }
+
+    {:ok, _kept} = Pokex.Bots.PokemonSprites.add(name, crop)
+    [%{"slug" => slug} | _outros] = Pokex.Bots.PokemonSprites.list()
+    slug
+  end
+
   defp regra_provada(attrs \\ %{}) do
     {:ok, %{"slug" => slug}} =
       ColorRules.add(
@@ -117,7 +139,11 @@ defmodule Pokex.Bots.ShinyGuardTest do
 
     assert_receive {:shiny_seen, %{px: px, name: "Electrode shiny"}}, 2_000
     assert px >= 50
-    assert_receive {:combat_log, :macro, texto}, 500
+    # …E O ALARME, nao uma linha de feed no meio de outras cem. O setor `:shiny`
+    # e o primeiro da lista de alarmes e o unico sem botao de mudo desde 30/07, e
+    # nunca ninguem o transmitiu: a tarja, a Sirene e o chirp do navegador
+    # estavam ligados num avistamento que nao falava.
+    assert_receive {:rule_alarm, :shiny, texto}, 500
     assert texto =~ "Electrode shiny"
     assert [%{outcome: "seen", note: "Electrode shiny"}] = ShinyLog.entries()
   end
@@ -381,6 +407,55 @@ defmodule Pokex.Bots.ShinyGuardTest do
     refute_receive {:journal, :special, _nada}, 800
     assert_receive {:combat_log, :macro, aviso}, 2_000
     assert aviso =~ "sem bicho embaixo"
+
+    # …e UMA VEZ, nao a cada varredura: com a cadencia de 50ms do teste, uma
+    # gaveta lida por uma chave e escrita por outra enche o feed de combate.
+    refute_receive {:combat_log, :macro, _de_novo}, 600
+  end
+
+  # O POKEMON DELE NAO E CACA. "o shiny venossaur e meu proprio pokemon poxa, nao
+  # quero que ele tente cacar meu proprio pokemon, inclusive, ele ja esta
+  # calibrado!" (10/09). O acervo "Meu pokemon (rastreio)" ja sabia quem e o
+  # companheiro dele; o vigia e que nunca perguntou.
+  test "a blob on HIS OWN taught pokemon is not a sighting", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    ensina_pokemon_dele("Shiny Venusaur")
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    start_guard_journaling(fn _region, _name -> {:ok, frame_do_pokemon_dele(region)} end)
+
+    refute_receive {:journal, :special, _nada}, 800
+    assert_receive {:combat_log, :macro, aviso}, 2_000
+    assert aviso =~ "Shiny Venusaur"
+    assert aviso =~ "SEU"
+  end
+
+  # UMA VEZ POR ELENCO, nao uma por varredura. As duas recusas — sem bicho, e em
+  # cima do pokemon dele — dividiam a mesma gaveta com chaves diferentes na
+  # leitura e na escrita, e o feed de combate levava a mesma linha 20 vezes por
+  # segundo.
+  test "the same refusal is announced once, not on every scan", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    ensina_pokemon_dele("Shiny Venusaur")
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    start_guard(fn _region, _name -> {:ok, frame_do_pokemon_dele(region)} end)
+
+    assert_receive {:combat_log, :macro, aviso}, 2_000
+    assert aviso =~ "SEU"
+    refute_receive {:combat_log, :macro, _de_novo}, 600
+  end
+
+  # …e desligar a entrada no acervo e o interruptor: "nao rastreie esse" e "esse
+  # nao e meu" sao a mesma frase.
+  test "with that entry turned off in the collection it counts again", %{region: region} do
+    regra_provada(%{"name" => "Electrode shiny"})
+    slug_dele = ensina_pokemon_dele("Shiny Venusaur")
+    Pokex.Bots.PokemonSprites.set_enabled(slug_dele, false)
+
+    start_guard_journaling(fn _region, _name -> {:ok, frame_do_pokemon_dele(region)} end)
+
+    assert_receive {:journal, :special, %{tag: "seen"}}, 2_000
   end
 
   # …e com o interruptor desligado ele volta a contar, porque a cegueira do olho

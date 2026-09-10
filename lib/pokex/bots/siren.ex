@@ -16,7 +16,14 @@ defmodule Pokex.Bots.Siren do
       hard to miss);
     * `:setup` — the bot refused to start, or the watchman found a reading it
       cannot make (Submarine: distinct from every game sound, not unpleasant,
-      so it can ring once a minute without being hated).
+      so it can ring once a minute without being hated);
+    * `:shiny` — the night's trophy is ON SCREEN (Hero: the one sound that is
+      supposed to make him look up). The sector was born always-on in
+      `AlarmCategories` — "only Shiny should stay always-on", 2026-07-30 — and
+      then nobody ever broadcast it: the banner, the mute list and the browser
+      chirp were all wired to a sighting that never spoke. He noticed exactly
+      that on 10/09: "acho que a gente já tem esse alerta, mas garantir que
+      está funcionando".
 
   One sound per sector per `@min_gap_ms`, so a burst of alarms is one ring.
   `native_alarm_sound` turns it off. Tests inject the player and never shell
@@ -29,7 +36,8 @@ defmodule Pokex.Bots.Siren do
   @topics ~w(fishing combat catcher mini_game game body cavebot logout engine settings)
   @sounds %{
     mortal: "/System/Library/Sounds/Basso.aiff",
-    setup: "/System/Library/Sounds/Submarine.aiff"
+    setup: "/System/Library/Sounds/Submarine.aiff",
+    shiny: "/System/Library/Sounds/Hero.aiff"
   }
   @min_gap_ms 2_500
 
@@ -83,9 +91,19 @@ defmodule Pokex.Bots.Siren do
     cond do
       Settings.get(:native_alarm_sound) != true -> state
       not is_map_key(@sounds, category) -> state
+      muted?(category) -> state
       is_integer(last) and now - last < @min_gap_ms -> state
       true -> ring_now(state, category, now)
     end
+  end
+
+  # O MUDO DELE VALE AQUI TAMBÉM. `:mortal` e `:setup` não são setores da lista
+  # fechada, então nunca tiveram botão e esta pergunta nunca importou; `:shiny`
+  # TEM botão no painel, e um alarme silenciado na tela que continua gritando
+  # pelo alto-falante do Mac é um botão que mente.
+  defp muted?(category) do
+    category in Pokex.Bots.AlarmCategories.keys() and
+      to_string(category) in Settings.get(:alarm_muted_categories)
   end
 
   defp ring_now(state, category, now) do

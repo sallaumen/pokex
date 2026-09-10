@@ -25,7 +25,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.ScreenScale
   alias Pokex.Settings
   alias Pokex.Vision
-  alias Pokex.Vision.{ColorMark, ColorRules, Frame, TileRuler}
+  alias Pokex.Vision.{ColorMark, ColorRules, CreatureFence, Frame, TileRuler}
 
   # A regra de cor em rascunho: o que o conta-gotas vai enchendo antes de virar
   # acervo. Nasce com as tolerâncias-semente do plano (matiz apertado, S/V
@@ -157,6 +157,7 @@ defmodule PokexWeb.CalibrationLive do
        suggested_mini_game: nil,
        coord_probe: nil,
        special_shot: nil,
+       special_bodies: nil,
        special_draft: @special_draft,
        special_reading: nil,
        special_msg: nil,
@@ -864,6 +865,25 @@ defmodule PokexWeb.CalibrationLive do
   # `.png` aqui é de propósito, como no ensino de corpos: esta foto vai pro
   # navegador pra ele clicar em cima. Quem varre no escuro (o `ShinyGuard`) usa
   # `.raw` — ver `Pokex.Bots.CaptureFormatTest`.
+  # O MESMO CAMINHO DE UM AVISTAMENTO, sem precisar de um shiny na tela: setor
+  # `:shiny`, que é o único sem botão de mudo por construção, na topic que a
+  # Sirene, o painel, o feed do cavebot e o diário escutam.
+  def handle_event("special_alarm_test", _params, socket) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "combat",
+      {:rule_alarm, :shiny, "✨ teste do alerta de shiny — é assim que ele avisa"}
+    )
+
+    {:noreply,
+     assign(socket,
+       special_msg:
+         {:ok,
+          "alarme disparado: você deve ter ouvido o som e visto a tarja no Painel. " <>
+            "Se não ouviu, o mudo do setor “Shiny” está ligado no cabeçalho do Painel."}
+     )}
+  end
+
   def handle_event("special_shot", _params, socket) do
     with {:ok, calib} <- Calibration.load(),
          {:ok, region} <- SpotScan.region(calib),
@@ -1347,9 +1367,20 @@ defmodule PokexWeb.CalibrationLive do
     resto = max(result.px - maior, 0)
     total = frame.width * frame.height
 
+    # O MESMO CRIVO DO VIGIA, AQUI NA FOTO. O painel contava manchas e o vigia
+    # contava manchas EM CIMA DE BICHO VIVO: ele via a foto acesa em seis lugares
+    # e não tinha como saber que cinco deles já eram descartados. E o pokémon
+    # DELE, que o acervo de rastreio conhece, agora aparece com nome.
+    {socket, corpos, tile_frame} = bodies_of_shot(socket)
+    peneira = CreatureFence.sort(result.manchas, corpos, tile_frame)
+
     assign(socket,
       special_reading: %{
         px: result.px,
+        bichos: length(corpos),
+        em_bicho: length(peneira.quarry),
+        meus: peneira.mine |> Enum.map(&elem(&1, 1)) |> Enum.uniq(),
+        sem_bicho: length(peneira.bodyless),
         maior: maior,
         manchas: length(result.manchas),
         pct: if(total > 0, do: result.px * 100 / total, else: 0.0),
@@ -1359,6 +1390,22 @@ defmodule PokexWeb.CalibrationLive do
         altura: frame.height
       }
     )
+  end
+
+  # Os bichos são da FOTO, não do tom: procurá-los de novo a cada esbarrão no
+  # cursor da folga custaria a busca das barras inteira por tecla digitada.
+  defp bodies_of_shot(socket) do
+    shot = socket.assigns.special_shot
+    tile = max(round(Calibration.tile_px() * shot.frame.scale), 1)
+
+    case socket.assigns.special_bodies do
+      {v, corpos} when v == shot.v ->
+        {socket, corpos, tile}
+
+      _outra_foto ->
+        corpos = CreatureFence.bodies(shot.frame, tile)
+        {assign(socket, special_bodies: {shot.v, corpos}), corpos, tile}
+    end
   end
 
   # O veredito em UMA palavra, e a frase que diz o que fazer com ela.
@@ -3305,6 +3352,12 @@ defmodule PokexWeb.CalibrationLive do
                     Acervo separado do de corpos de propósito — pokémon no acervo de corpos
                     é coisa em que o bot joga Pokébola.
                   </p>
+                  <p class="mt-1.5 max-w-prose text-pk-body leading-relaxed text-pk-text-2">
+                    🐾 <b class="text-pk-text">O vigia de Shiny lê esta lista.</b>
+                    Quem está aqui é <i>seu</i>: a cor dele nunca vira avistamento nem leva
+                    Pokébola, por mais shiny que ele seja. Desligue a entrada se quiser que
+                    aquele pokémon volte a entrar na conta da caça.
+                  </p>
                 </div>
                 <div class="flex shrink-0 flex-wrap gap-2">
                   <button id="pokemon-shot-btn" class="btn btn-sm" phx-click="pokemon_shot">
@@ -3563,6 +3616,20 @@ defmodule PokexWeb.CalibrationLive do
                     📸 Fotografar o quadro da busca
                   </button>
 
+                  <%!-- O ALARME TEM QUE SER PROVÁVEL SEM UM SHINY NA TELA.
+                       "Acho que a gente já tem esse alerta, mas garantir que
+                       está funcionando" (10/09) — este botão faz o avistamento
+                       falar exatamente como falaria de verdade: tarja no painel,
+                       som nativo do Mac, linha no feed e no diário. --%>
+                  <button
+                    id="special-alarm-test"
+                    class="btn btn-sm btn-ghost"
+                    phx-click="special_alarm_test"
+                    title="dispara o mesmo alarme de um avistamento de verdade"
+                  >
+                    🔔 Testar o alerta de shiny
+                  </button>
+
                   <%!-- …OU UM PRINT DO COMPUTADOR DELE. "Eu tenho prints dela
                        aqui, e até de outros jogos usar isso para treinar"
                        (09/09). O TOM não tem escala — matiz e escuridão são de
@@ -3798,6 +3865,26 @@ defmodule PokexWeb.CalibrationLive do
 
                   <p class="mt-0.5 text-pk-body text-pk-text-2">
                     {verdict_hint(special_verdict(@special_reading))}
+                  </p>
+
+                  <%!-- O QUE O VIGIA VAI FAZER COM ESTA FOTO. A conta de cima é
+                       de manchas; a de baixo é de manchas EM CIMA DE BICHO VIVO,
+                       que é a única que dispara. --%>
+                  <p
+                    :if={@special_reading.bichos > 0}
+                    class="pk-num mt-1.5 font-mono text-pk-meta text-pk-text-2"
+                  >
+                    o olho achou <b>{@special_reading.bichos}</b>
+                    bicho(s) vivo(s) nesta foto ·
+                    <b class={
+                      if(@special_reading.em_bicho > 0, do: "text-pk-ok", else: "text-pk-text-3")
+                    }>{@special_reading.em_bicho}</b>
+                    mancha(s) em cima de bicho<span :for={meu <- @special_reading.meus}>
+                      · 🐾 <b>{meu}</b> é SEU, não conta
+                    </span>
+                    <span :if={@special_reading.sem_bicho > 0}>
+                      · {@special_reading.sem_bicho} no cenário ou em corpo caído
+                    </span>
                   </p>
 
                   <p class="pk-num mt-1.5 font-mono text-pk-meta text-pk-text-3">

@@ -36,7 +36,7 @@ defmodule Pokex.Bots.ShinyGuard do
   alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
-  alias Pokex.Vision.{ColorMark, ColorRules, CreatureMarks, Evidence, Frame}
+  alias Pokex.Vision.{ColorMark, ColorRules, CreatureFence, Evidence, Frame}
 
   @combat_topic "combat"
   # the panel meter and the Catcher listen here
@@ -74,8 +74,9 @@ defmodule Pokex.Bots.ShinyGuard do
       photographed_at: %{},
       # rules already announced as measured on another frame: say it once
       warned_stale: MapSet.new(),
-      # …e as manchas recusadas por não ter bicho embaixo, também uma vez
-      bodyless: %{}
+      # …e a última recusa anunciada por regra (sem bicho embaixo, ou em cima
+      # do pokémon dele), também uma vez por elenco
+      refused: %{}
     }
 
     case name do
@@ -177,7 +178,7 @@ defmodule Pokex.Bots.ShinyGuard do
   # primeira varredura limpa escrevia um "last"/"gone" com a foto de uma hora
   # atrás, como se o shiny tivesse acabado de sair da tela agora.
   defp forget(state),
-    do: %{state | streaks: %{}, prev: @blank_prev, warned_stale: MapSet.new(), bodyless: %{}}
+    do: %{state | streaks: %{}, prev: @blank_prev, warned_stale: MapSet.new(), refused: %{}}
 
   # -- a varredura -------------------------------------------------------------
 
@@ -225,33 +226,6 @@ defmodule Pokex.Bots.ShinyGuard do
     end)
   end
 
-  # SÓ CONTA MANCHA QUE ESTÁ EM CIMA DE UM BICHO. Esta é a peneira que faltava e
-  # é a mais forte de todas: o cliente desenha uma barra de vida sobre cada
-  # criatura VIVA, e o olho sabe achá-las. Uma mancha de cor sem bicho embaixo é
-  # cenário por definição — o chão, uma caixa de madeira, um CORPO no chão (que
-  # não tem barra). Era exatamente isso que ele estava vendo destacado.
-  #
-  # O vigia é sobre bicho VIVO ("quando tá vivo temos que matar"); o corpo, que
-  # não tem barra, é assunto da mira por cor, que continua varrendo o quadro
-  # inteiro.
-  defp on_a_creature?(_mancha, :qualquer_lugar, _tile), do: true
-
-  defp on_a_creature?(mancha, corpos, tile_frame) do
-    {mx, my} = mancha.point
-    meio = div(tile_frame, 2)
-
-    Enum.any?(corpos, fn {bx, by} ->
-      abs(mx - bx) <= meio and abs(my - by) <= meio
-    end)
-  end
-
-  # O corpo fica UM TILE abaixo da barra, em pixels do quadro.
-  defp creature_bodies(frame, tile_frame) do
-    frame
-    |> CreatureMarks.find()
-    |> Enum.map(fn %{point: {x, y}} -> {x, y + tile_frame} end)
-  end
-
   defp judge(state, rules, frame, region, forbidden) do
     # UMA PROVA É DE UM QUADRO E DE UMA AMPLIAÇÃO. Medida noutro (ele mexeu no
     # raio da busca, no ponto do personagem, na tela) as caixas do HUD tapam chão
@@ -263,10 +237,15 @@ defmodule Pokex.Bots.ShinyGuard do
 
     tile_frame = round(Calibration.tile_px() * frame.scale)
 
+    # SÓ CONTA MANCHA QUE ESTÁ EM CIMA DE UM BICHO VIVO — e nunca em cima do
+    # POKÉMON DELE. Uma mancha sem barra de vida acima é cenário por definição
+    # (o chão, uma caixa, um CORPO, que não tem barra); e uma mancha em cima de
+    # um bicho que o acervo "Meu pokémon (rastreio)" reconhece é o companheiro
+    # dele, que o vigia não caça.
     corpos =
       if Settings.get(:shiny_needs_creature),
-        do: creature_bodies(frame, tile_frame),
-        else: :qualquer_lugar
+        do: CreatureFence.bodies(frame, tile_frame),
+        else: :anywhere
 
     {state, best, vistos} =
       Enum.reduce(rules, {state, 0, []}, fn rule, {state, best, vistos} ->
@@ -285,17 +264,20 @@ defmodule Pokex.Bots.ShinyGuard do
         # nenhuma, e é o que faz o quadrado certo acender no cartão do cerco.
         # A cerca compara PIXELS DO QUADRO com pixels do quadro: ela vem antes da
         # conversão pra pontos de tela, senão são duas réguas diferentes.
-        {com_bicho, sem_bicho} =
+        peneira =
           result.manchas
           |> Enum.filter(&(&1.px >= rule.min_px))
-          |> Enum.split_with(&on_a_creature?(&1, corpos, tile_frame))
+          |> CreatureFence.sort(corpos, tile_frame)
 
-        achadas = Enum.map(com_bicho, &on_screen(&1, region, frame.scale))
+        achadas = Enum.map(peneira.quarry, &on_screen(&1, region, frame.scale))
 
         # A RECUSA TEM VOZ. Uma varredura que achou e jogou fora não pode ser o
         # mesmo silêncio de uma que não achou nada: se o olho ficar cego numa
         # barra nova, é por aqui que ele descobre.
-        state = note_bodyless(state, rule, sem_bicho)
+        state =
+          state
+          |> note_bodyless(rule, peneira.bodyless)
+          |> note_mine(rule, peneira.mine)
 
         # A confirmação e o refratário seguem olhando a MAIOR: uma segunda mancha
         # no mesmo quadro não é um segundo avistamento.
@@ -316,26 +298,48 @@ defmodule Pokex.Bots.ShinyGuard do
     broadcast_reading(state, best)
   end
 
+  # O POKÉMON DELE TEM NOME NA TELA. Calado, isto seria a mesma coisa que a
+  # varredura não ter achado nada, e ele ficaria olhando pro medidor sem entender
+  # por que o Venusaur não dispara mais.
+  defp note_mine(state, _rule, []), do: state
+
+  defp note_mine(state, rule, [{_mancha, name} | _outras] = manchas) do
+    chave = {rule.slug, :mine}
+    marca = {name, length(manchas)}
+
+    if marca == Map.get(state.refused, chave) do
+      state
+    else
+      announce(
+        "🐾 #{rule.name}: a cor está em cima do SEU #{name} — o vigia não caça o " <>
+          "seu próprio pokémon (desligue-o no acervo “Meu pokémon” se quiser que caia na conta)"
+      )
+
+      %{state | refused: Map.put(state.refused, chave, marca)}
+    end
+  end
+
   # Uma vez por elenco também: a mesma cadência de 700ms.
   defp note_bodyless(state, _rule, []), do: state
 
   defp note_bodyless(state, rule, manchas) do
-    marca = {rule.slug, length(manchas)}
+    chave = {rule.slug, :bodyless}
+    marca = length(manchas)
 
-    if marca == Map.get(state.bodyless, rule.slug) do
+    if marca == Map.get(state.refused, chave) do
       state
     else
-      Phoenix.PubSub.broadcast(
-        Pokex.PubSub,
-        @combat_topic,
-        {:combat_log, :macro,
-         "🔎 #{rule.name}: #{length(manchas)} mancha(s) da cor sem bicho embaixo — " <>
-           "cenário, ou corpo no chão (o corpo é assunto da bola, não do vigia)"}
+      announce(
+        "🔎 #{rule.name}: #{length(manchas)} mancha(s) da cor sem bicho embaixo — " <>
+          "cenário, ou corpo no chão (o corpo é assunto da bola, não do vigia)"
       )
 
-      %{state | bodyless: Map.put(state.bodyless, rule.slug, marca)}
+      %{state | refused: Map.put(state.refused, chave, marca)}
     end
   end
+
+  defp announce(line),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:combat_log, :macro, line})
 
   # UMA VEZ POR ELENCO, não uma vez por varredura: na cadência de 700ms isto
   # escreveria o mesmo aviso quase duas vezes por segundo, pra sempre, no feed
@@ -423,7 +427,15 @@ defmodule Pokex.Bots.ShinyGuard do
     # holds the BLOB's px.
     ShinyLog.record(star_px: mancha.px, action: nil, outcome: "seen", note: rule.name)
 
-    Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:combat_log, :macro, reason})
+    # O AVISTAMENTO GRITA. Ele era uma linha de feed no meio de outras cem:
+    # "estou vendo no minimapa que, se você consegue ver Shiny, eu não estou
+    # conseguindo identificar que você realmente conseguiu" (10/09). O setor
+    # `:shiny` existe desde 30/07, é o primeiro da lista de alarmes e o único
+    # que nasce sem botão de mudo — e ninguém nunca o transmitiu. Um
+    # `:rule_alarm` acende a tarja do painel, toca o som nativo pela Sirene,
+    # entra no diário e vira linha no feed do cavebot: tudo o que a linha de
+    # macro fazia, e mais.
+    Phoenix.PubSub.broadcast(Pokex.PubSub, @combat_topic, {:rule_alarm, :shiny, reason})
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,

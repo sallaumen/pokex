@@ -41,8 +41,25 @@ defmodule Pokex.Bots.SirenTest do
     assert_receive {:played, "/System/Library/Sounds/Submarine.aiff"}
   end
 
+  # O SHINY SAIU DAQUI. Ele é o único setor que nasce sem botão de mudo
+  # (`AlarmCategories`, 30/07) e o único cujo aviso ele quer ouvir de longe:
+  # "quando eu tiver um Shiny na tela, de repente ser um alerta" (10/09).
+  test "an announced shiny rings the native sound", %{siren: siren} do
+    alarm("combat", :shiny)
+    settle(siren)
+    assert_receive {:played, "/System/Library/Sounds/Hero.aiff"}
+  end
+
+  test "a shiny sector he silenced on the panel does not ring here either", %{siren: siren} do
+    Pokex.SettingsStash.stash!(alarm_muted_categories: ["shiny"])
+
+    alarm("combat", :shiny)
+    settle(siren)
+    refute_receive {:played, _}, 100
+  end
+
   test "the sectors the panel plays stay silent here", %{siren: siren} do
-    for category <- [:hp, :command, :shiny, :capture, :error] do
+    for category <- [:hp, :command, :capture, :error] do
       alarm("combat", category)
     end
 
@@ -97,8 +114,8 @@ defmodule Pokex.Bots.SirenTest do
     assert Process.alive?(siren)
   end
 
-  test "the sectors with a sound are the two without a mute button" do
-    assert Enum.sort(Siren.sectors()) == [:mortal, :setup]
+  test "the sectors with a sound are the ones without a mute button" do
+    assert Enum.sort(Siren.sectors()) == [:mortal, :setup, :shiny]
     assert Siren.sound(:hp) == nil
   end
 end

@@ -30,6 +30,9 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
   # screen {116, 116}
   defp frame_com_mancha, do: frame(300, 300, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}])
 
+  # uma mancha do tamanho da janela do acervo, pra a assinatura casar
+  defp frame_com_corpo, do: frame(300, 300, {40, 40, 40}, [{{8, 8, 32, 32}, @verde}])
+
   # a lava dele: uma mancha grande da mesma cor, longe do bicho
   defp frame_com_duas_manchas,
     do:
@@ -68,6 +71,79 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     assert_in_delta sy, 117, 2
     assert_in_delta fx, 17, 2
     assert_in_delta fy, 17, 2
+  end
+
+  # A BOLA NO CENTRO DO CORPO. O alvo era o centro de MASSA dos pixels casados:
+  # com a cor casando so um lado da sprite, a massa puxa o alvo pra esse lado e a
+  # bola cai fora do bicho.
+  test "the ball aims at the middle of the body, not at the mass of matched pixels" do
+    # uma sprite cuja cor casa so na METADE ESQUERDA: massa a esquerda, corpo no meio
+    meia =
+      frame(300, 300, {40, 40, 40}, [
+        {{100, 100, 16, 64}, @verde},
+        {{116, 100, 48, 64}, {40, 40, 40}}
+      ])
+
+    assert [%{point: {sx, _sy}, massa: {mx, _my}, in_frame: {fx, _fy}}] =
+             ShinyAim.judge(meia, @region, rules(), [], crowd([]), @tile)
+
+    # a caixa e o alvo tem que coincidir; a massa e outra coisa
+    assert fx == sx - elem(@region, 0)
+    assert is_integer(mx)
+  end
+
+  # A LISTA NEGRA. O veto por corpo ja existia no acervo, mas so era lido na
+  # varredura por sprite — e quem joga bola na cacada e este caminho, que nunca
+  # consultou o acervo. Um corpo que ele desligou levava bola do mesmo jeito.
+  @tag :tmp_dir
+  test "a corpse he switched off is refused by the colour aim too", %{tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
+    Pokex.SettingsStash.stash!(corpse_sprite_box_px: 24, corpse_match_min_similarity: 0.6)
+
+    # ensina a mancha COMO CORPO e desliga: e a lista negra
+    recorte = %Frame{width: 24, height: 24, rgba: :binary.copy(<<40, 160, 60, 255>>, 24 * 24)}
+    {:ok, _n} = Pokex.Bots.Catcher.CorpseLibrary.add("Corpo rosa", recorte)
+    [%{"slug" => slug}] = Pokex.Bots.Catcher.CorpseLibrary.list()
+    :ok = Pokex.Bots.Catcher.CorpseLibrary.set_enabled(slug, false)
+
+    assert ShinyAim.judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile) == []
+  end
+
+  @tag :tmp_dir
+  test "a corpse still switched ON does not veto anything", %{tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
+    Pokex.SettingsStash.stash!(corpse_sprite_box_px: 24, corpse_match_min_similarity: 0.6)
+
+    recorte = %Frame{width: 24, height: 24, rgba: :binary.copy(<<40, 160, 60, 255>>, 24 * 24)}
+    {:ok, _n} = Pokex.Bots.Catcher.CorpseLibrary.add("Corpo rosa", recorte)
+
+    assert [_um] = ShinyAim.judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile)
+  end
+
+  # NENHUMA MANCHA MAIOR QUE UM BICHO. O corte por tamanho vinha DEPOIS do teto
+  # de candidatos, entao um aglomerado de cenario nao so levava bola: ocupava as
+  # vagas e EXPULSAVA o bicho da lista.
+  test "a blob bigger than a creature is refused, and frees the slot for the creature" do
+    # tile 40 no teste: o teto sao 3 tiles de lado = 120px
+    cenario = frame(300, 300, {40, 40, 40}, [{{0, 0, 200, 200}, @verde}])
+
+    assert ShinyAim.judge(cenario, @region, rules(), [], crowd([]), @tile) == []
+  end
+
+  test "the ceiling counts only creature-sized blobs" do
+    Pokex.SettingsStash.stash!(shiny_aim_max_candidates: 1)
+
+    # um borrao de cenario ENORME primeiro (a lista vem ordenada pela maior) e o
+    # bicho depois: com o corte antes do teto, quem fica e o bicho
+    dois =
+      frame(400, 400, {40, 40, 40}, [{{0, 0, 200, 200}, @verde}, {{250, 250, 30, 30}, @verde}])
+
+    assert [%{px: px}] = ShinyAim.judge(dois, @region, rules(), [], crowd([]), @tile)
+    assert px < 2_000, "sobrou o borrao de cenario, nao o bicho"
   end
 
   # A LAVA MAIOR TAPAVA O BICHO. Pegando só a maior mancha, o shiny dois tiles ao

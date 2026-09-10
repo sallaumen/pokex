@@ -2154,6 +2154,53 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert [%{min_px: 25}] = Pokex.Vision.ColorRules.armed()
     end
 
+    # A FAMILIA CERTA SAI DO PAINEL. Um tom pego agora vira caixa RGB com folga
+    # por canal, nao cone de matiz: e o cone que aceitava a mesma arte mais clara,
+    # ou seja o bicho COMUM junto com o shiny.
+    @tag :tmp_dir
+    test "a tone picked on the panel is saved as an rgb box", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      Pokex.Calibration.save(complete_calibration())
+      {:ok, _} = Fake.start_link(%{})
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      com_foto(view, cor_frame(64, 64, {40, 40, 40}, [{{10, 10, 14, 14}, @verde}]))
+      render_click(view, "special_pick", %{"x" => 16, "y" => 16, "cw" => 64, "nw" => 64})
+      render_change(view, "special_form", %{"name" => "Hitmonlee shiny", "tol" => "0"})
+      render_submit(view, "special_save", %{})
+
+      assert [%{"colors" => [cor]}] = Pokex.Vision.ColorRules.list()
+      assert %{"tol" => 0} = cor
+      refute Map.has_key?(cor, "tol_h")
+    end
+
+    # E O CONSELHO CERTO. Ele mandava trocar o tom, que era a metade errada: o
+    # tom estava certo e a FOLGA e que estava larga.
+    @tag :tmp_dir
+    test "a scattered tone is told how many places, and to tighten first", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      Pokex.Calibration.save(complete_calibration())
+      {:ok, _} = Fake.start_link(%{})
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      # muitos quadradinhos da mesma cor espalhados: o tom e do cenario
+      manchas = for i <- 0..19, do: {{i * 3, rem(i, 5) * 12, 2, 2}, @verde}
+      com_foto(view, cor_frame(64, 64, {40, 40, 40}, manchas ++ [{{10, 30, 10, 10}, @verde}]))
+
+      html = render_click(view, "special_pick", %{"x" => 15, "y" => 35, "cw" => 64, "nw" => 64})
+
+      assert html =~ "lugares diferentes desta foto"
+      assert html =~ "aperte o", "o conselho tem que ser apertar a folga, nao trocar o tom"
+    end
+
     # PROVADA, ARMADA E MUDA. Quando o tom ensinado é do cenário, o chão medido
     # sobe junto, o método multiplica por três e sai um gatilho que nenhum bicho
     # alcança. A mensagem dizia "regra PROVADA" e ele ia dormir achando que a

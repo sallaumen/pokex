@@ -42,8 +42,14 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     ]
   end
 
-  defp crowd(hostiles, pet \\ nil),
-    do: %{read?: true, hostiles: Enum.map(hostiles, &%{point: &1}), pet: pet && %{point: pet}}
+  defp crowd(hostiles, pet \\ nil, passive \\ []),
+    do: %{
+      read?: true,
+      hostiles: Enum.map(hostiles, &%{point: &1}),
+      pet: pet && %{point: pet},
+      passive: length(passive),
+      passive_points: passive
+    }
 
   test "a blob with no body near it is a corpse candidate in screen points" do
     assert [%{name: "Electrode shiny", px: px, point: {sx, sy}, in_frame: {fx, fy}}] =
@@ -54,6 +60,21 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     assert_in_delta sy, 117, 2
     assert_in_delta fx, 17, 2
     assert_in_delta fy, 17, 2
+  end
+
+  # O RENASCIDO É UM CORPO VIVO. A lista de batalha não o carrega e `hostiles` o
+  # separa, então a mancha de cor em cima de um bicho VIVO passava por corpo — e
+  # a bola voava nele. Pior: gastas as bolas, o ponto ficava vetado por 45 s e o
+  # corpo de verdade daquele bicho, no mesmo tile, não levava bola nenhuma.
+  test "a respawned creature is a live body and fences the blob out" do
+    assert ShinyAim.judge(
+             frame_com_mancha(),
+             @region,
+             rules(),
+             [],
+             crowd([], nil, [{117, 117}]),
+             @tile
+           ) == []
   end
 
   test "a blob with a hostile body within a tile is a living creature, not a corpse" do

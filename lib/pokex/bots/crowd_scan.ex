@@ -74,7 +74,8 @@ defmodule Pokex.Bots.CrowdScan do
           me: {integer, integer},
           pet: pet | nil,
           hostiles: [hostile],
-          passive: non_neg_integer
+          passive: non_neg_integer,
+          passive_points: [{integer, integer}]
         }
   @type reading ::
           %{
@@ -196,7 +197,13 @@ defmodule Pokex.Bots.CrowdScan do
       me: {px, py},
       pet: pet && pet_of(pet, me, tile),
       hostiles: hostiles,
-      passive: length(passive)
+      passive: length(passive),
+      # …E ONDE ELES ESTÃO. A contagem responde "a caçada está lenta"; a cerca da
+      # mira por cor faz outra pergunta — "tem algo VIVO neste tile?" — e pra
+      # essa a contagem não serve. O renascido não vem na lista de batalha e não
+      # está em `hostiles`: sem o ponto ele é invisível pras duas cercas, e a
+      # bola voa num pokémon vivo.
+      passive_points: Enum.map(passive, & &1.point)
     }
   end
 

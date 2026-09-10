@@ -149,12 +149,22 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
     }
   end
 
+  # QUALQUER CORPO VIVO, e o renascido é um deles. Magenta quer dizer que o bicho
+  # não vem atrás dele, não que o bicho não está lá: o cliente não o põe na lista
+  # de batalha e o olho o separa dos hostis, de modo que ele era invisível aqui —
+  # e a bola voava num pokémon vivo. Pior: gastas as bolas, o ponto entrava em
+  # `ignored` com o nome dele por 45 s, e o corpo de verdade daquele bicho, no
+  # mesmo tile, era vetado depois.
   defp bodies(%{read?: true} = crowd) do
-    hostiles = Map.get(crowd, :hostiles, []) |> Enum.map(& &1.point)
+    vivos =
+      crowd
+      |> Map.get(:hostiles, [])
+      |> Enum.map(& &1.point)
+      |> Enum.concat(Map.get(crowd, :passive_points, []))
 
     case Map.get(crowd, :pet) do
-      %{point: point} -> [point | hostiles]
-      _no_pet -> hostiles
+      %{point: point} -> [point | vivos]
+      _no_pet -> vivos
     end
   end
 

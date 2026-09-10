@@ -42,7 +42,8 @@ defmodule Pokex.Bots.CrowdScanTest do
       point: {px + dx * @tile, py + dy * @tile - @tile},
       hp_pct: Keyword.get(opts, :hp, 100),
       skull?: Keyword.get(opts, :skull?, false),
-      pet?: Keyword.get(opts, :pet?, false)
+      pet?: Keyword.get(opts, :pet?, false),
+      passive?: Keyword.get(opts, :passive?, false)
     }
   end
 
@@ -127,6 +128,25 @@ defmodule Pokex.Bots.CrowdScanTest do
     test "the number box wins over a health match" do
       marks = [mark({3, 3}, pet?: true, hp: 100), mark({0, 2}, hp: 39)]
       assert %{dx: 3, dy: 3} = CrowdScan.place(marks, @me, @tile, pet_hp: 39).pet
+    end
+
+    # O RENASCIDO É UM CORPO VIVO. Ele sai de `hostiles` porque não vem na lista
+    # de batalha, e a contagem sozinha não serve de cerca pra ninguém: quem
+    # precisa saber que há algo VIVO naquele tile precisa do ponto.
+    test "the reading carries where the respawned creatures are, not just how many" do
+      marks = [mark({0, 2}, hp: 100), mark({2, 2}, hp: 100, passive?: true)]
+
+      placed = CrowdScan.place(marks, @me, @tile)
+
+      assert placed.passive == 1
+
+      assert placed.passive_points == [
+               mark({2, 2}).point |> then(fn {x, y} -> {x, y + @tile} end)
+             ]
+
+      assert Enum.map(placed.hostiles, & &1.point) == [
+               mark({0, 2}).point |> then(fn {x, y} -> {x, y + @tile} end)
+             ]
     end
 
     test "no bar within a column of the Pokebar means no pet, not a guess" do
@@ -351,6 +371,8 @@ defmodule Pokex.Bots.CrowdScanTest do
       assert %{dx: 0, dy: 3} = reading.pet
       assert reading.hostiles == []
       assert reading.passive == 1
+      # …e ONDE ele está, que é o que a cerca da mira por cor precisa saber
+      assert [{_x, _y}] = reading.passive_points
     end
 
     defp empty_library do

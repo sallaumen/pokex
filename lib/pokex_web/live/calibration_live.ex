@@ -1466,7 +1466,7 @@ defmodule PokexWeb.CalibrationLive do
     novo = if his?, do: max(sugerido, entry["min_px"]), else: sugerido
 
     if novo != entry["min_px"], do: ColorRules.update(slug, %{"min_px" => novo})
-    ColorRules.mark_proven(slug, peak, chrome, region_now(), scale_medida(socket))
+    ColorRules.mark_proven(slug, peak, chrome, region_now(), measured_scale(socket))
     # O QUE A FERRAMENTA SUGERIU, não o que ficou gravado. Gravando `novo`, o 400
     # que ELE digitou virava "sugestão da ferramenta" na primeira medição, e a
     # segunda medição o apagava por achar que era dela.
@@ -1503,10 +1503,10 @@ defmodule PokexWeb.CalibrationLive do
 
   # A ampliação da foto que a medição usou. Sem uma única foto boa não há prova,
   # e `close_floor/3` já recusa esse caso antes de chegar aqui.
-  defp scale_medida(%{assigns: %{special_floor: %{scale: scale}}}) when is_number(scale),
+  defp measured_scale(%{assigns: %{special_floor: %{scale: scale}}}) when is_number(scale),
     do: scale
 
-  defp scale_medida(_sem_foto), do: nil
+  defp measured_scale(_sem_foto), do: nil
 
   defp em_tiles(px), do: "#{TileRuler.label(px)} (#{px}px)"
 

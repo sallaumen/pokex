@@ -103,6 +103,21 @@ defmodule Pokex.Bots.ShinyGuard do
     end
   end
 
+  @doc """
+  A ampliação do quadro que a última varredura fresca leu, ou `nil`.
+
+  Quem tem a foto é este módulo. Todo o resto que precisa conferir uma prova contra o mundo
+  de agora (o cartão de prontidão) só tem a ampliação CALIBRADA, que é outra coisa — é o
+  backend de captura que decide a da foto.
+  """
+  @spec seen_scale(integer) :: number | nil
+  def seen_scale(now \\ System.monotonic_time(:millisecond)) do
+    case WorldState.get(:special, fact_max_age_ms(), now) do
+      {:ok, %{scale: scale}} when is_number(scale) -> scale
+      _stale_or_missing -> nil
+    end
+  end
+
   @doc "As regras vistas na última varredura fresca, com as manchas delas — `[]` na tela limpa."
   @spec seen(integer) :: [map]
   def seen(now \\ System.monotonic_time(:millisecond)) do
@@ -209,10 +224,12 @@ defmodule Pokex.Bots.ShinyGuard do
   end
 
   defp judge(state, rules, frame, region, forbidden) do
-    # UMA PROVA É DE UM QUADRO. Medida noutro (ele mexeu no raio da busca, no
-    # ponto do personagem, na tela), as caixas do HUD tapam chão vazio e o HUD
-    # volta a disparar — em banda escura ele é mais alto que a criatura.
-    {rules, fora} = Enum.split_with(rules, &ColorRules.proof_fits?(&1, region))
+    # UMA PROVA É DE UM QUADRO E DE UMA AMPLIAÇÃO. Medida noutro (ele mexeu no
+    # raio da busca, no ponto do personagem, na tela) as caixas do HUD tapam chão
+    # vazio e o HUD volta a disparar — em banda escura ele é mais alto que a
+    # criatura. E medida noutra ampliação, a região é a MESMA mas toda mancha vem
+    # com quatro vezes mais pixels: o gatilho é vencido por chão vazio.
+    {rules, fora} = Enum.split_with(rules, &ColorRules.proof_fits?(&1, {region, frame.scale}))
     state = warn_stale(state, fora)
 
     {state, best, vistos} =
@@ -238,7 +255,7 @@ defmodule Pokex.Bots.ShinyGuard do
       end)
 
     state = keepsake(state, vistos, frame)
-    publish_special(vistos)
+    publish_special(vistos, frame.scale)
     broadcast_reading(state, best)
   end
 
@@ -258,7 +275,8 @@ defmodule Pokex.Bots.ShinyGuard do
           Pokex.PubSub,
           @combat_topic,
           {:combat_log, :macro,
-           "⚠️ #{nomes}: a prova do chão foi medida noutro quadro — meça de novo na calibração"}
+           "⚠️ #{nomes}: a prova do chão foi medida noutro quadro (ou noutra ampliação de " <>
+             "tela) — meça de novo na calibração"}
         )
       end
 
@@ -281,12 +299,18 @@ defmodule Pokex.Bots.ShinyGuard do
   # The FACT is published on EVERY scan, not every announcement. The trophy has a one-minute
   # refractory, but the brain needs PRESENCE: while the boss is on screen `heavy?` must stand,
   # and fall when it leaves. Different questions, different clocks.
-  defp publish_special(vistos) do
+  defp publish_special(vistos, scale) do
     WorldState.put(
       :special,
       %{
         especial?: vistos != [],
-        vistos: Enum.map(vistos, fn {rule, m} -> %{name: rule.name, px: m.px, point: m.point} end)
+        vistos:
+          Enum.map(vistos, fn {rule, m} -> %{name: rule.name, px: m.px, point: m.point} end),
+        # A AMPLIAÇÃO DO QUADRO QUE ELE ACABOU DE LER. Quem confere a prova aqui
+        # tem a foto; o cartão de prontidão não tem, e ficaria com a ampliação
+        # CALIBRADA, que é outra coisa. Divergindo as duas, o cartão diria "meça
+        # o chão de novo" pra sempre enquanto a varredura corre feliz.
+        scale: scale
       },
       System.monotonic_time(:millisecond)
     )

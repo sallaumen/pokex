@@ -342,6 +342,21 @@ defmodule Pokex.Bots.ShinyGuardTest do
     assert ShinyGuard.forbidden_boxes(sem_marca, frame, {400, 250, 200, 200}) != []
   end
 
+  # …e a mesma região com OUTRA ampliação também não serve: o chão é uma contagem
+  # e as caixas do HUD são pixels do quadro, e os dois quadruplicam quando o
+  # backend de captura troca e serve a mesma região com o dobro da largura.
+  test "a proof from another scale does not scan either", %{region: region} do
+    slug = regra_provada(%{"name" => "Electrode shiny"})
+    :ok = ColorRules.mark_proven(slug, 3, [], region, 2.0)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "combat")
+
+    start_guard_journaling(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
+
+    assert_receive {:combat_log, :macro, aviso}, 2_000
+    assert aviso =~ "ampliação"
+    refute_receive {:journal, :special, _nada}, 500
+  end
+
   test "a proof from another frame does not scan, and says so once", %{region: region} do
     slug = regra_provada(%{"name" => "Electrode shiny"})
     :ok = ColorRules.mark_proven(slug, 3, [], {0, 0, 10, 10})

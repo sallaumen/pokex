@@ -20,6 +20,7 @@ defmodule Pokex.Bots.ShinyReadiness do
 
   alias Pokex.Bots.Catcher.Balls
   alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Bots.ShinyGuard
   alias Pokex.Calibration
   alias Pokex.Vision.TileRuler
   alias Pokex.Settings
@@ -109,7 +110,8 @@ defmodule Pokex.Bots.ShinyReadiness do
           step(
             :stale_proof,
             "#{quoted_armed(velha)} foi provada em outro quadro — mudou o raio da busca, o " <>
-              "ponto do personagem ou a tela, e o caçador não varre com ela. Meça o chão de novo.",
+              "ponto do personagem, a tela ou a ampliação dela, e o caçador não varre com " <>
+              "ela. Meça o chão de novo.",
             @calibration,
             "medir o chão"
           )
@@ -120,12 +122,23 @@ defmodule Pokex.Bots.ShinyReadiness do
     end
   end
 
+  # A AMPLIAÇÃO É A DA ÚLTIMA FOTO QUE O VIGIA LEU, não a da calibração. As duas
+  # podem divergir (é o backend de captura que decide), e usando a calibrada este
+  # cartão diria "meça o chão de novo" pra sempre enquanto a varredura corre
+  # feliz com a mesma prova. Sem o vigia rodando, a calibrada é o que há.
   defp region_now do
     with {:ok, calib} <- Calibration.load(),
          {:ok, region} <- SpotScan.region(calib) do
-      region
+      {region, scale_now(calib)}
     else
       _sem_quadro -> nil
+    end
+  end
+
+  defp scale_now(calib) do
+    case ShinyGuard.seen_scale() do
+      scale when is_number(scale) -> scale
+      _sem_vigia -> calib.scale
     end
   end
 

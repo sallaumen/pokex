@@ -181,6 +181,30 @@ defmodule Pokex.Vision.ColorRulesTest do
     assert [%{"colors" => [%{"spread" => 0}]}] = ColorRules.list()
   end
 
+  # UMA PROVA É DE UM MUNDO. As caixas do HUD são pixels do QUADRO e o chão é uma
+  # CONTAGEM: os dois quadruplicam quando o backend de captura troca e serve a
+  # mesma região com o dobro da largura. A região não muda, e a porteira deixava
+  # passar.
+  test "a proof measured at another scale does not fit" do
+    %{"slug" => slug} = regra()
+    :ok = ColorRules.mark_proven(slug, 3, [], {0, 0, 100, 100}, 1.0)
+
+    [armada] = ColorRules.armed()
+
+    assert ColorRules.proof_fits?(armada, {{0, 0, 100, 100}, 1.0})
+    refute ColorRules.proof_fits?(armada, {{0, 0, 100, 100}, 2.0})
+    refute ColorRules.proof_fits?(armada, {{0, 0, 200, 200}, 1.0})
+  end
+
+  test "a proof from before the scale field is still trusted" do
+    %{"slug" => slug} = regra()
+    :ok = ColorRules.mark_proven(slug, 3, [], {0, 0, 100, 100})
+
+    [armada] = ColorRules.armed()
+
+    assert ColorRules.proof_fits?(armada, {{0, 0, 100, 100}, 2.0})
+  end
+
   test "apagar apaga; apagar de novo reclama" do
     %{"slug" => slug} = regra()
     :ok = ColorRules.delete(slug)

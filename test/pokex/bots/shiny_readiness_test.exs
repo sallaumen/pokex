@@ -14,6 +14,8 @@ defmodule Pokex.Bots.ShinyReadinessTest do
   setup %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)
     :persistent_term.erase({ColorRules, :cache})
+    # o fato do vigia é global e atravessa arquivos de teste
+    :ets.delete(:pokex_world, :special)
     on_exit(fn -> Pokex.TestHome.restore() end)
 
     SettingsStash.stash!(
@@ -47,8 +49,22 @@ defmodule Pokex.Bots.ShinyReadinessTest do
   # provas de uma vez, o caçador passa a varrer com nenhuma regra, e este cartão
   # dizia "armado" a noite inteira.
   test "a proof measured on another frame is the step, not a green seal" do
+    # com uma calibração de verdade a região tem um valor de verdade, e a prova
+    # gravada noutra não casa com ela
+    Pokex.Calibration.save(%Pokex.Calibration{
+      scale: 1.0,
+      screen_w: 1000,
+      screen_h: 700,
+      tile_px: 40,
+      water_point: {400, 300},
+      glow_region: {0, 0, 20, 20},
+      battle_region: {900, 0, 80, 400},
+      neutral_point: {500, 500},
+      player_point: {500, 350}
+    })
+
     slug = teach("Charizard preto")
-    :ok = ColorRules.mark_proven(slug, 10, [], {0, 0, 10, 10})
+    :ok = ColorRules.mark_proven(slug, 10, [], {0, 0, 10, 10}, 1.0)
 
     check = ShinyReadiness.check()
 
@@ -56,6 +72,69 @@ defmodule Pokex.Bots.ShinyReadinessTest do
     assert [%{key: :stale_proof, text: text, link: "medir o chão"}] = check.gaps
     assert text =~ "Charizard preto"
     assert text =~ "outro quadro"
+  end
+
+  # …e a mesma região com OUTRA ampliação também não serve: as caixas do HUD são
+  # pixels do quadro e o chão é uma contagem, e os dois quadruplicam.
+  test "the same region at another scale is not the same proof" do
+    calib = %Pokex.Calibration{
+      scale: 2.0,
+      screen_w: 1000,
+      screen_h: 700,
+      tile_px: 40,
+      water_point: {400, 300},
+      glow_region: {0, 0, 20, 20},
+      battle_region: {900, 0, 80, 400},
+      neutral_point: {500, 500},
+      player_point: {500, 350}
+    }
+
+    Pokex.Calibration.save(calib)
+    {:ok, regiao} = Pokex.Bots.Catcher.SpotScan.region(calib)
+
+    slug = teach("Charizard preto")
+    :ok = ColorRules.mark_proven(slug, 10, [], regiao, 1.0)
+
+    assert [%{key: :stale_proof}] = ShinyReadiness.check().gaps
+
+    # provada na ampliação de agora, o passo sai da frente
+    :ok = ColorRules.mark_proven(slug, 10, [], regiao, 2.0)
+    assert [%{key: :guard_off}] = ShinyReadiness.check().gaps
+  end
+
+  # …E A AMPLIAÇÃO É A DA FOTO, não a da calibração. O backend de captura decide
+  # a da foto, e usando a calibrada o cartão mandaria medir o chão pra sempre
+  # enquanto a varredura corre feliz com a mesma prova.
+  test "the scale that counts is the one the watcher's photo had" do
+    calib = %Pokex.Calibration{
+      scale: 2.0,
+      screen_w: 1000,
+      screen_h: 700,
+      tile_px: 40,
+      water_point: {400, 300},
+      glow_region: {0, 0, 20, 20},
+      battle_region: {900, 0, 80, 400},
+      neutral_point: {500, 500},
+      player_point: {500, 350}
+    }
+
+    Pokex.Calibration.save(calib)
+    {:ok, regiao} = Pokex.Bots.Catcher.SpotScan.region(calib)
+
+    slug = teach("Charizard preto")
+    :ok = ColorRules.mark_proven(slug, 10, [], regiao, 1.0)
+
+    # sem vigia rodando, o cartão só tem a calibrada (2.0) e recusa a prova
+    assert [%{key: :stale_proof}] = ShinyReadiness.check().gaps
+
+    # com o vigia dizendo que a foto dele veio a 1.0, a prova serve
+    Pokex.Perception.WorldState.put(
+      :special,
+      %{especial?: false, vistos: [], scale: 1.0},
+      System.monotonic_time(:millisecond)
+    )
+
+    assert [%{key: :guard_off}] = ShinyReadiness.check().gaps
   end
 
   # PROVADA, ARMADA E MUDA. O tom ensinado era do cenário, então o chão medido

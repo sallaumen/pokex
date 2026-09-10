@@ -86,12 +86,17 @@ defmodule Pokex.Vision.ColorRules do
   and the Tracker window are black, they never move, and in his own frame each of them was
   louder than the creature. What the hunt draws moves; what the client draws does not.
   """
-  def mark_proven(slug, floor_px, chrome \\ [], region \\ nil)
+  def mark_proven(slug, floor_px, chrome \\ [], region \\ nil, scale \\ nil)
       when is_integer(floor_px) and floor_px >= 0 do
     mutate(slug, fn entry ->
       Map.put(entry, "proven", %{
         "floor_px" => floor_px,
         "chrome" => Enum.map(chrome, fn {l, t, r, b} -> [l, t, r, b] end),
+        # …E EM QUE AMPLIAÇÃO. `floor_px` é uma CONTAGEM e `chrome` são pixels do
+        # QUADRO: os dois quadruplicam quando o backend de captura troca e serve
+        # a mesma região com o dobro da largura. A região, que é em pontos de
+        # tela, não vê essa troca — e a porteira abaixo deixava passar.
+        "scale" => scale,
         # EM QUE QUADRO ela foi medida. As caixas do HUD são pixels DAQUELE
         # quadro, e o quadro sai de `corpse_scan_radius_tiles`, do tile da tela
         # e do ponto do personagem: mudar qualquer um desloca tudo, e as caixas
@@ -141,10 +146,19 @@ defmodule Pokex.Vision.ColorRules do
   A proof taken in another region is not a proof of anything here — and an OLD proof, from
   before this field existed, is trusted (it was measured on the region he had then).
   """
-  @spec proof_fits?(map, tuple | nil) :: boolean
-  def proof_fits?(%{proven_region: nil}, _region), do: true
-  def proof_fits?(%{proven_region: stored}, region), do: stored == region
-  def proof_fits?(_no_proof, _region), do: true
+  @spec proof_fits?(map, {tuple, number} | nil) :: boolean
+  def proof_fits?(rule, {region, scale}),
+    do: region_fits?(rule, region) and scale_fits?(rule, scale)
+
+  def proof_fits?(_rule, nil), do: true
+
+  defp region_fits?(%{proven_region: nil}, _region), do: true
+  defp region_fits?(%{proven_region: stored}, region), do: stored == region
+  defp region_fits?(_no_proof, _region), do: true
+
+  defp scale_fits?(%{proven_scale: nil}, _scale), do: true
+  defp scale_fits?(%{proven_scale: stored}, scale), do: stored == scale
+  defp scale_fits?(_no_proof, _scale), do: true
 
   @doc """
   Records the trigger the TOOL itself suggested, so the next measurement can tell its own
@@ -273,7 +287,8 @@ defmodule Pokex.Vision.ColorRules do
                 # numa banda escura ele é mais alto que a criatura. A prova do
                 # chão as aprendeu; o vigia as recusa.
                 forbidden: chrome_boxes(e),
-                proven_region: proven_region(e)
+                proven_region: proven_region(e),
+                proven_scale: proven_scale(e)
               }
             end)
         }
@@ -298,6 +313,9 @@ defmodule Pokex.Vision.ColorRules do
 
   defp proven_region(%{"proven" => %{"region" => [x, y, w, h]}}), do: {x, y, w, h}
   defp proven_region(_older_proof), do: nil
+
+  defp proven_scale(%{"proven" => %{"scale" => scale}}) when is_number(scale), do: scale
+  defp proven_scale(_older_proof), do: nil
 
   defp file_stamp do
     case File.stat(file(), time: :posix) do

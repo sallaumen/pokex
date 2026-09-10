@@ -983,7 +983,8 @@ defmodule PokexWeb.CalibrationLive do
              name: entry["name"],
              left: @floor_samples,
              peak: 0,
-             samples: []
+             samples: [],
+             scale: nil
            },
            special_msg: nil
          )}
@@ -1041,10 +1042,10 @@ defmodule PokexWeb.CalibrationLive do
     # derrubava as caixas do HUD abaixo do mínimo de 80% e o aprendizado saía
     # vazio — em silêncio, porque a mensagem de sucesso não fala de chrome
     # nenhum quando a lista está vazia.
-    samples =
+    {samples, scale} =
       case floor_reading(socket, slug) do
-        {:ok, manchas} -> [manchas | f.samples]
-        :blind -> f.samples
+        {:ok, manchas, scale} -> {[manchas | f.samples], scale}
+        :blind -> {f.samples, Map.get(f, :scale)}
       end
 
     left = f.left - 1
@@ -1054,7 +1055,13 @@ defmodule PokexWeb.CalibrationLive do
 
       {:noreply,
        assign(socket,
-         special_floor: %{f | left: left, samples: samples, peak: sample_peak(samples)}
+         special_floor: %{
+           f
+           | left: left,
+             samples: samples,
+             peak: sample_peak(samples),
+             scale: scale
+         }
        )}
     else
       {:noreply, close_floor(socket, slug, samples)}
@@ -1396,11 +1403,14 @@ defmodule PokexWeb.CalibrationLive do
       # dele; a medição contava. O Torterra verde parado no lugar dele era a
       # maior mancha das doze fotos, virava "chão", e o gatilho subia pra três
       # vezes um bicho que o caçador jamais vê — regra provada, armada e cega.
+      # A AMPLIAÇÃO DA FOTO, não a da calibração: a foto é a testemunha. `chrome`
+      # são pixels DESTE quadro e o pico é uma CONTAGEM neste quadro; os dois
+      # quadruplicam se o backend de captura trocar.
       {:ok,
        ColorMark.scan(frame, ColorRules.specs_for(entry),
          min_cell_px: entry["min_cell_px"],
          forbidden: ShinyGuard.forbidden_boxes(calib, frame, region)
-       ).manchas}
+       ).manchas, frame.scale}
     else
       _blind -> :blind
     end
@@ -1456,7 +1466,7 @@ defmodule PokexWeb.CalibrationLive do
     novo = if his?, do: max(sugerido, entry["min_px"]), else: sugerido
 
     if novo != entry["min_px"], do: ColorRules.update(slug, %{"min_px" => novo})
-    ColorRules.mark_proven(slug, peak, chrome, region_now())
+    ColorRules.mark_proven(slug, peak, chrome, region_now(), scale_medida(socket))
     # O QUE A FERRAMENTA SUGERIU, não o que ficou gravado. Gravando `novo`, o 400
     # que ELE digitou virava "sugestão da ferramenta" na primeira medição, e a
     # segunda medição o apagava por achar que era dela.
@@ -1490,6 +1500,13 @@ defmodule PokexWeb.CalibrationLive do
       {:ok, corpo <> " e regra PROVADA — #{vigia_estado(entry)}"}
     end
   end
+
+  # A ampliação da foto que a medição usou. Sem uma única foto boa não há prova,
+  # e `close_floor/3` já recusa esse caso antes de chegar aqui.
+  defp scale_medida(%{assigns: %{special_floor: %{scale: scale}}}) when is_number(scale),
+    do: scale
+
+  defp scale_medida(_sem_foto), do: nil
 
   defp em_tiles(px), do: "#{TileRuler.label(px)} (#{px}px)"
 

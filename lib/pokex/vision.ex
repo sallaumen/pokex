@@ -788,31 +788,38 @@ defmodule Pokex.Vision do
   art and the capture is deterministic. So the gap to split is ~1 vs ~44, and the old
   ceiling of 60 read half the charging bar as :ready.
 
-  Threshold fallback (no reference): the COUNTDOWN NUMBER wins — a slot whose `white_pct`
-  (share of PURE-white pixels: min channel ≥ 200, near-zero saturation) reaches
-  `min_white_pct` reads `:cooldown` no matter how colourful the rest looks. Otherwise a
-  slot is `:ready` when saturated ENOUGH (avg) OR with enough VIVID pixels — colour, never
-  brightness alone (white/grey are colourless; brightness is still REPORTED per slot).
-  Erring toward :cooldown is the CHEAP direction: the fishing gate's hook_hold_max_ms
-  ceiling bounds a false hold, while a false ready pulls monsters with nothing to kill.
+  ABOVE ALL OF IT — the number the game writes. `Pokex.Vision.SkillDigits.counting/2` reads
+  the countdown itself, and it is the only source here that cannot be mistaken for the art:
+  a cooling key always carries it, a ready one never does. It decides FIRST and in BOTH
+  directions, so a slot the game left blank is judged on colour alone even when its icon is
+  painted white.
+
+  Threshold fallback (no reference, no countdown): a slot is `:ready` when saturated ENOUGH
+  (avg) OR with enough VIVID pixels — colour, never brightness alone (white/grey are
+  colourless; brightness is still REPORTED per slot). Erring toward :cooldown is the CHEAP
+  direction: the fishing gate's hook_hold_max_ms ceiling bounds a false hold, while a false
+  ready pulls monsters with nothing to kill.
+
+  `white_pct` is still measured and reported — `Pokex.Bots.SkillBar.slot_refs/2` uses it at
+  calibration time — but it no longer decides a state. See `slot_state/7`.
 
   All numbers are exported per slot for tuning from the diagnostic dump. Options: `:count`
-  (7), `:refs` (nil), `:max_distance` (25), `:min_saturation` (40), `:min_vivid_pct` (7),
-  `:min_white_pct` (4). Returns
-  `[%{brightness, saturation, vivid_pct, white_pct, signature, distance, state}]`, left→right.
+  (7), `:refs` (nil), `:max_distance` (25), `:min_saturation` (40), `:min_vivid_pct` (7).
+  Returns `[%{brightness, saturation, vivid_pct, white_pct, signature, distance, counting?,
+  state}]`, left→right.
   """
-  def skill_slots(%Frame{width: w, rgba: rgba}, opts \\ []) do
+  def skill_slots(%Frame{width: w, rgba: rgba} = frame, opts \\ []) do
     count = (Keyword.get(opts, :count) || 7) |> clamp(1, w)
     # `|| default` (not Keyword's default) so a nil setting value — a caller passing a partial
     # settings map — still yields a number instead of crashing the `>=` comparison.
     min_s = Keyword.get(opts, :min_saturation) || 40
     min_vivid = Keyword.get(opts, :min_vivid_pct) || 7
-    min_white = Keyword.get(opts, :min_white_pct) || 4
     max_distance = Keyword.get(opts, :max_distance) || 25
     refs = Keyword.get(opts, :refs) || []
     slot_w = max(div(w, count), 1)
 
     acc = skill_slot_acc(rgba, 0, w, count, slot_w, %{})
+    counting = SkillDigits.counting(frame, count)
 
     for i <- 0..(count - 1)//1 do
       {sb, ss, vivid, white, cr, cg, cb, cn, n} = Map.get(acc, i, {0, 0, 0, 0, 0, 0, 0, 0, 0})
@@ -823,18 +830,10 @@ defmodule Pokex.Vision do
       white_pct = div(white * 100, n)
       signature = if cn > 0, do: {div(cr, cn), div(cg, cn), div(cb, cn)}
       distance = slot_distance(signature, Enum.at(refs, i))
+      counting? = MapSet.member?(counting, i)
 
       state =
-        slot_state(
-          distance,
-          max_distance,
-          white_pct,
-          min_white,
-          saturation,
-          min_s,
-          vivid_pct,
-          min_vivid
-        )
+        slot_state(counting?, distance, max_distance, saturation, min_s, vivid_pct, min_vivid)
 
       %{
         brightness: brightness,
@@ -843,26 +842,29 @@ defmodule Pokex.Vision do
         white_pct: white_pct,
         signature: signature,
         distance: distance,
+        counting?: counting?,
         state: state
       }
     end
   end
 
-  # The reference match wins when there IS one; otherwise the white countdown
-  # glyph vetoes, and colour is the last word.
-  defp slot_state(
-         distance,
-         max_distance,
-         white_pct,
-         min_white,
-         saturation,
-         min_s,
-         vivid,
-         min_vivid
-       ) do
+  # The GAME's countdown first — the only source that cannot be confused with the
+  # art. Then the reference match, when there is one; colour is the last word.
+  #
+  # There used to be a fourth rule between the reference and the colour: a slot
+  # whose `white_pct` reached `min_white_pct` read `:cooldown`, white being a
+  # stand-in for "the game wrote a number here". His Shiny Slowking's icons are
+  # painted white — 4% to 15% of the slot, against the ~2% the key label alone
+  # puts there — so seven of his nine keys read as cooling on a bar with nothing
+  # cooling, and the two icons that happen to be dark were the whole hunt
+  # (2026-09-09). The stand-in is not needed any more: `SkillDigits` reads the
+  # number itself, and it answers in BOTH directions.
+  defp slot_state(true = _counting?, _distance, _max, _saturation, _min_s, _vivid, _min_vivid),
+    do: :cooldown
+
+  defp slot_state(false = _counting?, distance, max_distance, saturation, min_s, vivid, min_vivid) do
     cond do
       distance != nil -> if distance <= max_distance, do: :ready, else: :cooldown
-      white_pct >= min_white -> :cooldown
       saturation >= min_s or vivid >= min_vivid -> :ready
       true -> :cooldown
     end

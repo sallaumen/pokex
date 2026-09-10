@@ -22,7 +22,7 @@ defmodule Pokex.Settings.Locked do
       {"Barra de skills (visão)", "slot pronto = cor: saturação média acima disto"},
     skill_cooldown_min_white_pct:
       {"Barra de skills (visão)",
-       "número branco do cooldown vence a cor: % de pixels brancos puros"},
+       "na CALIBRAÇÃO: acima deste % de pixels brancos puros o slot não vira referência"},
     skill_ref_max_distance:
       {"Barra de skills (visão)", "distância de cor máxima até a referência 'pronta' calibrada"},
     skill_ready_min_vivid_pct:

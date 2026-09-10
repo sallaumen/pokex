@@ -16,45 +16,34 @@ defmodule Pokex.VisionSkillStatesTest do
       assert Vision.skill_states(frame, count: 2) == [:ready, :cooldown]
     end
 
-    test "the countdown number over a COLOURED icon reads :cooldown (the slot-6 '16' case)" do
-      # An olive/yellow icon stays saturated under the cooldown overlay, and the white
-      # number's anti-aliasing over it mints bright saturated edge pixels — the colour
-      # tests alone read this READY (Lucas's slot 6 at 16s). The pure-white glyph body is
-      # the game's own "cooling" statement, and it must win over any amount of colour.
-      rgba =
-        :binary.copy(<<120, 110, 40, 255>>, 80) <>
-          :binary.copy(<<255, 255, 255, 255>>, 12) <>
-          :binary.copy(<<200, 190, 120, 255>>, 8)
+    # A COR ENGANA E O NÚMERO NÃO. O ícone oliva continua saturado embaixo do
+    # cooldown, e o anti-aliasing do número branco por cima ainda mint pixels
+    # vivos: a tecla 3 desta barra real mede saturação 32 e vivo 22 com um "12"
+    # escrito nela. Quem desempata é o glifo, lido como glifo.
+    test "the countdown number over a COLOURED icon reads :cooldown" do
+      frame = real("tres_contando_ontem.raw")
 
-      frame = %Frame{width: 100, height: 1, rgba: rgba}
+      slots = Vision.skill_slots(frame, count: 9, min_saturation: 25, min_vivid_pct: 7)
+      contando = Enum.at(slots, 2)
 
-      [slot] =
-        Vision.skill_slots(frame,
-          count: 1,
-          min_saturation: 25,
-          min_vivid_pct: 7,
-          min_white_pct: 4
-        )
-
-      # the colour tests DO pass (that's the trap) — the white override is what saves it
-      assert slot.saturation >= 25
-      assert slot.white_pct >= 4
-      assert slot.state == :cooldown
+      # os testes de cor PASSAM (é essa a armadilha) — o dígito é que salva
+      assert contando.saturation >= 25
+      assert contando.vivid_pct >= 7
+      assert contando.counting?
+      assert contando.state == :cooldown
     end
 
-    test "a colourful icon with only a TRACE of white (icon art, no number) stays :ready" do
-      # 2% pure white is icon art, not a countdown glyph — below the 4% floor.
-      rgba =
-        :binary.copy(<<120, 110, 40, 255>>, 98) <> :binary.copy(<<255, 255, 255, 255>>, 2)
+    # …e o mesmo quadro prova o outro lado: a tecla 1 é um ícone de ARTE BRANCA
+    # (5% de branco puro, mais que o "12" da vizinha põe) sem número nenhum. Ela
+    # está PRONTA, e o veto de branco — aposentado em 09/09 — a lia como fria.
+    test "white icon art with no number stays :ready" do
+      frame = real("tres_contando_ontem.raw")
 
-      frame = %Frame{width: 100, height: 1, rgba: rgba}
+      [pronta | _] = Vision.skill_slots(frame, count: 9, min_saturation: 25, min_vivid_pct: 7)
 
-      assert Vision.skill_states(frame,
-               count: 1,
-               min_saturation: 25,
-               min_vivid_pct: 7,
-               min_white_pct: 4
-             ) == [:ready]
+      assert pronta.white_pct >= 4
+      refute pronta.counting?
+      assert pronta.state == :ready
     end
 
     test "the BIG white countdown ('17.6', under 20s) never fakes :ready — colour only" do

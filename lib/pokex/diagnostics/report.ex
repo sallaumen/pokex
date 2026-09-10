@@ -222,7 +222,6 @@ defmodule Pokex.Diagnostics.Report do
             thresholds: %{
               min_saturation: settings[:skill_ready_min_saturation],
               min_vivid_pct: settings[:skill_ready_min_vivid_pct],
-              min_white_pct: settings[:skill_cooldown_min_white_pct],
               ref_max_distance: settings[:skill_ref_max_distance]
             },
             states: Enum.map(slots, & &1.state),

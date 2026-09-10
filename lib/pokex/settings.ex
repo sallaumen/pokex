@@ -72,8 +72,10 @@ defmodule Pokex.Settings do
     # readiness is COLOUR, never brightness alone. Under ~20s the game renders the countdown BIG
     # with decimals ("17.6"); that white number lifted average brightness enough that the old
     skill_ready_min_saturation: 25,
-    # The countdown NUMBER wins over everything: a slot with at least this % of PURE-white
-    # pixels (the glyph body) reads :cooldown regardless of colour — the
+    # CALIBRATION ONLY: a slot with at least this % of PURE-white pixels does not become a
+    # READY reference (it may be a countdown glyph, and a ref taken mid-cooldown inverts that
+    # slot forever). It stopped deciding readiness in 2026-09-09: white paint in an icon is
+    # not a number, and `Pokex.Vision.SkillDigits` reads the number itself.
     skill_cooldown_min_white_pct: 4,
     # Reference match (preferred, when the calibration carries per-slot references captured with
     # every skill READY): a slot is :ready while its live non-white colour

@@ -34,34 +34,21 @@ defmodule Pokex.Bots.SkillBar do
     bar = ActiveBar.current()
     count = calibrated_count(bar, settings)
 
-    slots =
-      Vision.skill_slots(frame,
-        count: count,
-        # the READY references travel with the bar: they are the skill ICONS, so
-        # the calibration's set belongs to whatever pokémon was out that day
-        refs: bar.refs,
-        max_distance: settings[:skill_ref_max_distance],
-        min_saturation: settings[:skill_ready_min_saturation],
-        min_vivid_pct: settings[:skill_ready_min_vivid_pct],
-        min_white_pct: settings[:skill_cooldown_min_white_pct]
-      )
-
-    # The WRITTEN count beats the reference. The game writes the seconds left on top of a
-    # cooling key, and colour comparison does not survive this client's cooldown (which only
-    # darkens part of the icon): one night the recalibrated refs read EVERYTHING as ready
-    # and every receipt lied, 2,372 times. The digit is the game speaking; the ref is the
-    # tiebreak for slots without a digit. Only in this direction: a slot WITHOUT a count is
-    # never promoted to ready here, because the absence of a number proves nothing the ref
-    # does not say better.
-    counting = Vision.SkillDigits.counting(frame, count)
-
-    slots
-    |> Enum.with_index()
-    |> Enum.map(fn {slot, index} ->
-      if index in counting,
-        do: %{slot | state: :cooldown} |> Map.put(:counting?, true),
-        else: Map.put(slot, :counting?, false)
-    end)
+    # The WRITTEN count beats every other signal, and `Vision.skill_slots/2` applies it
+    # itself now. The game writes the seconds left on top of a cooling key, and colour
+    # comparison does not survive this client's cooldown (which only darkens part of the
+    # icon): one night the recalibrated refs read EVERYTHING as ready and every receipt
+    # lied, 2,372 times. The digit is the game speaking; the ref is the tiebreak for the
+    # slots it left blank.
+    Vision.skill_slots(frame,
+      count: count,
+      # the READY references travel with the bar: they are the skill ICONS, so
+      # the calibration's set belongs to whatever pokémon was out that day
+      refs: bar.refs,
+      max_distance: settings[:skill_ref_max_distance],
+      min_saturation: settings[:skill_ready_min_saturation],
+      min_vivid_pct: settings[:skill_ready_min_vivid_pct]
+    )
   end
 
   @doc """

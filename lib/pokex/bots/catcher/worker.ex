@@ -713,22 +713,32 @@ defmodule Pokex.Bots.Catcher.Worker do
   # e a mira abertas ao mesmo tempo, olhar só pro estado do worker marcaria
   # também a bola de um corpo comum. Um passo SEM leitura (um corpo que já
   # estava na fila) fica com a sessão de mira como resposta.
-  defp shiny_star(%{source: :shiny_aim}, _state), do: "🌟 "
-  defp shiny_star(nil, %{aim: aim}) when aim != nil, do: "🌟 "
-  defp shiny_star(_ordinary_reading, _state), do: ""
+  defp shiny_star(obs, state), do: if(shiny_reading?(obs, state), do: "🌟 ", else: "")
 
-  defp note_throw(state, []), do: state
+  defp note_throw(state, [], _obs), do: state
 
-  defp note_throw(state, _performs) do
-    # a ball that flew because a SHINY was seen closes that log entry
-    if state.shiny_pending?, do: ShinyLog.resolve_last("ball")
+  defp note_throw(state, _performs, obs) do
+    # A BOLA DO SHINY, não qualquer bola. Isto rodava em TODO arremesso: uma bola
+    # em corpo comum da varredura carimbava "bola" na prateleira do shiny (uma
+    # mentira: nenhuma bola foi nele) e zerava `shiny_pending?`, de modo que
+    # `aim_done?/1` fechava a caçada do corpo do shiny antes de alguém tê-lo
+    # visto. Quem responde é a leitura que gerou o arremesso.
+    if state.shiny_pending? and shiny_reading?(obs, state) do
+      ShinyLog.resolve_last("ball")
 
-    %{
-      state
-      | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()},
-        shiny_pending?: false
-    }
+      %{
+        state
+        | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()},
+          shiny_pending?: false
+      }
+    else
+      %{state | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()}}
+    end
   end
+
+  defp shiny_reading?(%{source: :shiny_aim}, _state), do: true
+  defp shiny_reading?(nil, %{aim: aim}), do: aim != nil
+  defp shiny_reading?(_ordinary_reading, _state), do: false
 
   defp run_step(state, obs) do
     {logic, actions} = Logic.step(state.logic, obs, now())
@@ -749,7 +759,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :capture, msg})
     end
 
-    state = note_throw(state, performs)
+    state = note_throw(state, performs, obs)
 
     star = shiny_star(obs, state)
 
@@ -949,15 +959,22 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp open_aim(state) do
     log(:macro, "🌟 shiny visto — procurando o corpo pela cor")
-    schedule_aim(%{state | aim: %{since: now(), prev: [], said: MapSet.new()}})
+    state = schedule_aim(%{state | aim: %{since: now(), prev: [], said: MapSet.new()}})
+    broadcast(state)
+    state
   end
 
   defp close_aim(%{aim: nil} = state), do: state
 
+  # O AZULEJO FICAVA ACESO. Fechar a sessão corrigia o fato do quadro-negro pro
+  # cérebro mas não avisava as telas: o azulejo "captura · shiny · bola no ar"
+  # seguia âmbar até algum evento sem relação disparar um broadcast — entre uma
+  # luta e outra, minutos anunciando um shiny que não existe mais.
   defp close_aim(state) do
     if state.aim_timer, do: Process.cancel_timer(state.aim_timer)
     state = %{state | aim: nil, aim_timer: nil, shiny_pending?: false}
     publish_capture(state)
+    broadcast(state)
     state
   end
 
@@ -1073,6 +1090,8 @@ defmodule Pokex.Bots.Catcher.Worker do
       last_action: state.last_action,
       pending_corpses: (state.logic && Logic.pending(state.logic)) || 0,
       aim?: state.aim != nil,
+      # a caçada do shiny está aberta mesmo antes de o corpo aparecer
+      shiny_pending?: state.shiny_pending?,
       sweep: %{
         enabled?: Settings.get(:sweep_enabled),
         pending: length(state.sweep_queue),

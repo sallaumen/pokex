@@ -73,6 +73,25 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     assert_in_delta fy, 17, 2
   end
 
+  # A BOLA NO CENTRO DO CORPO. O alvo era o centro de MASSA dos pixels casados:
+  # com a cor casando so um lado da sprite, a massa puxa o alvo pra esse lado e a
+  # bola cai fora do bicho.
+  test "the ball aims at the middle of the body, not at the mass of matched pixels" do
+    # uma sprite cuja cor casa so na METADE ESQUERDA: massa a esquerda, corpo no meio
+    meia =
+      frame(300, 300, {40, 40, 40}, [
+        {{100, 100, 16, 64}, @verde},
+        {{116, 100, 48, 64}, {40, 40, 40}}
+      ])
+
+    assert [%{point: {sx, _sy}, massa: {mx, _my}, in_frame: {fx, _fy}}] =
+             ShinyAim.judge(meia, @region, rules(), [], crowd([]), @tile)
+
+    # a caixa e o alvo tem que coincidir; a massa e outra coisa
+    assert fx == sx - elem(@region, 0)
+    assert is_integer(mx)
+  end
+
   # A LISTA NEGRA. O veto por corpo ja existia no acervo, mas so era lido na
   # varredura por sprite — e quem joga bola na cacada e este caminho, que nunca
   # consultou o acervo. Um corpo que ele desligou levava bola do mesmo jeito.

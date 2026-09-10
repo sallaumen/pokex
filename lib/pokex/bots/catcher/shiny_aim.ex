@@ -213,12 +213,23 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
   defp within?({ax, ay}, {bx, by}, tolerance),
     do: abs(ax - bx) <= tolerance and abs(ay - by) <= tolerance
 
-  defp on_screen(%{point: {fx, fy}, px: px}, rule, region, scale) do
+  # A BOLA VAI NO CENTRO DO CORPO, não no centro de massa dos pixels casados.
+  # `point` da mancha é o centro de MASSA: se só parte da sprite casa a cor — a
+  # sombra de um lado, a crista de cima — a massa puxa o alvo pra esse pedaço e a
+  # bola cai fora do bicho. O centro da CAIXA é o meio da arte casada, que é o
+  # mesmo critério que a varredura por sprite já usa (`SpotScan` mira no centro
+  # da janela que casou). Eram dois critérios diferentes pro mesmo gesto.
+  defp on_screen(%{point: {fx, fy}, px: px, box: {l, t, r, b}}, rule, region, scale) do
+    meio = {div(l + r, 2), div(t + b, 2)}
+
     %{
       name: rule.name,
       px: px,
-      point: Calibration.frame_to_screen(scale, region, {fx, fy}),
-      in_frame: {fx, fy}
+      point: Calibration.frame_to_screen(scale, region, meio),
+      in_frame: meio,
+      # o centro de massa fica pro diagnóstico: quando os dois discordam muito, a
+      # cor está casando um pedaço só da sprite
+      massa: {fx, fy}
     }
   end
 

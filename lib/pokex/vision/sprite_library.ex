@@ -158,6 +158,31 @@ defmodule Pokex.Vision.SpriteLibrary do
     persist(lib, entries)
   end
 
+  @doc """
+  A BOLA que este corpo merece — a tecla do hotbar, ou `nil` para a padrão.
+
+  Mora NA ENTRADA porque é a mesma coisa que o nome: o acervo é quem identifica
+  o corpo, e o nome que ele casa aqui é exatamente o que chega em
+  `Catcher.Balls.key_for/1`. Ficava numa lista de regras à parte, casada por
+  nome de espécie escrito de novo — dois lugares para o mesmo dado, e ele já
+  não alcançava o segundo.
+  """
+  @spec set_ball(t, String.t(), String.t() | nil) :: :ok
+  def set_ball(lib, slug, key) when is_binary(key) or is_nil(key) do
+    entries =
+      Enum.map(raw_entries(lib), fn
+        %{"slug" => ^slug} = entry -> Map.put(entry, "ball", key)
+        other -> other
+      end)
+
+    persist(lib, entries)
+  end
+
+  @doc "The ball this entry asks for, or nil (old entries have no field)."
+  @spec ball(map) :: String.t() | nil
+  def ball(%{"ball" => key}) when is_binary(key) and key != "", do: key
+  def ball(_no_choice), do: nil
+
   @doc "Is this entry participating in the aim? (old entries without the field do)"
   @spec enabled?(map) :: boolean
   def enabled?(%{"enabled" => false}), do: false

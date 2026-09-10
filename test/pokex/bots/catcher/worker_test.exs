@@ -18,6 +18,7 @@ end
 defmodule Pokex.Bots.Catcher.WorkerTest do
   use ExUnit.Case, async: false
 
+  alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Catcher.WorkerTest.FakeBody
   alias Pokex.Bots.InputGate
@@ -124,13 +125,21 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       ball_types: [
         %{"key" => "f1", "name" => "Poké Ball"},
         %{"key" => "f2", "name" => "Aquática"}
-      ],
-      ball_rules: [
-        %{"trigger" => %{"kind" => "species", "value" => "Tentacool"}, "key" => "f2"}
       ]
     )
 
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+
+    # A ESCOLHA MORA NO CORPO ENSINADO: o nome que a mira devolve é o mesmo que
+    # o acervo guarda, então é lá que a bola é escolhida.
+    {:ok, 1} =
+      CorpseLibrary.add("Tentacool shiny", %Pokex.Vision.Frame{
+        width: 4,
+        height: 4,
+        rgba: :binary.copy(<<40, 200, 190, 255>>, 16)
+      })
+
+    :ok = CorpseLibrary.set_ball("tentacool-shiny", "f2")
 
     obs =
       corpses_obs([{130, 224}])
@@ -144,15 +153,12 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "a corpse no rule mentions keeps the ordinary ball, quietly", %{worker: worker} do
+  test "a corpse that chose no ball of its own keeps the ordinary one, quietly", %{worker: worker} do
     SettingsStash.stash!(
       ball_key: "f1",
       ball_types: [
         %{"key" => "f1", "name" => "Poké Ball"},
         %{"key" => "f2", "name" => "Aquática"}
-      ],
-      ball_rules: [
-        %{"trigger" => %{"kind" => "species", "value" => "Tentacool"}, "key" => "f2"}
       ]
     )
 

@@ -2568,6 +2568,46 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert <<255, 0, 0, 255, _rest::binary>> = Base.decode64!(sample["rgba"])
     end
 
+    # A BOLA DE CADA CORPO MORA AQUI AGORA. Ela era `ball_rules`, uma lista à
+    # parte casada por nome de espécie escrito de novo, num overlay do painel que
+    # ele não alcançava mais ("é coisa legada", 11/09). O acervo é quem dá o nome
+    # que `Catcher.Balls.key_for/1` casa, então a escolha pertence a esta linha.
+    @tag :tmp_dir
+    test "each taught corpse chooses its own ball", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      tipos = Pokex.Settings.get(:ball_types)
+      Pokex.Settings.put(:ball_types, [%{"key" => "f2", "name" => "Aquática"}])
+      on_exit(fn -> Pokex.Settings.put(:ball_types, tipos) end)
+
+      {:ok, 1} =
+        CorpseLibrary.add("Tentacool", %Pokex.Vision.Frame{
+          width: 4,
+          height: 4,
+          rgba: :binary.copy(<<40, 200, 190, 255>>, 16)
+        })
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      assert CorpseLibrary.ball_for("Tentacool") == nil
+      assert Pokex.Bots.Catcher.Balls.key_for("Tentacool") == Pokex.Settings.get(:ball_key)
+
+      view
+      |> element("#corpse-ball-tentacool")
+      |> render_change(%{"slug" => "tentacool", "key" => "f2"})
+
+      assert CorpseLibrary.ball_for("Tentacool") == "f2"
+      assert Pokex.Bots.Catcher.Balls.key_for("Tentacool") == "f2"
+
+      # e vazio volta pra padrão, sem precisar apagar o corpo
+      view
+      |> element("#corpse-ball-tentacool")
+      |> render_change(%{"slug" => "tentacool", "key" => ""})
+
+      assert CorpseLibrary.ball_for("Tentacool") == nil
+    end
+
     @tag :tmp_dir
     test "a name typed wrong can be fixed in place", %{conn: conn, tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)

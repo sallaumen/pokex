@@ -219,6 +219,9 @@ defmodule Pokex.Settings.Locked do
     engine_gather_target:
       {"O modo decide",
        "o alvo da juntada — sem juntada, nenhum tique o consulta; quem decide é o piso"},
+    ball_rules:
+      {"Aposentadas",
+       "qual bola pra qual corpo: agora é um campo de cada corpo ensinado, na Calibração"},
     engine_kite_when_spent: {"O modo decide", "recuar com a barra vazia"},
     # --- Where the monsters are (vision) ---
     crowd_scan_radius_tiles:

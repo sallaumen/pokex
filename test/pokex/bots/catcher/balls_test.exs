@@ -8,69 +8,34 @@ defmodule Pokex.Bots.Catcher.BallsTest do
     %{"key" => "f2", "name" => "Bola de aquáticos"}
   ]
 
-  defp species_rule(species, key),
-    do: %{"trigger" => %{"kind" => "species", "value" => species}, "key" => key}
-
-  defp element_rule(element, key),
-    do: %{"trigger" => %{"kind" => "element", "value" => element}, "key" => key}
-
+  # A ESCOLHA VEM DO CORPO ENSINADO. Ela era uma lista de regras casadas por nome
+  # de espécie, num overlay que ele não alcançava mais ("é coisa legada",
+  # 11/09) — um segundo lugar guardando o mesmo dado que o acervo da Calibração
+  # já guarda. Agora `key_for/3` recebe a escolha DAQUELA entrada, e o que
+  # sobra aqui é só a pergunta "essa tecla existe no hotbar?".
   describe "choosing the ball for a recognised corpse" do
-    test "a species rule wins over an element rule for the same body" do
-      rules = [element_rule("Water", "f2"), species_rule("Tentacool", "f1")]
-
-      assert Balls.key_for("Tentacool", rules, @types) == "f1"
+    test "the corpse's own choice is the ball that goes out" do
+      assert Balls.key_for("Tentacool shiny", "f2", @types) == "f2"
     end
 
-    test "an element rule covers every creature made of it" do
-      rules = [element_rule("Water", "f2")]
-
-      assert Balls.key_for("Tentacool", rules, @types) == "f2"
-      assert Balls.key_for("Krabby", rules, @types) == "f2"
-    end
-
-    # He teaches a corpse under whatever name he types, and the shiny stand-in he
-    # paints by hand is "Tentacool shiny". A rule for Tentacool has to catch it —
-    # that is the entire reason the rule exists.
-    test "a species rule catches the name he actually typed" do
-      rules = [species_rule("Tentacool", "f2")]
-
-      assert Balls.key_for("Tentacool shiny", rules, @types) == "f2"
-      assert Balls.key_for("tentacool SHINY", rules, @types) == "f2"
-    end
-
-    test "the hand-written name still resolves to its element" do
-      rules = [element_rule("Water", "f2")]
-
-      assert Balls.key_for("Krabby shiny", rules, @types) == "f2"
-    end
-
-    test "a corpse no rule mentions gets the default ball" do
-      rules = [species_rule("Tentacool", "f2")]
-
-      assert Balls.key_for("Rattata", rules, @types) == Balls.default_key()
+    test "a corpse that chose nothing gets the default ball" do
+      assert Balls.key_for("Rattata", nil, @types) == Balls.default_key()
+      assert Balls.key_for("Rattata", "", @types) == Balls.default_key()
     end
 
     test "an unrecognised corpse gets the default ball" do
-      assert Balls.key_for(nil, [species_rule("Tentacool", "f2")], @types) == Balls.default_key()
+      assert Balls.key_for(nil, "f2", @types) == Balls.default_key()
     end
 
-    # A rule pointing at a key he has no ball on would throw nothing at all —
-    # worse than the ordinary ball, because it looks like it worked.
-    test "a rule for a ball he does not have is ignored" do
-      rules = [species_rule("Tentacool", "f7")]
-
-      assert Balls.key_for("Tentacool", rules, @types) == Balls.default_key()
+    # Uma escolha apontando pra uma tecla que não está no hotbar jogaria NADA —
+    # pior que a bola comum, porque parece que funcionou.
+    test "a choice for a ball he does not have is ignored" do
+      assert Balls.key_for("Tentacool", "f7", @types) == Balls.default_key()
+      assert Balls.key_for("Tentacool", "f2", []) == Balls.default_key()
     end
 
-    test "malformed rules never take the throw down" do
-      rules = [%{"key" => "f2"}, %{"trigger" => %{"kind" => "species"}, "key" => "f2"}, "lixo"]
-
-      assert Balls.key_for("Tentacool", rules, @types) == Balls.default_key()
-    end
-
-    test "no rules at all is the plain default" do
-      assert Balls.key_for("Tentacool", [], @types) == Balls.default_key()
-      assert Balls.key_for("Tentacool", nil, @types) == Balls.default_key()
+    test "a malformed hotbar never takes the throw down" do
+      assert Balls.key_for("Tentacool", "f2", nil) == Balls.default_key()
     end
   end
 

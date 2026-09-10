@@ -7,18 +7,20 @@ defmodule Pokex.Bots.Catcher.Balls do
   it is throwing at. Spending the good ball on everything is waste; spending the
   ordinary one on the thing he is hunting is worse.
 
-  Rules read like the combo triggers he already writes, and settle the same way:
-  naming the CREATURE beats naming what it is made of, and both beat the default
-  ball. A rule pointing at a key he has no ball on would throw nothing, so a rule
-  whose key is not among the configured balls is ignored.
+  A ESCOLHA MORA NO CORPO ENSINADO, não numa lista à parte.
 
-  The species rule matches by CONTAINMENT, not equality: he teaches a corpse
-  under whatever name he types, and the shiny stand-in he paints by hand is
-  "Tentacool shiny". A rule for "Tentacool" has to catch it — that is the whole
-  reason the rule exists.
+  Ela vivia em `ball_rules`: uma lista de regras casadas por nome de espécie,
+  editada num overlay do painel — um segundo lugar guardando o mesmo dado que o
+  acervo de corpos da calibração já guarda, e que ele nem alcançava mais
+  ("é coisa legada", 11/09). O acervo é quem IDENTIFICA o corpo, e o nome que
+  ele devolve é exatamente o que chega aqui, então é lá que a bola pertence:
+  um seletor por corpo, ao lado da foto que o reconhece.
+
+  Sem escolha, a bola padrão (`ball_key`). Uma escolha apontando para uma tecla
+  que não está no hotbar (`ball_types`) é ignorada — jogaria nada.
   """
 
-  alias Pokex.Pokedex
+  alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Settings
 
   @doc """
@@ -29,18 +31,14 @@ defmodule Pokex.Bots.Catcher.Balls do
   for.
   """
   @spec key_for(String.t() | nil) :: String.t()
-  def key_for(name), do: key_for(name, Settings.get(:ball_rules), Settings.get(:ball_types))
+  def key_for(name), do: key_for(name, CorpseLibrary.ball_for(name), Settings.get(:ball_types))
 
-  @doc "Same, against explicit rules and balls — the testable half."
-  @spec key_for(String.t() | nil, list, list) :: String.t()
-  def key_for(name, rules, types) do
-    with true <- is_binary(name),
-         rules = Enum.filter(List.wrap(rules), &known_ball?(&1, types)),
-         %{} = rule <- best_rule(rules, name) do
-      rule["key"]
-    else
-      _no_rule -> default_key()
-    end
+  @doc "Same, against an explicit choice and hotbar — the testable half."
+  @spec key_for(String.t() | nil, String.t() | nil, list) :: String.t()
+  def key_for(name, chosen, types) do
+    if is_binary(name) and is_binary(chosen) and on_hotbar?(chosen, types),
+      do: chosen,
+      else: default_key()
   end
 
   @doc "How the panel names a key: the ball's label, or the bare key."
@@ -55,41 +53,8 @@ defmodule Pokex.Bots.Catcher.Balls do
     end
   end
 
-  @doc "The default ball — what an unrecognised or unruled corpse gets."
+  @doc "The default ball — what a corpse with no choice of its own gets."
   def default_key, do: Settings.get(:ball_key)
 
-  defp best_rule(rules, name) do
-    Enum.find(rules, &species_match?(&1, name)) || Enum.find(rules, &element_match?(&1, name))
-  end
-
-  defp known_ball?(%{"key" => key}, types),
-    do: Enum.any?(List.wrap(types), &(&1["key"] == key))
-
-  defp known_ball?(_malformed, _types), do: false
-
-  defp species_match?(%{"trigger" => %{"kind" => "species", "value" => species}}, name)
-       when is_binary(species) and species != "",
-       do: String.contains?(String.downcase(name), String.downcase(species))
-
-  defp species_match?(_other, _name), do: false
-
-  defp element_match?(%{"trigger" => %{"kind" => "element", "value" => element}}, name)
-       when is_binary(element) and element != "" do
-    case species_of(name) do
-      %{elements: elements} ->
-        Enum.any?(elements, &(String.downcase(&1) == String.downcase(element)))
-
-      _unknown ->
-        false
-    end
-  end
-
-  defp element_match?(_other, _name), do: false
-
-  # The taught name is whatever he typed — "Tentacool shiny" is not a species
-  # the Pokédex knows. Try the whole name, then its words, so a hand-written
-  # label still resolves to the creature it is talking about.
-  defp species_of(name) do
-    Pokedex.get(name) || name |> String.split() |> Enum.find_value(&Pokedex.get/1)
-  end
+  defp on_hotbar?(key, types), do: Enum.any?(List.wrap(types), &(&1["key"] == key))
 end

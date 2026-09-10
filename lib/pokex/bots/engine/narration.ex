@@ -115,7 +115,7 @@ defmodule Pokex.Bots.Engine.Narration do
   # A discount made on an ABSENCE must never read like one made on a name: on
   # 2026-08-18 the by-name discount silently never fired for a whole hunt, and
   # nothing on any screen said so. This line is what would have said it.
-  defp own_row(_previous, %{picture: %{own_row_seen?: :unnamed}}, who),
+  defp own_row(_previous, %{picture: %{own_row_seen?: :by_position}}, who),
     do: [
       "#{who} está na lista mas o nome saiu ilegível — descontei a primeira " <>
         "linha sem nome. Ensine os glifos dele na calibração pra voltar a descontar pelo nome."
@@ -129,7 +129,7 @@ defmodule Pokex.Bots.Engine.Narration do
         "#{hp}% de vida, a mesma da Pokebar"
     ]
 
-  defp own_row(_previous, %{picture: %{own_row_seen?: true}}, who),
+  defp own_row(_previous, %{picture: %{own_row_seen?: :by_name}}, who),
     do: ["#{who} ocupa uma linha da lista — a contagem desconta ele"]
 
   defp own_row(_previous, %{picture: %{own_row_seen?: false, rows: rows}}, who),

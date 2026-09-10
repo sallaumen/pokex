@@ -786,7 +786,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
       # a contagem é a do cérebro (1 inimigo), não o número de linhas (2)
       assert quadro.enemies == 1
-      assert quadro.own_row_seen? == true
+      assert quadro.own_row_seen? == :by_name
       # a linha dele tem o marcador; a do Magneton não
       assert vision =~ "hero-user-circle"
       assert vision =~ "text-pk-ok"

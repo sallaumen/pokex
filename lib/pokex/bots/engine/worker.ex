@@ -502,6 +502,14 @@ defmodule Pokex.Bots.Engine.Worker do
       revive: orders.revive,
       enemies: picture.enemies,
       rows: picture.rows,
+      # COMO a linha dele saiu da conta, não só QUE saiu. `rows` e `enemies`
+      # mostram um desconto de 1; nunca disseram se ele veio do nome (preciso),
+      # da vida (Pokebar batendo com a barra da linha) ou de um chute na
+      # primeira linha. Medido no journal dele — que guarda o feed, não o
+      # diário, e ainda deduplica por igualdade — 09/09 e 10/09 deram ZERO
+      # descontos por nome e 33% por chute. Sem este campo a pergunta "ele
+      # acerta qual linha é a minha?" não tem resposta no dia seguinte.
+      own: picture.own_row_seen?,
       stable_ms: picture.stable_for_ms,
       growing: picture.growing?,
       hp: picture.own_hp,

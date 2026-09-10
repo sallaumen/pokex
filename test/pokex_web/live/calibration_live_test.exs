@@ -2377,8 +2377,37 @@ defmodule PokexWeb.CalibrationLiveTest do
       assert [%{min_px: 20}] = Pokex.Vision.ColorRules.armed()
     end
 
+    # O CLIQUE VIROU UMA MEDIÇÃO (10/09). "tentei por TUDO e não fui capaz de
+    # marcar cores onde fizesse circular o shiny venusaur e não os outros": o
+    # conta-gotas devolvia a cor de um pixel, e na foto dele aquele tom existia
+    # UMA vez na tela inteira. Agora o clique responde com o tom que só aquele
+    # bicho tem, com a folga e o gatilho já medidos.
     @tag :tmp_dir
-    test "três tons é o teto, e dá pra tirar um", %{conn: conn, tmp_dir: tmp} do
+    test "one click answers with a measured tone, its slack and its trigger", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+      com_foto(view, cor_frame(64, 64, {40, 40, 40}, [{{20, 20, 16, 16}, @verde}]))
+
+      html = render_click(view, "special_pick", %{"x" => 28, "y" => 28, "cw" => 64, "nw" => 64})
+
+      assert html =~ "tom medido 40,160,60"
+      assert html =~ "em cima do bicho"
+      assert html =~ "Gatilho já ajustado"
+      assert html =~ "nenhuma mancha no resto da foto"
+    end
+
+    # …E UMA MEDIÇÃO SUBSTITUI A OUTRA. Somar tons medidos seria voltar ao
+    # problema: eles são OU, e cada tom a mais é mais cenário dentro da regra.
+    @tag :tmp_dir
+    test "a second measured click replaces the tone instead of stacking", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(fn -> Pokex.TestHome.restore() end)
 
@@ -2387,18 +2416,48 @@ defmodule PokexWeb.CalibrationLiveTest do
       com_foto(
         view,
         cor_frame(64, 64, {40, 40, 40}, [
-          {{4, 4, 10, 10}, @verde},
-          {{30, 4, 10, 10}, {220, 200, 40}},
-          {{4, 30, 10, 10}, {60, 90, 220}},
-          {{30, 30, 10, 10}, {220, 60, 200}}
+          {{4, 4, 12, 12}, @verde},
+          {{46, 46, 12, 12}, {220, 60, 200}}
         ])
       )
 
-      for {x, y} <- [{8, 8}, {34, 8}, {8, 34}] do
+      render_click(view, "special_pick", %{"x" => 9, "y" => 9, "cw" => 64, "nw" => 64})
+      html = render_click(view, "special_pick", %{"x" => 51, "y" => 51, "cw" => 64, "nw" => 64})
+
+      assert html =~ "220,60,200"
+      refute html =~ "40,160,60", "o tom antigo sai: quem manda é a última medição"
+    end
+
+    # O CAMINHO À MÃO CONTINUA quando não há o que medir — e é ele que empilha
+    # até três tons, com teto.
+    @tag :tmp_dir
+    test "três tons é o teto, e dá pra tirar um", %{conn: conn, tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(fn -> Pokex.TestHome.restore() end)
+
+      {:ok, view, _html} = live(conn, "/calibration")
+
+      # CADA COR EM DOIS LUGARES: nenhuma separa nada, então toda escolha cai no
+      # caminho à mão — que é onde a pilha de tons ainda vive.
+      com_foto(
+        view,
+        cor_frame(64, 64, {40, 40, 40}, [
+          {{4, 4, 10, 10}, @verde},
+          {{50, 50, 10, 10}, @verde},
+          {{30, 4, 10, 10}, {220, 200, 40}},
+          {{4, 50, 10, 10}, {220, 200, 40}},
+          {{30, 20, 10, 10}, {60, 90, 220}},
+          {{20, 50, 10, 10}, {60, 90, 220}},
+          {{50, 4, 10, 10}, {220, 60, 200}},
+          {{50, 20, 10, 10}, {220, 60, 200}}
+        ])
+      )
+
+      for {x, y} <- [{8, 8}, {34, 8}, {34, 24}] do
         render_click(view, "special_pick", %{"x" => x, "y" => y, "cw" => 64, "nw" => 64})
       end
 
-      html = render_click(view, "special_pick", %{"x" => 34, "y" => 34, "cw" => 64, "nw" => 64})
+      html = render_click(view, "special_pick", %{"x" => 54, "y" => 8, "cw" => 64, "nw" => 64})
       assert html =~ "já é o teto"
 
       html = render_click(view, "special_drop_color", %{"index" => "0"})

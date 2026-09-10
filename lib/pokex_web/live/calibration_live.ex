@@ -25,7 +25,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.ScreenScale
   alias Pokex.Settings
   alias Pokex.Vision
-  alias Pokex.Vision.{ColorMark, ColorRules, CreatureFence, Frame, TileRuler}
+  alias Pokex.Vision.{ColorMark, ColorRules, CreatureFence, Frame, TileRuler, ToneFinder}
 
   # A regra de cor em rascunho: o que o conta-gotas vai enchendo antes de virar
   # acervo. Nasce com as tolerâncias-semente do plano (matiz apertado, S/V
@@ -1235,17 +1235,113 @@ defmodule PokexWeb.CalibrationLive do
 
   # -- cores especiais: as contas -----------------------------------------------
 
+  # O CLIQUE VIROU UMA MEDIÇÃO. "tentei por TUDO e não fui capaz de marcar cores
+  # onde fizesse circular o shiny venusaur e não os outros" (10/09) — e ele estava
+  # certo: o conta-gotas devolvia a cor de um pixel, e naquele quadro o tom que
+  # ele pegou existia UMA vez na tela inteira. Girar a folga não salvava: no 0 não
+  # achava nada, no 8 achava o cenário.
+  #
+  # `ToneFinder` responde a pergunta que importa — qual cor está NESTE bicho e em
+  # mais lugar nenhum — e traz junto a folga e o gatilho já medidos. O que sobra
+  # pra ele é conferir uma frase com números.
   defp pick_color(socket, frame, px, py) do
     draft = socket.assigns.special_draft
 
+    case ColorMark.dominant(frame, {px, py}) do
+      # O PRETO NÃO PASSA POR AQUI. Um tom que só o bicho tem não existe em
+      # preto — preto é o contorno de TODA sprite do jogo —, e é justamente por
+      # isso que a banda escura foi inventada (#564). Medir ali só ia recusar.
+      {:dark, _rgb} = preto ->
+        pick_by_hand(socket, draft, preto, nil)
+
+      pego ->
+        case ToneFinder.find(frame, {px, py},
+               box_px: creature_box(frame),
+               min_cell_px: draft.min_cell_px
+             ) do
+          {:ok, achado} -> take_measured(socket, draft, achado)
+          {:error, motivo} -> pick_by_hand(socket, draft, pego, motivo)
+        end
+    end
+  end
+
+  # A MEDIÇÃO MANDA NO RASCUNHO INTEIRO: o tom, a folga e o gatilho saem juntos
+  # da mesma foto. Somar tons aqui seria voltar ao problema — eles são OU, e cada
+  # tom a mais é mais cenário dentro da regra.
+  defp take_measured(socket, draft, achado) do
+    socket
+    |> assign(
+      special_draft: %{
+        draft
+        | colors: [%{rgb: achado.rgb, dark?: false}],
+          tol: achado.tol,
+          min_px: achado.min_px
+      },
+      special_msg: {:ok, measured_msg(achado)}
+    )
+    |> read_special()
+  end
+
+  defp measured_msg(%{rgb: {r, g, b}} = a) do
+    fora =
+      if a.biggest_elsewhere == 0,
+        do: "e nenhuma mancha no resto da foto",
+        else: "e a maior mancha fora dele tem #{a.biggest_elsewhere}px"
+
+    "tom medido #{r},#{g},#{b} (folga ±#{a.tol}): mancha de #{a.blob}px em cima do bicho, " <>
+      "#{fora}. Gatilho já ajustado pra #{a.min_px}px. Confira o quadrado na foto e salve."
+  end
+
+  # O CAMINHO À MÃO CONTINUA, porque a medição não responde sempre: o shiny PRETO
+  # não tem cor que só ele tenha (preto é contorno de toda sprite) e ali quem
+  # ensina é a banda escura.
+  defp pick_by_hand(socket, draft, pego, motivo) do
     if length(draft.colors) >= @special_max_colors do
       assign(socket,
         special_msg:
           {:error, "#{@special_max_colors} tons já é o teto — tire um antes de pegar outro"}
       )
     else
-      add_picked(socket, draft, ColorMark.dominant(frame, {px, py}))
+      socket
+      |> add_picked(draft, pego)
+      |> explain_by_hand(motivo)
     end
+  end
+
+  # …mas ele precisa saber que caiu no caminho à mão, e por quê: um tom pego sem
+  # medição é um palpite, e era o palpite que não estava funcionando.
+  defp explain_by_hand(socket, nil), do: socket
+  defp explain_by_hand(%{assigns: %{special_msg: {:error, _}}} = socket, _motivo), do: socket
+
+  defp explain_by_hand(socket, motivo) do
+    antes =
+      case socket.assigns.special_msg do
+        {:ok, texto} -> texto <> " · "
+        _sem_frase -> ""
+      end
+
+    assign(socket, special_msg: {:warn, antes <> by_hand_word(motivo)})
+  end
+
+  defp by_hand_word(:nothing_separates),
+    do:
+      "não achei nenhuma cor que esteja SÓ nesse bicho nesta foto — o tom acima foi pego à mão. " <>
+        "Se tem outro bicho igual na tela, a cor dele não separa: fotografe uma cena em que só o shiny apareça"
+
+  defp by_hand_word(:nothing_repeats),
+    do:
+      "aí não há cor que se repita (é borda misturada com o chão) — clique mais pro MEIO do corpo dele"
+
+  defp by_hand_word(:too_thin),
+    do:
+      "a cor que só ele tem é fina demais pra virar mancha — clique numa parte cheia do corpo, não num detalhe"
+
+  # O BICHO TEM UM TILE. Numa foto de arquivo o tile calibrado pode ser maior que
+  # a própria imagem, e aí o "quadrado do bicho" seria a foto inteira — o que
+  # torna a medição impossível por construção (tudo estaria "dentro").
+  defp creature_box(%Frame{width: w, height: h, scale: scale}) do
+    tile = round(Calibration.tile_px() * scale)
+    min(max(tile, 24), div(min(w, h), 2))
   end
 
   defp add_picked(socket, draft, {:ok, rgb}) do
@@ -3654,11 +3750,20 @@ defmodule PokexWeb.CalibrationLive do
                     Aqui não se ensina um recorte, se ensina um TOM. Ele lê
                     <b class="text-pk-text">cor</b>
                     e não desenho: o ângulo do bicho não importa — vale até com ele de
-                    ponta-cabeça no rollout. Mais fotos ajudam a achar um tom melhor, nunca a
-                    ensinar poses. O que ele procura é uma cor que
-                    <b class="text-pk-text">só o bicho tem</b>
-                    : se ela também está na lava, na grama ou no HUD, ela acha a tela inteira. O
-                    quadro abaixo diz, a cada clique, se o tom separa ou não.
+                    ponta-cabeça no rollout.
+                  </p>
+                  <p class="mt-1.5 max-w-prose text-pk-body leading-relaxed text-pk-text-2">
+                    🎯 <b class="text-pk-text">Um clique em cima do corpo dele é tudo.</b>
+                    A ferramenta procura, no quadrado daquele bicho, a cor que
+                    <b class="text-pk-text">só ele tem nesta foto</b>
+                    — e devolve o tom, a folga e o gatilho já medidos, com os números pra você
+                    conferir. Os campos abaixo são ajuste fino: você não precisa adivinhar
+                    nenhum deles.
+                  </p>
+                  <p class="mt-1.5 max-w-prose text-pk-body leading-relaxed text-pk-text-3">
+                    Se ela disser que não achou, é resposta e não falha: quando existe outro
+                    bicho igual na tela, nenhuma cor separa um do outro. Fotografe uma cena em
+                    que só o especial apareça.
                   </p>
                 </div>
                 <div class="flex shrink-0 flex-col items-end gap-1.5">
@@ -3711,6 +3816,8 @@ defmodule PokexWeb.CalibrationLive do
                 class={[
                   "rounded-lg border px-3 py-2 text-pk-body",
                   elem(@special_msg, 0) == :ok && "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+                  elem(@special_msg, 0) == :warn &&
+                    "border-pk-warn-line bg-pk-warn-dim text-pk-warn",
                   elem(@special_msg, 0) == :error &&
                     "border-pk-danger-line bg-pk-danger-dim text-pk-danger"
                 ]}

@@ -2101,7 +2101,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     # alcança. A mensagem dizia "regra PROVADA" e ele ia dormir achando que a
     # noite estava armada.
     @tag :tmp_dir
-    test "um gatilho que nenhum bicho alcança é dito como erro, não como prova", %{
+    test "a trigger no creature can reach is told as an error, not as a proof", %{
       conn: conn,
       tmp_dir: tmp
     } do

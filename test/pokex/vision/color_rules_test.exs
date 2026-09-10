@@ -143,8 +143,8 @@ defmodule Pokex.Vision.ColorRulesTest do
   # PIXEL NÃO DIZ NADA A ELE, tile diz. E um gatilho que nenhum bicho alcança é
   # uma regra provada, armada e muda: as duas regras do Charizard dele pediam
   # 14,6 e 6,0 tiles de cor sólida na tela.
-  describe "a régua em tiles" do
-    test "conta o gatilho no quadrado que ele vê, e não em pixels" do
+  describe "the ruler in tiles" do
+    test "counts the trigger in the square he sees, not in pixels" do
       # tile de 151 pontos numa tela sem ampliação: 22.801 px por tile
       assert_in_delta ColorRules.tiles(22_801, 151, 1.0), 1.0, 0.01
       assert_in_delta ColorRules.tiles(332_835, 151, 1.0), 14.6, 0.1
@@ -156,7 +156,7 @@ defmodule Pokex.Vision.ColorRulesTest do
       assert_in_delta ColorRules.tiles(4 * 22_801, 151, 2.0), 1.0, 0.01
     end
 
-    test "acima do tamanho de um bicho o gatilho é inalcançável" do
+    test "past the size of a creature the trigger is out of reach" do
       um_tile = 151 * 151
 
       refute ColorRules.unreachable?(um_tile, 151, 1.0)

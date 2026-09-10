@@ -91,6 +91,22 @@ defmodule Pokex.Vision.FrameTest do
              tap(Path.join(tmp, "x.txt"), &File.write!(&1, "no")) |> Frame.png_dimensions()
   end
 
+  # O CLIQUE NA ÚLTIMA FRAÇÃO DE PIXEL. O gancho manda posição em pixels CSS
+  # fracionários e a página multiplica pela largura real: 399,9 de 400 vira a
+  # coluna 1920 de uma foto de 1920. Isso caía fora da binária e derrubava a
+  # página de calibração com os tons que ele já tinha pegado dentro.
+  test "asking for a pixel outside the photo gives the edge, not a crash" do
+    frame = %Frame{
+      width: 2,
+      height: 2,
+      rgba: <<1, 1, 1, 255, 2, 2, 2, 255, 3, 3, 3, 255, 9, 9, 9, 255>>
+    }
+
+    assert Frame.at(frame, 2, 1) == {9, 9, 9}
+    assert Frame.at(frame, 0, 2) == {3, 3, 3}
+    assert Frame.at(frame, -1, -1) == {1, 1, 1}
+  end
+
   @tag :tmp_dir
   test "to_raw round-trips through from_file", %{tmp_dir: tmp} do
     frame = %Frame{width: 2, height: 1, rgba: <<1, 2, 3, 255, 4, 5, 6, 255>>}

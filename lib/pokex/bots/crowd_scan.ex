@@ -220,8 +220,16 @@ defmodule Pokex.Bots.CrowdScan do
 
   def mark_special(reading, _vistos, _tile), do: reading
 
+  # OS DOIS PONTOS NÃO SÃO O MESMO ÂNCORA. O quadrado do bicho é a barra dele
+  # mais UM tile (`place/4`); a mancha de cor é o centro de massa da arte, que
+  # fica meio tile abaixo da barra. Um corpo dista meio tile da própria mancha,
+  # e o VIZINHO dista um tile — então "até um tile" pintava o vizinho de shiny
+  # junto, com a mesma confiança escrita em cima, e o bicho comum ao lado perdia
+  # o número da vida.
   defp joined(hostile, vistos, tile) do
-    case Enum.find(vistos, &(chebyshev(point_of(&1), hostile.point) <= tile)) do
+    meio = div(tile, 2)
+
+    case Enum.find(vistos, &(chebyshev(square_of(&1, tile), hostile.point) <= meio)) do
       nil ->
         hostile
 
@@ -230,8 +238,8 @@ defmodule Pokex.Bots.CrowdScan do
     end
   end
 
-  defp point_of(%{point: {x, y}}), do: {x, y}
-  defp point_of(_no_point), do: {-1_000_000, -1_000_000}
+  defp square_of(%{point: {x, y}}, tile), do: {x, y + div(tile, 2)}
+  defp square_of(_no_point, _tile), do: {-1_000_000, -1_000_000}
 
   # --- himself ----------------------------------------------------------------
 

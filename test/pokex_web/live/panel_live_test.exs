@@ -702,8 +702,10 @@ defmodule PokexWeb.PanelLiveTest do
     assert html =~ "Electrode shiny:"
     assert html =~ "maior mancha"
 
+    # A RÉGUA É O TILE. "4 px" é a unidade que ele já disse não entender; quatro
+    # pixels de cor casada na tela dele é, de fato, quase nada.
     Phoenix.PubSub.broadcast(Pokex.PubSub, "shiny", {:shiny_reading, %{px: 4}})
-    assert render(view) =~ "4<span"
+    assert render(view) =~ "quase nada"
 
     ShinyLog.record(star_px: 22, action: nil, outcome: "visto")
 

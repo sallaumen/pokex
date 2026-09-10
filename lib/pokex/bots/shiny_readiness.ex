@@ -19,6 +19,9 @@ defmodule Pokex.Bots.ShinyReadiness do
   """
 
   alias Pokex.Bots.Catcher.Balls
+  alias Pokex.Bots.Catcher.SpotScan
+  alias Pokex.Calibration
+  alias Pokex.Vision.TileRuler
   alias Pokex.Settings
   alias Pokex.Vision.ColorRules
 
@@ -86,7 +89,66 @@ defmodule Pokex.Bots.ShinyReadiness do
     end
   end
 
-  defp gaps(_rules, _armed) do
+  # PROVADA, ARMADA E MUDA. Quando o tom ensinado é do CENÁRIO e não do bicho, o
+  # chão medido sobe junto, o método multiplica por três e sai um gatilho que
+  # nenhum bicho alcança — as duas regras do Charizard dele pediam 14,6 e 6,0
+  # tiles de cor sólida na tela (09/09). Nada aqui estava errado o bastante pra
+  # falar: a regra dizia "provada", o cartão dizia "a cor está pronta", e o
+  # caçador varria a noite inteira sem chance de disparar. Vem ANTES de "ligue o
+  # caçador" porque ligar um vigia mudo não é o passo dele.
+  # A QUARTA PORTEIRA, que só o caçador conhecia. `ColorRules.armed/0` diz
+  # "ligada e provada", mas o caçador ainda separa as regras cuja prova é DESTE
+  # quadro (`proof_fits?/2`) e varre só com elas. Mexer no raio da busca, remarcar
+  # o personagem ou trocar de tela aposenta todas as provas de uma vez: o
+  # caçador passa a varrer com nenhuma regra e este cartão dizia "armado" a noite
+  # inteira. O aviso que existe sai no feed de combate, que nenhuma tela mostra.
+  defp gaps(_rules, armed) do
+    case Enum.split_with(armed, &ColorRules.proof_fits?(&1, region_now())) do
+      {[], [velha | _outras]} ->
+        [
+          step(
+            :stale_proof,
+            "#{quoted_armed(velha)} foi provada em outro quadro — mudou o raio da busca, o " <>
+              "ponto do personagem ou a tela, e o caçador não varre com ela. Meça o chão de novo.",
+            @calibration,
+            "medir o chão"
+          )
+        ]
+
+      {servem, _velhas} ->
+        reach_gaps(servem)
+    end
+  end
+
+  defp region_now do
+    with {:ok, calib} <- Calibration.load(),
+         {:ok, region} <- SpotScan.region(calib) do
+      region
+    else
+      _sem_quadro -> nil
+    end
+  end
+
+  defp reach_gaps(armed) do
+    case Enum.split_with(armed, &reachable?/1) do
+      {[], [muda | _outras]} ->
+        [
+          step(
+            :unreachable,
+            "#{quoted_armed(muda)} só dispara com #{tiles_of(muda)} de cor sólida na tela, " <>
+              "e nenhum bicho tem esse tamanho — o tom ensinado aparece no cenário. " <>
+              "Ensine a cor de novo clicando no bicho.",
+            @calibration,
+            "ensinar de novo"
+          )
+        ]
+
+      {_alcancaveis, _mudas} ->
+        guard_gap()
+    end
+  end
+
+  defp guard_gap do
     if Settings.get(:shiny_guard_enabled),
       do: [],
       else: [
@@ -98,6 +160,12 @@ defmodule Pokex.Bots.ShinyReadiness do
         )
       ]
   end
+
+  defp reachable?(rule), do: not TileRuler.unreachable?(rule.min_px)
+
+  defp tiles_of(rule), do: TileRuler.label(rule.min_px)
+
+  defp quoted_armed(%{name: name}), do: "a cor “#{name}”"
 
   # The two that cost a shiny instead of losing it: the wrong ball leaves, or
   # the road walks off the corpse before the ball does.

@@ -4,6 +4,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.Bots.Body
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.CorpseLibrary
+  alias Pokex.Bots.ShinyGuard
   alias Pokex.Bots.{PokemonSprites, PokemonTracker}
   alias Pokex.Vision.Recolor
   alias Pokex.Bots.Catcher.SpotScan
@@ -24,7 +25,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.ScreenScale
   alias Pokex.Settings
   alias Pokex.Vision
-  alias Pokex.Vision.{ColorMark, ColorRules, Frame}
+  alias Pokex.Vision.{ColorMark, ColorRules, Frame, TileRuler}
 
   # A regra de cor em rascunho: o que o conta-gotas vai enchendo antes de virar
   # acervo. Nasce com as tolerâncias-semente do plano (matiz apertado, S/V
@@ -1391,8 +1392,15 @@ defmodule PokexWeb.CalibrationLive do
          {:ok, calib} <- Calibration.load(),
          {:ok, region} <- SpotScan.region(calib),
          {:ok, frame} <- Capture.frame(region, "special_floor.raw") do
+      # A MESMA CEGUEIRA DO CAÇADOR. Ele nunca conta o personagem nem o pokémon
+      # dele; a medição contava. O Torterra verde parado no lugar dele era a
+      # maior mancha das doze fotos, virava "chão", e o gatilho subia pra três
+      # vezes um bicho que o caçador jamais vê — regra provada, armada e cega.
       {:ok,
-       ColorMark.scan(frame, ColorRules.specs_for(entry), min_cell_px: entry["min_cell_px"]).manchas}
+       ColorMark.scan(frame, ColorRules.specs_for(entry),
+         min_cell_px: entry["min_cell_px"],
+         forbidden: ShinyGuard.forbidden_boxes(calib, frame, region)
+       ).manchas}
     else
       _blind -> :blind
     end
@@ -1403,7 +1411,24 @@ defmodule PokexWeb.CalibrationLive do
   # alguém sem pedir é como perder um shiny por conta própria.
   # #11: apagar a regra no meio da medição deixava as fotos restantes chegando
   # e o fechamento buscava uma regra que não existe mais.
-  defp close_floor(socket, _slug, []), do: assign(socket, special_floor: nil)
+  # MEDIÇÃO CALADA NÃO EXISTE. Com o jogo minimizado as doze capturas falham, a
+  # tarja "medindo o chão" some, a regra continua "sem prova" e nada é dito: ele
+  # não tem como separar "falhou" de "não fez nada" no mesmo botão que todo
+  # caminho de sucesso manda apertar.
+  #
+  # E poucas fotos não são uma medição: metade delas é o mínimo, senão o pico
+  # sai de uma amostra e o quórum do HUD sai junto.
+  @floor_min_samples ceil(@floor_samples / 2)
+
+  defp close_floor(socket, _slug, samples) when length(samples) < @floor_min_samples do
+    assign(socket,
+      special_floor: nil,
+      special_msg:
+        {:error,
+         "só #{length(samples)} de #{@floor_samples} fotos vieram — o jogo estava fora " <>
+           "de foco ou a captura falhou. Nada foi provado; deixe o jogo à vista e meça de novo."}
+    )
+  end
 
   defp close_floor(socket, slug, samples) do
     case Enum.find(socket.assigns.special_rules, &(&1["slug"] == slug)) do
@@ -1440,13 +1465,38 @@ defmodule PokexWeb.CalibrationLive do
     assign(socket,
       special_floor: nil,
       special_rules: ColorRules.list(),
-      special_msg:
-        {:ok,
-         "chão de “#{entry["name"]}” medido em #{@floor_samples} fotos: pico #{peak}px" <>
-           chrome_text(chrome) <>
-           ". Gatilho em #{novo}px e regra PROVADA — #{vigia_estado()}"}
+      special_msg: floor_msg(entry, length(samples), peak, chrome, novo)
     )
   end
+
+  # A MEDIDA EM TILES, e o veredito junto. "Pico 110945px, gatilho 332835px,
+  # regra PROVADA" era verdade e não queria dizer nada: ele mesmo escreveu que
+  # não entende o que são os pixels. Em tiles a mesma frase se explica sozinha —
+  # o chão já cobria quase cinco tiles, o gatilho pedia catorze, e catorze tiles
+  # de cor sólida não existem em bicho nenhum. Uma regra assim fica provada,
+  # armada e MUDA, e nada dizia isso.
+  defp floor_msg(entry, fotos, peak, chrome, gatilho) do
+    corpo =
+      "chão de “#{entry["name"]}” medido em #{fotos} fotos: #{em_tiles(peak)} de cor" <>
+        chrome_text(chrome) <> ". Gatilho em #{em_tiles(gatilho)}"
+
+    if TileRuler.unreachable?(gatilho) do
+      {:error,
+       corpo <>
+         " — e nenhum bicho tem esse tamanho. Sobrou cenário na conta: ou o tom ensinado " <>
+         "também é do fundo, ou tinha algo parado na tela que o caçador não vai ver. " <>
+         "Meça de novo com a tela limpa; se repetir, ensine o tom de novo clicando no bicho."}
+    else
+      {:ok, corpo <> " e regra PROVADA — #{vigia_estado(entry)}"}
+    end
+  end
+
+  defp em_tiles(px), do: "#{TileRuler.label(px)} (#{px}px)"
+
+  # O crachá é estreito: aqui vai só o número, e o pixel fica no title.
+  defp em_tiles_curto(px), do: TileRuler.label(px)
+
+  defp muda?(%{"min_px" => px}), do: TileRuler.unreachable?(px)
 
   # DE QUEM É ESTE NÚMERO? A medição pode baixar o que a medição pôs, e não pode
   # encostar no que ele digitou. Quem separa os dois é a prova:
@@ -1485,16 +1535,24 @@ defmodule PokexWeb.CalibrationLive do
   # medição dele de 09/09 aprendeu UMA caixa de 8×8 numa regra e 290 caquinhos
   # na outra, que é o mesmo que não ter aprendido nada.
   defp chrome_of(samples) do
-    minimo = ceil(length(samples) * @chrome_share)
-    todas = Enum.flat_map(samples, fn manchas -> Enum.map(manchas, & &1.box) end)
+    minimo = ceil(@floor_samples * @chrome_share)
 
     samples
     |> List.flatten()
     |> Enum.map(& &1.box)
     |> Enum.uniq()
-    |> Enum.filter(fn box -> Enum.count(todas, &overlaps?(&1, box)) >= minimo end)
+    |> Enum.filter(fn box -> em_quantas_fotos(samples, box) >= minimo end)
     |> merge_boxes()
   end
+
+  # QUANTAS FOTOS, não quantas caixas — e sobre as fotos PEDIDAS, não sobre as
+  # que sobraram. Contando caixas, um painel escuro que o próprio texto parte em
+  # quinze arcos satisfazia o quórum sozinho, numa foto só. E dividindo pelas
+  # sobreviventes, uma medição em que onze das doze fotos falharam baixava o
+  # quórum pra UM: tudo o que aparecesse na única foto boa — inclusive um bicho
+  # — virava "cliente" e ficava proibido pra sempre.
+  defp em_quantas_fotos(samples, box),
+    do: Enum.count(samples, fn manchas -> Enum.any?(manchas, &overlaps?(&1.box, box)) end)
 
   # Duas caixas se sobrepõem quando compartilham qualquer pixel.
   defp overlaps?({al, at, ar, ab}, {bl, bt, br, bb}),
@@ -1520,7 +1578,7 @@ defmodule PokexWeb.CalibrationLive do
   defp floor_peak(samples, chrome) do
     samples
     |> List.flatten()
-    |> Enum.reject(&(&1.box in chrome))
+    |> Enum.reject(fn mancha -> Enum.any?(chrome, &overlaps?(&1, mancha.box)) end)
     |> Enum.map(& &1.px)
     |> Enum.max(fn -> 0 end)
   end
@@ -1549,7 +1607,13 @@ defmodule PokexWeb.CalibrationLive do
   # overlay dos Editores. Mandar procurar na tela errada é a mesma busca inútil
   # que o selo de prontidão existe pra acabar — "não faço a menor ideia onde
   # está essa parte de ligar" (09/09).
-  defp vigia_estado do
+  # A REGRA TAMBÉM TEM INTERRUPTOR. Olhando só o global, uma regra que ELE
+  # desligou (é o que o toggle serve) e depois remediu saía com "o caçador já
+  # varre com ela" — e `armed/0` a filtra fora. Ninguém varria com ela.
+  defp vigia_estado(%{"enabled" => false}),
+    do: "mas ela está DESLIGADA na lista aqui embaixo — ligue a regra pra valer."
+
+  defp vigia_estado(_ligada) do
     if Settings.get(:shiny_guard_enabled),
       do: "o caçador já varre com ela.",
       else: "falta LIGAR o “Caçador de shiny” em /config/editores — sem ele ninguém procura."
@@ -3750,12 +3814,25 @@ defmodule PokexWeb.CalibrationLive do
                     HUD ×{chrome_count(r)}
                   </span>
 
-                  <span class="pk-num font-mono text-pk-meta text-pk-text-3">
-                    gatilho {r["min_px"]}px
+                  <span
+                    class="pk-num font-mono text-pk-meta text-pk-text-3"
+                    title={"#{r["min_px"]}px de cor casada na tela"}
+                  >
+                    gatilho {em_tiles_curto(r["min_px"])}
                   </span>
 
+                  <%!-- PROVADA, ARMADA E MUDA: um gatilho maior que qualquer
+                       bicho é uma regra que varre a noite sem chance de
+                       disparar, e o crachá verde dizia que estava tudo certo. --%>
                   <span
-                    :if={r["proven"]}
+                    :if={r["proven"] && muda?(r)}
+                    class="rounded border border-pk-warn-line bg-pk-warn-dim px-1.5 font-mono text-pk-meta text-pk-warn"
+                    title="o tom ensinado aparece no cenário: o chão medido sobe junto e o gatilho sai maior que qualquer bicho"
+                  >
+                    nenhum bicho tem esse tamanho — ensine de novo
+                  </span>
+                  <span
+                    :if={r["proven"] && !muda?(r)}
                     class="rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 font-mono text-pk-meta text-pk-ok"
                     title={"chão medido em #{r["proven"]["at"]}"}
                   >

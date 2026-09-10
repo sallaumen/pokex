@@ -183,6 +183,20 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   # PIXEL NÃO É PORCENTAGEM. A mira por cor não tem semelhança nenhuma pra
   # contar: tem a contagem de pixels da cor, e ela ia pro mesmo campo do
   # reconhecimento por foto — 1,2 milhão de pixels viravam "(120000000%)".
+  # A BOLA COMUM NÃO É A BOLA DO SHINY. Todo arremesso carimbava "bola" na
+  # prateleira do shiny e zerava a pendência, então uma bola em corpo comum da
+  # varredura fechava a caçada do corpo do shiny antes de alguém tê-lo visto.
+  @tag :tmp_dir
+  test "an ordinary ball does not close the shiny's entry", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {900, 900}}})
+
+    world!(worker, corpses_obs([{130, 224}]))
+    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+
+    assert Worker.status(worker).shiny_pending?, "a caçada do shiny segue aberta"
+  end
+
   # A ESTRELA É DA LEITURA, não do estado. Com a varredura e a mira abertas ao
   # mesmo tempo, marcar pelo estado do worker mandaria a bola de um corpo comum
   # pra dentro da história do shiny — que é o vazamento que a estrela veio

@@ -106,6 +106,9 @@ defmodule Pokex.Bots.Engine.Situation do
           # there is a Catcher armed to throw (the same fact): the brain holds
           # the feet a moment when a round closes, so it can look at the ground
           catcher_armed?: boolean,
+          # when the last revive left the keyboard, from either hand
+          # (`ReviveLedger.note/0`, monotonic ms) — the brain re-asks until then
+          rescue_noted_at: integer | nil,
           grit: non_neg_integer,
           heavy_latch?: boolean,
           boss_tiles: non_neg_integer | nil,
@@ -195,6 +198,7 @@ defmodule Pokex.Bots.Engine.Situation do
       heavy_latch?: latch?,
       capturing?: Map.get(inputs, :capturing?) == true,
       catcher_armed?: Map.get(inputs, :catcher_armed?) == true,
+      rescue_noted_at: Map.get(inputs, :rescue_noted_at),
       # A QUE DISTÂNCIA O CHEFE ESTÁ, em tiles — nil quando ninguém mede. O
       # stun tem raio: apertá-lo com o chefe a 6 tiles é dormir o vento
       # (medido na bancada: o primeiro stun saía a 6 e o chefe chegava

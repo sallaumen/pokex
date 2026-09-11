@@ -358,6 +358,7 @@ defmodule Pokex.Bots.Engine.Worker do
       damage_keys: damage_keys(state.loadout, config, mode),
       control_back_in_ms: control_back_in_ms(state.loadout, now),
       revive_left: ReviveLedger.remaining(),
+      rescue_noted_at: ReviveLedger.last_note_at(),
       combo_left_ms: Combo.left_ms(mode, now),
       combo_since_end_ms: Combo.since_end_ms(mode, now),
       # THE EYE (`CrowdWatch`'s `:crowd` fact): where the creatures stand, in

@@ -149,7 +149,9 @@ defmodule Pokex.Bots.CrowdScan do
   nearest to him. Without a box (his notebook draws none) it is the mark whose
   health matches `:pet_hp`, what the Pokebar reads, within one column of the
   bar — nearest to him when two match. No match, no pet: `from_pet` stays
-  `nil`.
+  `nil`. And whichever path names him, the Pokebar has the last word: a sprite
+  or a box whose bar disagrees with it loses to the bar that agrees
+  (`believe_the_pokebar/4`).
 
   The SCORE travels with the point because the two are one verdict: passing
   only the point left `pet.score` nil on every live reading, and the card that
@@ -178,11 +180,14 @@ defmodule Pokex.Bots.CrowdScan do
     # cascata e nada dizia qual venceu; quando ele "troca qual é o pokémon que
     # ele acha que é o meu", saber se foi a sprite, a caixa de número ou a vida
     # é a diferença entre achar o defeito e adivinhar.
+    pet_hp = Keyword.get(opts, :pet_hp)
+
     pet =
       with nil <- taught_pet(bodies, Keyword.get(opts, :sprite), tile) |> by(:sprite),
            nil <- boxed_pet(bodies, me) |> by(:box) do
-        pet_by_health(bodies, me, Keyword.get(opts, :pet_hp)) |> by(:hp)
+        pet_by_health(bodies, me, pet_hp) |> by(:hp)
       end
+      |> believe_the_pokebar(bodies, me, pet_hp)
 
     # PELO PONTO, não pelo mapa: o pokémon ganha as chaves de COMO foi achado
     # (`found_by`, `sprite_score`) e deixaria de ser igual a si mesmo na lista.
@@ -356,6 +361,29 @@ defmodule Pokex.Bots.CrowdScan do
     |> Enum.filter(& &1.pet?)
     |> Enum.min_by(&chebyshev(&1.point, me), fn -> nil end)
   end
+
+  # THE POKEBAR IS THE FACT (11/09, 14:48-15:00, his six black-box episodes):
+  # in 9 frames the box or the sprite (at 0.55, the coin-toss score) named a
+  # Golem asleep under the chain — tinted purple like his Shiny Venusaur — as
+  # his pokémon, at 8-44 % of health while the Pokebar read 100 %, and his own
+  # Venusaur went into the reading as a hostile standing at 100 %. The aim then
+  # held the ball for 6 s ("segurada por bicho de pé") and a hunted creature's
+  # fall would have read as "covered by the pet". Every frame where the health
+  # path decided agreed with the Pokebar within 2 points; every swap disagreed
+  # by 56-92. So a box or a sprite only names the pet when its bar agrees with
+  # the Pokebar; when it does not and some bar does agree, that bar is the pet.
+  # With no bar agreeing the candidate stands (a frozen Pokebar must not turn
+  # the pet into nobody).
+  defp believe_the_pokebar(%{found_by: how, hp_pct: hp} = candidate, bodies, me, pet_hp)
+       when how in [:sprite, :box] and is_integer(pet_hp) and
+              abs(hp - pet_hp) > @pet_hp_tolerance do
+    case pet_by_health(bodies, me, pet_hp) do
+      nil -> candidate
+      agreed -> by(agreed, :hp)
+    end
+  end
+
+  defp believe_the_pokebar(candidate, _bodies, _me, _pet_hp), do: candidate
 
   # One column of the bar is 4%: the Pokebar's 39% draws as 36% or 40%.
   defp pet_by_health(bodies, me, pet_hp) when is_integer(pet_hp) do

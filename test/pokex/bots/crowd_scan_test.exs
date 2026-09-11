@@ -125,9 +125,25 @@ defmodule Pokex.Bots.CrowdScanTest do
       assert %{dx: 0, dy: 2} = CrowdScan.place(marks, @me, @tile, pet_hp: 39).pet
     end
 
-    test "the number box wins over a health match" do
+    # THE POKEBAR IS THE FACT (11/09): a box that disagrees with it by 61
+    # points is not his pokémon when some bar agrees — in the field the box
+    # named a Golem asleep at 8-44 % while the Pokebar read 100 %, and his own
+    # Venusaur went into the reading as a hostile.
+    test "the number box loses to the bar that agrees with the Pokebar" do
       marks = [mark({3, 3}, pet?: true, hp: 100), mark({0, 2}, hp: 39)]
-      assert %{dx: 3, dy: 3} = CrowdScan.place(marks, @me, @tile, pet_hp: 39).pet
+      placed = CrowdScan.place(marks, @me, @tile, pet_hp: 39)
+      assert %{dx: 0, dy: 2, by: :hp} = placed.pet
+      assert Enum.map(placed.hostiles, & &1.hp_pct) == [100]
+    end
+
+    test "the number box wins when its bar agrees with the Pokebar" do
+      marks = [mark({3, 3}, pet?: true, hp: 41), mark({0, 2}, hp: 39)]
+      assert %{dx: 3, dy: 3, by: :box} = CrowdScan.place(marks, @me, @tile, pet_hp: 39).pet
+    end
+
+    test "a box disagreeing with a Pokebar nobody matches still stands" do
+      marks = [mark({3, 3}, pet?: true, hp: 100), mark({0, 2}, hp: 70)]
+      assert %{dx: 3, dy: 3, by: :box} = CrowdScan.place(marks, @me, @tile, pet_hp: 39).pet
     end
 
     # O RENASCIDO É UM CORPO VIVO. Ele sai de `hostiles` porque não vem na lista
@@ -157,8 +173,8 @@ defmodule Pokex.Bots.CrowdScanTest do
     # THE TAUGHT SPRITE WINS (09/09): "ele muitas vezes troca qual é o pokémon
     # que ele acha que é o meu". The mark whose body the taught library
     # recognised is the pet, whatever box or health the others show.
-    test "the mark the taught sprites named is the pet, over the box and the health" do
-      marks = [mark({3, 3}, pet?: true, hp: 100), mark({0, 2}, hp: 39), mark({-2, 1}, hp: 70)]
+    test "the mark the taught sprites named is the pet, over the box and a nearer health match" do
+      marks = [mark({3, 3}, pet?: true, hp: 100), mark({0, 2}, hp: 39), mark({-2, 1}, hp: 40)]
       taught = mark({-2, 1}).point
 
       placed =
@@ -167,8 +183,22 @@ defmodule Pokex.Bots.CrowdScanTest do
           sprite: %{point: taught, score: 0.87}
         )
 
-      assert %{dx: -2, dy: 1, hp_pct: 70} = placed.pet
+      assert %{dx: -2, dy: 1, hp_pct: 40, by: :sprite} = placed.pet
       assert Enum.map(placed.hostiles, & &1.hp_pct) == [39, 100]
+    end
+
+    # 14:50:49 of 11/09: the sprite scored 0.55 on a Golem asleep under the
+    # chain (purple, like his Shiny Venusaur) at 44 % while the Pokebar read
+    # 100 %, and his Venusaur at 100 % was read as a hostile standing.
+    test "a sprite that disagrees with the Pokebar loses to the bar that agrees" do
+      marks = [mark({3, 3}, hp: 44), mark({-2, 1}, hp: 100)]
+      golem = mark({3, 3}).point
+
+      placed =
+        CrowdScan.place(marks, @me, @tile, pet_hp: 100, sprite: %{point: golem, score: 0.55})
+
+      assert %{dx: -2, dy: 1, hp_pct: 100, by: :hp} = placed.pet
+      assert Enum.map(placed.hostiles, & &1.hp_pct) == [44]
     end
 
     # A NOTA VIAJA JUNTO DO PONTO. Ela decidia e era jogada fora: o card do

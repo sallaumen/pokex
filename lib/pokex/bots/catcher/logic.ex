@@ -52,11 +52,12 @@ defmodule Pokex.Bots.Catcher.Logic do
   def step(logic, obs, now) do
     logic = %{prune_ignored(logic, now) | last_obs_at: obs.captured_at}
 
+    {logic, walk_actions} = forget_old_screen(logic, obs)
     {logic, confirm_actions} = confirm(logic, obs, now)
     logic = admit(logic, obs)
     {logic, throw_actions} = maybe_throw(logic, obs, now)
 
-    {logic, confirm_actions ++ throw_actions}
+    {logic, walk_actions ++ confirm_actions ++ throw_actions}
   end
 
   @doc """
@@ -104,10 +105,10 @@ defmodule Pokex.Bots.Catcher.Logic do
   The corpses of `obs` that lie where a creature was seen standing.
 
   UM CORPO SÓ CAI ONDE UM BICHO ESTAVA. A varredura compara COR, e cor não sabe
-  o que é chão: numa caverna de pedra cinza, com um corpo cinza ensinado, a
-  pedra e o toolbar do cliente passavam de 80% (10/09 — 26 "corpos" numa tela
-  sem nenhum, bolas em cima dos ícones do topo). O olho sabe onde cada bicho
-  estava; um corpo a mais de um tile de todos eles não é corpo.
+  o que é forma: as costas pretas do Shiny Golem ensinado casaram com o toolbar
+  cinza-escuro do cliente a até 84% (10/09 — bolas em y=32, em cima dos ícones
+  do topo). O olho sabe onde cada bicho estava; um corpo a mais de um tile de
+  todos eles não é corpo.
 
   `spots` ausente (a pesca, o modo Parado: não há olho) deixa passar tudo, como
   sempre passou. `spots: []` é o olho dizendo que não viu ninguém — e aí nada no
@@ -138,12 +139,11 @@ defmodule Pokex.Bots.Catcher.Logic do
           {:log, "confirmação inconclusiva (observação tardia) em #{point_str(throw.point)}"}
         ])
 
-      # UM QUADRO QUE NÃO É DESTA BOLA não prova nada — como um quadro de
-      # aquecimento: a lente errada, ou a tela de outro lugar do mapa. Vem DEPOIS
-      # do teto duro de propósito: se a lente calar (a sessão de mira fecha por
-      # TTL) ou ele nunca mais parar no mesmo ponto, é o teto que solta a bola,
-      # senão ela fica na conta pra sempre e `aim_done?/1` nunca fecha a caçada.
-      blind_frame?(throw, obs) ->
+      # A LENTE ERRADA NÃO PROVA NADA — como um quadro de aquecimento. Vem DEPOIS
+      # do teto duro de propósito: se a lente desta bola calar (a sessão de mira
+      # fecha por TTL), é o teto que a solta, senão ela fica na conta pra sempre
+      # e `aim_done?/1` nunca fecha a caçada.
+      other_lens?(throw, obs) ->
         {logic, []}
 
       # OTHER species present at the point: the original corpse is GONE — captured.
@@ -304,10 +304,23 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   defp maybe_throw(logic, _obs, _now), do: {logic, []}
 
-  # As duas formas de um quadro não valer pra ESTA bola: veio da outra lente, ou
-  # foi tirado de outro lugar do mapa.
-  defp blind_frame?(throw, obs),
-    do: source_of(obs) != Map.get(throw, :source, :corpse_scan) or walked?(throw, obs)
+  defp other_lens?(throw, obs), do: source_of(obs) != Map.get(throw, :source, :corpse_scan)
+
+  # ELE ANDOU: os pontos guardados são da tela de antes do passo e não conferem
+  # mais nada — o corpo "some" do ponto sem ninguém ter capturado. A bola sai da
+  # conta como não conferida (conta pro alarme de bolas secas) e a fila, tirada da
+  # mesma tela, vai junto. Segurar a bola até o teto de 60 s prendia a conta que
+  # segura os pés do cérebro (`Engine.Worker` lê o `pending`).
+  defp forget_old_screen(%{throw: %{} = throw} = logic, obs) do
+    if walked?(throw, obs),
+      do:
+        dry(%{logic | throw: nil, queue: []}, [
+          {:log, "bola em #{point_str(throw.point)} sem conferência — ele andou, a tela é outra"}
+        ]),
+      else: {logic, []}
+  end
+
+  defp forget_old_screen(logic, _obs), do: {logic, []}
 
   # Sem uma das duas leituras não dá pra afirmar que andou — e afirmar que NÃO
   # andou é o lado que mente. Só o par lido decide, e só a igualdade absolve.

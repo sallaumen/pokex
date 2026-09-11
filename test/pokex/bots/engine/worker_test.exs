@@ -136,6 +136,23 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert {:ok, %{capturing?: false}} = WorldState.get(:situation, 5_000, now())
     end
 
+    # A BOLA COMUM TAMBÉM SEGURA OS PÉS. Depois do revive a rota andava em 1,2 s
+    # (mediana de 328 rodadas em 10/09) — menos que uma bola e a conferência dela.
+    test "ordinary corpses still pending also ride the picture", %{worker: worker} do
+      see(~w(Venonat))
+      WorldState.put(:capture, %{aiming?: false, pending: 2, corpses: []}, now())
+      send(worker, :tick)
+      settle(worker)
+
+      assert {:ok, %{capturing?: true}} = WorldState.get(:situation, 5_000, now())
+
+      WorldState.put(:capture, %{aiming?: false, pending: 0, corpses: []}, now())
+      send(worker, :tick)
+      settle(worker)
+
+      assert {:ok, %{capturing?: false}} = WorldState.get(:situation, 5_000, now())
+    end
+
     test "halting takes the picture down with it", %{worker: worker} do
       see(~w(Venonat Paras Venomoth))
       send(worker, :tick)

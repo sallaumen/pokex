@@ -927,11 +927,23 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:performed, :high, acoes}, 1_000
     assert {:move, {130, 224}} in acoes
     assert {:press, Pokex.Settings.get(:ball_key)} in acoes
+
+    # …e o cérebro fica sabendo que há bola na conta, pra segurar os pés.
+    assert eventually(
+             fn ->
+               match?(
+                 {:ok, %{pending: 1}},
+                 WorldState.get(:capture, 5_000, System.monotonic_time(:millisecond))
+               )
+             end,
+             1_000
+           )
   end
 
-  # AS BOLAS DE 10/09 NO TOOLBAR. A foto ensinada como "Shiny Golem" era chão de
-  # pedra cinza, e a varredura achou o corpo em cima dos ícones do topo do
-  # cliente (y=32). O olho não viu bicho nenhum ali — e é essa a prova que conta.
+  # AS BOLAS DE 10/09 NO TOOLBAR. As costas pretas do Shiny Golem ensinado casam
+  # por cor com o toolbar cinza-escuro, e a varredura achou o corpo em cima dos
+  # ícones do topo do cliente (y=32). O olho não viu bicho nenhum ali — e é essa
+  # a prova que conta.
   @tag :tmp_dir
   test "hunting, a look-alike where no creature stood gets no ball", %{worker: worker} do
     Settings.put(:player_mode, "hunt")

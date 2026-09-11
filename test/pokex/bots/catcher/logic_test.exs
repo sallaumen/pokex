@@ -144,14 +144,18 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     defp with_pos(corpses, at, pos),
       do: %{scanning?: true, corpses: corpses, captured_at: at, pos: pos}
 
-    test "he walked: an empty point proves nothing" do
+    test "he walked: the ball is written off, never counted as a capture" do
       {logic, _} = Logic.step(armed(), with_pos([{100, 200}], 10, {10, 10, 7}), 10)
 
       # a bola voou, o corpo sumiu do ponto — mas ele deu um passo
       {logic, actions} = Logic.step(logic, with_pos([], 900, {11, 10, 7}), 900)
 
-      assert actions == [], "andar não pode virar captura"
-      assert logic.throw != nil, "a bola continua pendente até ele parar"
+      refute Enum.any?(actions, &match?({:log, "capturado" <> _}, &1))
+      assert logic.counters.captures == 0
+
+      # a tela de antes do passo não confere mais nada, e a conta não pode ficar
+      # presa nela: é a conta que segura os pés do cérebro
+      assert Logic.pending(logic) == 0
     end
 
     test "he stood still: an empty point IS the capture" do
@@ -175,11 +179,10 @@ defmodule Pokex.Bots.Catcher.LogicTest do
 
   # UM CORPO SÓ CAI ONDE UM BICHO ESTAVA DE PÉ.
   #
-  # A varredura compara COR, e numa caverna de pedra cinza a pedra e o toolbar
-  # do cliente têm a cor de um corpo cinza: em 10/09 foram 26 "corpos no chão"
-  # numa tela sem nenhum, e bolas em y=32, em cima dos ícones do topo. O olho
-  # sabe onde cada bicho estava; fora dali não há corpo, qualquer que seja a
-  # nota da cor.
+  # A varredura compara COR: as costas pretas do Shiny Golem ensinado casaram com
+  # o toolbar cinza-escuro do cliente, e em 10/09 as bolas foram pra y=32, em
+  # cima dos ícones do topo. O olho sabe onde cada bicho estava; fora dali não
+  # há corpo, qualquer que seja a nota da cor.
   describe "a corpse only lies where a creature stood" do
     defp seen(corpses, at, spots),
       do: %{scanning?: true, corpses: corpses, captured_at: at, spots: spots, spot_radius: 100}

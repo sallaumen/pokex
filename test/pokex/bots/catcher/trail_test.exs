@@ -18,7 +18,10 @@ defmodule Pokex.Bots.Catcher.TrailTest do
   defp reading(hostiles, pet), do: %{read?: true, hostiles: hostiles, pet: pet}
 
   defp look(trail, hostiles, now, opts \\ []) do
-    Trail.observe(trail, reading(hostiles, opts[:pet]), ref(opts[:pos] || {100, 100, 7}), now)
+    reading =
+      Map.put(reading(hostiles, opts[:pet]), :shiny_on?, Keyword.get(opts, :sparkle, false))
+
+    Trail.observe(trail, reading, ref(opts[:pos] || {100, 100, 7}), now)
   end
 
   test "the hunted creature is followed while it walks, and its fall is the anchor" do
@@ -168,6 +171,58 @@ defmodule Pokex.Bots.Catcher.TrailTest do
     assert %{name: "Shiny Golem", screen: screen} = Trail.hunted(trail, ref())
     assert screen == at(2, 1).point
     assert map_size(trail.tracks) == 4
+  end
+
+  # 18:34 of 11/09: the Shiny Feraligatr stood in the green-haze pile with its
+  # sparkle and skull, ALIVE, while the eye lost its bar for looks on end. The
+  # trail called that a death, minted a corpse anchor, and balled the empty
+  # ground as the character walked on. A shiny is alive while its sparkle shows;
+  # the game confirmed it falls and becomes a body, and the sparkle leaves only
+  # then.
+  test "a shiny whose bar blinks out of the pile does not fall while its sparkle shows" do
+    shiny = %{special?: true, special_name: "Shiny (brilho)", special_px: 51}
+
+    trail =
+      Trail.new()
+      |> look([at(0, -2, shiny)], 0, sparkle: true)
+      # the bar is lost in the haze, but the sparkle is still on screen: alive
+      |> look([], 250, sparkle: true)
+      |> look([], 500, sparkle: true)
+      |> look([], 750, sparkle: true)
+      |> look([at(0, -2, shiny)], 1_000, sparkle: true)
+      |> look([], 1_250, sparkle: true)
+      |> look([], 2_000, sparkle: true)
+
+    assert Trail.anchors(trail, ref(), 2_000) == [], "no corpse while the sparkle shows"
+    assert Trail.hunted(trail, ref())
+
+    # the sparkle leaves — it fell. Now the bar being gone IS a death, and the
+    # corpse lies where it last stood.
+    trail =
+      trail
+      |> look([], 2_250, sparkle: false)
+      |> look([], 2_500, sparkle: false)
+      |> look([], 3_400, sparkle: false)
+
+    assert [%{name: "Shiny (brilho)", screen: anchor}] = Trail.anchors(trail, ref(), 3_400)
+    assert anchor == at(0, -2).point
+  end
+
+  test "a hunted bar lost long before the sparkle leaves is no corpse: no phantom ball" do
+    shiny = %{special?: true, special_name: "Shiny (brilho)", special_px: 51}
+
+    trail =
+      Trail.new()
+      |> look([at(0, -2, shiny)], 0, sparkle: true)
+      # the bar is never seen again; the sparkle lingers seconds (the shiny
+      # wandered, or the guard blinked) then leaves. Its last bar spot is stale.
+      |> look([], 250, sparkle: true)
+      |> look([], 5_000, sparkle: true)
+      |> look([], 5_250, sparkle: false)
+      |> look([], 5_500, sparkle: false)
+      |> look([], 6_500, sparkle: false)
+
+    assert Trail.anchors(trail, ref(), 6_500) == []
   end
 
   test "an ordinary creature that vanishes is simply forgotten" do

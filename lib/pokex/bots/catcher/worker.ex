@@ -1031,7 +1031,10 @@ defmodule Pokex.Bots.Catcher.Worker do
   # temos que ter essa posição atualizada e bem certinha" (11/09).
   defp follow(state, reading) do
     ref = trail_ref(reading)
-    marked = CrowdScan.mark_special(reading, ShinyGuard.seen(), ref.tile)
+    seen = ShinyGuard.seen()
+    # the sparkle still on screen means the shiny is ALIVE: the trail must not
+    # turn its bar, lost in the pile, into a corpse to ball (18:34 of 11/09).
+    marked = reading |> CrowdScan.mark_special(seen, ref.tile) |> Map.put(:shiny_on?, seen != [])
     trail = Trail.observe(state.trail, marked, ref, now())
     say_falls(state.trail, trail, ref)
     %{state | trail: trail}

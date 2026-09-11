@@ -404,6 +404,18 @@ as manchas de fora (#592); passa a listar a forma vencedora de cada âncora.
   corpo (nunca "capturado" por ausência).
 - Medir antes: no jogo, a bola jogada em cima da luz pega o corpo? (só ele.)
 
+**Feito (11/09, `Catcher.Trail`):** a âncora ficou mais simples que o
+desenho acima — não guarda "forma", guarda a BARRA. O olho lê as barras a cada
+olhada; o vigia diz em cima de qual está a cor (`CrowdScan.mark_special/3`);
+o rastro segue essa barra em tiles do MUNDO (minimapa + deslocamento na tela
+sobre o tile, então sobrevive a ele andando), vizinho mais próximo com chute
+de velocidade (dois bichos cruzando não trocam de identidade), o pokémon dele
+em cima é oclusão e não morte; três olhadas sem a barra = caiu, e o lugar
+vira a âncora (TTL 120 s). Na hora da bola a âncora vai primeiro (a mira por
+cor abre depois; o mesmo tile já está `ignored`), nunca em cima de bicho de
+pé. O que ficou de fora: `common`/`unknown` (só o vigia nomeia), e a bancada
+do simulador (o mundo não tem Catcher).
+
 ### PR 4 — identidade pelo texto (depende da resposta dele, §9)
 
 - Se a lista de batalha escreve "Shiny Golem": calibrar o `battle_rows` do PA

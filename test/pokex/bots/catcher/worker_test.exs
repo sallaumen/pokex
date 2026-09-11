@@ -841,6 +841,41 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:shiny_ball, %{point: {116, 116}}}, 1_000
   end
 
+  # THE IDENTITY TRAVELS WITH THE BAR (plan §3.5, `Catcher.Trail`). 11/09 09:13:
+  # the Shiny Golem's corpse had none of the live colour; where its bar vanished
+  # is where the ball goes — no colour rule needed, and it follows him walking.
+  @tag :tmp_dir
+  test "the shiny's bar followed until it falls buys the ball at the cue, with no colour at all" do
+    worker = start_hunt_worker(scanner: fn -> nil end)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+
+    # the eye sees the shiny standing (the guard's blob on it), then it walks
+    me = {500, 350}
+
+    seen = fn point, extra ->
+      %{read?: true, me: me, hostiles: [Map.merge(%{point: point}, extra)], pet: nil}
+    end
+
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+
+    send(worker, {:crowd, seen.({500, 150}, shiny)})
+    send(worker, {:crowd, seen.({550, 200}, %{})})
+    send(worker, {:crowd, seen.({600, 250}, %{})})
+
+    # …and its bar is gone: three looks without it is a death
+    for _ <- 1..3, do: send(worker, {:crowd, %{read?: true, me: me, hostiles: [], pet: nil}})
+
+    assert_log_eventually("Shiny Golem caiu em 600,250")
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+    send(worker, {:capture_now})
+
+    assert_log_eventually("bola na âncora do Shiny Golem em 600,250")
+    assert_receive {:performed, :high, [{:move, {600, 250}} | _]}, 3_000
+    assert_receive {:shiny_ball, %{point: {600, 250}, name: "Shiny Golem"}}, 1_000
+  end
+
   @tag :tmp_dir
   test "at the capture cue with no colour rule armed, no colour session opens" do
     worker = start_hunt_worker(scanner: fn -> nil end)

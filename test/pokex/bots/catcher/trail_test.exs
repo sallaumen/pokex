@@ -151,6 +151,25 @@ defmodule Pokex.Bots.Catcher.TrailTest do
     assert Trail.anchors(Trail.spend(trail, world), ref(), 750) == []
   end
 
+  # 12:39 of 11/09: eight bars in the pile, and the hunted Shiny Golem was gone
+  # from the trail two seconds after the sighting — a miss on ANY other track
+  # threw away every track matched before it.
+  test "another creature missing a look does not lose the hunted one" do
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 228}
+
+    trail =
+      Trail.new()
+      |> look([at(3, 2, shiny), at(-1, 0), at(1, 1), at(0, -2)], 0)
+      # the far one blinks out of the reading for a few looks; the shiny stays
+      |> look([at(3, 2), at(-1, 0), at(1, 1)], 250)
+      |> look([at(2, 2), at(-1, 0), at(1, 1)], 500)
+      |> look([at(2, 1), at(-1, 0), at(1, 1), at(0, -2)], 750)
+
+    assert %{name: "Shiny Golem", screen: screen} = Trail.hunted(trail, ref())
+    assert screen == at(2, 1).point
+    assert map_size(trail.tracks) == 4
+  end
+
   test "an ordinary creature that vanishes is simply forgotten" do
     trail =
       Trail.new()

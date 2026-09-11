@@ -142,7 +142,7 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
           |> Enum.filter(
             &(&1.px >= rule.min_px and creature_sized?(&1.box, tile_px, frame.scale))
           )
-          |> Enum.reject(&refused?(&1, frame, recusados, piso))
+          |> Enum.reject(&refused?(&1, rule, frame, recusados, piso))
           |> Enum.take(Settings.get(:shiny_aim_max_candidates))
           |> Enum.map(&on_screen(&1, rule, region, frame.scale))
         end)
@@ -200,15 +200,28 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
   # Um corpo cadastrado e desligado levava bola do mesmo jeito. A recusa vem
   # ANTES do teto de candidatos, senão ela só economiza bola em vez de abrir vaga
   # pro bicho.
-  defp refused?(%{point: {fx, fy}}, frame, lib, piso) do
+  #
+  # …EXCEPT THE CREATURE THE RULE IS FOR. Switching a corpse entry off is how he
+  # takes its 65 px photos out of the sprite scan (the "Shiny Golem" ones fire
+  # at 60 % on the Tracker HUD); it is not a way of saying he does not want the
+  # Shiny Golem — the colour rule he proved under the same name says he does.
+  # Measured on his pile photo of 11/09: those photos score 0.97 on the real
+  # corpse, so switched off they would refuse the very ball the rule exists for.
+  defp refused?(%{point: {fx, fy}}, rule, frame, lib, piso) do
     box = Settings.get(:corpse_sprite_box_px)
     meia = div(box, 2)
 
     case SpriteLibrary.best_in(lib, frame, {fx - meia, fy - meia, box, box}) do
-      %{aimed?: false, score: score} -> score >= piso
-      _sem_veto -> false
+      %{aimed?: false, name: name, score: score} ->
+        score >= piso and not same_creature?(name, rule)
+
+      _sem_veto ->
+        false
     end
   end
+
+  defp same_creature?(name, %{name: rule_name}), do: fold(name) == fold(rule_name)
+  defp fold(name), do: name |> String.trim() |> String.downcase()
 
   # Um bicho ocupa da ordem de um tile; o corpo do Charizard preto dele "passa do
   # tile". Três tiles de lado é folga de sobra, e o chão da caverna inteiro não

@@ -84,7 +84,16 @@ defmodule Pokex.Bots.Engine.Situation do
           rows: non_neg_integer | nil,
           enemies: non_neg_integer | nil,
           named: [map],
-          own_row_seen?: boolean | :unnamed | :by_hp | nil,
+          own_row_seen?: BattleRows.how(),
+          # what his pokémon's name LOOKS like in the list, learned (see `learn/3`)
+          own_word: %{
+            name: String.t() | nil,
+            word: integer | nil,
+            candidate: integer | nil,
+            streak: non_neg_integer,
+            missed: non_neg_integer
+          },
+          own_name: String.t() | nil,
           worth_fighting?: boolean,
           heavy?: boolean,
           # the named or measured boss: the one that skips the gathering queue
@@ -142,9 +151,10 @@ defmodule Pokex.Bots.Engine.Situation do
   """
   @spec build(map, map, integer) :: t
   def build(inputs, config, now) do
-    battle = read_battle(Map.get(inputs, :battle), inputs)
-
     prev = Map.get(inputs, :prev)
+    learned = learned_word(prev, Map.get(inputs, :own_name))
+    battle = read_battle(Map.get(inputs, :battle), inputs, learned.word)
+    own_word = learn(learned, battle, inputs)
     {growing?, stable_since} = settle(battle.enemies, prev, now)
     {walked_total, pile_at} = pace(battle.enemies, Map.get(inputs, :pos), prev)
 
@@ -163,6 +173,10 @@ defmodule Pokex.Bots.Engine.Situation do
       enemies: battle.enemies,
       named: battle.named,
       own_row_seen?: battle.own_row_seen?,
+      # His pokémon's name as the list RENDERS it (see `learn/3`), and the name
+      # he configured — what the screen prints on the row the brain calls his.
+      own_word: own_word,
+      own_name: Map.get(inputs, :own_name),
       # A POSTURA DE CHEFE (stun a cada emenda, revive dentro do sono, sem
       # recuar) vale pro chefe E pro especial; FURAR A FILA da juntada é só do
       # chefe (`boss?`). "Postura no shiny é juntar primeiro!" (11/09): o
@@ -249,8 +263,8 @@ defmodule Pokex.Bots.Engine.Situation do
   end
 
   # No reading at all: everything about the screen is unknown. Not zero.
-  defp read_battle(nil, _inputs),
-    do: %{rows: nil, enemies: nil, named: [], own_row_seen?: nil}
+  defp read_battle(nil, _inputs, _word),
+    do: %{rows: nil, enemies: nil, named: [], own_row_seen?: nil, mine: [], detail: []}
 
   # A LEITURA SEPARA, NÃO SUBTRAI. `enemies` era uma aritmética — a contagem
   # crua menos a linha dele — e uma aritmética pode estar errada em um sem que
@@ -258,35 +272,89 @@ defmodule Pokex.Bots.Engine.Situation do
   # e o número é `length(theirs)`: para o número mentir, a lista tem que mentir
   # junto. Quem decide também passa a saber COMO a linha dele foi achada, que
   # em duas noites do diário dele nunca foi pelo nome.
-  defp read_battle(battle, inputs) do
+  defp read_battle(battle, inputs, word) do
     rows = length(Map.get(battle, :enemies, []))
     detail = Map.get(battle, :enemies_detail, [])
 
     cond do
       rows == 0 ->
-        %{rows: 0, enemies: 0, named: [], own_row_seen?: false}
+        %{rows: 0, enemies: 0, named: [], own_row_seen?: false, mine: [], detail: []}
 
       detail == [] ->
         # No description of the rows at all, so the own row cannot be told from
         # an enemy. Raw count, unknown stated.
-        %{rows: rows, enemies: rows, named: [], own_row_seen?: nil}
+        %{rows: rows, enemies: rows, named: [], own_row_seen?: nil, mine: [], detail: []}
 
       true ->
         split =
           BattleRows.split(detail, %{
             name: Map.get(inputs, :own_name),
             hp: Map.get(inputs, :own_hp),
-            out?: Map.get(inputs, :own_out?)
+            out?: Map.get(inputs, :own_out?),
+            word: word
           })
 
         %{
           rows: rows,
           enemies: BattleRows.enemies(split),
           named: split.theirs,
-          own_row_seen?: split.how
+          own_row_seen?: split.how,
+          mine: split.mine,
+          detail: detail
         }
     end
   end
+
+  # HOW THE BOT LEARNS WHAT HIS POKÉMON'S NAME LOOKS LIKE. No glyph can spell the
+  # 7px names of the list, so the name is learned as a picture: the `word` of the
+  # row the brain already calls his. Only on strong evidence — a health match
+  # that is the ONLY row near the Pokebar, five ticks running with the same word
+  # (~0.6s at the 120ms feed) — because a word learned on a coin toss would name
+  # the wrong row for the rest of the night. Forgotten when he swaps pokémon, and
+  # when it stops showing up with him on the field (the render changed, or it was
+  # wrong after all).
+  @learn_streak 5
+  @forget_after 50
+
+  defp learned_word(%{own_word: %{name: name} = learned}, name), do: learned
+
+  defp learned_word(_no_prev_or_another_pokemon, name),
+    do: %{name: name, word: nil, candidate: nil, streak: 0, missed: 0}
+
+  defp learn(learned, %{own_row_seen?: :by_name, mine: [%{word: word} | _]}, _inputs)
+       when is_integer(word),
+       do: %{learned | word: word, candidate: nil, streak: 0, missed: 0}
+
+  defp learn(
+         %{word: nil} = learned,
+         %{own_row_seen?: :by_hp, mine: [%{word: word}], detail: rows},
+         inputs
+       )
+       when is_integer(word) do
+    if BattleRows.sole_near_hp?(rows, Map.get(inputs, :own_hp)),
+      do: promote(learned, word),
+      else: %{learned | candidate: nil, streak: 0}
+  end
+
+  defp learn(%{word: word} = learned, %{rows: rows, own_row_seen?: how}, %{own_out?: true})
+       when is_integer(word) and is_integer(rows) and rows > 0 and how != :by_name do
+    missed = learned.missed + 1
+
+    if missed >= @forget_after,
+      do: %{learned | word: nil, missed: 0},
+      else: %{learned | missed: missed}
+  end
+
+  defp learn(learned, _battle, _inputs), do: learned
+
+  defp promote(%{candidate: word, streak: streak} = learned, word)
+       when streak + 1 >= @learn_streak,
+       do: %{learned | word: word, candidate: nil, streak: 0, missed: 0}
+
+  defp promote(%{candidate: word, streak: streak} = learned, word),
+    do: %{learned | streak: streak + 1}
+
+  defp promote(learned, word), do: %{learned | candidate: word, streak: 1}
 
   # "Pararam de chegar" is the signal a gathering ends on, so only GROWTH
   # restarts the clock. A pile that is dying shrinks the list, and that is the

@@ -1430,6 +1430,20 @@ defmodule PokexWeb.CavebotLive do
 
   defp mine?(_row, _no_reading), do: false
 
+  # His row carries HIS pokémon's name: the brain already decided which row is
+  # his, and the screen repeats that decision instead of printing "?" on it. The
+  # trailing " ?" says the decision was a deduction (health or position) and not
+  # the row's own rendering — the difference he has to be able to see.
+  defp row_name(row, %{own_row_seen?: how, own_name: name} = situation) when is_binary(name) do
+    cond do
+      not mine?(row, situation) -> row[:name] || "?"
+      how == :by_name -> name
+      true -> name <> " ?"
+    end
+  end
+
+  defp row_name(row, _no_reading), do: row[:name] || "?"
+
   # Quantos INIMIGOS, que não é quantas linhas: a linha dele não conta.
   defp enemies_seen(_world, %{enemies: n}) when is_integer(n), do: n
   defp enemies_seen(world, _no_reading), do: length(world.enemies)
@@ -2536,7 +2550,7 @@ defmodule PokexWeb.CavebotLive do
                       "min-w-0 flex-1 truncate font-mono text-pk-meta",
                       if(mine?(row, @situation), do: "text-pk-ok", else: "text-pk-text-2")
                     ]}>
-                      {row[:name] || "?"}
+                      {row_name(row, @situation)}
                     </span>
                     <span class="h-1 w-8 shrink-0 overflow-hidden rounded-full bg-pk-line">
                       <span

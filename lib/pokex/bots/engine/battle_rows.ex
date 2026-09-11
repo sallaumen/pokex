@@ -30,7 +30,11 @@ defmodule Pokex.Bots.Engine.BattleRows do
   """
 
   @typedoc "A battle row as the perception hands it over."
-  @type row :: %{optional(:name) => String.t() | nil, optional(:hp_pct) => number | nil}
+  @type row :: %{
+          optional(:name) => String.t() | nil,
+          optional(:hp_pct) => number | nil,
+          optional(:word) => integer | nil
+        }
 
   @typedoc """
   How his row was found. `false` = he is not in the list at all; `nil` = the
@@ -51,18 +55,52 @@ defmodule Pokex.Bots.Engine.BattleRows do
   `own_out?` is the veto: `false` means the support PROVED he is off the field,
   and then NO row is his — not even one wearing his species' name.
   """
-  @spec split([row], %{name: String.t() | nil, hp: integer | nil, out?: boolean | :unknown}) ::
-          split
+  @spec split([row], %{
+          required(:name) => String.t() | nil,
+          required(:hp) => integer | nil,
+          required(:out?) => boolean | :unknown,
+          optional(:word) => integer | nil
+        }) :: split
   def split([], _own), do: %{mine: [], theirs: [], how: false}
 
   def split(rows, %{out?: false}), do: %{mine: [], theirs: rows, how: false}
 
   def split(rows, own) do
+    case Enum.split_with(rows, &same_word?(&1, Map.get(own, :word))) do
+      {[_ | _] = by_word, others} -> pick(by_word, others, own, :by_name)
+      {[], _none_by_word} -> by_glyph_name(rows, own)
+    end
+  end
+
+  # THE NAME AS A PICTURE, before the name as text. The list draws each name in
+  # a 7px anti-aliased font that no ink floor splits into whole letters (measured
+  # on his capture of 2026-09-11: "Golem" shatters into 6 pieces, "Venusaur" into
+  # 11), so spelling it is fragile and the lexicon match that follows costs 6ms a
+  # row. The rendering itself is deterministic, though: five Golem rows hash to
+  # the same `word`, and his Venusaur to a different one. A learned word is an
+  # exact, O(1) identity.
+  defp same_word?(%{word: word}, word) when is_integer(word), do: true
+  defp same_word?(_row, _no_word), do: false
+
+  defp by_glyph_name(rows, own) do
     case Enum.split_with(rows, &named?(&1, own.name)) do
       {[], _none_by_name} -> by_absence(rows, own)
       {namesakes, others} -> pick(namesakes, others, own, :by_name)
     end
   end
+
+  @doc """
+  Exactly one row sits within the health slack of `own_hp`.
+
+  Closest-wins is good enough to COUNT, but not to LEARN from: a word taught on
+  a coin toss would name the wrong row for the rest of the night. Learning asks
+  for the stronger evidence.
+  """
+  @spec sole_near_hp?([row], integer | nil) :: boolean
+  def sole_near_hp?(rows, own_hp) when is_integer(own_hp),
+    do: Enum.count(rows, &near?(&1, own_hp)) == 1
+
+  def sole_near_hp?(_rows, _no_hp), do: false
 
   @doc "How many of them there are — a derivation, never an arithmetic."
   @spec enemies(split) :: non_neg_integer

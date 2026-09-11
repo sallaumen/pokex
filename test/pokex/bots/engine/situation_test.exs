@@ -360,6 +360,87 @@ defmodule Pokex.Bots.Engine.SituationTest do
     end
   end
 
+  # THE "?" ON HIS ROW. The list's lettering is too small for any glyph, and his
+  # Venusaur's row went nameless all night. What can be seen is the name as
+  # drawn: learned when health points at ONE row only, five ticks running, it
+  # finds his row even when health cannot.
+  describe "the own row learned by how its name is drawn" do
+    # the words of his capture of 2026-09-11: his Venusaur, and the Golems
+    @his 11_341_812
+    @golem 130_672_102
+
+    defp drawn(rows) do
+      detail =
+        for {{word, hp}, row} <- Enum.with_index(rows),
+            do: %{row: row, name: nil, word: word, hp_pct: hp, shiny?: false}
+
+      %{
+        enemies: Enum.map(detail, & &1.row),
+        enemies_detail: detail,
+        locked?: false,
+        locked_row: nil
+      }
+    end
+
+    defp seen(prev, rows, over) do
+      Situation.build(
+        Map.merge(
+          %{
+            battle: drawn(rows),
+            own_name: "Venusaur",
+            own_hp: 90,
+            own_out?: true,
+            ready_keys: [],
+            damage_keys: [],
+            prev: prev
+          },
+          over
+        ),
+        @config,
+        1_000
+      )
+    end
+
+    defp ticks(prev, n, rows, over \\ %{}),
+      do: Enum.reduce(1..n, prev, fn _tick, picture -> seen(picture, rows, over) end)
+
+    test "one unmistakable health match, five ticks running, teaches his word" do
+      rows = [{@his, 0.9}, {@golem, 0.3}, {@golem, 0.2}]
+
+      assert ticks(nil, 4, rows).own_word.word == nil
+      assert ticks(nil, 5, rows).own_word.word == @his
+    end
+
+    test "the learned word finds his row where health cannot" do
+      learned = ticks(nil, 5, [{@his, 0.9}, {@golem, 0.3}])
+
+      # a fresh pile at full health, him back from a revive at 100%, in the LAST row
+      picture = seen(learned, [{@golem, 1.0}, {@golem, 1.0}, {@his, 1.0}], %{own_hp: 100})
+
+      assert picture.own_row_seen? == :by_name
+      assert Enum.map(picture.named, & &1.row) == [0, 1]
+    end
+
+    test "health shared with an enemy teaches nothing" do
+      assert ticks(nil, 10, [{@his, 0.9}, {@golem, 0.88}]).own_word.word == nil
+    end
+
+    test "another pokemon on the field forgets the word" do
+      learned = ticks(nil, 5, [{@his, 0.9}, {@golem, 0.3}])
+      swapped = seen(learned, [{@his, 0.9}, {@golem, 0.3}], %{own_name: "Arcanine", own_hp: 20})
+
+      assert swapped.own_word.word == nil
+    end
+
+    test "a word that stops showing up with him on the field is forgotten" do
+      learned = ticks(nil, 5, [{@his, 0.9}, {@golem, 0.3}])
+      changed = [{999, 0.9}, {@golem, 0.3}]
+
+      assert ticks(learned, 49, changed).own_word.word == @his
+      assert ticks(learned, 50, changed).own_word.word == nil
+    end
+  end
+
   # O CHEFE, POR NOME. `heavy?` é o gatilho da postura de chefe do cérebro —
   # e ele fura a régua (`worth_fighting?`) porque um chefe sozinho vale a luta
   # que cinco bichos comuns valem.

@@ -112,6 +112,50 @@ defmodule Pokex.Bots.Engine.BattleRowsTest do
     end
   end
 
+  # THE NAME AS DRAWN. No glyph spells the list's 7px lettering, but the game
+  # draws the same name the same way every time: a learned word is his row's
+  # identity, and it depends on neither the health nor the order.
+  describe "by the word — the name as it is drawn" do
+    defp drawn(word, hp), do: %{name: nil, word: word, hp_pct: hp}
+
+    test "his word picks his row where health alone would pick the wrong one" do
+      rows = [drawn(2, 1.0), drawn(2, 1.0), drawn(1, 1.0)]
+      split = BattleRows.split(rows, own(%{word: 1}))
+
+      assert split.how == :by_name
+      assert split.mine == [drawn(1, 1.0)]
+      assert BattleRows.enemies(split) == 2
+    end
+
+    test "a word no row carries leaves the old ways in charge" do
+      split = BattleRows.split([drawn(2, 0.30), drawn(3, 0.68)], own(%{hp: 69, word: 1}))
+
+      assert split.how == :by_hp
+      assert split.mine == [drawn(3, 0.68)]
+    end
+
+    test "with his pokemon off the field, a row with his word is a monster" do
+      split = BattleRows.split([drawn(1, 1.0)], own(%{word: 1, out?: false}))
+
+      assert split.how == false
+      assert BattleRows.enemies(split) == 1
+    end
+  end
+
+  describe "sole_near_hp? — the evidence strong enough to learn from" do
+    test "exactly one row near his health" do
+      assert BattleRows.sole_near_hp?([row(nil, 0.30), row(nil, 0.68)], 69)
+    end
+
+    test "two rows near his health are a coin toss" do
+      refute BattleRows.sole_near_hp?([row(nil, 0.70), row(nil, 0.68)], 69)
+    end
+
+    test "no health read, no evidence" do
+      refute BattleRows.sole_near_hp?([row(nil, 0.68)], nil)
+    end
+  end
+
   describe "by position — the guess, named as one" do
     test "with no health to compare, the first unreadable row is taken" do
       split = BattleRows.split([row(nil), row(nil)], own(%{hp: nil}))

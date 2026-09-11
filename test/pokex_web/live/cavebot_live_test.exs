@@ -792,6 +792,47 @@ defmodule PokexWeb.CavebotLiveTest do
       assert vision =~ "text-pk-ok"
     end
 
+    # "It still shows up as '?'" (2026-09-11). His row carries HIS pokémon's name:
+    # with a trailing "?" while the brain only deduced the row from the health,
+    # bare once the row's own drawing is the one it learned.
+    test "his row prints his pokemon's name instead of a question mark", %{conn: conn} do
+      detail = [
+        %{row: 0, name: nil, word: 7, hp_pct: 0.3, shiny?: false},
+        %{row: 1, name: nil, word: 9, hp_pct: 0.9, shiny?: false}
+      ]
+
+      see_world(100, 90, detail)
+      now = System.monotonic_time(:millisecond)
+      on_exit(fn -> WorldState.forget(:situation) end)
+
+      build = fn prev ->
+        Pokex.Bots.Engine.Situation.build(
+          %{
+            battle: %{enemies: [0, 1], enemies_detail: detail},
+            own_name: "Venusaur",
+            own_out?: true,
+            own_hp: 90,
+            prev: prev
+          },
+          %{engage_from: 3},
+          now
+        )
+      end
+
+      WorldState.put(:situation, build.(nil), now)
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      assert view |> element("#cavebot-vision") |> render() =~ "Venusaur ?"
+
+      learned = Enum.reduce(1..6, nil, fn _tick, prev -> build.(prev) end)
+      WorldState.put(:situation, learned, now)
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      vision = view |> element("#cavebot-vision") |> render()
+
+      assert learned.own_row_seen? == :by_name
+      assert vision =~ "Venusaur"
+      refute vision =~ "Venusaur ?"
+    end
+
     # A caixa não pode pular de altura a cada bicho que entra ou sai: o que ele
     # estava lendo embaixo dela some do lugar.
     test "a caixa da lista tem altura fixa, com ou sem mobada", %{conn: conn} do

@@ -854,6 +854,54 @@ defmodule Pokex.Vision.Glyphs do
   def blank?(%Frame{} = frame, region, opts \\ []),
     do: segment(frame, region, opts) == []
 
+  @doc """
+  The region's text as it is DRAWN, not as it is spelled: a hash of its ink
+  trimmed to the ink's own box — or nil when the region holds none.
+
+  For the text no atlas can spell. The battle list draws its names in a 7px
+  anti-aliased font that shatters at every ink floor (measured on his capture of
+  2026-09-11: "Golem" in 6 fragments, "Venusaur" in 11), yet it draws the SAME
+  name the same way every time — five Golem rows, one word. Two words are equal
+  exactly when the renderings are, wherever inside the region they sit.
+  """
+  @spec word(Frame.t(), {integer, integer, integer, integer}, keyword) :: integer | nil
+  def word(%Frame{} = frame, {x, y, w, h}, opts \\ []) do
+    x = max(x, 0)
+    y = max(y, 0)
+    w = min(w, frame.width - x)
+    h = min(h, frame.height - y)
+
+    if w <= 0 or h <= 0,
+      do: nil,
+      else: do_word(frame, {x, y, w, h}, Keyword.get(opts, :ink, @default_ink))
+  end
+
+  # Strong ink only: no hysteresis, no blob surgery. A word is compared to
+  # itself on the same panel, so the one thing it needs is to come out the same
+  # twice — and the fewer steps between the pixels and the hash, the surer that is.
+  defp do_word(%Frame{width: fw, rgba: rgba}, {x, y, w, h}, floor) do
+    {cells, []} =
+      Enum.reduce(0..(h - 1)//1, {[], []}, fn j, acc ->
+        rgba
+        |> binary_part(((y + j) * fw + x) * 4, w * 4)
+        |> classify_row(0, j, floor, 256, acc)
+      end)
+
+    case cells do
+      [] ->
+        nil
+
+      _ink ->
+        left = cells |> Enum.map(&elem(&1, 0)) |> Enum.min()
+        top = cells |> Enum.map(&elem(&1, 1)) |> Enum.min()
+
+        cells
+        |> Enum.map(fn {i, j} -> {i - left, j - top} end)
+        |> Enum.sort()
+        |> :erlang.phash2()
+    end
+  end
+
   @doc "An integer, or nil when anything at all was uncertain — never a guess."
   def read_int(%Frame{} = frame, region, opts \\ []) do
     case read_line(frame, region, opts) do

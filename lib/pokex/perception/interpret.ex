@@ -75,7 +75,7 @@ defmodule Pokex.Perception.Interpret do
     # The old client's golden star died with the migration: this client does not mark
     # shinies in the battle list. Shiny/boss is now seen by COLOUR (`ShinyGuard` +
     # `Vision.ColorMark`), outside this reader.
-    detail = enemies_detail(body, measured, placed, [])
+    detail = enemies_detail(frame, body, measured, placed, [])
 
     %{
       enemies: Enum.sort(creatures),
@@ -123,18 +123,31 @@ defmodule Pokex.Perception.Interpret do
   # for nineteen seconds.
   #
   # The NAME still needs the located layout and stays nil without one. The
-  # HEALTH does not: the bar measures its own box.
-  defp enemies_detail(body, measured, placed, shiny_rows) do
+  # HEALTH does not: the bar measures its own box. Neither does the WORD — the
+  # name as drawn, which is what tells his row apart when no glyph can spell it.
+  defp enemies_detail(frame, body, measured, placed, shiny_rows) do
     lexicon = Pokex.Pokedex.names()
 
     for {row, bar} <- Enum.sort_by(placed, &elem(&1, 0)) do
       %{
         row: row,
         name: name_at(body, measured, row, lexicon),
+        word: word_at(frame, bar),
         hp_pct: hp_pct(body, measured, row, bar),
         shiny?: row in shiny_rows
       }
     end
+  end
+
+  # The name sits right above its own bar, measured on his capture of 2026-09-11
+  # with a 130px bar: the text 12-20px up, the previous row's bar 27px up. The
+  # bar's WIDTH is the ruler, because it is the one thing on the row drawn to
+  # the same shape at every scale — spent track included, so a dying creature's
+  # bar is as wide as a healthy one. Read off the whole frame, like the bar: the
+  # strip the body loses would cut the end of a long name.
+  defp word_at(frame, %{x: x, y: y, w: w}) do
+    top = y - round(w * 0.17)
+    Glyphs.word(frame, {x, top, w, y - round(w * 0.07) - top})
   end
 
   defp name_at(_body, nil, _row, _lexicon), do: nil

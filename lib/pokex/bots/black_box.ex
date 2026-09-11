@@ -43,6 +43,7 @@ defmodule Pokex.Bots.BlackBox do
   @max_episode_ms 150_000
   @catcher_topic "catcher"
   @shiny_topic "shiny"
+  @game_topic "game"
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -69,6 +70,7 @@ defmodule Pokex.Bots.BlackBox do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Engine.Worker.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, @shiny_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, @catcher_topic)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, @game_topic)
     {:ok, state}
   end
 
@@ -101,12 +103,23 @@ defmodule Pokex.Bots.BlackBox do
       String.contains?(text, "caiu em") ->
         {:noreply, state |> maybe_open(:queda, nil, nil, now()) |> key_frame("queda", now())}
 
-      String.contains?(text, "bola") and state.episode != nil ->
+      # the ball itself, not every line with the word (the aim's closing count
+      # says "hora da bola" and was earning a whole frame)
+      (String.contains?(text, "bola em") or String.contains?(text, "bola na âncora")) and
+          state.episode != nil ->
         {:noreply, key_frame(state, "bola", now())}
 
       true ->
         {:noreply, state}
     end
+  end
+
+  # A REVIVE THAT DID NOTHING (12:39:49 of 11/09: three of them, then the
+  # logout): the bag, the key or the pokémon — the frame is the only witness.
+  def handle_info({:game_log, _level, text}, state) do
+    if String.contains?(text, "revive pago e a barra"),
+      do: {:noreply, maybe_open(state, :revive_sem_efeito, nil, nil, now())},
+      else: {:noreply, state}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}

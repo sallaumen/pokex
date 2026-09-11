@@ -107,7 +107,10 @@ defmodule Pokex.Bots.BlackBoxTest do
     send(box, {:engine, picture(0), orders("hora da bola", %{phase: :capturing})})
     assert_receive {:catcher_log, :macro, "captura: 📼 caixa-preta gravando" <> _}, 1_000
 
-    Process.sleep(250)
+    # the clean-screen clock starts when the ball's tick is PROCESSED (after
+    # the frames are written), not when it was sent: drain first, then wait
+    :sys.get_state(box)
+    Process.sleep(300)
 
     send(
       box,
@@ -152,6 +155,39 @@ defmodule Pokex.Bots.BlackBoxTest do
     [dir] = File.ls!(incidents(tmp))
 
     assert Enum.any?(
+             File.ls!(Path.join(incidents(tmp), dir)),
+             &String.ends_with?(&1, "-bola.raw.z")
+           )
+  end
+
+  @tag :tmp_dir
+  test "a revive that did nothing opens it; the aim's closing count is not a ball", %{
+    tmp_dir: tmp
+  } do
+    box = start_box()
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "game",
+      {:game_log, :macro,
+       "🩸 revive pago e a barra do pokémon NÃO mexeu (52%) — ou a bag está sem revive"}
+    )
+
+    assert_receive {:catcher_log, :macro,
+                    "captura: 📼 caixa-preta gravando (revive_sem_efeito)" <> _},
+                   1_000
+
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "catcher",
+      {:catcher_log, :macro,
+       "captura: 🎯 hora da bola — corpo do shiny pela cor: 3 foto(s) — nenhum corpo"}
+    )
+
+    :sys.get_state(box)
+    [dir] = File.ls!(incidents(tmp))
+
+    refute Enum.any?(
              File.ls!(Path.join(incidents(tmp), dir)),
              &String.ends_with?(&1, "-bola.raw.z")
            )

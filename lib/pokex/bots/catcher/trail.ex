@@ -86,7 +86,10 @@ defmodule Pokex.Bots.Catcher.Trail do
       |> Enum.reduce({[], seen}, fn track, {done, left} ->
         case nearest(left, predict(track)) do
           {hostile, rest} -> {[hit(track, hostile, now) | done], rest}
-          nil -> {[miss(track, pet)], left}
+          # `| done`: this dropped every track already matched — in the field
+          # (12:39 of 11/09, eight bars) the hunted Shiny Golem was gone from the
+          # trail two seconds after the sighting, without a fall
+          nil -> {[miss(track, pet) | done], left}
         end
       end)
 

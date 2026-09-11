@@ -130,6 +130,57 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
              ShinyAim.judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile)
   end
 
+  # THE TALLY. A look that found nothing said nothing; the diary could not tell a
+  # corpse without the taught tone from a vetoed one or one under a live body.
+  @tag :tmp_dir
+  test "the tally says where every blob went: vetoed, under a body, oversized", %{tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
+    Pokex.SettingsStash.stash!(corpse_sprite_box_px: 24, corpse_match_min_similarity: 0.6)
+
+    recorte = %Frame{width: 24, height: 24, rgba: :binary.copy(<<40, 160, 60, 255>>, 24 * 24)}
+    {:ok, _n} = Pokex.Bots.Catcher.CorpseLibrary.add("Corpo rosa", recorte)
+    [%{"slug" => slug}] = Pokex.Bots.Catcher.CorpseLibrary.list()
+    :ok = Pokex.Bots.Catcher.CorpseLibrary.set_enabled(slug, false)
+
+    assert {[], %{above: 1, refused: 1, bodied: 0, oversized: 0, trigger: 50, biggest_px: px}} =
+             ShinyAim.judge_told(frame_com_corpo(), @region, rules(), [], crowd([]), @tile)
+
+    assert px >= 50
+
+    # the same blob with a live body on it, no veto
+    :ok = Pokex.Bots.Catcher.CorpseLibrary.set_enabled(slug, true)
+
+    assert {[], %{above: 1, refused: 0, bodied: 1}} =
+             ShinyAim.judge_told(
+               frame_com_corpo(),
+               @region,
+               rules(),
+               [],
+               crowd([{124, 124}]),
+               @tile
+             )
+
+    # the lava: bigger than a creature
+    assert {[_creature], %{above: 2, oversized: 1}} =
+             ShinyAim.judge_told(
+               frame(300, 300, {40, 40, 40}, [
+                 {{10, 10, 140, 140}, @verde},
+                 {{200, 200, 14, 14}, @verde}
+               ]),
+               @region,
+               rules(),
+               [],
+               crowd([]),
+               @tile
+             )
+
+    # no eye reading: blind, not empty
+    assert {[], %{blind: :no_crowd}} =
+             ShinyAim.judge_told(frame_com_corpo(), @region, rules(), [], nil, @tile)
+  end
+
   @tag :tmp_dir
   test "a corpse still switched ON does not veto anything", %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)

@@ -374,11 +374,22 @@ defmodule Pokex.Bots.Engine.Worker do
       # aiming at a shiny's corpse, and the brain holds the feet for it. Same
       # clock as the colour: a fact older than three scans is no capture.
       capturing?: capturing?(now),
+      # …AND WHETHER ANYONE IS THERE TO THROW: the Catcher says `armed?` on the
+      # same fact (pulsed every second). Without it a closing round holds no
+      # feet — which is what keeps the bench, that has no Catcher, honest.
+      catcher_armed?: catcher_armed?(now),
       prev: state.picture
     }
   end
 
   defp especial?(now), do: ShinyGuard.on_screen?(now)
+
+  defp catcher_armed?(now) do
+    case WorldState.get(:capture, ShinyGuard.fact_max_age_ms(), now) do
+      {:ok, %{armed?: true}} -> true
+      _stale_or_missing_or_halted -> false
+    end
+  end
 
   defp capturing?(now) do
     idade = ShinyGuard.fact_max_age_ms()

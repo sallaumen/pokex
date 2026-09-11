@@ -165,6 +165,10 @@ defmodule Pokex.Bots.Catcher.Worker do
        # separate timer from `timer` (the Logic's deadline wake) — they mean
        # different things and one must never cancel the other.
        sweep_timer: nil,
+       # the pulse that keeps `armed?` fresh on the `:capture` fact while armed
+       # (the brain reads it with a ~2 s ceiling, and between rounds nothing
+       # else would rewrite the fact)
+       pulse_timer: nil,
        sweep_queue: [],
        sweeps: 0,
        sweep_balls: 0,
@@ -191,17 +195,22 @@ defmodule Pokex.Bots.Catcher.Worker do
     }
 
     state = %{state | shiny_pending?: false}
-    state = state |> monitorar_combate() |> cancel_timer() |> arm_sweep()
+    state = state |> monitorar_combate() |> cancel_timer() |> arm_sweep() |> arm_pulse()
     announce_library()
     broadcast(state)
+    publish_capture(state)
     {:reply, :ok, state}
   end
 
-  def handle_call(:halt, _from, %{logic: nil} = state), do: {:reply, :ok, disarm_sweep(state)}
+  def handle_call(:halt, _from, %{logic: nil} = state),
+    do: {:reply, :ok, state |> disarm_sweep() |> disarm_pulse()}
 
   def handle_call(:halt, _from, state) do
     {logic, _} = Logic.stop(state.logic)
-    state = state |> Map.put(:logic, logic) |> disarm_sweep() |> close_aim()
+    state = state |> Map.put(:logic, logic) |> disarm_sweep() |> disarm_pulse() |> close_aim()
+    # `close_aim/1` only rewrites the fact when an aim was open: the brain must
+    # hear "nobody armed" either way
+    publish_capture(state)
     broadcast(state)
     {:reply, :ok, cancel_timer(state)}
   end
@@ -216,6 +225,9 @@ defmodule Pokex.Bots.Catcher.Worker do
     # settings screen has to apply to a bot already running, not at the next start
     state = state |> cancel_timer() |> arm_sweep()
     broadcast(state)
+    # `capture_enabled` may have flipped: the brain hears it on the next pulse
+    # at the latest, and now if it is already listening
+    publish_capture(state)
     {:reply, :ok, state}
   end
 
@@ -261,6 +273,17 @@ defmodule Pokex.Bots.Catcher.Worker do
     do: {:noreply, advance(state, scan_obs(state))}
 
   def handle_info(:wake, state), do: {:noreply, state}
+
+  def handle_info(:pulse, state) do
+    state = %{state | pulse_timer: nil}
+
+    if armed?(state) do
+      publish_capture(state)
+      {:noreply, arm_pulse(state)}
+    else
+      {:noreply, state}
+    end
+  end
 
   # A HORA DA BOLA, dita pelo cérebro. O `{:kill}` do Combat só sai quando a
   # LISTA DE BATALHA ZERA (`Combat.Logic`, o contador `counters.fights`), e no
@@ -866,11 +889,20 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp announce_cue(_sem_leitura), do: :ok
 
   defp scan_obs(state) do
-    if state.combat_engaged? or not standing?() or
+    if fight_on?(state) or not standing?() or
          not capture_allowed?(state) or Perception.mini_game_playing?(),
        do: nil,
        else: state.scanner |> safe_scan() |> narrate() |> with_pos() |> with_spots(state)
   end
+
+  # QUEM DIZ QUE A LUTA ACABOU É O CÉREBRO, na caçada. O estado do Combat não
+  # serve de portão ali: no Auto Combo ele continua "lutando" enquanto a lista
+  # tiver a linha do pokémon dele, e o cérebro — que desconta essa linha — já
+  # está em 0 inimigos (as 5 chamadas de 11/09 depois da meia-noite: cérebro em
+  # 0, Combat "lutando como Shiny Venusaur", varredura fechada). A lista zerada
+  # já é exigida por `standing?/0`; o Combat só manda na pesca e no modo Parado,
+  # onde não há cérebro.
+  defp fight_on?(state), do: Settings.get(:player_mode) == "still" and state.combat_engaged?
 
   # ONDE ELE ESTAVA quando esta foto foi tirada. O juiz da captura
   # (`Catcher.Logic.confirm/3`) pergunta se o corpo continua no mesmo ponto de
@@ -1149,10 +1181,31 @@ defmodule Pokex.Bots.Catcher.Worker do
       %{
         aiming?: state.aim != nil,
         pending: (state.logic && Logic.pending(state.logic)) || 0,
-        corpses: if(state.aim, do: MapSet.to_list(state.aim.said), else: [])
+        corpses: if(state.aim, do: MapSet.to_list(state.aim.said), else: []),
+        # SOMEONE IS HERE TO THROW: armed, with the capture switch on. The brain
+        # holds the feet when a round closes only for this — parar pra olhar
+        # sem ninguém pra jogar é só parar.
+        armed?: armed?(state)
       },
       now()
     )
+  end
+
+  defp armed?(state),
+    do: match?(%Logic{state: :armed}, state.logic) and Settings.get(:capture_enabled) == true
+
+  @pulse_ms 1_000
+
+  defp arm_pulse(state) do
+    state = disarm_pulse(state)
+    %{state | pulse_timer: Process.send_after(self(), :pulse, @pulse_ms)}
+  end
+
+  defp disarm_pulse(%{pulse_timer: nil} = state), do: state
+
+  defp disarm_pulse(%{pulse_timer: timer} = state) do
+    Process.cancel_timer(timer)
+    %{state | pulse_timer: nil}
   end
 
   defp schedule_aim(state) do
@@ -1280,7 +1333,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       reason = hunt_hold() ->
         reason
 
-      state.combat_engaged? ->
+      fight_on?(state) ->
         "esperando fim da luta"
 
       # The gate that stayed shut all day without saying its name (2026-07-30:

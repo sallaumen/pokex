@@ -995,6 +995,43 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
              "bicho vivo na tela — a bola espera a lista zerar"
   end
 
+  # O CÉREBRO DIZ QUE A LUTA ACABOU, NÃO O COMBAT. No Auto Combo o Combat fica
+  # "lutando" enquanto a lista tiver a linha do pokémon dele; o cérebro desconta
+  # essa linha e já está em 0. As 5 chamadas de 11/09 depois da meia-noite:
+  # cérebro em 0, Combat "lutando como Shiny Venusaur", varredura fechada.
+  @tag :tmp_dir
+  test "hunting, Combat still 'fighting' but the brain sees a clean screen: the ball goes out",
+       %{worker: worker} do
+    Settings.put(:player_mode, "hunt")
+    :ok = Worker.mode_changed(worker)
+    send(worker, {:combat, %{state: :fighting, counters: %{}, error: nil, locked_row: 0}})
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+
+    saw_standing(worker, [{130, 224}])
+    world!(worker, corpses_obs([{130, 224}]))
+
+    assert_receive {:performed, :high, acoes}, 1_000
+    assert {:move, {130, 224}} in acoes
+    refute Worker.status(worker).hold_reason == "esperando fim da luta"
+  end
+
+  # O CÉREBRO SÓ SEGURA OS PÉS PRA OLHAR SE HÁ ALGUÉM PRA JOGAR: o worker diz
+  # `armed?` no fato `:capture` ao armar, a cada segundo enquanto armado, e
+  # desdiz ao parar.
+  @tag :tmp_dir
+  test "an armed worker says so on the :capture fact, and stops saying it when halted", %{
+    worker: worker
+  } do
+    assert eventually(fn -> match?({:ok, %{armed?: true}}, capture_fact()) end, 1_000)
+
+    :ok = Worker.halt(worker)
+    assert eventually(fn -> match?({:ok, %{armed?: false}}, capture_fact()) end, 1_000)
+  end
+
+  defp capture_fact, do: WorldState.get(:capture, 5_000, System.monotonic_time(:millisecond))
+
   @tag :tmp_dir
   test "hunting with the road WALKING, nothing is thrown", %{worker: worker} do
     Settings.put(:player_mode, "hunt")

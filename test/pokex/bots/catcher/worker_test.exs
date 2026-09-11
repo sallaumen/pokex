@@ -961,6 +961,40 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:shiny_ball, %{point: {600, 250}, name: "Shiny Golem"}}, 1_000
   end
 
+  # 19:51:19 of 11/09: the corpse at 1268,768, the character standing beside
+  # it, and "a lógica recusou 1 âncora(s)" — the round's own scan had stamped
+  # its photo in the same millisecond, and the Logic's freshness gate ate the
+  # anchor. The anchor is always newer than any photo the Logic has seen.
+  @tag :tmp_dir
+  test "the anchor's ball survives a scan stamped in the same instant" do
+    ahead = fn ->
+      %{
+        scanning?: true,
+        corpses: [],
+        candidates: [],
+        known: %{},
+        region: {0, 0, 0, 0},
+        captured_at: System.monotonic_time(:millisecond) + 50
+      }
+    end
+
+    worker = start_hunt_worker(scanner: ahead)
+    me = {500, 350}
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+    seen = fn hostiles -> %{read?: true, me: me, hostiles: hostiles, pet: nil} end
+
+    send(worker, {:crowd, seen.([Map.merge(%{point: {600, 250}}, shiny)])})
+    for _ <- 1..3, do: send(worker, {:crowd, seen.([])})
+    assert_log_eventually("Shiny Golem caiu em 600,250")
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+    send(worker, {:capture_now})
+
+    assert_log_eventually("bola na âncora do Shiny Golem em 600,250")
+    assert_receive {:performed, :high, [{:move, {600, 250}} | _]}, 3_000
+  end
+
   @tag :tmp_dir
   test "walking, the fall says so and waits for the hora da bola" do
     worker = start_hunt_worker(scanner: fn -> nil end)

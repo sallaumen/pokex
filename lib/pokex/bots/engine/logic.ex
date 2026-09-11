@@ -478,9 +478,19 @@ defmodule Pokex.Bots.Engine.Logic do
   defp decide(t) do
     judged = audit_reset(t)
     closed? = round_closed?(t.logic, judged)
-    # a rodada fechou: a janela de olhar o chão abre AGORA, antes de a rota decidir
+    # a rodada fechou: a janela de olhar o chão abre AGORA, antes de a rota
+    # decidir — e o teto do segurar pra bola (`capture_hold_ms`) volta inteiro.
+    # O TETO É POR RODADA. Às 19:16:48 de 11/09 a sessão de mira, aberta 70 s
+    # por um avistamento, tinha queimado o teto numa rodada anterior, e na hora
+    # da bola de verdade a estrada andou ("nada aqui — seguindo a rota") com o
+    # corpo do shiny no chão.
     judged =
-      if closed?, do: %{judged | since: Map.put(judged.since, :capture_look, t.now)}, else: judged
+      if closed?,
+        do: %{
+          judged
+          | since: judged.since |> Map.put(:capture_look, t.now) |> Map.delete(:capture_hold)
+        },
+        else: judged
 
     t = %{t | logic: judged}
 
@@ -609,10 +619,38 @@ defmodule Pokex.Bots.Engine.Logic do
 
     if pending? and orders.revive == :hold and orders.phase in @held_by_reset and
          not heavy?(t) do
-      {logic, %{orders | phase: :resetting, route: :hold, fire: :hold, why: awaiting_why(t)}}
+      revive = if unanswered?(t), do: :now, else: :hold
+
+      {logic,
+       %{
+         orders
+         | phase: :resetting,
+           route: :hold,
+           fire: :hold,
+           revive: revive,
+           why: awaiting_why(t)
+       }}
     else
       {logic, orders}
     end
+  end
+
+  # A ORDEM É UM NÍVEL ATÉ ALGUÉM A TOMAR. O pedido saía por UM tique (200 ms)
+  # e o suporte a lê no tique DELE (120 ms, mais a foto da vida) — em
+  # 19:12:36 e 19:15:51 de 11/09 a ordem passou entre dois tiques do suporte,
+  # nenhum F4 saiu, e o cérebro ficou "revive pedido há Ns" esperando uma barra
+  # que ninguém tinha pedido, com o personagem dele em 14 %. O caixa do revive
+  # (`ReviveLedger.note/0`) diz quando a última prensa saiu, de qualquer mão:
+  # sem prensa desde o pedido, o pedido continua — por pouco, pra não virar uma
+  # tecla segurada num suporte que recusa.
+  @revive_reask_ms 1_500
+
+  defp unanswered?(t) do
+    asked_at = Map.get(t.logic.since, :reset_pending)
+    noted_at = Map.get(t.s, :rescue_noted_at)
+
+    is_integer(asked_at) and t.now - asked_at < @revive_reask_ms and
+      (noted_at == nil or noted_at < asked_at)
   end
 
   defp awaiting_why(t) do

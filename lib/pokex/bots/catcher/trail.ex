@@ -41,14 +41,17 @@ defmodule Pokex.Bots.Catcher.Trail do
   # A SHINY IS ALIVE WHILE ITS SPARKLE SHOWS. The game (11/09): the shiny falls
   # and becomes a body, and the star beside its name leaves only then. So a
   # hunted bar missing from the eye's read is a DEATH only once the guard's
-  # sparkle is gone — and stays gone: the guard blinks in the green-haze pile
-  # (18:34 of 11/09: sparkle gone at 30.4 s, seen again at 31.3 s), so a corpse
-  # waits a short grace after the sparkle's last sighting.
-  @shiny_grace_ms 1_200
+  # sparkle is gone. Under the chain's green haze the guard loses the star for
+  # seconds with the shiny alive (19:15:51-53 of 11/09: three scans without it,
+  # then back at the same spot), so mid-fight the corpse waits a long grace
+  # after the sparkle's last sighting — and when the battle list is EMPTY
+  # (`pile_dead?`, the brain's count) the wait is over: nothing alive is left
+  # to be hidden, the bar gone is the body.
+  @shiny_grace_ms 3_500
   # …and the body lies where the bar was JUST before the sparkle left. A hunted
   # bar lost far longer than this wandered off (or the guard hallucinated a
   # sparkle elsewhere): there is no body at that stale spot — drop it, no ball.
-  @corpse_fresh_ms 4_000
+  @corpse_fresh_ms 6_000
 
   defstruct tracks: %{}, next_id: 1, anchors: [], pos: nil, sparkle_at: nil
 
@@ -82,6 +85,8 @@ defmodule Pokex.Bots.Catcher.Trail do
   @doc """
   One look of the eye. Hostiles carrying `special?: true` (the guard's blob on
   their body, `CrowdScan.mark_special/3`) become — or stay — the hunted track.
+  `shiny_on?` says the guard still sees a sparkle (the shiny is alive);
+  `pile_dead?` says the battle list is empty (a hunted bar gone is a body now).
   An unread look changes nothing: blindness is not absence.
   """
   @spec observe(t, map, ref, integer) :: t
@@ -92,10 +97,12 @@ defmodule Pokex.Bots.Catcher.Trail do
     pet = pet_world(reading, ref)
 
     # the shiny is alive while its sparkle is on screen (the guard's fresh
-    # sparkle points, `shiny_on?`); a body appears only after it has left.
+    # sparkle points, `shiny_on?`); a body appears only after it has left —
+    # right away with the battle list empty, after the grace otherwise.
     sparkle_on? = Map.get(reading, :shiny_on?, false)
     sparkle_at = if sparkle_on?, do: now, else: trail.sparkle_at
-    shiny_alive? = sparkle_on? or (sparkle_at != nil and now - sparkle_at < @shiny_grace_ms)
+    sparkle_gone_long? = sparkle_at == nil or now - sparkle_at >= @shiny_grace_ms
+    may_fall? = not sparkle_on? and (Map.get(reading, :pile_dead?, false) or sparkle_gone_long?)
 
     {tracks, left} = match(Map.values(trail.tracks), seen, pet, now)
 
@@ -105,7 +112,7 @@ defmodule Pokex.Bots.Catcher.Trail do
       |> Enum.map(fn {hostile, id} -> birth(hostile, id, now) end)
 
     {fallen, alive} =
-      if shiny_alive?, do: {[], tracks}, else: Enum.split_with(tracks, &fallen?/1)
+      if may_fall?, do: Enum.split_with(tracks, &fallen?/1), else: {[], tracks}
 
     # only a bar seen just before the sparkle left is a body; a hunted bar lost
     # far longer wandered off — no corpse there, and no ball at the stale spot.

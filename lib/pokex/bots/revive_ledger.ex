@@ -69,6 +69,17 @@ defmodule Pokex.Bots.ReviveLedger do
     end
   end
 
+  @doc "When the last revive was dispatched, from either hand — monotonic ms, or `nil`."
+  @spec last_note_at() :: integer | nil
+  def last_note_at do
+    ensure_table()
+
+    case :ets.lookup(@table, :last_note_at) do
+      [{:last_note_at, at}] -> at
+      [] -> nil
+    end
+  end
+
   @doc """
   Stamps that a combo's F4 LEFT THE KEYBOARD just now: the end of the rescue, not its dispatch.
 

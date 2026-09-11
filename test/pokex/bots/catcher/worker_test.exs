@@ -937,6 +937,46 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_log_eventually("a âncora ficou pra próxima hora da bola")
   end
 
+  # THE BALL AT THE FALL. 19:16:48 of 11/09: the anchor was minted 3 ms after
+  # the round's hora da bola had already run, and the next one never came (he
+  # stopped at 19:16:52 with the corpse on the ground). The fall is the moment
+  # the body is known; with the feet still, the ball goes right then.
+  @tag :tmp_dir
+  test "with the feet still, the ball flies at the fall without waiting for the cue" do
+    worker = start_hunt_worker(scanner: fn -> nil end)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+    me = {500, 350}
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+    seen = fn hostiles -> %{read?: true, me: me, hostiles: hostiles, pet: nil} end
+
+    send(worker, {:crowd, seen.([Map.merge(%{point: {600, 250}}, shiny)])})
+    # the round closed: the brain holds the feet and the list is empty
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+    for _ <- 1..3, do: send(worker, {:crowd, seen.([])})
+
+    assert_log_eventually("Shiny Golem caiu em 600,250")
+    assert_log_eventually("bola na âncora do Shiny Golem em 600,250")
+    assert_receive {:performed, :high, [{:move, {600, 250}} | _]}, 3_000
+    assert_receive {:shiny_ball, %{point: {600, 250}, name: "Shiny Golem"}}, 1_000
+  end
+
+  @tag :tmp_dir
+  test "walking, the fall says so and waits for the hora da bola" do
+    worker = start_hunt_worker(scanner: fn -> nil end)
+    me = {500, 350}
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+    seen = fn hostiles -> %{read?: true, me: me, hostiles: hostiles, pet: nil} end
+
+    send(worker, {:crowd, seen.([Map.merge(%{point: {600, 250}}, shiny)])})
+    WorldState.put(:orders, %{route: :go}, System.monotonic_time(:millisecond))
+    for _ <- 1..3, do: send(worker, {:crowd, seen.([])})
+
+    assert_log_eventually("Shiny Golem caiu em 600,250")
+    assert_log_eventually("a âncora caiu com a estrada andando")
+    refute_receive {:performed, _p, _a}, 300
+  end
+
   @tag :tmp_dir
   test "at the capture cue with no colour rule armed, no colour session opens" do
     worker = start_hunt_worker(scanner: fn -> nil end)

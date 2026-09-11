@@ -19,7 +19,9 @@ defmodule Pokex.Bots.Catcher.TrailTest do
 
   defp look(trail, hostiles, now, opts \\ []) do
     reading =
-      Map.put(reading(hostiles, opts[:pet]), :shiny_on?, Keyword.get(opts, :sparkle, false))
+      reading(hostiles, opts[:pet])
+      |> Map.put(:shiny_on?, Keyword.get(opts, :sparkle, false))
+      |> Map.put(:pile_dead?, Keyword.get(opts, :pile, :alive) == :dead)
 
     Trail.observe(trail, reading, ref(opts[:pos] || {100, 100, 7}), now)
   end
@@ -196,15 +198,37 @@ defmodule Pokex.Bots.Catcher.TrailTest do
     assert Trail.anchors(trail, ref(), 2_000) == [], "no corpse while the sparkle shows"
     assert Trail.hunted(trail, ref())
 
-    # the sparkle leaves — it fell. Now the bar being gone IS a death, and the
-    # corpse lies where it last stood.
+    # the sparkle leaves and the battle list is EMPTY — it fell. Now the bar
+    # being gone IS a death, and the corpse lies where it last stood.
     trail =
       trail
-      |> look([], 2_250, sparkle: false)
-      |> look([], 2_500, sparkle: false)
-      |> look([], 3_400, sparkle: false)
+      |> look([], 2_250, sparkle: false, pile: :dead)
+      |> look([], 2_500, sparkle: false, pile: :dead)
+      |> look([], 2_750, sparkle: false, pile: :dead)
 
-    assert [%{name: "Shiny (brilho)", screen: anchor}] = Trail.anchors(trail, ref(), 3_400)
+    assert [%{name: "Shiny (brilho)", screen: anchor}] = Trail.anchors(trail, ref(), 2_750)
+    assert anchor == at(0, -2).point
+  end
+
+  # 19:15:51-53 of 11/09: the chain's green haze hid the star AND the bar for
+  # three scans with the shiny alive and the list at one enemy. Mid-fight the
+  # body waits a long grace after the sparkle's last sighting.
+  test "mid-fight, a sparkle lost under the haze is not a death until the grace runs out" do
+    shiny = %{special?: true, special_name: "Shiny (brilho)", special_px: 51}
+
+    trail =
+      Trail.new()
+      |> look([at(0, -2, shiny)], 0, sparkle: true)
+      |> look([], 250, sparkle: false)
+      |> look([], 500, sparkle: false)
+      |> look([], 2_000, sparkle: false)
+      |> look([], 3_000, sparkle: false)
+
+    assert Trail.anchors(trail, ref(), 3_000) == [], "the list still has enemies: no corpse yet"
+    assert Trail.hunted(trail, ref())
+
+    trail = look(trail, [], 3_600, sparkle: false)
+    assert [%{screen: anchor}] = Trail.anchors(trail, ref(), 3_600)
     assert anchor == at(0, -2).point
   end
 
@@ -215,14 +239,16 @@ defmodule Pokex.Bots.Catcher.TrailTest do
       Trail.new()
       |> look([at(0, -2, shiny)], 0, sparkle: true)
       # the bar is never seen again; the sparkle lingers seconds (the shiny
-      # wandered, or the guard blinked) then leaves. Its last bar spot is stale.
+      # wandered, or the guard blinked) then leaves with the list empty. Its
+      # last bar spot is stale: no body there.
       |> look([], 250, sparkle: true)
-      |> look([], 5_000, sparkle: true)
-      |> look([], 5_250, sparkle: false)
-      |> look([], 5_500, sparkle: false)
-      |> look([], 6_500, sparkle: false)
+      |> look([], 6_000, sparkle: true)
+      |> look([], 6_250, sparkle: false, pile: :dead)
+      |> look([], 6_500, sparkle: false, pile: :dead)
+      |> look([], 7_000, sparkle: false, pile: :dead)
 
-    assert Trail.anchors(trail, ref(), 6_500) == []
+    assert Trail.anchors(trail, ref(), 7_000) == []
+    refute Trail.hunted(trail, ref())
   end
 
   test "an ordinary creature that vanishes is simply forgotten" do

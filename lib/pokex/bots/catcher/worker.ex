@@ -1032,12 +1032,34 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp follow(state, reading) do
     ref = trail_ref(reading)
     seen = ShinyGuard.seen()
+
     # the sparkle still on screen means the shiny is ALIVE: the trail must not
-    # turn its bar, lost in the pile, into a corpse to ball (18:34 of 11/09).
-    marked = reading |> CrowdScan.mark_special(seen, ref.tile) |> Map.put(:shiny_on?, seen != [])
+    # turn its bar, lost in the pile, into a corpse to ball (18:34 of 11/09);
+    # the battle list empty means a hunted bar gone IS the body (19:16:48).
+    marked =
+      reading
+      |> CrowdScan.mark_special(seen, ref.tile)
+      |> Map.merge(%{shiny_on?: seen != [], pile_dead?: screen_clear?()})
+
     trail = Trail.observe(state.trail, marked, ref, now())
-    say_falls(state.trail, trail, ref)
-    %{state | trail: trail}
+    fell? = say_falls(state.trail, trail, ref)
+    state = %{state | trail: trail}
+    if fell?, do: ball_the_fall(state), else: state
+  end
+
+  # THE BALL AT THE FALL. 19:16:01 and 19:16:48 of 11/09: the corpse anchor was
+  # minted 0.5 s and 3 ms AFTER the round's hora da bola had already thrown at
+  # nothing, and the next hora da bola came at another pile — or never (he
+  # stopped at 19:16:52 with the body on the ground). The fall is the moment
+  # the body is known; with the feet still (the brain holds them while a ball
+  # is worked) the ball goes now. Walking, it waits for the cue.
+  defp ball_the_fall(state) do
+    if standing?() do
+      throw_at_anchors(state)
+    else
+      log(:macro, "🌟 a âncora caiu com a estrada andando — a bola fica pra hora da bola")
+      state
+    end
   end
 
   # MEIO TILE, DE PROPÓSITO. O vigia aponta o CENTRO DA ARTE (a barra mais meio
@@ -1070,14 +1092,21 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   # A queda tem voz: é a linha que ele procura no diário quando a bola não saiu.
+  # Devolve se alguma barra caiu NESTA olhada.
   defp say_falls(before, after_look, ref) do
     at = now()
     known = Enum.map(Trail.anchors(before, ref, at), & &1.world)
 
-    for %{world: world, name: name, screen: {x, y}} <- Trail.anchors(after_look, ref, at),
-        world not in known do
+    fresh =
+      for %{world: world} = anchor <- Trail.anchors(after_look, ref, at),
+          world not in known,
+          do: anchor
+
+    for %{name: name, screen: {x, y}} <- fresh do
       log(:macro, "🎯 #{name} caiu em #{x},#{y} — a barra sumiu; a bola vai lá na hora da bola")
     end
+
+    fresh != []
   end
 
   # A BOLA NA ÂNCORA. Dentro da tela e fresca (o TTL é do `Trail`); a leitura

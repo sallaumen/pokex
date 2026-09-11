@@ -785,6 +785,31 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert ordens.fire == :free
     end
 
+    # 19:15:51 e 19:12:36 de 11/09: o cérebro pediu o revive por UM tique e o
+    # suporte, que lê a ordem no tique dele (120 ms, mais a foto), não a viu —
+    # e o cérebro ficou "revive pedido há Ns" esperando um F4 que nunca saiu,
+    # com o personagem dele a 14 %. A ordem é um NÍVEL até alguém a tomar.
+    test "the revive order stays :now until the support notes the dispatch" do
+      logic = pedido(sem_controle(%{own_hp: 100}))
+      espera = sem_controle(%{own_hp: 100, spent?: true, bar_seen?: true})
+
+      {logic, again} = reset_step(logic, espera, 10_700)
+      assert again.revive == :now
+      assert again.phase == :resetting
+      assert again.route == :hold
+
+      taken = sem_controle(%{own_hp: 100, spent?: true, bar_seen?: true, rescue_noted_at: 10_800})
+      {logic, held} = reset_step(logic, taken, 10_900)
+      assert held.revive == :hold
+      assert held.phase == :resetting
+
+      # …and never forever: past the window an untaken order is the promise's
+      # problem, not a key held down against a support that refuses
+      {_logic, gave_up} = reset_step(logic, espera, 10_500 + 1_600)
+      assert gave_up.revive == :hold
+      assert gave_up.phase == :resetting
+    end
+
     # A REGRA DELE, como regra: "logo depois do combo estar finalizado, usar o
     # revive". O caso exato de 09:14:16 de 02/09 — a corrente matou o grupo, a
     # caçada já estava JUNTANDO o próximo, e nenhuma regra de revive era
@@ -3595,6 +3620,26 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "red never holds for a ball" do
       {_logic, red} = capture_step(Logic.new(), walking(%{own_hp: 10}), 10_000)
       refute red.phase == :capturing
+    end
+
+    # 19:16:48 de 11/09: a sessão de mira aberta 70 s por um avistamento
+    # queimou o teto do segurar numa rodada anterior, e na hora da bola de
+    # verdade a estrada andou ("nada aqui — seguindo a rota") com o corpo do
+    # shiny no chão. O teto é POR RODADA: fechar a rodada devolve o orçamento.
+    test "a round closing renews the hold's budget" do
+      {logic, _held} = capture_step(Logic.new(), walking(), 10_000)
+      {logic, free} = capture_step(logic, walking(), 16_500)
+      assert free.route == :go
+
+      # a revive promise opened earlier and, with the bar back whole, closes
+      # on this tick: that is the round closing
+      logic = %{logic | since: Map.put(logic.since, :reset_pending, 20_000)}
+      {logic, renewed} = capture_step(logic, walking(), 20_100)
+
+      refute Map.has_key?(logic.since, :reset_pending)
+      assert renewed.route == :hold
+      assert renewed.phase == :capturing
+      assert renewed.why =~ "(0s)"
     end
 
     test "a fight order is not touched: the overlay only stands a walk" do

@@ -284,6 +284,31 @@ defmodule Pokex.Sim.VerdictTest do
       assert quebrou.porque =~ "um ciclo do combo se perdeu"
     end
 
+    # The same ruler, counted from the fight opening: the special gathers first
+    # (11/09), so the stretch it spends biting while the pile closes is his call.
+    test "stun_na_luta judges only the stretch awake with the fight open" do
+      base = %{bosses_born: 3, boss_awake_max_ms: 9_000, boss_awake_in_fight_max_ms: 2_400}
+      [ok] = Verdict.judge(report(%{metrics: base}), [:stun_na_luta])
+      assert ok.cumpriu?, "nine seconds awake BEFORE the fight opened are not a lost cycle"
+
+      [quebrou] =
+        Verdict.judge(
+          report(%{metrics: %{base | boss_awake_in_fight_max_ms: 3_400}}),
+          [:stun_na_luta]
+        )
+
+      refute quebrou.cumpriu?
+      assert quebrou.porque =~ "com a luta aberta"
+
+      [vazio] =
+        Verdict.judge(
+          report(%{metrics: %{bosses_born: 0, boss_awake_in_fight_max_ms: 0}}),
+          [:stun_na_luta]
+        )
+
+      refute vazio.cumpriu?
+    end
+
     test "aguenta: metade da vida é o corte entre janela e espiral" do
       [ok] = Verdict.judge(report(%{metrics: %{min_hp: 70}}), [:aguenta])
       assert ok.cumpriu?

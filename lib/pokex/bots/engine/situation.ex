@@ -87,6 +87,10 @@ defmodule Pokex.Bots.Engine.Situation do
           own_row_seen?: boolean | :unnamed | :by_hp | nil,
           worth_fighting?: boolean,
           heavy?: boolean,
+          # the named or measured boss: the one that skips the gathering queue
+          boss?: boolean,
+          # the shiny seen by colour: boss posture in the fight, but it gathers first
+          special?: boolean,
           # the Catcher is aiming at a shiny's corpse (the `:capture` fact): the
           # brain holds the feet for it, for a while
           capturing?: boolean,
@@ -148,17 +152,24 @@ defmodule Pokex.Bots.Engine.Situation do
       grit(battle.enemies, Map.get(inputs, :ready_keys), Map.get(inputs, :damage_keys, []), prev)
 
     latch? = latch?(battle.enemies, grit, prev, config)
+    # O CHEFE, por NOME: alguma linha inimiga da janela bate com a lista
+    # `boss_names` do /config. É o gatilho da postura de chefe do cérebro —
+    # e passa por cima da régua, porque um chefe sozinho vale a luta que
+    # cinco bichos comuns valem. O latch (grit) é o mesmo chefe, medido.
+    boss? = heavy?(battle.named, config) or latch?
 
     %{
       rows: battle.rows,
       enemies: battle.enemies,
       named: battle.named,
       own_row_seen?: battle.own_row_seen?,
-      # O CHEFE, por NOME: alguma linha inimiga da janela bate com a lista
-      # `boss_names` do /config. É o gatilho da postura de chefe do cérebro —
-      # e passa por cima da régua, porque um chefe sozinho vale a luta que
-      # cinco bichos comuns valem.
-      heavy?: heavy?(battle.named, config) or latch? or especial?(inputs),
+      # A POSTURA DE CHEFE (stun a cada emenda, revive dentro do sono, sem
+      # recuar) vale pro chefe E pro especial; FURAR A FILA da juntada é só do
+      # chefe (`boss?`). "Postura no shiny é juntar primeiro!" (11/09): o
+      # especial visto com 3 na tela abria fogo andando, sem esperar a pilha.
+      heavy?: boss? or especial?(inputs),
+      boss?: boss?,
+      special?: especial?(inputs),
       # O CHEFE, pelo TEMPO DE MATAR: skills de dano ENTREGUES (saíram da barra)
       # sem NENHUM corpo cair da pilha. Nome nenhum — "ele tem o mesmo nome que
       # os outros pokémons" (31/08). Medido na noite fraca de 31/08 (3h42): o
@@ -404,10 +415,12 @@ defmodule Pokex.Bots.Engine.Situation do
   # os dois chegam tarde. A cor chega na hora — é a regra que ele ensinou e
   # PROVOU na calibração, vista pelo `ShinyGuard`.
   #
-  # E ela liga a postura INTEIRA porque o bicho é um só: "o shiny É o chefe"
+  # E ela liga a postura de luta porque o bicho é um só: "o shiny É o chefe"
   # (01/09). Vale a luta fora da régua, não se kita (a R7 já se cala com
   # `heavy?`), e o combo skills → stun → revive é exatamente o que ele descreve
   # pra esse monstro. A bola garantida vem do Catcher, pelo mesmo avistamento.
+  # O que ela NÃO faz é furar a fila da juntada: "Postura no shiny é juntar
+  # primeiro!" (11/09, depois de ver o combo sair andando com 3 na tela).
   defp especial?(inputs), do: Map.get(inputs, :especial?) == true
 
   defp boss_names(nil), do: []

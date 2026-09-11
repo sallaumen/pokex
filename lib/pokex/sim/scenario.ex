@@ -574,7 +574,11 @@ defmodule Pokex.Sim.Scenario do
         group: :chefe,
         icon: "✨✨",
         aperto: :aperto,
-        espera: [:nao_cai, :stun_sempre, :mata],
+        # `stun_na_luta`, não `stun_sempre`: desde 11/09 o shiny junta primeiro
+        # ("Postura no shiny é juntar primeiro!"), e o trecho em que ele chega
+        # mordendo enquanto a pilha fecha é decisão dele. Medido ao trocar: pior
+        # vida 38-77% → 10-59%, acordado até 7 s antes da luta abrir, sem queda.
+        espera: [:nao_cai, :stun_na_luta, :mata],
         name: "Shinies empilhados (mais de um por grupo)",
         why:
           "\"Às vezes tem até mais do que 1 por grupo\" (01/09). O caso que quebrou a " <>

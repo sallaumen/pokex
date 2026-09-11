@@ -463,7 +463,9 @@ defmodule Pokex.Bots.Engine.SituationTest do
   end
 
   describe "o especial (shiny) pela cor" do
-    test "a cor vista liga heavy? e fura a régua sozinha" do
+    # "Postura no shiny é juntar primeiro!" (11/09): a cor liga a postura de
+    # luta (heavy?, worth_fighting?) mas NÃO a fila furada do chefe (boss?).
+    test "the colour seen turns heavy? on and is worth the fight, but does not cut the gathering queue" do
       picture =
         Situation.build(
           inputs(%{battle: battle(~w(Electrode)), own_out?: true, especial?: true}),
@@ -471,8 +473,23 @@ defmodule Pokex.Bots.Engine.SituationTest do
           1_000
         )
 
-      assert picture.heavy? == true, "o shiny É o chefe: postura inteira"
+      assert picture.heavy? == true, "o shiny É o chefe na luta: postura de chefe"
       assert picture.worth_fighting? == true, "um shiny sozinho vale a luta"
+      assert picture.special? == true
+      assert picture.boss? == false, "o especial junta primeiro; só o chefe fura a fila"
+    end
+
+    test "the boss by name cuts the queue (boss?) and is heavy? too" do
+      picture =
+        Situation.build(
+          inputs(%{battle: battle(~w(Electrode)), own_out?: true}),
+          %{engage_from: 3, boss_names: ["electrode"]},
+          1_000
+        )
+
+      assert picture.boss? == true
+      assert picture.heavy? == true
+      assert picture.special? == false
     end
 
     test "sem a cor, um bicho abaixo da régua segue sendo bicho" do

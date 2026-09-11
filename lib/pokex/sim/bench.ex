@@ -258,6 +258,8 @@ defmodule Pokex.Sim.Bench do
       bosses_born: 0,
       bosses_dead: 0,
       boss_awake_max_ms: 0,
+      boss_awake_in_fight_ms: 0,
+      boss_awake_in_fight_max_ms: 0,
       player_hp: 100,
       # POR ONDE ELE ANDOU — a pergunta que nenhuma métrica daqui respondia, e
       # a única que enxerga a queixa dele de 29/08: "ele vai para locais onde
@@ -334,11 +336,23 @@ defmodule Pokex.Sim.Bench do
   # how much of the run each band held, and what the CHARACTER paid — the bites
   # that land on him are the whole price of a pokemon off the field.
   defp tally_risk(metrics, world, orders, picture) do
+    # O CHEFE ACORDADO COM A LUTA ABERTA. O mundo mede o trecho acordado
+    # inteiro (`boss_awake_max_ms`, a régua do `stun_sempre`); este é o mesmo
+    # trecho contado só enquanto o cérebro está em luta (`engaged`/`resetting`),
+    # porque desde 11/09 o especial JUNTA PRIMEIRO — o tempo em que ele chega
+    # mordendo enquanto a pilha fecha é decisão dele, não um ciclo perdido.
+    in_fight =
+      if orders.phase in [:engaged, :resetting] and world.boss_awake_streak_ms > 0,
+        do: metrics.boss_awake_in_fight_ms + @tick_ms,
+        else: 0
+
     %{
       metrics
       | by_band: Map.update(metrics.by_band, orders.band, @tick_ms, &(&1 + @tick_ms)),
         min_hp: lowest(metrics.min_hp, picture.own_hp),
-        player_hp: min(metrics.player_hp, world.player.hp_pct)
+        player_hp: min(metrics.player_hp, world.player.hp_pct),
+        boss_awake_in_fight_ms: in_fight,
+        boss_awake_in_fight_max_ms: max(metrics.boss_awake_in_fight_max_ms, in_fight)
     }
   end
 

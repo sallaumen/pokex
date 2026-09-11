@@ -36,13 +36,18 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
+  alias Pokex.Vision.ColorRules
 
   @topic "catcher"
 
   # Quanto tempo o lugar onde um bicho estava de pé continua valendo como lugar
-  # de corpo. A rodada leva da corrente ao revive e à hora da bola uns 4-8 s; 20 s
-  # cobre isso sem deixar o chão da pilha anterior valer pra próxima.
-  @standing_memory_ms 20_000
+  # de corpo. Eram 20 s, e a rodada é mais longa que isso: em 11/09 o Shiny
+  # Golem morreu às 08:30:47 e a chamada que achou o corpo dele veio às
+  # 08:32:51 — "nenhuma onde o olho viu um bicho de pé", porque a memória já
+  # tinha esquecido a pilha. O lugar só deixa de valer quando ELE anda (a
+  # memória guarda a posição do minimapa e só serve pontos vistos da mesma);
+  # o tempo aqui é só pra não carregar o chão de uma caverna inteira.
+  @standing_memory_ms 120_000
   @kill_topic "combat:kill"
 
   # After a kill whose scan found nothing, re-look at these delays. Not a knob:
@@ -50,6 +55,11 @@ defmodule Pokex.Bots.Catcher.Worker do
   # frame is usually dirty (death animation, the loot, the own pokémon walking
   # over it). Three chances in 2s suffice; more is capture burned for nothing.
   @repiques [400, 1_000, 2_000]
+  # a mira por cor aberta pela hora da bola: pelo menos as duas fotos que
+  # confirmam um corpo (mais uma), e uma vida curta — se não há corpo de shiny,
+  # a rota não pode ficar presa numa sessão de 90 s
+  @cue_aim_looks 3
+  @cue_aim_ttl_ms 6_000
 
   @config_keys [
     :corpse_match_tolerance_px,
@@ -295,7 +305,8 @@ defmodule Pokex.Bots.Catcher.Worker do
   def handle_info({:capture_now}, %{logic: %Logic{state: :armed}} = state) do
     obs = scan_obs(state)
     announce_cue(obs)
-    {:noreply, advance(%{state | repiques: @repiques}, obs)}
+    state = advance(%{state | repiques: @repiques}, obs)
+    {:noreply, aim_by_colour_at_cue(state)}
   end
 
   # kill = accelerator (both shapes: Task 5 drops the payload; tolerate the old one meanwhile).
@@ -371,19 +382,20 @@ defmodule Pokex.Bots.Catcher.Worker do
   # One look per tick: candidates confirmed by the previous look become the
   # Logic's corpses. The session closes when the ball's story ends (nothing
   # pending and the shiny no longer waiting), or when the corpse never shows.
-  def handle_info(:aim, %{aim: %{since: since}} = state) do
-    ttl = aim_ttl_ms()
+  def handle_info(:aim, %{aim: %{since: since} = aim} = state) do
+    ttl = Map.get(aim, :ttl) || aim_ttl_ms()
 
     cond do
       not match?(%Logic{state: :armed}, state.logic) ->
         {:noreply, close_aim(state)}
 
       now() - since >= ttl ->
-        log(:macro, "🌟 shiny visto, corpo não achado em #{div(ttl, 1000)}s — bola guardada")
+        log(:macro, aim_expired_msg(aim, ttl))
         {:noreply, close_aim(state)}
 
       true ->
         {state, obs} = aim_look(state)
+        state = %{state | aim: %{state.aim | looks: Map.get(state.aim, :looks, 0) + 1}}
         state = advance(state, obs)
 
         if aim_done?(state) do
@@ -1149,12 +1161,47 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # -- a mira do shiny ---------------------------------------------------------
 
-  defp open_aim(state) do
-    log(:macro, "🌟 shiny visto — procurando o corpo pela cor")
-    state = schedule_aim(%{state | aim: %{since: now(), prev: [], said: MapSet.new()}})
+  defp open_aim(state, kind \\ :sighting) do
+    log(:macro, aim_opened_msg(kind))
+
+    aim = %{
+      since: now(),
+      prev: [],
+      said: MapSet.new(),
+      kind: kind,
+      looks: 0,
+      ttl: if(kind == :cue, do: @cue_aim_ttl_ms, else: aim_ttl_ms())
+    }
+
+    state = schedule_aim(%{state | aim: aim})
     broadcast(state)
     state
   end
+
+  # A RODADA FECHOU: O CORPO DO SHINY É PROCURADO PELA COR TAMBÉM. A mira por
+  # cor só abria com o vigia vendo o shiny VIVO — e em 11/09 ele não viu (tom
+  # apertado demais na sprite de pé, pilha de nove), mas viu o corpo: "Shiny
+  # Golem: 1 mancha da cor sem bicho embaixo — cenário, ou corpo no chão (o
+  # corpo é assunto da bola, não do vigia)". A bola nunca foi pedida. Agora a
+  # hora da bola abre a mira sozinha, com regra armada; a sessão vive o bastante
+  # pras duas fotos que confirmam um corpo, e morre cedo se não há nada.
+  defp aim_by_colour_at_cue(%{aim: nil} = state) do
+    case ColorRules.armed() do
+      [] -> state
+      _regras -> open_aim(state, :cue)
+    end
+  end
+
+  defp aim_by_colour_at_cue(state), do: state
+
+  defp aim_opened_msg(:cue), do: "🎯 hora da bola — procurando corpo de shiny pela cor"
+  defp aim_opened_msg(_sighting), do: "🌟 shiny visto — procurando o corpo pela cor"
+
+  defp aim_expired_msg(%{kind: :cue}, ttl),
+    do: "🎯 hora da bola — nenhum corpo de shiny pela cor em #{div(ttl, 1000)}s"
+
+  defp aim_expired_msg(_sighting, ttl),
+    do: "🌟 shiny visto, corpo não achado em #{div(ttl, 1000)}s — bola guardada"
 
   defp close_aim(%{aim: nil} = state), do: state
 
@@ -1216,8 +1263,12 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # The story of the ball ended: no shiny waiting for one, nothing queued or in
   # flight. A throw keeps the session alive for its own confirmation scans.
-  defp aim_done?(state),
-    do: not state.shiny_pending? and Logic.pending(state.logic) == 0
+  # …e uma sessão aberta pela hora da bola precisa de pelo menos as duas fotos
+  # que confirmam um corpo (`ShinyAim.steady/3`) antes de dizer que não há nada.
+  defp aim_done?(state) do
+    not state.shiny_pending? and Logic.pending(state.logic) == 0 and
+      Map.get(state.aim, :looks, 0) >= @cue_aim_looks
+  end
 
   # Seen by the guard, corpse not yet found: the TTL is the corpse's own life
   # on the ground (minutes) cut short — waiting longer would be waiting for

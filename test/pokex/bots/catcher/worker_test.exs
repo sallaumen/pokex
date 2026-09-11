@@ -796,7 +796,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   defp stage_aim(points),
     do: WorldState.put(:shiny_aim, aim_obs(points), System.monotonic_time(:millisecond))
 
-  defp start_hunt_worker do
+  defp start_hunt_worker(extra \\ []) do
     Settings.put(:player_mode, "hunt")
     SettingsStash.stash!(special_color_scan_ms: 50)
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
@@ -810,9 +810,60 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       end
     end
 
-    worker = start_supervised!({Worker, name: nil, body: body, aimer: aimer}, id: :hunt_worker)
+    worker =
+      start_supervised!(
+        {Worker, [name: nil, body: body, aimer: aimer] ++ extra},
+        id: :hunt_worker
+      )
+
     :ok = Worker.run(worker)
     worker
+  end
+
+  # A RODADA FECHOU: O CORPO DO SHINY É PROCURADO PELA COR TAMBÉM. Em 11/09 o
+  # vigia não viu o Shiny Golem de pé (pilha de nove, tom apertado) mas viu o
+  # corpo — "1 mancha da cor sem bicho embaixo" — e ninguém pediu a bola.
+  @tag :tmp_dir
+  test "at the capture cue, an armed colour rule looks for the shiny's corpse by colour" do
+    worker = start_hunt_worker(scanner: fn -> nil end)
+    arm_colour_rule("Shiny Golem")
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+    stage_aim([{116, 116}])
+
+    send(worker, {:capture_now})
+
+    assert_log_eventually("procurando corpo de shiny pela cor")
+    assert_receive {:performed, :high, [{:move, {116, 116}} | _]}, 3_000
+    assert_log_eventually("🌟 bola em 116,116")
+  end
+
+  @tag :tmp_dir
+  test "at the capture cue with no colour rule armed, no colour session opens" do
+    worker = start_hunt_worker(scanner: fn -> nil end)
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+    stage_aim([{116, 116}])
+
+    send(worker, {:capture_now})
+
+    refute_receive {:performed, _p, _a}, 500
+    refute Worker.status(worker).hold_reason == "mirando o corpo do shiny pela cor"
+  end
+
+  defp arm_colour_rule(name) do
+    :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
+
+    {:ok, %{"slug" => slug}} =
+      Pokex.Vision.ColorRules.add(%{
+        "name" => name,
+        "colors" => [%{"rgb" => [18, 13, 19], "tol" => 2}],
+        "min_px" => 120
+      })
+
+    :ok = Pokex.Vision.ColorRules.mark_proven(slug, 4)
   end
 
   @tag :tmp_dir

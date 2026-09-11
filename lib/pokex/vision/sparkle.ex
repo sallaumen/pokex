@@ -11,12 +11,19 @@ defmodule Pokex.Vision.Sparkle do
   per species and nothing the cave's light can change.
 
   Measured on his video of 11/09 (Shiny Feraligatr, H.264, tile 151): a
-  4-point star of 11×13 px with a small one beside it, both a strong yellow
-  (r 228-252, g 196-224, b 44-96) with NO black outline — the letters of the
-  name next to it are outlined, and the desert's sand, the loudest yellow of
-  that map (r 216-243, g 180-214), keeps its blue channel above 110. The star
-  stands 45-60 px left of the bar's centre and 0-16 px above it for a name the
-  length of "Feraligatr"; a shorter name brings it closer.
+  4-point star of 11×13 px (38-63 px, 7×10 at its smallest) with a small one
+  beside it, both a strong yellow (r 228-252, g 196-224, b 44-96) with NO
+  black outline — the letters of the name next to it are outlined, and the
+  desert's sand, the loudest yellow of that map (r 216-243, g 180-214), keeps
+  its blue channel above 110. The star stands 45-60 px left of the bar's
+  centre and 0-16 px above it for a name the length of "Feraligatr"; a
+  shorter name brings it closer.
+
+  And measured on the guard's own raw photos of the first hunt (17:01 of
+  11/09, the false sightings): the sand puts SPECKS beside names — nine in
+  twelve photos, 4×4 to 5×5 px, (216-248, 184-192, 88-104) — so the yellow
+  asks for green ≥ 192 and blue ≤ 100, and a star is at least 30 px on a
+  6 px side. Every speck sat below both.
 
   Pure: the frame and the eye's marks in, the sparkles and the bar each one
   belongs to out, all in FRAME pixels.
@@ -33,13 +40,13 @@ defmodule Pokex.Vision.Sparkle do
 
   # the yellow of the glyph, with room for the capture path
   @r_min 220
-  @g_min 185
-  @b_max 110
+  @g_min 192
+  @b_max 100
   @r_minus_b_min 120
   # the glyph's size in POINTS (scaled by the frame's own scale)
-  @side_min 3
+  @side_min 6
   @side_max 20
-  @px_min 6
+  @px_min 30
   @fill_min 0.28
   # ink: the font's outline, or a black floor
   @ink_max 60

@@ -184,4 +184,50 @@ defmodule Pokex.Bots.LogoutTest do
     assert_receive {:rule_alarm, :logout, text}, 1_000
     assert text =~ "sem_testemunha"
   end
+
+  # The witness on Poké Alliance is the character's own health bar, captured
+  # now — the `:hud` feed it replaced never captured again after 24/08, and
+  # every logout since was reported as failed while the character was out.
+  describe "read_witness/2" do
+    alias Pokex.Calibration
+    alias Pokex.Vision.Frame
+
+    defp bar(pixels) do
+      w = length(hd(pixels))
+      rgba = for row <- pixels, {r, g, b} <- row, into: <<>>, do: <<r, g, b, 255>>
+      %Frame{width: w, height: length(pixels), rgba: rgba, scale: 1.0}
+    end
+
+    defp rows(w, h, colour), do: List.duplicate(List.duplicate(colour, w), h)
+
+    @red {211, 52, 53}
+    @white {240, 240, 240}
+    @dark {26, 26, 26}
+    @calib {:ok, %Calibration{player_hp_region: {85, 61, 99, 12}}}
+
+    test "the character's bar on screen is a witness" do
+      capture = fn {85, 61, 99, 12}, "logout_witness.raw" ->
+        {:ok, bar(rows(40, 8, @red) ++ rows(40, 2, @white))}
+      end
+
+      assert Logout.read_witness(capture, @calib) == :present
+    end
+
+    test "the corner without a bar is the character out of the world" do
+      capture = fn _region, _name -> {:ok, bar(rows(40, 10, @dark))} end
+      assert Logout.read_witness(capture, @calib) == :gone
+    end
+
+    test "no capture, no region, no calibration: unreadable, never gone" do
+      failing = fn _region, _name -> {:error, :capture_failed} end
+      assert Logout.read_witness(failing, @calib) == :unreadable
+
+      fine = fn _region, _name -> {:ok, bar(rows(40, 10, @dark))} end
+      assert Logout.read_witness(fine, {:ok, %Calibration{player_hp_region: nil}}) == :unreadable
+      assert Logout.read_witness(fine, {:error, :enoent}) == :unreadable
+
+      raising = fn _region, _name -> raise "helper down" end
+      assert Logout.read_witness(raising, @calib) == :unreadable
+    end
+  end
 end

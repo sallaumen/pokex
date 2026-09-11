@@ -18,29 +18,30 @@ defmodule Pokex.Bots.Logout do
   logged out while stamina burns all night. The screen is the only honest
   witness.
 
-  The reading comes from the `:hud` WorldState fact: logged out = level, food
-  AND fishing stop yielding numbers at the same time. A STALE fact returns
-  `:unreadable`, never `:gone` — reading `World.snapshot()` would be wrong
-  here, since it returns nil in all three fields both for "empty screen" and
-  for "the feed stopped", and that confusion would invent a logout.
+  The witness is the CHARACTER's own health bar (`player_hp_region` of the
+  calibration), read straight off the screen: in the world it is a bar, on the
+  character-select screen the same pixels are whatever the client draws there.
+  It used to be the `:hud` WorldState fact (level, food and fishing numbers of
+  the bottom bar) — a PXG region. On Poké Alliance that feed never captured
+  again after 24/08, so every logout since read `:unreadable` and ended as
+  "logout FALHOU (ilegivel)" — six of six in the diary of 10-11/09, with the
+  character actually out of the game each time (he watched the one of 12:40 of
+  11/09). Read directly, never through a feed: the bots and their feeds'
+  consumers are already stopped when this runs.
 
   When the character-select screen becomes a calibrated region, `read_fun`
-  switches from a NEGATIVE check ("the HUD vanished") to a POSITIVE one ("I see
+  switches from a NEGATIVE check ("the bar vanished") to a POSITIVE one ("I see
   the character list"). The `:gone | :present | :unreadable` contract stays.
   """
   use GenServer
   require Logger
 
-  alias Pokex.Bots.{Body, BotSupervisor, Focus, InputGate}
+  alias Pokex.Bots.{Body, BotSupervisor, Capture, Focus, InputGate}
   alias Pokex.Bots.Logout.Logic
-  alias Pokex.Perception
-  alias Pokex.Perception.WorldState
-  alias Pokex.Settings
+  alias Pokex.{Calibration, Settings, Vision}
 
   @topic "logout"
   @combat_topic "combat"
-  # The :hud feed publishes every 250-500ms; two seconds means "stopped arriving".
-  @hud_max_age_ms 2_000
   # Gap between reads AFTER the first (the first waits logout_verify_delay_ms,
   # the screen-switch time).
   @read_gap_ms 400
@@ -67,7 +68,7 @@ defmodule Pokex.Bots.Logout do
       perform_fun: Keyword.get(opts, :perform_fun, &Body.perform(&1, &2)),
       stop_fun: Keyword.get(opts, :stop_fun, fn -> BotSupervisor.stop_all("deslogando") end),
       front_fun: Keyword.get(opts, :front_fun, &Focus.ensure_front/0),
-      read_fun: Keyword.get(opts, :read_fun, &__MODULE__.read_hud/0),
+      read_fun: Keyword.get(opts, :read_fun, &__MODULE__.read_witness/0),
       # Override attempt count and read cadence. Test-only: without them a
       # failure case would wait three ~3s cycles. Deliberately NOT panel
       # settings — there is nothing for the user to decide here.
@@ -96,15 +97,35 @@ defmodule Pokex.Bots.Logout do
   @spec status(GenServer.server()) :: map()
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
-  @doc false
-  # Default screen reading. Public to serve as the default `read_fun`.
-  @spec read_hud() :: Logic.reading()
-  def read_hud do
-    case WorldState.get(:hud, @hud_max_age_ms, System.monotonic_time(:millisecond)) do
-      {:ok, %{level: nil, food: nil, fishing: nil}} -> :gone
-      {:ok, _algum_numero} -> :present
-      _no_fresh_fact -> :unreadable
+  @doc """
+  The default screen reading: the character's own health bar, captured now.
+
+  `:present` — a plausible bar (the same judge the support uses on it every
+  tick); `:gone` — a frame that is not a bar (the character-select screen, or a
+  window over the corner); `:unreadable` — no calibrated region, or the capture
+  itself failed. Injectable for tests; the app passes nothing.
+  """
+  @spec read_witness(({integer, integer, integer, integer}, String.t() -> term), term) ::
+          Logic.reading()
+  def read_witness(capture \\ &Capture.frame/2, calib \\ Calibration.load()) do
+    with {:ok, %Calibration{player_hp_region: {_, _, _, _} = region}} <- calib,
+         {:ok, %Vision.Frame{} = frame} <- capture.(region, "logout_witness.raw") do
+      if Vision.hp_region_plausible?(frame, hp_opts()), do: :present, else: :gone
+    else
+      _no_region_or_no_frame -> :unreadable
     end
+  catch
+    _kind, _reason -> :unreadable
+  end
+
+  defp hp_opts do
+    [
+      min_brightness: Settings.get(:pokemon_hp_min_brightness),
+      min_saturation: Settings.get(:pokemon_hp_min_saturation),
+      min_known_pct: Settings.get(:pokemon_hp_min_known_pct),
+      min_bright_pct: Settings.get(:pokemon_hp_min_bright_pct),
+      max_track_brightness: Settings.get(:pokemon_hp_max_track_brightness)
+    ]
   end
 
   @impl true
@@ -145,24 +166,23 @@ defmodule Pokex.Bots.Logout do
   # refocus resume) from re-arming workers over this order. It STAYS set after
   # a successful logout — only Iniciar bot clears it.
   defp begin(state, reason) do
-    # The WITNESS, read before touching anything: if the bottom bar isn't
+    # The WITNESS, read before touching anything: if the character's bar isn't
     # readable NOW, it won't be later either, and a "vanished" would prove
-    # nothing. The HUD returns nil in all three fields for "logged out" as well
-    # as "sub-region uncalibrated" or "atlas missing a digit" — the missing "9"
-    # is a real case. Without this differential measure, an incomplete atlas
-    # would swear a logout happened without any working key press.
+    # nothing. A region that is not marked, or a window already over the
+    # corner, reads as no bar for "logged out" as well as for "nothing
+    # happened". Without this differential measure a missing calibration would
+    # swear a logout happened without any working key press.
     baseline = state.read_fun.()
 
     if baseline != :present do
       Logger.warning(
-        "Logout: a barra de baixo já estava ilegível ANTES de apertar (#{baseline}) — " <>
+        "Logout: a barra de vida do personagem já estava ilegível ANTES de apertar (#{baseline}) — " <>
           "vou tentar mesmo assim, mas não vou conseguir confirmar"
       )
     end
 
     InputGate.set_panic_latch(true)
     state.stop_fun.()
-    attach_hud()
 
     reason
     |> Logic.start(%{attempts: attempts(state)}, baseline)
@@ -205,7 +225,6 @@ defmodule Pokex.Bots.Logout do
   end
 
   defp finish(state) do
-    detach_hud()
     state = %{state | finished_at: System.monotonic_time(:millisecond)}
     broadcast(state)
     state
@@ -227,20 +246,6 @@ defmodule Pokex.Bots.Logout do
   defp in_flight?(%Logic{state: state}), do: state in [:pressing, :verifying]
 
   defp attempts(state), do: state.attempts_override || Settings.get(:logout_attempts)
-
-  # The :hud feed already has a permanent consumer (stock alerts), but stating
-  # our own demand keeps this module independent of that detail.
-  defp attach_hud do
-    Perception.attach(:hud)
-  catch
-    _kind, _reason -> :ok
-  end
-
-  defp detach_hud do
-    Perception.detach(:hud)
-  catch
-    _kind, _reason -> :ok
-  end
 
   defp snapshot(state) do
     logic = state.logic || %Logic{}

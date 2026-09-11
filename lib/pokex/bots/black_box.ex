@@ -151,35 +151,53 @@ defmodule Pokex.Bots.BlackBox do
   defp tick(%{episode: nil} = state, _picture, _orders, _now), do: state
 
   defp tick(state, picture, orders, now) do
-    ep = state.episode
-    revive? = orders.revive in [:now, :prepare]
-    cue? = orders.phase == :capturing and ep.cue_at == nil
-    enemies = Map.get(picture || %{}, :enemies)
-    clear_since = if enemies == 0, do: ep.clear_since || now, else: nil
-    ep = %{ep | clear_since: clear_since, cue_at: if(cue?, do: now, else: ep.cue_at)}
-    state = %{state | episode: ep}
+    state
+    |> frame_on_edge(picture, orders, now)
+    |> note_tick(picture, orders, now)
+    |> maybe_close(orders, now)
+  end
 
-    state =
-      cond do
-        revive? and ep.revive_was == :hold -> key_frame(state, "revive", now, picture, orders)
-        cue? -> key_frame(state, "hora-da-bola", now, picture, orders)
-        due_film?(ep, now) -> film_frame(state, now, picture, orders)
-        true -> state
-      end
-
-    state = put_in(state.episode.revive_was, if(revive?, do: :now, else: :hold))
-
+  # The edges earn a whole frame; between them the film runs.
+  defp frame_on_edge(%{episode: ep} = state, picture, orders, now) do
     cond do
-      state.episode == nil ->
-        state
+      revive?(orders) and ep.revive_was == :hold ->
+        key_frame(state, "revive", now, picture, orders)
 
-      now - state.episode.since >= @max_episode_ms ->
+      orders.phase == :capturing and ep.cue_at == nil ->
+        key_frame(state, "hora-da-bola", now, picture, orders)
+
+      due_film?(ep, now) ->
+        film_frame(state, now, picture, orders)
+
+      true ->
+        state
+    end
+  end
+
+  defp note_tick(%{episode: ep} = state, picture, orders, now) do
+    clear? = Map.get(picture || %{}, :enemies) == 0
+
+    episode = %{
+      ep
+      | clear_since: if(clear?, do: ep.clear_since || now, else: nil),
+        cue_at: ep.cue_at || if(orders.phase == :capturing, do: now),
+        revive_was: if(revive?(orders), do: :now, else: :hold)
+    }
+
+    %{state | episode: episode}
+  end
+
+  defp revive?(%{revive: revive}), do: revive in [:now, :prepare]
+
+  defp maybe_close(%{episode: ep} = state, orders, now) do
+    cond do
+      now - ep.since >= @max_episode_ms ->
         close(state, "teto de #{div(@max_episode_ms, 1000)}s", now)
 
       orders.phase == :idle ->
         close(state, "caçada parada", now)
 
-      quiet?(state.episode, now) ->
+      quiet?(ep, now) ->
         close(state, "tela limpa", now)
 
       true ->

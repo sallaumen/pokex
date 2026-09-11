@@ -3514,7 +3514,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
       assert held.phase == :capturing
       assert held.route == :hold
-      assert held.why =~ "shiny no chão"
+      assert held.why =~ "corpo no chão"
 
       {_logic, still} = capture_step(logic, walking(), 13_000)
       assert still.route == :hold

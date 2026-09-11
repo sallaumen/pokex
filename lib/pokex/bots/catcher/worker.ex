@@ -577,7 +577,9 @@ defmodule Pokex.Bots.Catcher.Worker do
         true -> state
       end
 
-    reagendar(state, obs)
+    state = reagendar(state, obs)
+    publish_capture(state)
+    state
   end
 
   # Rescheduling lives HERE, not inside run_step: the branches that held the
@@ -1138,8 +1140,9 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # THE FACT FOR THE BRAIN: "I am aiming at a shiny's corpse" — the engine holds
   # the feet on it (`Engine.Logic.hold_for_capture/2`). Rewritten on every aim
-  # tick and once on close, so a session that dies with its worker simply ages
-  # out of the brain's belief.
+  # tick, on every step of the ordinary ball (`pending` — corpses queued or a
+  # ball in the air hold the feet too) and once on close, so a session that dies
+  # with its worker simply ages out of the brain's belief.
   defp publish_capture(state) do
     WorldState.put(
       :capture,

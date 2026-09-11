@@ -383,8 +383,12 @@ defmodule Pokex.Bots.Engine.Worker do
   defp capturing?(now) do
     idade = ShinyGuard.fact_max_age_ms()
 
+    # A BOLA COMUM TAMBÉM. Só o shiny segurava os pés, e depois do revive a rota
+    # andava numa mediana de 1,2 s (328 rodadas de 10/09) — menos que uma bola e
+    # a conferência dela. Corpo na fila ou bola no ar é captura em andamento.
     case WorldState.get(:capture, idade, now) do
       {:ok, %{aiming?: true}} -> true
+      {:ok, %{pending: pending}} when is_integer(pending) and pending > 0 -> true
       _stale_or_missing_or_done -> false
     end
   end

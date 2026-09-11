@@ -497,11 +497,14 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp with_park(decision, _walking), do: decision
 
-  # O SHINY NO CHÃO SEGURA OS PÉS. The Catcher aims at a shiny's corpse by
+  # O CORPO NO CHÃO SEGURA OS PÉS. The Catcher aims at a shiny's corpse by
   # colour on a fresh frame, and the frame is only good while the corpse stays
   # in the square around him: 96% of the kills of 08/09 fell with the road
   # already held, and the road went on a median 3.4s later (spec
-  # 2026-09-09-shiny-na-cacada). So while the `:capture` fact says "aiming", a
+  # 2026-09-09-shiny-na-cacada). The ordinary corpse is the same story — after
+  # the revive the road went on a median 1.2s later (328 rounds of 10/09), less
+  # than one ball and its confirmation. So while the `:capture` fact says
+  # "aiming" or "corpses pending", a
   # WALKING order becomes a stand — feet only, the fire and the revive are
   # whatever the rule below chose — for at most `capture_hold_ms`. Red never
   # holds (a ball is not worth the pokémon), and a fight order is not touched
@@ -523,7 +526,7 @@ defmodule Pokex.Bots.Engine.Logic do
         held_ms = t.now - since
 
         if held_ms < t.config.capture_hold_ms do
-          why = "shiny no chão — segurando a rota pra bola (#{div(held_ms, 1_000)}s)"
+          why = "corpo no chão — segurando a rota pra bola (#{div(held_ms, 1_000)}s)"
           {logic, %{orders | phase: :capturing, route: :hold, why: why}}
         else
           {logic, orders}

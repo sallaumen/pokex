@@ -2149,7 +2149,7 @@ defmodule PokexWeb.CavebotLiveTest do
 
       clear.()
       on_exit(clear)
-      Pokex.SettingsStash.stash!(shiny_guard_enabled: false)
+      Pokex.SettingsStash.stash!(shiny_guard_enabled: false, shiny_sparkle: false)
       :ok
     end
 

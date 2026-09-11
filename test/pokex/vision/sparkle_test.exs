@@ -53,15 +53,17 @@ defmodule Pokex.Vision.SparkleTest do
   defp painted(w, h, bg, patches) do
     pixels =
       for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
-        {r, g, b} =
-          Enum.find_value(patches, bg, fn {{px, py, pw, ph}, cor} ->
-            if x >= px and x < px + pw and y >= py and y < py + ph, do: cor
-          end)
-
+        {r, g, b} = paint(x, y, bg, patches)
         <<r, g, b, 255>>
       end
 
     %Frame{width: w, height: h, rgba: pixels, scale: 1.0}
+  end
+
+  defp paint(x, y, bg, patches) do
+    Enum.find_value(patches, bg, fn {{px, py, pw, ph}, cor} ->
+      if x >= px and x < px + pw and y >= py and y < py + ph, do: cor
+    end)
   end
 
   @amarelo {250, 215, 60}

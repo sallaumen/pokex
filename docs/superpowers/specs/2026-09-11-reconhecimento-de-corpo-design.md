@@ -45,8 +45,15 @@ dele, e trocar a medida por uma que enxerga o que ele pediu:
    marcada, e todo casador novo é medido neles ANTES do jogo.
 
 Quatro PRs (§6). O primeiro não muda comportamento: é a bancada. O que só ele
-pode fazer está em §9 — inclusive **ensinar o corpo do Golem comum** como forma
-a NÃO capturar, que é o que resolve a queixa de hoje mesmo com o casador atual.
+pode fazer está em §9.
+
+**A espécie de validação é o Kabutops** (decisão dele, 11/09 00:37: "parece
+mais legal e menos parecido com uma rocha"). Ele mandou nove fotos 1:1 da tela
+— bicho vivo e corpo, forma comum (laranja) e shiny (preta) — que já estão em
+`test/fixtures/corpses/kabutops/` e já foram ensinadas no acervo dele (§3.4):
+o corpo comum como veto, o shiny como caça. Com isso a queixa de hoje cai
+**antes de qualquer código**: medido, o casador atual dá 0,99 no corpo comum
+com a foto comum e 0,35 com a foto do shiny.
 
 ## 1. Por que agora
 
@@ -172,6 +179,41 @@ Lendo a tabela:
   `076.1.png`) são a **arte oficial** (140 × 140, 3.511 cores), não a sprite do
   jogo: servem pra mostrar o que é um shiny, não pra casar.
 
+### 3.4 Kabutops: o corpo real das duas formas (as fotos dele de 11/09)
+
+Nove fotos 1:1 (tile 151): 2 Kabutops comuns vivos, 3 shinies vivos, 3 corpos
+comuns (laranja), 1 corpo shiny (preto). Amostras de 65 px cortadas como o
+clique da calibração corta, **centradas no corpo** (o centróide dos pixels
+laranja, ou dos pretos dentro do contorno) — a única diferença pro clique dele
+é que o centro foi calculado, não apontado.
+
+Melhor janela de cada foto (`hist` = o casador de hoje; `acordo` = pixel a pixel
+na máscara, tol 32):
+
+| amostra | corpo comum ×3 | corpo shiny | shiny vivo ×3 | comum vivo ×2 | chão | Golem vivo | Venusaur dele |
+|---|---|---|---|---|---|---|---|
+| comum (3 fotos), hist | **0,98–1,00** | 0,06–0,09 | 0,07–0,13 | 0,68–0,76 | 0,33–0,36 | 0,31–0,33 | 0,17–0,19 |
+| shiny (2 cortes), hist | 0,35 | **1,00** | 0,81–0,88 | 0,39–0,48 | 0,37–0,40 | 0,47 | 0,38–0,39 |
+| comum, acordo | 0,98–1,00 | 0,18–0,62 | 0,13–0,49 | 0,47–0,55 | 0,41–0,45 | 0,55–0,65 | 0,35–0,46 |
+| shiny, acordo | 0,58–0,60 | 1,00 | 0,50–0,64 | 0,30–0,35 | 0,22–0,24 | 0,53 | 0,50–0,52 |
+
+O que muda em relação ao Golem: laranja contra preto é uma troca de paleta
+enorme, e **o histograma de hoje já separa as formas** (0,99 vs 0,35 no corpo
+comum; 0,06–0,09 vs 1,00 no corpo shiny). O Golem falhava porque olive-escuro
+contra preto cai nos mesmos cubos de 3 bits. O acordo pixel a pixel é PIOR aqui
+no shiny (0,58 no corpo comum): as lâminas cinza e o contorno estão nas duas
+formas — a §5.3 já pede paleta só nos pixels do corpo e decisão relativa.
+
+O que continua igual: a foto do shiny dá 0,81–0,88 no **shiny vivo** — corpo e
+bicho de pé têm a mesma paleta; quem impede a bola é a lista zerada (#593) e a
+âncora (#592), não o casador. E o Golem vivo fica em 0,47 com a foto do shiny —
+abaixo do limiar dele (0,60), mas não com folga de 2×.
+
+Estado do acervo dele agora (`~/.pokex/corpses.json`, backup
+`corpses.json.bak-antes-do-kabutops-20260911-003924`): **Shiny Kabutops**
+ligado (2 amostras), **Kabutops** desligado = veto (3 amostras), Shiny Golem
+desligado (fotos guardadas), Scizor e Shiny Venusaur desligados.
+
 ## 4. Os caminhos
 
 **A. Só os portões: âncora + forma comum ensinada como veto + prova.** Nada de
@@ -294,10 +336,10 @@ as manchas de fora (#592); passa a listar a forma vencedora de cada âncora.
 
 ### PR 0 — a bancada e a escala (sem mudar comportamento)
 
-- Fixtures: o quadro `1789080297334-28-seen` (e `corpse_teach`) recortados às
-  caixas de verdade + um quadro com **corpo** assim que ele tiver um (§9), em
-  `test/fixtures/corpses/` com `truth.json` (caixas: bicho vivo, corpo, pet,
-  chão, toolbar, por espécie e forma).
+- Fixtures: as nove fotos do Kabutops (já em `test/fixtures/corpses/kabutops/`)
+  + o quadro `1789080297334-28-seen` (e `corpse_teach`) recortados às caixas de
+  verdade, com `truth.json` (caixas: bicho vivo, corpo, pet, chão, toolbar, por
+  espécie e forma).
 - `Pokex.Vision.Bench` (ou `mix pokex.vision.bench`): pra cada casador e cada
   amostra, a tabela da §3.2 — verdade, pior falso por classe, margem. Um teste
   asserta as margens do casador de produção; mudar o casador sem passar na
@@ -369,13 +411,14 @@ Antes de qualquer limiar entrar no código:
 
 ## 9. O que só ele pode fazer, e as perguntas
 
-1. **Ensinar o corpo do Golem comum** como forma a não capturar (hoje: ensinar
-   e desligar; depois do PR 1: `common`). Clique bem em cima do corpo caído.
-   Isto sozinho muda a caçada de amanhã.
-2. **Quando um Shiny Golem cair, fotografar** (o botão de ensinar já salva
-   `corpse_teach.png`) — a bancada não tem um único corpo de shiny real.
+1. ~~Ensinar o corpo comum como forma a não capturar~~ — **feito com o
+   Kabutops** (§3.4). Pra outra espécie: ensinar o corpo comum e desligar.
+2. ~~Fotografar um corpo de shiny~~ — feito (Kabutops). **Validar em jogo**:
+   uma caçada de Kabutops com a versão atual (#591–#594 + o acervo de §3.4) e
+   trazer o diário — a frase da hora da bola diz quem ganhou em cada âncora.
 3. **Responder**: na lista de batalha, um shiny selvagem aparece como "Shiny
-   Golem" ou "Golem"? (um print da lista com um shiny basta.) Decide o PR 4.
+   Kabutops" ou "Kabutops"? (em cima do bicho é só "Kabutops", medido nas
+   fotos dele.) Decide o PR 4.
 4. **Dizer em quais telas caça** (ultrawide e notebook?) — a escala nativa é
    medida com um corpo em cada uma.
 5. Confirmar: a bola por forma (`hunted` escolhe a bola; `common` não leva

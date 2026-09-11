@@ -153,6 +153,23 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert {:ok, %{capturing?: false}} = WorldState.get(:situation, 5_000, now())
     end
 
+    # SOMEONE IS THERE TO THROW: the Catcher's `armed?` rides the picture as
+    # `catcher_armed?` — it is what lets a closing round hold the feet to look.
+    test "an armed catcher rides the picture, a halted one does not", %{worker: worker} do
+      see(~w(Venonat))
+      WorldState.put(:capture, %{aiming?: false, pending: 0, corpses: [], armed?: true}, now())
+      send(worker, :tick)
+      settle(worker)
+
+      assert {:ok, %{catcher_armed?: true}} = WorldState.get(:situation, 5_000, now())
+
+      WorldState.put(:capture, %{aiming?: false, pending: 0, corpses: [], armed?: false}, now())
+      send(worker, :tick)
+      settle(worker)
+
+      assert {:ok, %{catcher_armed?: false}} = WorldState.get(:situation, 5_000, now())
+    end
+
     test "halting takes the picture down with it", %{worker: worker} do
       see(~w(Venonat Paras Venomoth))
       send(worker, :tick)

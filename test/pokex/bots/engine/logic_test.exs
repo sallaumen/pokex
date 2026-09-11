@@ -873,6 +873,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert Map.has_key?(logic.since, :reset_pending)
 
       # a barra volta cheia e o pokémon está em campo: o juiz encerra o caso
+      # (…e há um Catcher armado pra jogar — sem ele a rota não espera ninguém)
       voltou =
         world(%{
           situation:
@@ -881,7 +882,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
               combo_left_ms: 0,
               spent?: false,
               own_out?: true,
-              own_hp: 100
+              own_hp: 100,
+              catcher_armed?: true
             }),
           hunt: hunt(%{state: :walking}),
           hands: %{opening: ["r"], single: [], crowd: []}
@@ -891,8 +893,56 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert fechou.capture == :now, "a rodada fechou: é a hora da bola"
       refute Map.has_key?(logic.since, :reset_pending)
 
-      {_logic, depois} = reset_step(logic, voltou, 10_800)
+      # …E A ESTRADA FICA PARADA PRA OLHAR. A chamada saía com `route: :go` no
+      # mesmo tique (a espera do revive acabou), e o Catcher, que só varre com a
+      # estrada segurada, achava a estrada andando: 390 das 398 chamadas de
+      # 10/09 com a varredura fechada tinham o cérebro em 0 inimigos e rota :go.
+      assert fechou.route == :hold, "a hora da bola precisa de um chão parado pra olhar"
+      assert fechou.phase == :capturing
+      assert fechou.why =~ "olhar o chão"
+
+      {logic, depois} = reset_step(logic, voltou, 10_800)
       assert depois.capture == :none, "uma vez por rodada, não a cada tique"
+      assert depois.route == :hold, "a janela de olhar dura mais que um tique"
+
+      # sem nenhum corpo achado (o fato `:capture` nunca disse pendente), a
+      # janela fecha sozinha e a rota volta a andar
+      {_logic, soltou} = reset_step(logic, voltou, 12_800)
+      assert soltou.route == :go
+      refute soltou.phase == :capturing
+    end
+
+    # SEM NINGUÉM PRA JOGAR, parar pra olhar é só parar: a bancada não tem
+    # Catcher, e as promessas dela (modo hard: ele não morre) não podem pagar
+    # uma janela que no simulador nunca vira bola.
+    test "with no catcher armed, the closing round calls the ball but walks" do
+      pedindo =
+        world(%{
+          situation:
+            situation(%{
+              enemies: 1,
+              combo_left_ms: 0,
+              combo_since_end_ms: 500,
+              spent?: true,
+              own_hp: 100
+            }),
+          hunt: hunt(%{state: :walking}),
+          hands: %{opening: ["r"], single: [], crowd: []}
+        })
+
+      {logic, _pedido} = reset_step(Logic.new(), pedindo, 10_000)
+
+      voltou =
+        world(%{
+          situation:
+            situation(%{enemies: 0, combo_left_ms: 0, spent?: false, own_out?: true, own_hp: 100}),
+          hunt: hunt(%{state: :walking}),
+          hands: %{opening: ["r"], single: [], crowd: []}
+        })
+
+      {_logic, fechou} = reset_step(logic, voltou, 10_600)
+      assert fechou.capture == :now
+      assert fechou.route == :go
     end
 
     # Fora do Auto Combo `combo_left_ms` é nil, e nil não é "acabou agora".

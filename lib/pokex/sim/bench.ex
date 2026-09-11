@@ -679,6 +679,9 @@ defmodule Pokex.Sim.Bench do
       # shiny corpse on screen is the aim looking for it, and the brain holds
       # the feet on that (`Engine.Logic.hold_for_capture/2`).
       capturing?: World.capture_input(world).aiming?,
+      # no Catcher lives in this world: a closing round never holds the feet
+      # to look at the ground here (DÍVIDA: the bench does not model the ball)
+      catcher_armed?: Map.get(World.capture_input(world), :armed?) == true,
       boss_tiles: World.boss_tiles(world),
       # THE EYE, as the world observes it (`World.observe(world, :crowd)`: the
       # bars it draws, placed by production's `CrowdScan.place/4`). A blind

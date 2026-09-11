@@ -90,6 +90,9 @@ defmodule Pokex.Bots.Engine.Situation do
           # the Catcher is aiming at a shiny's corpse (the `:capture` fact): the
           # brain holds the feet for it, for a while
           capturing?: boolean,
+          # there is a Catcher armed to throw (the same fact): the brain holds
+          # the feet a moment when a round closes, so it can look at the ground
+          catcher_armed?: boolean,
           grit: non_neg_integer,
           heavy_latch?: boolean,
           boss_tiles: non_neg_integer | nil,
@@ -166,6 +169,7 @@ defmodule Pokex.Bots.Engine.Situation do
       grit: grit,
       heavy_latch?: latch?,
       capturing?: Map.get(inputs, :capturing?) == true,
+      catcher_armed?: Map.get(inputs, :catcher_armed?) == true,
       # A QUE DISTÂNCIA O CHEFE ESTÁ, em tiles — nil quando ninguém mede. O
       # stun tem raio: apertá-lo com o chefe a 6 tiles é dormir o vento
       # (medido na bancada: o primeiro stun saía a 6 e o chefe chegava

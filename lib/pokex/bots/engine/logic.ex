@@ -462,6 +462,10 @@ defmodule Pokex.Bots.Engine.Logic do
   defp decide(t) do
     judged = audit_reset(t)
     closed? = round_closed?(t.logic, judged)
+    # a rodada fechou: a janela de olhar o chão abre AGORA, antes de a rota decidir
+    judged =
+      if closed?, do: %{judged | since: Map.put(judged.since, :capture_look, t.now)}, else: judged
+
     t = %{t | logic: judged}
 
     t
@@ -511,28 +515,61 @@ defmodule Pokex.Bots.Engine.Logic do
   # (it already stands).
   @held_by_capture [:travelling, :gathering, :sizing, :bunching, :skipping]
 
+  # A HORA DA BOLA PRECISA DE UM CHÃO PARADO PRA OLHAR. A chamada sai no tique
+  # em que a rodada fecha — e nesse mesmo tique a espera do revive acaba e a
+  # decisão volta a ser "seguindo a rota": a ordem saía com `capture: :now` e
+  # `route: :go` JUNTOS, e o Catcher, que só varre com a estrada segurada,
+  # achava a estrada andando. Medido em 10/09: 398 chamadas com a varredura
+  # fechada, 390 delas com o cérebro em 0 inimigos e rota :go. O fato `:capture`
+  # que segura os pés só nasce DEPOIS de uma varredura achar corpo, então sem
+  # esta janela ninguém nunca olhava. Física, não knob: o Catcher olha na
+  # chamada e re-olha em 400, 1.000 e 2.000 ms (o primeiro quadro costuma vir
+  # sujo — animação da morte, saque, o pokémon dele em cima), e cada olhada
+  # precisa da estrada parada. Só com um Catcher ARMADO (`catcher_armed?`, o
+  # fato `:capture`): sem ninguém pra jogar, parar pra olhar é só parar.
+  @capture_look_ms 2_100
+
+  defp looking_for_corpses?(%{since: since}, t) do
+    case Map.fetch(since, :capture_look) do
+      {:ok, at} -> Map.get(t.s, :catcher_armed?) == true and t.now - at < @capture_look_ms
+      :error -> false
+    end
+  end
+
   defp hold_for_capture({logic, orders}, t) do
     cond do
-      Map.get(t.s, :capturing?) != true ->
+      not capture_in_progress?(logic, t) ->
         {%{logic | since: Map.delete(logic.since, :capture_hold)}, orders}
 
-      orders.route != :go or orders.phase not in @held_by_capture or t.band == :red or
-          t.config.capture_hold_ms <= 0 ->
+      not holdable_for_capture?(orders, t) ->
         {logic, orders}
 
       true ->
         since = Map.get(logic.since, :capture_hold, t.now)
         logic = %{logic | since: Map.put(logic.since, :capture_hold, since)}
-        held_ms = t.now - since
-
-        if held_ms < t.config.capture_hold_ms do
-          why = "corpo no chão — segurando a rota pra bola (#{div(held_ms, 1_000)}s)"
-          {logic, %{orders | phase: :capturing, route: :hold, why: why}}
-        else
-          {logic, orders}
-        end
+        stand_for_capture(logic, orders, t, t.now - since)
     end
   end
+
+  # a ball being worked (the fact), or the look window right after a round
+  defp capture_in_progress?(logic, t),
+    do: Map.get(t.s, :capturing?) == true or looking_for_corpses?(logic, t)
+
+  defp holdable_for_capture?(orders, t) do
+    orders.route == :go and orders.phase in @held_by_capture and t.band != :red and
+      t.config.capture_hold_ms > 0
+  end
+
+  defp stand_for_capture(logic, orders, t, held_ms) when held_ms < t.config.capture_hold_ms do
+    why =
+      if Map.get(t.s, :capturing?) == true,
+        do: "corpo no chão — segurando a rota pra bola (#{div(held_ms, 1_000)}s)",
+        else: "hora da bola — segurando a rota pra olhar o chão"
+
+    {logic, %{orders | phase: :capturing, route: :hold, why: why}}
+  end
+
+  defp stand_for_capture(logic, orders, _t, _past_the_ceiling), do: {logic, orders}
 
   # O RESET É UMA PROMESSA COBRADA POR IMAGEM. "Temos que ter certeza de que
   # os cooldowns foram resetados antes de continuar a rota — se não tiver

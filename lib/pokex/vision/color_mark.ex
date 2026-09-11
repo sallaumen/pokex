@@ -260,6 +260,8 @@ defmodule Pokex.Vision.ColorMark do
     cell = Keyword.get(opts, :cell_px, @default_cell_px)
     min_cell = Keyword.get(opts, :min_cell_px, @default_min_cell_px)
     forbidden = Keyword.get(opts, :forbidden, [])
+    merge_px = Keyword.get(opts, :merge_px, 0)
+    merge_min_px = Keyword.get(opts, :merge_min_px, 0)
 
     cells = walk_rows(rgba, 0, w, h, specs, cell, forbidden, %{})
     total = cells |> Map.values() |> Enum.sum()
@@ -269,9 +271,87 @@ defmodule Pokex.Vision.ColorMark do
       |> Map.filter(fn {_key, n} -> n >= min_cell end)
       |> clusters()
       |> Enum.map(&measure(&1, cell))
+      |> merge_close(merge_px, merge_min_px)
       |> Enum.sort_by(& &1.px, :desc)
 
     %{px: total, manchas: manchas}
+  end
+
+  # OS PEDAÇOS DE UM BICHO SÃO UM BICHO. As placas do casco do Shiny Golem dele
+  # são separadas por frestas mais claras: o tom (18,13,19) ±2 acendia o casco
+  # em CINCO manchas (321, 278, 276, 119 e 118 px, todas dentro de um tile) e o
+  # painel lia "casou em 10 lugares — não separa", com a maior mancha valendo
+  # 0,3 do resto. Juntas, é UMA mancha de 1.266 px e o resto da foto some (130
+  # px): dominância 9,7. `merge_px` é a distância entre caixas que ainda é o
+  # mesmo bicho — quem chama passa o tile em pixels do quadro; 0 desliga.
+  #
+  # E A UNIÃO NÃO CRESCE ALÉM DE UM BICHO: um chão salpicado do tom (pontinhos a
+  # cada 16 px, a prova do chão que recusa um tom holofote) juntaria tudo numa
+  # mancha só do tamanho da tela. A caixa unida para em `@merge_sides` tiles de
+  # lado; o que não cabe fica separado, e continua contando como espalhado.
+  # E SÓ PEDAÇO GRANDE VIRA BICHO: as manchinhas de um chão salpicado (16 px a
+  # cada 16 px na prova do chão; as 31 de até 30 px que o tom dele com folga ±4
+  # acende na caverna) não podem se fundir numa mancha do tamanho de um bicho e
+  # passar do gatilho. Só pedaços de pelo menos `merge_min_px` se juntam — quem
+  # chama passa um quarto do gatilho.
+  @merge_sides 2
+  # …e de pelo menos duas células: um salpico de chão cabe numa célula, uma
+  # placa do casco nunca
+  @merge_min_cells 2
+
+  defp merge_close(manchas, merge_px, _min) when merge_px <= 0 or length(manchas) < 2,
+    do: manchas
+
+  defp merge_close(manchas, merge_px, min) do
+    case absorb_one(manchas, merge_px, min) do
+      {:merged, manchas} -> merge_close(manchas, merge_px, min)
+      :stable -> manchas
+    end
+  end
+
+  # one pass: the first pair within reach is fused; the caller repeats until
+  # nothing moves (a shell of five plates fuses in four passes)
+  defp absorb_one(manchas, merge_px, min) do
+    pairs =
+      for {a, i} <- Enum.with_index(manchas),
+          {b, j} <- Enum.with_index(manchas),
+          i < j,
+          piece?(a, min) and piece?(b, min),
+          do: {i, j, a, b}
+
+    case Enum.find(pairs, fn {_i, _j, a, b} -> same_creature?(a, b, merge_px) end) do
+      nil ->
+        :stable
+
+      {i, j, a, b} ->
+        rest = manchas |> List.delete_at(j) |> List.delete_at(i)
+        {:merged, [fuse(a, b) | rest]}
+    end
+  end
+
+  defp piece?(mancha, min), do: mancha.px >= min and mancha.cells >= @merge_min_cells
+
+  defp same_creature?(a, b, merge_px) do
+    {l, t, r, bt} = union(a.box, b.box)
+    gap(a.box, b.box) <= merge_px and max(r - l + 1, bt - t + 1) <= @merge_sides * merge_px
+  end
+
+  defp union({l1, t1, r1, b1}, {l2, t2, r2, b2}),
+    do: {min(l1, l2), min(t1, t2), max(r1, r2), max(b1, b2)}
+
+  defp gap({l1, t1, r1, b1}, {l2, t2, r2, b2}) do
+    dx = Enum.max([l2 - r1, l1 - r2, 0])
+    dy = Enum.max([t2 - b1, t1 - b2, 0])
+    max(dx, dy)
+  end
+
+  # O PONTO FICA NO PEDAÇO MAIOR, não no centro de massa da união: a barra de
+  # vida verde de um bicho cheio casa com um tom verde e, somada ao corpo,
+  # puxava o ponto um tile pra cima — pra fora do bicho.
+  defp fuse(a, b) do
+    maior = if a.px >= b.px, do: a, else: b
+
+    %{point: maior.point, px: a.px + b.px, cells: a.cells + b.cells, box: union(a.box, b.box)}
   end
 
   # -- a passada ---------------------------------------------------------------

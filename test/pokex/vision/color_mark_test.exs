@@ -41,6 +41,54 @@ defmodule Pokex.Vision.ColorMarkTest do
     assert_in_delta cy, 30, 6
   end
 
+  # O CASCO DO SHINY GOLEM DELE acende em cinco placas separadas por frestas:
+  # cinco manchas dentro de um tile, que o painel lia como cinco lugares.
+  test "fragments within merge_px are ONE blob; farther apart they stay two" do
+    # três placas a uma célula fria de distância (24 px de vão), e uma quarta
+    # longe; as células vizinhas já se juntam sozinhas, então o vão é o que
+    # testa a junção
+    f =
+      frame(200, 120, {30, 30, 30}, [
+        {{10, 10, 12, 12}, @verde},
+        {{50, 10, 12, 12}, @verde},
+        {{10, 50, 12, 12}, @verde},
+        {{150, 80, 12, 12}, @verde}
+      ])
+
+    %{manchas: separadas} = ColorMark.scan(f, specs(@verde))
+    assert length(separadas) == 4
+
+    %{manchas: [perto, longe]} = ColorMark.scan(f, specs(@verde), merge_px: 30)
+    assert perto.px == 3 * 144
+    assert perto.box == {8, 8, 63, 63}
+    # o ponto é o do pedaço maior (aqui empatam: fica o primeiro), não o centro
+    # de massa da união
+    assert perto.point in [{16, 16}, {56, 16}, {16, 56}]
+    assert longe.px == 144
+  end
+
+  # SÓ PEDAÇO GRANDE VIRA BICHO: as manchinhas de um chão salpicado ficam
+  # separadas, por mais perto que estejam, quando cada uma é menor que
+  # `merge_min_px`.
+  test "pieces below merge_min_px never fuse" do
+    f = frame(120, 60, {30, 30, 30}, [{{10, 10, 12, 12}, @verde}, {{50, 10, 12, 12}, @verde}])
+
+    %{manchas: manchas} = ColorMark.scan(f, specs(@verde), merge_px: 30, merge_min_px: 200)
+    assert length(manchas) == 2
+  end
+
+  # A UNIÃO NÃO CRESCE ALÉM DE UM BICHO: um chão salpicado do tom a cada 16 px
+  # não vira uma mancha do tamanho da tela — e continua contando espalhado.
+  test "a speckled floor does not fuse into one screen-sized blob" do
+    salpicos = for i <- 0..8, j <- 0..8, do: {{i * 24 + 4, j * 24 + 4, 8, 8}, @verde}
+    f = frame(230, 230, {30, 30, 30}, salpicos)
+
+    %{manchas: manchas} = ColorMark.scan(f, specs(@verde), merge_px: 24)
+    assert length(manchas) > 4
+
+    assert Enum.all?(manchas, fn %{box: {l, t, r, b}} -> r - l + 1 <= 48 and b - t + 1 <= 48 end)
+  end
+
   test "the same total SPREAD OUT is no blob: a sparse cell is noise" do
     salpicos =
       for i <- 0..11 do

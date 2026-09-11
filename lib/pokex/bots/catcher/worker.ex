@@ -28,9 +28,12 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Bots.Catcher.ShinyAim
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Catcher.Sweep
+  alias Pokex.Bots.Catcher.Trail
   alias Pokex.Bots.Combat.Worker
+  alias Pokex.Bots.CrowdScan
   alias Pokex.Bots.Engine
   alias Pokex.Bots.InputGate
+  alias Pokex.Bots.ShinyGuard
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.Perception.WorldState
@@ -163,6 +166,8 @@ defmodule Pokex.Bots.Catcher.Worker do
        # onde o olho viu bicho de pé: %{{pos, ponto} => quando}. Um corpo só
        # pode estar num desses lugares (`Catcher.Logic.admissible/1`).
        standing: %{},
+       # o rastro do shiny: a barra dele seguida até cair (`Catcher.Trail`)
+       trail: Trail.new(),
        # session scoreboard (reset on each start): scans done, scans with a
        # target, and blind scans
        scans: 0,
@@ -276,8 +281,13 @@ defmodule Pokex.Bots.Catcher.Worker do
   # O OLHO DIZ ONDE CADA BICHO ESTÁ (`CrowdWatch`, a cada ~250 ms, no tópico do
   # cérebro). Quando a hora da bola chega eles já morreram e sumiram da leitura,
   # por isso o lugar é guardado enquanto estão de pé.
-  def handle_info({:crowd, %{read?: true, hostiles: hostiles}}, state),
-    do: {:noreply, remember_standing(state, hostiles)}
+  def handle_info({:crowd, %{read?: true, hostiles: hostiles} = reading}, state),
+    do: {:noreply, state |> remember_standing(hostiles) |> follow(reading)}
+
+  # THE GUARD'S BLOB NAMES A TRACK (see `Catcher.Trail`): the eye's reading may
+  # have arrived a look before the guard's, so the blob is joined here too.
+  def handle_info({:shiny_on_screen, %{vistos: vistos}}, state),
+    do: {:noreply, hunt(state, vistos)}
 
   def handle_info(:wake, %{logic: %Logic{state: :armed}} = state),
     do: {:noreply, advance(state, scan_obs(state))}
@@ -306,6 +316,11 @@ defmodule Pokex.Bots.Catcher.Worker do
     obs = scan_obs(state)
     announce_cue(obs)
     state = advance(%{state | repiques: @repiques}, obs)
+    # A ÂNCORA PRIMEIRO: onde a barra do shiny sumiu é a evidência mais forte
+    # que a hora da bola tem — o corpo não precisa ter a cor do vivo. A mira
+    # por cor abre em seguida; um corpo que ela achar no mesmo tile já está
+    # `ignored` pela bola que acabou de sair.
+    state = throw_at_anchors(state)
     {:noreply, aim_by_colour_at_cue(state)}
   end
 
@@ -964,6 +979,103 @@ defmodule Pokex.Bots.Catcher.Worker do
           spots: spots_here(state.standing, Map.get(obs, :pos)),
           spot_radius: Calibration.tile_px()
         })
+  end
+
+  # A IDENTIDADE VIAJA COM A BARRA (`Catcher.Trail`, plano §3.5). O olho lê as
+  # barras a cada olhada; o vigia diz em cima de qual está a cor do shiny
+  # (`CrowdScan.mark_special/3`, os pontos frescos de `ShinyGuard.seen/0`); o
+  # rastro segue essa barra em tiles do mundo até ela sumir — e aí o lugar dela
+  # é a âncora do corpo, com ou sem cor. "Lembra que o pokémon anda por aí,
+  # temos que ter essa posição atualizada e bem certinha" (11/09).
+  defp follow(state, reading) do
+    ref = trail_ref(reading)
+    marked = CrowdScan.mark_special(reading, ShinyGuard.seen(), ref.tile)
+    trail = Trail.observe(state.trail, marked, ref, now())
+    say_falls(state.trail, trail, ref)
+    %{state | trail: trail}
+  end
+
+  defp hunt(state, vistos) do
+    ref = trail_ref(%{})
+    at = now()
+
+    trail =
+      Enum.reduce(vistos, state.trail, fn %{point: point, name: name} = visto, trail ->
+        Trail.hunt_at(trail, point, name, Map.get(visto, :px), ref, at)
+      end)
+
+    %{state | trail: trail}
+  end
+
+  defp trail_ref(reading) do
+    me =
+      Map.get(reading, :me) ||
+        case Calibration.load() do
+          {:ok, calib} -> Calibration.player_point(calib)
+          _no_calibration -> nil
+        end
+
+    %{me: me || {0, 0}, tile: Calibration.tile_px(), pos: current_pos()}
+  end
+
+  # A queda tem voz: é a linha que ele procura no diário quando a bola não saiu.
+  defp say_falls(before, after_look, ref) do
+    at = now()
+    known = Enum.map(Trail.anchors(before, ref, at), & &1.world)
+
+    for %{world: world, name: name, screen: {x, y}} <- Trail.anchors(after_look, ref, at),
+        world not in known do
+      log(:macro, "🎯 #{name} caiu em #{x},#{y} — a barra sumiu; a bola vai lá na hora da bola")
+    end
+  end
+
+  # A BOLA NA ÂNCORA. Dentro da tela e fresca (o TTL é do `Trail`); a leitura
+  # fala a língua da mira por cor (`source: :shiny_aim`), então a bola fura o
+  # portão de modo como a do shiny, o "🌟 bola em" sai e a faixa acende.
+  defp throw_at_anchors(state) do
+    ref = trail_ref(%{})
+    at = now()
+    standing = Trail.standing(state.trail, ref)
+    tile = ref.tile
+
+    # …e nunca em cima de um bicho de pé: a hora da bola pode chegar com um
+    # sobrevivente na tela, e o tile do corpo pode estar ocupado por ele.
+    free? = fn %{screen: {ax, ay}} ->
+      not Enum.any?(standing, fn {sx, sy} -> abs(sx - ax) <= tile and abs(sy - ay) <= tile end)
+    end
+
+    case Enum.filter(Trail.anchors(state.trail, ref, at), &(on_screen?(&1.screen) and free?.(&1))) do
+      [] ->
+        state
+
+      anchors ->
+        for %{name: name, screen: {x, y}, fallen_at: fell} <- anchors do
+          log(
+            :macro,
+            "🌟 bola na âncora do #{name} em #{x},#{y} — caiu há #{div(at - fell, 1000)}s"
+          )
+        end
+
+        candidates =
+          Enum.map(
+            anchors,
+            &%{name: &1.name, px: &1.px || 0, point: &1.screen, in_frame: &1.screen}
+          )
+
+        obs = ShinyAim.obs(candidates, {0, 0, 0, 0}, at, %{anchor: true})
+        state = advance(state, obs)
+        %{state | trail: Enum.reduce(anchors, state.trail, &Trail.spend(&2, &1.world))}
+    end
+  end
+
+  defp on_screen?({x, y}) do
+    case Calibration.load() do
+      {:ok, %{screen_w: w, screen_h: h}} when is_integer(w) and is_integer(h) ->
+        x >= 0 and y >= 0 and x < w and y < h
+
+      _unknown_screen ->
+        x >= 0 and y >= 0
+    end
   end
 
   defp remember_standing(state, hostiles) do

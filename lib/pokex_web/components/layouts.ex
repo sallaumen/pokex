@@ -103,6 +103,14 @@ defmodule PokexWeb.Layouts do
     default: true,
     doc: "did THIS VM start before them (HeaderState)"
 
+  attr :header_shiny, :map,
+    default: nil,
+    doc: "the shiny the guard sees / the ball just thrown, or nil (HeaderState)"
+
+  attr :header_shiny_now, :integer,
+    default: 0,
+    doc: "the header's clock for the shiny strip, monotonic ms (HeaderState)"
+
   attr :max_width, :string,
     default: "max-w-3xl",
     doc: "content width; the only thing that changes page to page"
@@ -364,6 +372,7 @@ defmodule PokexWeb.Layouts do
         </div>
       </header>
 
+      <.shiny_strip banner={@header_shiny} now={@header_shiny_now} />
       <.other_pokex_strip others={@machine_others} first?={@machine_first?} />
 
       <.screen_mismatch_strip check={@screen_check} current_page={@current_page} />
@@ -415,6 +424,57 @@ defmodule PokexWeb.Layouts do
   end
 
   def other_pokex_strip(assigns), do: ~H""
+
+  attr :banner, :map, default: nil, doc: "HeaderState's shiny banner: state, name, px, point, at"
+  attr :now, :integer, default: 0, doc: "monotonic ms, to say how long ago"
+
+  @doc """
+  ✨ THE SHINY, on every page, impossible to miss.
+
+  "Não vi na UI nada falando que tinha um shiny… algo brilhando, que realmente
+  chame atenção" (11/09). The sighting was one feed line among a hundred, and
+  the alarm only rings on the second photo. This strip blinks while the guard
+  sees the shiny standing, stays lit for a minute after the last photo, and
+  turns into the ball line when the catcher throws.
+  """
+  def shiny_strip(%{banner: %{state: state}} = assigns) do
+    assigns = assign(assigns, live?: state == :on_screen)
+
+    ~H"""
+    <div
+      id="shiny-banner"
+      role="alert"
+      aria-live="assertive"
+      data-state={@banner.state}
+      class={[
+        "sticky top-12 z-30 border-b border-pk-shiny-line backdrop-blur",
+        if(@live?, do: "pk-shiny-live", else: "bg-pk-shiny-dim text-pk-shiny")
+      ]}
+    >
+      <div class="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+        <.icon name="hero-sparkles" class="size-6 shrink-0" />
+        <p class="flex-1 text-pk-title font-black uppercase tracking-[0.14em]">
+          {shiny_headline(@banner)}
+        </p>
+        <span class="pk-num text-pk-body font-semibold">{shiny_detail(@banner, @now)}</span>
+      </div>
+    </div>
+    """
+  end
+
+  def shiny_strip(assigns), do: ~H""
+
+  defp shiny_headline(%{state: :on_screen, name: name}), do: "✨ SHINY NA TELA — #{name}"
+  defp shiny_headline(%{state: :seen, name: name}), do: "✨ #{name} visto — a bola vai no corpo"
+  defp shiny_headline(%{state: :ball, name: name}), do: "⚾ BOLA NO #{name}"
+
+  defp shiny_detail(%{state: :on_screen, px: px}, _now), do: "#{px || "?"} px da cor dele"
+
+  defp shiny_detail(%{state: :seen, at: at}, now),
+    do: "há #{div(max(now - at, 0), 1000)}s — o vigia procura o corpo na hora da bola"
+
+  defp shiny_detail(%{state: :ball, point: {x, y}}, _now), do: "em #{x},#{y}"
+  defp shiny_detail(_banner, _now), do: ""
 
   attr :check, :any, required: true, doc: "Calibration.screen_check/2 result"
   attr :current_page, :atom, default: nil
@@ -565,7 +625,9 @@ defmodule PokexWeb.Layouts do
         :alarm_muted_categories,
         :screen_check,
         :machine_others,
-        :machine_first?
+        :machine_first?,
+        :header_shiny,
+        :header_shiny_now
       ])
 
   attr :icon, :string, default: nil, doc: "hero-* opcional à esquerda do nome"

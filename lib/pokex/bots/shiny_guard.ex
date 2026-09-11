@@ -423,12 +423,26 @@ defmodule Pokex.Bots.ShinyGuard do
   # refractory, but the brain needs PRESENCE: while the boss is on screen `heavy?` must stand,
   # and fall when it leaves. Different questions, different clocks.
   defp publish_special(vistos, scale) do
+    seen = Enum.map(vistos, fn {rule, m} -> %{name: rule.name, px: m.px, point: m.point} end)
+
+    # A TELA GRITA JUNTO. O fato abaixo é o do cérebro; o "✨" do alarme só sai
+    # na confirmação (duas fotos) e é uma linha no feed — em 11/09 o Shiny
+    # Golem foi visto UMA foto (o Venusaur dele cobriu o bicho na seguinte) e
+    # ele "não viu na UI nada falando que tinha um shiny". Cada foto com o
+    # shiny de pé acende a faixa do cabeçalho em toda página (`HeaderState`).
+    if seen != [],
+      do:
+        Phoenix.PubSub.broadcast(
+          Pokex.PubSub,
+          @reading_topic,
+          {:shiny_on_screen, %{vistos: seen}}
+        )
+
     WorldState.put(
       :special,
       %{
         especial?: vistos != [],
-        vistos:
-          Enum.map(vistos, fn {rule, m} -> %{name: rule.name, px: m.px, point: m.point} end),
+        vistos: seen,
         # A AMPLIAÇÃO DO QUADRO QUE ELE ACABOU DE LER. Quem confere a prova aqui
         # tem a foto; o cartão de prontidão não tem, e ficaria com a ampliação
         # CALIBRADA, que é outra coisa. Divergindo as duas, o cartão diria "meça

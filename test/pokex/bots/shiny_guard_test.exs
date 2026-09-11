@@ -169,6 +169,19 @@ defmodule Pokex.Bots.ShinyGuardTest do
     refute_receive {:shiny_seen, _}, 1_000
   end
 
+  # …but the header hears the glimpse: on 11/09 the Shiny Golem was seen for
+  # ONE photo (his own pokemon covered it on the next) and nothing on screen
+  # said so. Every photo with the shiny standing tells the banner.
+  test "ONE scan alone still tells the header the shiny is on screen", %{region: region} do
+    regra_provada()
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+
+    start_guard(fn _region, _name -> {:ok, frame_com_mancha(region)} end)
+
+    assert_receive {:shiny_on_screen, %{vistos: [%{name: "Electrode shiny", px: px}]}}, 2_000
+    assert px >= 50
+  end
+
   test "a rule without noise proof does NOT scan", %{region: region} do
     {:ok, _} =
       ColorRules.add(%{

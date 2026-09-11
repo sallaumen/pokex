@@ -37,6 +37,18 @@ defmodule PokexWeb.HeaderState do
   # fights, so without it in this list the header swore "Parado" while the
   # bot was hunting.
   @worker_topics ["fishing", "combat", "cavebot"]
+  # ✨ THE SHINY ON EVERY PAGE. "Não vi na UI nada falando que tinha um shiny…
+  # algo brilhando, que realmente chame atenção" (11/09): the sighting was a
+  # feed line, and the "✨" alarm only fires on the second photo — the Shiny
+  # Golem was seen for ONE. The guard now says so on every photo with the shiny
+  # standing (`{:shiny_on_screen, _}`), the catcher when the ball flies
+  # (`{:shiny_ball, _}`), and the header lights a banner on whatever page he is
+  # looking at: blinking while the shiny is on screen, lit for a minute after.
+  @shiny_topic "shiny"
+  @shiny_live_ms 3_000
+  @shiny_seen_ms 60_000
+  @shiny_ball_ms 30_000
+  @shiny_tick_ms 1_000
 
   def on_mount(:default, _params, _session, socket) do
     owns_workers? = socket.view != PokexWeb.PanelLive
@@ -48,13 +60,16 @@ defmodule PokexWeb.HeaderState do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Presence.topic())
 
       if owns_workers?,
-        do: Enum.each(@worker_topics, &Phoenix.PubSub.subscribe(Pokex.PubSub, &1))
+        do:
+          Enum.each(@worker_topics ++ [@shiny_topic], &Phoenix.PubSub.subscribe(Pokex.PubSub, &1))
     end
 
     socket =
       socket
       |> assign(
         header_owns_workers?: owns_workers?,
+        header_shiny: nil,
+        header_shiny_now: 0,
         # Pages that show the workers' OWN detail ask for the snapshots to be
         # relayed (see relay_workers/1); the chip is fed either way.
         header_relays_workers?: false,
@@ -152,6 +167,20 @@ defmodule PokexWeb.HeaderState do
     {:halt, if(echo?, do: socket, else: flash_switch(socket, slug))}
   end
 
+  # The shiny banner (see @shiny_topic). `:shiny_on_screen` and `:shiny_ball`
+  # are nobody's but the header's — always `:halt`; `:shiny_seen` is also the
+  # panel's trophy shelf, so on the panel it flows on.
+  defp info({:shiny_on_screen, %{vistos: [seen | _]}}, socket),
+    do: {:halt, shiny_banner(socket, :on_screen, seen)}
+
+  defp info({:shiny_seen, %{name: _} = seen}, socket),
+    do: {if(swallow?(socket), do: :halt, else: :cont), shiny_banner(socket, :on_screen, seen)}
+
+  defp info({:shiny_ball, %{point: _} = ball}, socket),
+    do: {:halt, shiny_banner(socket, :ball, ball)}
+
+  defp info(:header_shiny_tick, socket), do: {:halt, age_shiny_banner(socket)}
+
   defp info({:fishing, %{state: state}}, socket), do: worker_state(socket, :fishing, state)
   defp info({:combat, %{state: state}}, socket), do: worker_state(socket, :combat, state)
   defp info({:cavebot, %{state: state}}, socket), do: worker_state(socket, :cavebot, state)
@@ -182,6 +211,47 @@ defmodule PokexWeb.HeaderState do
 
   defp swallow?(socket) do
     socket.assigns.header_owns_workers? and not socket.assigns.header_relays_workers?
+  end
+
+  # One timer at a time: a banner that is up already has its tick running.
+  defp shiny_banner(socket, state, info) do
+    now = System.monotonic_time(:millisecond)
+    running? = socket.assigns.header_shiny != nil
+
+    banner = %{
+      state: state,
+      name: Map.get(info, :name) || "shiny",
+      px: Map.get(info, :px),
+      point: Map.get(info, :point),
+      at: now
+    }
+
+    socket = assign(socket, header_shiny: banner, header_shiny_now: now)
+    if running?, do: socket, else: schedule_shiny_tick(socket)
+  end
+
+  defp age_shiny_banner(%{assigns: %{header_shiny: nil}} = socket), do: socket
+
+  defp age_shiny_banner(socket) do
+    now = System.monotonic_time(:millisecond)
+    banner = socket.assigns.header_shiny
+    age = now - banner.at
+
+    banner =
+      cond do
+        banner.state == :on_screen and age > @shiny_live_ms -> %{banner | state: :seen}
+        banner.state == :seen and age > @shiny_seen_ms -> nil
+        banner.state == :ball and age > @shiny_ball_ms -> nil
+        true -> banner
+      end
+
+    socket = assign(socket, header_shiny: banner, header_shiny_now: now)
+    if banner, do: schedule_shiny_tick(socket), else: socket
+  end
+
+  defp schedule_shiny_tick(socket) do
+    Process.send_after(self(), :header_shiny_tick, @shiny_tick_ms)
+    socket
   end
 
   defp event("set_character", %{"character" => slug}, socket) do

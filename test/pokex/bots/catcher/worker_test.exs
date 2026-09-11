@@ -832,11 +832,14 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     list_empty()
     stage_aim([{116, 116}])
 
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
     send(worker, {:capture_now})
 
     assert_log_eventually("procurando corpo de shiny pela cor")
     assert_receive {:performed, :high, [{:move, {116, 116}} | _]}, 3_000
     assert_log_eventually("🌟 bola em 116,116")
+    # …and the header's banner hears the ball
+    assert_receive {:shiny_ball, %{point: {116, 116}}}, 1_000
   end
 
   @tag :tmp_dir

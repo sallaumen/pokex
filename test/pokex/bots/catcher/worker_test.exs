@@ -853,6 +853,32 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     refute Worker.status(worker).hold_reason == "mirando o corpo do shiny pela cor"
   end
 
+  # THE SESSION SAYS WHAT IT SAW WHEN IT CLOSES. 11/09 09:13: the Shiny Golem's
+  # corpse was on screen with zero pixels of the live tone, and the aim closed
+  # without a word - nothing told that apart from a held look or a vetoed corpse.
+  @tag :tmp_dir
+  test "a colour session that finds nothing says what it saw when it closes" do
+    worker = start_hunt_worker(scanner: fn -> nil end)
+    arm_colour_rule("Shiny Golem")
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+
+    diag = %{biggest_px: 12, trigger: 120, above: 0, oversized: 0, refused: 0, bodied: 0}
+
+    WorldState.put(
+      :shiny_aim,
+      Map.put(aim_obs([]), :diag, diag),
+      System.monotonic_time(:millisecond)
+    )
+
+    send(worker, {:capture_now})
+
+    assert_log_eventually(
+      ~r/hora da bola — corpo do shiny pela cor: 3 foto\(s\) em .*maior mancha do tom 12 px \(gatilho 120\) · 0 acima do gatilho · nenhum corpo/
+    )
+  end
+
   defp arm_colour_rule(name) do
     :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
 

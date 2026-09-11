@@ -390,12 +390,11 @@ defmodule Pokex.Bots.Catcher.Worker do
         {:noreply, close_aim(state)}
 
       now() - since >= ttl ->
-        log(:macro, aim_expired_msg(aim, ttl))
+        if aim.kind == :sighting, do: log(:macro, aim_expired_msg(ttl))
         {:noreply, close_aim(state)}
 
       true ->
         {state, obs} = aim_look(state)
-        state = %{state | aim: %{state.aim | looks: Map.get(state.aim, :looks, 0) + 1}}
         state = advance(state, obs)
 
         if aim_done?(state) do
@@ -1169,7 +1168,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       prev: [],
       said: MapSet.new(),
       kind: kind,
-      looks: 0,
+      tally: new_tally(),
       ttl: if(kind == :cue, do: @cue_aim_ttl_ms, else: aim_ttl_ms())
     }
 
@@ -1197,11 +1196,84 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp aim_opened_msg(:cue), do: "🎯 hora da bola — procurando corpo de shiny pela cor"
   defp aim_opened_msg(_sighting), do: "🌟 shiny visto — procurando o corpo pela cor"
 
-  defp aim_expired_msg(%{kind: :cue}, ttl),
-    do: "🎯 hora da bola — nenhum corpo de shiny pela cor em #{div(ttl, 1000)}s"
-
-  defp aim_expired_msg(_sighting, ttl),
+  defp aim_expired_msg(ttl),
     do: "🌟 shiny visto, corpo não achado em #{div(ttl, 1000)}s — bola guardada"
+
+  # A SESSÃO DIZ O QUE VIU AO FECHAR. Em 11/09 09:13 o corpo do Shiny Golem
+  # estava na tela e a mira fechou muda: a cor viva (47,43,46 ±1) tem ZERO
+  # pixels no corpo (a arte do corpo sombreia o casco em cinza neutro) — e o
+  # diário não distinguia isso de uma olhada segurada, de um corpo vetado pelo
+  # acervo ou de uma mancha com bicho em cima. Uma linha por sessão, com a
+  # maior mancha do tom contra o gatilho, é o que separa "não olhei" de "olhei
+  # e a cor não estava lá".
+  defp new_tally,
+    do: %{
+      looks: 0,
+      held: 0,
+      blind: 0,
+      biggest_px: 0,
+      trigger: 0,
+      above: 0,
+      oversized: 0,
+      refused: 0,
+      bodied: 0,
+      corpses: 0
+    }
+
+  defp tally_look(%{aim: %{tally: t} = aim} = state, diag, corpses) do
+    t = %{
+      t
+      | looks: t.looks + 1,
+        corpses: t.corpses + corpses,
+        biggest_px: max(t.biggest_px, Map.get(diag, :biggest_px, 0)),
+        trigger: max(t.trigger, Map.get(diag, :trigger, 0)),
+        above: t.above + Map.get(diag, :above, 0),
+        oversized: t.oversized + Map.get(diag, :oversized, 0),
+        refused: t.refused + Map.get(diag, :refused, 0),
+        bodied: t.bodied + Map.get(diag, :bodied, 0)
+    }
+
+    %{state | aim: %{aim | tally: t}}
+  end
+
+  defp tally_look(state, _diag, _corpses), do: state
+
+  defp tally(%{aim: %{tally: t} = aim} = state, key) when key in [:held, :blind],
+    do: %{state | aim: %{aim | tally: Map.update!(t, key, &(&1 + 1))}}
+
+  defp tally(state, _key), do: state
+
+  defp say_tally(%{since: since, tally: t, kind: kind}) do
+    if t.looks + t.held + t.blind > 0 do
+      log(
+        :macro,
+        "#{tally_prefix(kind)} corpo do shiny pela cor: #{t.looks} foto(s) em #{seconds(since)}s — " <>
+          Enum.join(tally_parts(t), " · ")
+      )
+    end
+  end
+
+  defp seconds(since),
+    do: ((now() - since) / 1000) |> Float.round(1) |> to_string() |> String.replace(".", ",")
+
+  defp tally_parts(t) do
+    [
+      {t.looks > 0, "maior mancha do tom #{t.biggest_px} px (gatilho #{t.trigger})"},
+      {t.looks > 0, "#{t.above} acima do gatilho"},
+      {t.oversized > 0, "#{t.oversized} maior(es) que um bicho"},
+      {t.refused > 0, "#{t.refused} recusada(s) pelo acervo"},
+      {t.bodied > 0, "#{t.bodied} com bicho de pé em cima"},
+      {t.held > 0, "#{t.held} olhada(s) segurada(s) por bicho de pé"},
+      {t.blind > 0, "#{t.blind} olhada(s) cega(s)"},
+      {t.corpses > 0, "#{t.corpses} corpo(s) → bola"},
+      {t.corpses == 0, "nenhum corpo"}
+    ]
+    |> Enum.filter(&elem(&1, 0))
+    |> Enum.map(&elem(&1, 1))
+  end
+
+  defp tally_prefix(:cue), do: "🎯 hora da bola —"
+  defp tally_prefix(_sighting), do: "🌟 shiny visto —"
 
   defp close_aim(%{aim: nil} = state), do: state
 
@@ -1211,6 +1283,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # luta e outra, minutos anunciando um shiny que não existe mais.
   defp close_aim(state) do
     if state.aim_timer, do: Process.cancel_timer(state.aim_timer)
+    say_tally(state.aim)
     state = %{state | aim: nil, aim_timer: nil, shiny_pending?: false}
     publish_capture(state)
     broadcast(state)
@@ -1265,9 +1338,12 @@ defmodule Pokex.Bots.Catcher.Worker do
   # flight. A throw keeps the session alive for its own confirmation scans.
   # …e uma sessão aberta pela hora da bola precisa de pelo menos as duas fotos
   # que confirmam um corpo (`ShinyAim.steady/3`) antes de dizer que não há nada.
+  # …fotos de verdade: uma olhada segurada (bicho de pé) não é uma foto do chão.
+  # Em 11/09 09:12:58 três sessões da hora da bola fecharam sem nunca olhar,
+  # contando as olhadas seguradas como olhadas.
   defp aim_done?(state) do
     not state.shiny_pending? and Logic.pending(state.logic) == 0 and
-      Map.get(state.aim, :looks, 0) >= @cue_aim_looks
+      state.aim.tally.looks >= @cue_aim_looks
   end
 
   # Seen by the guard, corpse not yet found: the TTL is the corpse's own life
@@ -1282,8 +1358,9 @@ defmodule Pokex.Bots.Catcher.Worker do
       %{scanning?: true, candidates: candidates} = obs ->
         tolerance = Settings.get(:corpse_match_tolerance_px)
         steady = ShinyAim.steady(candidates, state.aim.prev, tolerance)
-        obs = ShinyAim.obs(steady, obs.region, obs.captured_at)
-        state = announce_corpses(state, steady)
+        diag = Map.get(obs, :diag, %{})
+        obs = ShinyAim.obs(steady, obs.region, obs.captured_at, diag)
+        state = state |> announce_corpses(steady) |> tally_look(diag, length(steady))
         {%{state | aim: %{state.aim | prev: candidates}}, obs}
 
       # SEGURAR NÃO É CEGAR. A mira recusa a olhada enquanto há bicho de pé na
@@ -1291,15 +1368,15 @@ defmodule Pokex.Bots.Catcher.Worker do
       # cega encheria o placar do painel de uma cegueira que não existe.
       %{scanning?: false, reason: {:alive_on_screen, n}} ->
         log(:debug, "🌟 mira segurada: #{n} bicho(s) de pé — primeiro mata")
-        {state, nil}
+        {tally(state, :held), nil}
 
       %{scanning?: false, reason: :no_picture} ->
         log(:debug, "🌟 mira segurada: sem quadro do cérebro pra saber quem está de pé")
-        {state, nil}
+        {tally(state, :held), nil}
 
       %{scanning?: false} = obs ->
         log(:debug, "🌟 mira cega: #{inspect(Map.get(obs, :reason))}")
-        {state, obs}
+        {tally(state, :blind), obs}
 
       _nothing ->
         {state, nil}

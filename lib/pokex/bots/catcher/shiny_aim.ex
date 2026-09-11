@@ -69,9 +69,8 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
       crowd = Keyword.get_lazy(opts, :crowd, fn -> crowd(now) end)
       tile = Calibration.tile_px(calib)
 
-      frame
-      |> judge(region, ColorRules.armed(), forbidden, crowd, tile)
-      |> obs(region, now)
+      {candidates, diag} = judge_told(frame, region, ColorRules.armed(), forbidden, crowd, tile)
+      obs(candidates, region, now, diag)
     else
       {:blocked, reason} -> %{scanning?: false, source: :shiny_aim, reason: reason}
       {:error, reason} -> %{scanning?: false, source: :shiny_aim, reason: reason}
@@ -106,48 +105,98 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
   nil or unread → nothing is a corpse.
   """
   @spec judge(Frame.t(), tuple, list, list, map | nil, pos_integer) :: [candidate]
-  def judge(%Frame{} = frame, region, rules, forbidden, crowd, tile_px) do
+  def judge(%Frame{} = frame, region, rules, forbidden, crowd, tile_px),
+    do: frame |> judge_told(region, rules, forbidden, crowd, tile_px) |> elem(0)
+
+  @doc """
+  `judge/6` plus the TALLY of what it threw away: `{candidates, diag}`.
+
+  A look that found nothing said nothing — "acabei de matar um shiny e não vi
+  nada" (11/09 09:13): the corpse was on screen with ZERO pixels of the taught
+  tone, and the diary had no way of telling that apart from a held look, a
+  vetoed corpse, or a blob under a live body. The tally is the difference:
+  `biggest_px` is the largest blob of any rule BEFORE the trigger, `above` how
+  many passed it, and the rest where each of those went.
+  """
+  @spec judge_told(Frame.t(), tuple, list, list, map | nil, pos_integer) :: {[candidate], map}
+  def judge_told(%Frame{} = frame, region, rules, forbidden, crowd, tile_px) do
     case bodies(crowd) do
       :unknown ->
-        []
+        {[], %{blind: :no_crowd}}
 
       bodies ->
         # A LISTA NEGRA, resolvida uma vez pra varredura inteira.
         recusados = CorpseLibrary.aimed()
         piso = Settings.get(:corpse_match_min_similarity)
 
-        rules
-        |> Enum.flat_map(fn rule ->
-          result =
-            ColorMark.scan(frame, rule.specs,
-              min_cell_px: rule.min_cell_px,
-              # …mais o HUD que a prova do chão aprendeu (uma banda escura vê o
-              # próprio cliente, e ele é mais alto que qualquer criatura)
-              forbidden: forbidden ++ Map.get(rule, :forbidden, []),
-              # os pedaços de um corpo são um corpo: uma bola por bicho, não
-              # uma por placa do casco
-              merge_px: round(tile_px * frame.scale),
-              merge_min_px: div(rule.min_px, 4)
-            )
+        {picked, diags} =
+          rules
+          |> Enum.map(&judge_rule(&1, frame, region, forbidden, tile_px, recusados, piso))
+          |> Enum.unzip()
 
-          # TODA MANCHA ACIMA DO GATILHO, não só a maior. Com a lava em 40.000 px
-          # e o bicho em 9.000, as duas passam do gatilho mas só a lava era
-          # olhada: o shiny ao lado não ficava "abaixo do limiar", ficava sem ser
-          # olhado. O teto existe porque aqui cada alvo vira uma bola.
-          # …E NENHUMA MAIOR QUE UM BICHO. O corte por tamanho vinha DEPOIS do
-          # teto de candidatos, então um aglomerado de cenário de dez tiles não
-          # só levava bola: ele ocupava as vagas e EXPULSAVA o bicho da lista.
-          # Recusar antes do teto é o que promove o shiny pras vagas livres.
-          result.manchas
-          |> Enum.filter(
-            &(&1.px >= rule.min_px and creature_sized?(&1.box, tile_px, frame.scale))
-          )
-          |> Enum.reject(&refused?(&1, rule, frame, recusados, piso))
-          |> Enum.take(Settings.get(:shiny_aim_max_candidates))
-          |> Enum.map(&on_screen(&1, rule, region, frame.scale))
-        end)
-        |> Enum.reject(fn cand -> Enum.any?(bodies, &within?(&1, cand.point, tile_px)) end)
+        {kept, bodied} =
+          picked
+          |> List.flatten()
+          |> Enum.split_with(fn cand ->
+            not Enum.any?(bodies, &within?(&1, cand.point, tile_px))
+          end)
+
+        diag =
+          diags
+          |> Enum.reduce(%{biggest_px: 0, above: 0, oversized: 0, refused: 0}, fn d, acc ->
+            %{
+              biggest_px: max(acc.biggest_px, d.biggest_px),
+              above: acc.above + d.above,
+              oversized: acc.oversized + d.oversized,
+              refused: acc.refused + d.refused
+            }
+          end)
+          |> Map.put(:bodied, length(bodied))
+          |> Map.put(:trigger, rules |> Enum.map(& &1.min_px) |> Enum.min(fn -> 0 end))
+
+        {kept, diag}
     end
+  end
+
+  defp judge_rule(rule, frame, region, forbidden, tile_px, recusados, piso) do
+    result =
+      ColorMark.scan(frame, rule.specs,
+        min_cell_px: rule.min_cell_px,
+        # …mais o HUD que a prova do chão aprendeu (uma banda escura vê o
+        # próprio cliente, e ele é mais alto que qualquer criatura)
+        forbidden: forbidden ++ Map.get(rule, :forbidden, []),
+        # os pedaços de um corpo são um corpo: uma bola por bicho, não
+        # uma por placa do casco
+        merge_px: round(tile_px * frame.scale),
+        merge_min_px: div(rule.min_px, 4)
+      )
+
+    # TODA MANCHA ACIMA DO GATILHO, não só a maior. Com a lava em 40.000 px
+    # e o bicho em 9.000, as duas passam do gatilho mas só a lava era
+    # olhada: o shiny ao lado não ficava "abaixo do limiar", ficava sem ser
+    # olhado. O teto existe porque aqui cada alvo vira uma bola.
+    # …E NENHUMA MAIOR QUE UM BICHO. O corte por tamanho vinha DEPOIS do
+    # teto de candidatos, então um aglomerado de cenário de dez tiles não
+    # só levava bola: ele ocupava as vagas e EXPULSAVA o bicho da lista.
+    # Recusar antes do teto é o que promove o shiny pras vagas livres.
+    above = Enum.filter(result.manchas, &(&1.px >= rule.min_px))
+    {sized, oversized} = Enum.split_with(above, &creature_sized?(&1.box, tile_px, frame.scale))
+    {kept, refused} = Enum.split_with(sized, &(not refused?(&1, rule, frame, recusados, piso)))
+
+    picked =
+      kept
+      |> Enum.take(Settings.get(:shiny_aim_max_candidates))
+      |> Enum.map(&on_screen(&1, rule, region, frame.scale))
+
+    biggest = result.manchas |> Enum.map(& &1.px) |> Enum.max(fn -> 0 end)
+
+    {picked,
+     %{
+       biggest_px: biggest,
+       above: length(above),
+       oversized: length(oversized),
+       refused: length(refused)
+     }}
   end
 
   @doc "Candidates already seen on the previous scan, within `tolerance` px: two photos, not one."
@@ -156,11 +205,12 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
     do:
       Enum.filter(candidates, fn c -> Enum.any?(prev, &within?(&1.point, c.point, tolerance)) end)
 
-  @doc "The Logic's observation for these candidates."
-  def obs(candidates, region, at) do
+  @doc "The Logic's observation for these candidates (`diag` is `judge_told/6`'s tally)."
+  def obs(candidates, region, at, diag \\ %{}) do
     %{
       scanning?: true,
       source: :shiny_aim,
+      diag: diag,
       corpses: Enum.map(candidates, & &1.point),
       # `score` É SEMELHANÇA, DE 0 A 1. Aqui não há semelhança nenhuma: o que
       # existe é a contagem de pixels da cor na mancha. Postos no mesmo campo,

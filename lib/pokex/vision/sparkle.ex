@@ -39,7 +39,7 @@ defmodule Pokex.Vision.Sparkle do
         }
 
   # the yellow of the glyph, with room for the capture path
-  @r_min 220
+  @r_min 244
   @g_min 192
   @b_max 100
   @r_minus_b_min 120
@@ -47,7 +47,7 @@ defmodule Pokex.Vision.Sparkle do
   @side_min 6
   @side_max 20
   @px_min 30
-  @fill_min 0.28
+  @fill_min 0.18
   # ink: the font's outline, or a black floor
   @ink_max 60
   # the window beside the name, in bar widths (27 pt) and bar heights (4 pt)
@@ -166,22 +166,57 @@ defmodule Pokex.Vision.Sparkle do
 
     w >= side_min and w <= side_max and h >= side_min and h <= side_max and
       px >= @px_min * scale * scale and px >= @fill_min * w * h and
+      cross?(component, {x_min, y_min, x_max, y_max}) and
       alone?({x_min, y_min, x_max, y_max}, component, blobs, scale) and
       not outlined?(component, frame)
+  end
+
+  # A 4-POINT STAR IS A CROSS: its middle column runs the whole height and its
+  # middle row most of the width. Measured on the raw frames of 11/09: the
+  # real star fills 100 % of its middle column and 57-62 % of its middle row;
+  # the 38 px "staircase" of 17:25:55 (three offset blocks of the same yellow
+  # beside a common creature's name) filled 33 % and 36 %.
+  @cross_column_min 0.8
+  @cross_row_min 0.5
+
+  defp cross?(component, {x_min, y_min, x_max, y_max}) do
+    cx = div(x_min + x_max, 2)
+    cy = div(y_min + y_max, 2)
+
+    column =
+      Enum.count(y_min..y_max, fn y ->
+        Enum.any?((cx - 1)..(cx + 1), &MapSet.member?(component, {&1, y}))
+      end)
+
+    row =
+      Enum.count(x_min..x_max, fn x ->
+        Enum.any?((cy - 1)..(cy + 1), &MapSet.member?(component, {x, &1}))
+      end)
+
+    column >= @cross_column_min * (y_max - y_min + 1) and
+      row >= @cross_row_min * (x_max - x_min + 1)
   end
 
   # letters sit a pixel or two apart on one baseline; a star has no such neighbour
   @neighbour_gap 4
 
+  # …and a neighbour only counts when it is letter-sized next to this one: the
+  # glyph's own small twin stars (4-6 px tall beside a 16 px star, 17:26 and
+  # 17:28 of 11/09) sat 3 px from the big star and were read as "the next
+  # letter", and two real shinies went unseen.
+  @letter_height_share 0.6
+
   defp alone?({x_min, y_min, x_max, y_max}, component, blobs, scale) do
     gap = round(@neighbour_gap * scale)
+    height = y_max - y_min + 1
 
     not Enum.any?(blobs, fn other ->
       other != component and MapSet.size(other) >= 3 and
         (
           {ox_min, oy_min, ox_max, oy_max} = bbox(other)
 
-          ox_min <= x_max + gap and ox_max >= x_min - gap and
+          oy_max - oy_min + 1 >= @letter_height_share * height and
+            ox_min <= x_max + gap and ox_max >= x_min - gap and
             oy_min <= y_max and oy_max >= y_min
         )
     end)

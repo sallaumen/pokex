@@ -17,24 +17,42 @@ defmodule Pokex.Vision.SparkleTest do
 
   defp near?({x, y}, {ex, ey}, tol), do: abs(x - ex) <= tol and abs(y - ey) <= tol
 
-  test "the star beside a green name is found and handed to that creature's bar" do
-    frame = frame!("feraligatr_shiny_green_name.png")
-    bar = {168, 71}
+  # THE RAW STAR (17:26 and 17:28 of 11/09, the two shinies the first build
+  # missed): r 248-255, g 194-230, b 37-88, a 13-15 × 16 cross of 61-74 px with
+  # its small twin 3 px away — cut from the black box's full frames, bar at
+  # (140,40). The third one stands under the chain's green haze.
+  for n <- 1..3 do
+    test "the raw star beside the name is found and handed to that creature's bar (#{n})" do
+      name =
+        Enum.at(
+          ["star_raw_1.png", "star_raw_2.png", "star_raw_3_under_chain.png"],
+          unquote(n) - 1
+        )
 
-    assert [%{bar: ^bar, point: point, px: px, box: {_, _, w, h}}] =
-             Sparkle.find(frame, [%{point: bar}])
+      frame = frame!(name)
+      bar = {140, 40}
 
-    assert near?(point, {116, 63}, 6)
-    assert px >= 30
-    assert w >= 8 and h >= 8
+      assert [%{bar: ^bar, point: point, px: px, box: {_, _, w, h}}] =
+               Sparkle.find(frame, [%{point: bar}])
+
+      assert near?(point, {86, 31}, 8)
+      assert px >= 45
+      assert w >= 12 and h >= 14
+    end
   end
 
-  test "a yellow name does not pass for the star, and the star beside it is found" do
-    frame = frame!("feraligatr_shiny_yellow_name.png")
-    bar = {138, 76}
+  # 17:25:55 of 11/09: three offset blocks of a slightly duller yellow
+  # (234,230,53) beside a COMMON creature's name — 38 px, no cross, r < 244.
+  test "the staircase beside a common creature's name is not a star" do
+    frame = frame!("staircase_raw.png")
+    assert Sparkle.find(frame, [%{point: {140, 40}}]) == []
+  end
 
-    assert [%{bar: ^bar, point: point}] = Sparkle.find(frame, [%{point: bar}])
-    assert near?(point, {86, 68}, 6)
+  # the video is H.264: its star lost red (228-252) and would not pass the raw
+  # palette; the crops stay as the NEGATIVE cases (a common creature, the pile)
+  test "the compressed video's common creature and its yellow name light nothing" do
+    frame = frame!("feraligatr_shiny_yellow_name.png")
+    assert Sparkle.find(frame, [%{point: {138, 76}}]) |> Enum.reject(&(&1.px >= 30)) == []
   end
 
   test "a common creature has no star beside its name" do

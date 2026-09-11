@@ -94,6 +94,11 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
   # O olho (CrowdWatch) publica cada leitura no tópico do cérebro; o worker só
   # precisa dos pontos de quem estava de pé.
+  # A lista do cérebro zerada (`:situation`): o único momento em que a bola comum
+  # sai numa caçada.
+  defp list_empty,
+    do: WorldState.put(:situation, %{enemies: 0}, System.monotonic_time(:millisecond))
+
   defp saw_standing(worker, points),
     do: send(worker, {:crowd, %{read?: true, hostiles: Enum.map(points, &%{point: &1})}})
 
@@ -914,6 +919,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     :ok = Worker.mode_changed(worker)
 
     WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
 
     saw_standing(worker, [{130, 224}])
     world!(worker, corpses_obs([{130, 224}]))
@@ -932,6 +938,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     :ok = Worker.mode_changed(worker)
 
     WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
 
     saw_standing(worker, [{130, 224}])
     world!(worker, corpses_obs([{700, 32}, {130, 224}]))
@@ -947,10 +954,33 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     :ok = Worker.mode_changed(worker)
 
     WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
 
     world!(worker, corpses_obs([{130, 224}]))
 
     refute_receive {:performed, _p, _a}, 300
+  end
+
+  # 10/09, duas horas de caçada: 2.123 bolas, 1.353 com a pilha ainda chegando e
+  # 272 no meio do combo — só 435 com a lista zerada. A estrada fica segurada a
+  # luta inteira, então "parado" nunca quis dizer "a luta acabou".
+  @tag :tmp_dir
+  test "hunting with the road held but enemies still listed, nothing is thrown", %{
+    worker: worker
+  } do
+    Settings.put(:player_mode, "hunt")
+    :ok = Worker.mode_changed(worker)
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    WorldState.put(:situation, %{enemies: 5}, System.monotonic_time(:millisecond))
+
+    saw_standing(worker, [{130, 224}])
+    world!(worker, corpses_obs([{130, 224}]))
+
+    refute_receive {:performed, _p, _a}, 300
+
+    assert Worker.status(worker).hold_reason ==
+             "bicho vivo na tela — a bola espera a lista zerar"
   end
 
   @tag :tmp_dir

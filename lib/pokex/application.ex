@@ -56,6 +56,9 @@ defmodule Pokex.Application do
       # The waiting eye (phase 1): photographs around the pokémon while the brain waits
       # for the pile. It only measures.
       Pokex.Bots.CrowdWatch,
+      # A caixa-preta: fotos + fatos dos momentos em que um shiny costuma estar
+      # (sobrevivente da corrente, cor vista, barra caída). Só grava.
+      Pokex.Bots.BlackBox,
       # Ends the session (idle/goal rules or the manual button). After BotSupervisor
       # because it halts the fleet.
       Pokex.Bots.Logout,

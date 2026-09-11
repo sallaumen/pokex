@@ -1068,6 +1068,17 @@ defmodule Pokex.Bots.Catcher.Worker do
     end
   end
 
+  defp trail_snapshot(state) do
+    ref = trail_ref(%{})
+    at = now()
+
+    %{
+      hunted: Trail.hunted(state.trail, ref),
+      anchors: Trail.anchors(state.trail, ref, at),
+      standing: length(Trail.standing(state.trail, ref))
+    }
+  end
+
   defp on_screen?({x, y}) do
     case Calibration.load() do
       {:ok, %{screen_w: w, screen_h: h}} when is_integer(w) and is_integer(h) ->
@@ -1564,6 +1575,8 @@ defmodule Pokex.Bots.Catcher.Worker do
       aim?: state.aim != nil,
       # a caçada do shiny está aberta mesmo antes de o corpo aparecer
       shiny_pending?: state.shiny_pending?,
+      # o rastro (`Catcher.Trail`): o shiny de pé e onde ele caiu, na tela de agora
+      trail: trail_snapshot(state),
       sweep: %{
         enabled?: Settings.get(:sweep_enabled),
         pending: length(state.sweep_queue),

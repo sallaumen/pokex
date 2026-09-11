@@ -96,6 +96,8 @@ config :pokex, :front_game_cmd, false
 config :pokex, :shiny_guard_active, false
 # O olho da espera (CrowdWatch) não fotografa na suíte: cada teste injeta o `look` que quer.
 config :pokex, :crowd_watch_active, false
+# the black box records on the survivor/shiny edges; tests start their own
+config :pokex, :black_box_active, false
 # The siren never shells out to afplay in the suite; siren tests inject the player.
 config :pokex, :native_sound_cmd, false
 # The app-wide watchman does not poll in the suite: watchman tests drive their own instance.

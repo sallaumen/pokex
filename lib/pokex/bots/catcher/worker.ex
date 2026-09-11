@@ -606,6 +606,14 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp capture_allowed?(state),
     do: Settings.get(:capture_enabled) or (state.aim != nil and Settings.get(:shiny_always_ball))
 
+  # A OBSERVAÇÃO DO SHINY TRAZ A PRÓPRIA LICENÇA: a âncora de uma barra caçada
+  # chega antes de qualquer sessão de mira abrir (17:26:00 de 11/09), e o
+  # shiny sempre merece a bola.
+  defp capture_allowed?(state, %{source: :shiny_aim}),
+    do: capture_allowed?(state) or Settings.get(:shiny_always_ball) == true
+
+  defp capture_allowed?(state, _obs), do: capture_allowed?(state)
+
   # The mode gate lives HERE, not only in attach/detach: a late in-flight {:world,...} event
   # (or a test-injected one) right after flipping to moving must never throw a ball.
   # The mini-game gate comes first: no admissions, throws or confirms while it
@@ -616,14 +624,22 @@ defmodule Pokex.Bots.Catcher.Worker do
 
     state =
       cond do
-        Perception.mini_game_playing?() -> state
+        Perception.mini_game_playing?() ->
+          refuse_shiny(obs, "o mini-game está em curso")
+          state
+
         # the shiny's corpse is aimed by colour on a fresh frame: no mode owns it
-        match?(%{source: :shiny_aim}, obs) -> do_advance(state, obs)
+        match?(%{source: :shiny_aim}, obs) ->
+          do_advance(state, obs)
+
         # PARADO É PARADO: modo Parado, ou caçada com a estrada segurada pelo
         # cérebro. Este era o SEGUNDO portão do mesmo modo — consertar só o
         # `scan_obs/1` deixava a varredura rodar e o resultado morrer aqui.
-        standing?() -> do_advance(state, obs)
-        true -> state
+        standing?() ->
+          do_advance(state, obs)
+
+        true ->
+          state
       end
 
     state = reagendar(state, obs)
@@ -724,7 +740,8 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp advance_gated(state, obs) do
     cond do
-      not capture_allowed?(state) ->
+      not capture_allowed?(state, obs) ->
+        refuse_shiny(obs, "captura desligada e shiny_always_ball desligado")
         state
 
       # Ask the GATE before deciding — the cavebot's lesson (Body.step_minimap):
@@ -733,12 +750,37 @@ defmodule Pokex.Bots.Catcher.Worker do
       # the queue and open a confirmation window against an untouched corpse.
       # Skipping the whole step leaves the corpse there for the next kill.
       not gate_aberto?() ->
+        refuse_shiny(obs, "o jogo não está em foco, ou o pânico está armado")
         hold(state)
 
       true ->
-        run_step(%{state | held?: false}, obs)
+        state = run_step(%{state | held?: false}, obs)
+        anchor_without_ball(state, obs)
+        state
     end
   end
+
+  # A BOLA DO SHINY NUNCA SOME EM SILÊNCIO. Às 17:26:00 de 11/09 duas âncoras
+  # foram anunciadas e nenhuma bola saiu, sem uma linha dizendo por quê.
+  defp refuse_shiny(%{source: :shiny_aim, diag: %{anchor: true}}, why),
+    do: log(:macro, "🌟 a bola da âncora NÃO saiu — #{why}")
+
+  defp refuse_shiny(_obs, _why), do: :ok
+
+  defp anchor_without_ball(%{logic: %{throw: nil} = logic}, %{
+         source: :shiny_aim,
+         diag: %{anchor: true},
+         corpses: corpses
+       }) do
+    log(
+      :macro,
+      "🌟 a bola da âncora NÃO saiu — a lógica recusou #{length(corpses)} âncora(s): " <>
+        "fila #{length(logic.queue)}, ignorados #{map_size(logic.ignored)}, " <>
+        "última observação #{inspect(logic.last_obs_at)}"
+    )
+  end
+
+  defp anchor_without_ball(_state, _obs), do: :ok
 
   defp gate_aberto? do
     InputGate.allowed?()
@@ -995,13 +1037,19 @@ defmodule Pokex.Bots.Catcher.Worker do
     %{state | trail: trail}
   end
 
+  # MEIO TILE, DE PROPÓSITO. O vigia aponta o CENTRO DA ARTE (a barra mais meio
+  # tile); o rastro guarda cada bicho pelo ponto do corpo do olho (a barra mais
+  # UM tile). Sem o ajuste, um brilho entre dois bichos empilhados ficava a
+  # 75 px do bicho de cima e a 76 px do bicho certo — e às 17:25:59 de 11/09
+  # dois rastros caíram "caçados" de uma vez, um deles o vizinho.
   defp hunt(state, vistos) do
     ref = trail_ref(%{})
     at = now()
+    half = div(ref.tile, 2)
 
     trail =
-      Enum.reduce(vistos, state.trail, fn %{point: point, name: name} = visto, trail ->
-        Trail.hunt_at(trail, point, name, Map.get(visto, :px), ref, at)
+      Enum.reduce(vistos, state.trail, fn %{point: {x, y}, name: name} = visto, trail ->
+        Trail.hunt_at(trail, {x, y + half}, name, Map.get(visto, :px), ref, at)
       end)
 
     %{state | trail: trail}
@@ -1063,8 +1111,18 @@ defmodule Pokex.Bots.Catcher.Worker do
           )
 
         obs = ShinyAim.obs(candidates, {0, 0, 0, 0}, at, %{anchor: true})
+        throws_before = state.logic.counters.throws
         state = advance(state, obs)
-        %{state | trail: Enum.reduce(anchors, state.trail, &Trail.spend(&2, &1.world))}
+
+        # GASTA SÓ O QUE A BOLA LEVOU. Às 17:26:00 de 11/09 as duas âncoras
+        # foram gastas numa chamada que não virou bola, e o corpo do shiny ficou
+        # no chão. Sem bola nova, as âncoras esperam a próxima hora da bola.
+        if state.logic.counters.throws > throws_before do
+          %{state | trail: Enum.reduce(anchors, state.trail, &Trail.spend(&2, &1.world))}
+        else
+          log(:macro, "🌟 a âncora ficou pra próxima hora da bola — nenhuma bola saiu agora")
+          state
+        end
     end
   end
 

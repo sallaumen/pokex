@@ -79,19 +79,7 @@ defmodule Pokex.Bots.Catcher.Trail do
     seen = Enum.map(hostiles, &Map.put(&1, :world, to_world(&1.point, ref)))
     pet = pet_world(reading, ref)
 
-    {tracks, left} =
-      trail.tracks
-      |> Map.values()
-      |> Enum.sort_by(&{not &1.hunted?, -&1.seen_at})
-      |> Enum.reduce({[], seen}, fn track, {done, left} ->
-        case nearest(left, predict(track)) do
-          {hostile, rest} -> {[hit(track, hostile, now) | done], rest}
-          # `| done`: this dropped every track already matched — in the field
-          # (12:39 of 11/09, eight bars) the hunted Shiny Golem was gone from the
-          # trail two seconds after the sighting, without a fall
-          nil -> {[miss(track, pet) | done], left}
-        end
-      end)
+    {tracks, left} = match(Map.values(trail.tracks), seen, pet, now)
 
     born =
       left
@@ -211,6 +199,42 @@ defmodule Pokex.Bots.Catcher.Trail do
     do: {x + (x - px) / 2, y + (y - py) / 2}
 
   defp predict(%{world: world}), do: world
+
+  # CLOSEST PAIRS FIRST, over every track at once. Hunted-first greedy let a
+  # neighbour standing ONE tile away steal the hunted track the moment the
+  # shiny fell (its own bar gone, the neighbour's bar inside the gate), so the
+  # track walked onto the neighbour and never fell — no anchor, no ball. With
+  # the pairs sorted by distance the neighbour's own track claims it at
+  # distance zero first, and the hunted track is left with nothing: a miss,
+  # and three misses are the fall. Ties go to the hunted track.
+  defp match(tracks, hostiles, pet, now) do
+    # by INDEX, never by value: two creatures crossing stand on the same point
+    # for a look and are two equal maps
+    indexed = Enum.with_index(hostiles)
+
+    pairs =
+      for track <- tracks,
+          {hostile, i} <- indexed,
+          d = distance(hostile.world, predict(track)),
+          d <= @gate_tiles,
+          do: {d, not track.hunted?, track, hostile, i}
+
+    {hits, used_tracks, used_hostiles} =
+      pairs
+      |> Enum.sort_by(fn {d, common?, track, _h, _i} -> {d, common?, -track.seen_at} end)
+      |> Enum.reduce({[], MapSet.new(), MapSet.new()}, fn {_d, _c, track, hostile, i},
+                                                          {hits, ts, hs} ->
+        if MapSet.member?(ts, track.id) or MapSet.member?(hs, i),
+          do: {hits, ts, hs},
+          else: {[hit(track, hostile, now) | hits], MapSet.put(ts, track.id), MapSet.put(hs, i)}
+      end)
+
+    misses =
+      for track <- tracks, not MapSet.member?(used_tracks, track.id), do: miss(track, pet)
+
+    left = for {hostile, i} <- indexed, not MapSet.member?(used_hostiles, i), do: hostile
+    {hits ++ misses, left}
+  end
 
   defp nearest(hostiles, {gx, gy}) do
     hostiles

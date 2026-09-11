@@ -876,6 +876,67 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:shiny_ball, %{point: {600, 250}, name: "Shiny Golem"}}, 1_000
   end
 
+  # MEIO TILE. 17:25:59 of 11/09: the guard's blob (the art's centre, half a
+  # tile under the bar) sat 75 px from the creature ABOVE and 76 px from the
+  # right one, and two tracks fell "hunted" — the neighbour among them.
+  @tag :tmp_dir
+  test "the guard's blob between two stacked creatures hunts the one under its own bar" do
+    worker = start_hunt_worker(scanner: fn -> nil end)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+    me = {500, 350}
+    # tile 100 in this calibration: bars at y=100 and y=200, bodies at 200 and 300
+    upper = %{point: {500, 200}}
+    lower = %{point: {500, 300}}
+    look = fn hostiles -> %{read?: true, me: me, hostiles: hostiles, pet: nil} end
+
+    send(worker, {:crowd, look.([upper, lower])})
+    # the sparkle beside the UPPER creature's name: its art's centre is bar + half a tile
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "shiny",
+      {:shiny_on_screen, %{vistos: [%{name: "Shiny (brilho)", px: 60, point: {500, 150}}]}}
+    )
+
+    send(worker, {:crowd, look.([upper, lower])})
+    assert %{trail: %{hunted: %{screen: {500, 200}}}} = Worker.status(worker)
+
+    # the upper one falls; the lower one stands: one anchor, on the upper one
+    for _ <- 1..3, do: send(worker, {:crowd, look.([lower])})
+    assert_log_eventually("Shiny (brilho) caiu em 500,200")
+    assert %{trail: %{anchors: [%{screen: {500, 200}}]}} = Worker.status(worker)
+  end
+
+  # THE ANCHOR'S BALL NEEDS NO COLOUR SESSION: 17:26:00 of 11/09, two anchors
+  # announced and no ball, in silence. The shiny observation carries its own
+  # licence, and a refusal is said out loud.
+  @tag :tmp_dir
+  test "with capture off, the anchor still buys the ball, and a refusal is said out loud" do
+    Settings.put(:capture_enabled, false)
+    worker = start_hunt_worker(scanner: fn -> nil end)
+    me = {500, 350}
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+    seen = fn hostiles -> %{read?: true, me: me, hostiles: hostiles, pet: nil} end
+
+    send(worker, {:crowd, seen.([Map.merge(%{point: {600, 250}}, shiny)])})
+    for _ <- 1..3, do: send(worker, {:crowd, seen.([])})
+    assert_log_eventually("Shiny Golem caiu em 600,250")
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+    send(worker, {:capture_now})
+
+    assert_log_eventually("bola na âncora do Shiny Golem em 600,250")
+    assert_receive {:performed, :high, [{:move, {600, 250}} | _]}, 3_000
+
+    SettingsStash.stash!(shiny_always_ball: false)
+    send(worker, {:crowd, seen.([Map.merge(%{point: {700, 250}}, shiny)])})
+    for _ <- 1..3, do: send(worker, {:crowd, seen.([])})
+    assert_log_eventually("Shiny Golem caiu em 700,250")
+    send(worker, {:capture_now})
+    assert_log_eventually("a bola da âncora NÃO saiu")
+    assert_log_eventually("a âncora ficou pra próxima hora da bola")
+  end
+
   @tag :tmp_dir
   test "at the capture cue with no colour rule armed, no colour session opens" do
     worker = start_hunt_worker(scanner: fn -> nil end)

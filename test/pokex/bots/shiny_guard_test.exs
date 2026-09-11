@@ -639,4 +639,58 @@ defmodule Pokex.Bots.ShinyGuardTest do
     assert_receive {:journal, :special, %{tag: "gone"}}, 2_000
     refute_receive {:journal, :special, %{tag: "seen"}}, 500
   end
+
+  # O BRILHO AO LADO DO NOME (11/09): a estrela amarela do cliente ao lado do
+  # nome de todo shiny — sem cor ensinada, sem espécie. Ela fica à esquerda do
+  # nome, que fica em cima da barra; a "mancha" publicada é o corpo do bicho.
+  describe "the sparkle beside the name" do
+    @amarelo {250, 215, 60}
+
+    # a plus-shaped star of 11×13 left of the bar of `bicho/2`, no colour on the body
+    defp estrela(sx, sy),
+      do: [{{sx - 1, sy - 6, 3, 13}, @amarelo}, {{sx - 5, sy - 1, 11, 3}, @amarelo}]
+
+    defp bicho_sem_cor(cx, cy) do
+      bar_y = cy - @tile_teste - 2
+
+      [
+        {{cx - 5, cy - 7, 14, 14}, {120, 120, 120}},
+        {{cx - 12, bar_y + 1, 22, 2}, {0, 188, 0}},
+        {{cx - 13, bar_y, 27, 4}, {0, 0, 0}}
+      ]
+    end
+
+    defp frame_com_brilho({_x, _y, w, h}),
+      do: frame(w, h, {40, 40, 40}, estrela(90, 100) ++ bicho_sem_cor(140, 150))
+
+    test "with no colour rule at all, the star beside the name is a sighting", %{region: region} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+      assert ColorRules.armed() == []
+
+      start_guard(fn _region, _name -> {:ok, frame_com_brilho(region)} end)
+
+      assert_receive {:shiny_seen, %{name: "Shiny (brilho)", point: {sx, sy}}}, 2_000
+      # the body, half a tile below the bar's centre (140,110 in the frame; the
+      # region's origin is added on the way to screen points)
+      {rx, ry, _w, _h} = region
+      assert {sx - rx, sy - ry} == {140, 110 + div(@tile_teste, 2)}
+
+      assert {:ok, %{especial?: true, vistos: [%{name: "Shiny (brilho)"}]}} =
+               WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
+    end
+
+    test "a creature without the star is nobody", %{region: region} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+      sem_estrela = frame(elem(region, 2), elem(region, 3), {40, 40, 40}, bicho_sem_cor(140, 150))
+      start_guard(fn _region, _name -> {:ok, sem_estrela} end)
+      refute_receive {:shiny_seen, _}, 400
+    end
+
+    test "the switch turns the star off", %{region: region} do
+      Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+      SettingsStash.stash!(shiny_sparkle: false)
+      start_guard(fn _region, _name -> {:ok, frame_com_brilho(region)} end)
+      refute_receive {:shiny_seen, _}, 400
+    end
+  end
 end

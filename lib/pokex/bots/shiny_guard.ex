@@ -36,7 +36,14 @@ defmodule Pokex.Bots.ShinyGuard do
   alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
-  alias Pokex.Vision.{ColorMark, ColorRules, CreatureFence, Evidence, Frame}
+  alias Pokex.Vision.{ColorMark, ColorRules, CreatureFence, CreatureMarks, Evidence, Frame}
+  alias Pokex.Vision.Sparkle
+
+  # O BRILHO AO LADO DO NOME é uma regra sem cor e sem espécie: o cliente
+  # desenha a mesma estrela amarela ao lado do nome de todo shiny (11/09). Ela
+  # entra no mesmo caminho das regras de cor — confirmação em duas varreduras,
+  # refratário, foto da morte, fato `:special`, faixa — com este crachá.
+  @sparkle_rule %{slug: "brilho", name: "Shiny (brilho)", min_px: 1}
 
   @combat_topic "combat"
   # the panel meter and the Catcher listen here
@@ -144,6 +151,7 @@ defmodule Pokex.Bots.ShinyGuard do
      %{
        enabled?: state.active? and Settings.get(:shiny_guard_enabled),
        armed_rules: length(ColorRules.armed()),
+       sparkle?: sparkle?(),
        pending?: state.streaks != %{}
      }, state}
   end
@@ -183,19 +191,22 @@ defmodule Pokex.Bots.ShinyGuard do
   # -- a varredura -------------------------------------------------------------
 
   defp look(state) do
-    case ColorRules.armed() do
-      [] ->
-        %{state | streaks: %{}}
+    rules = ColorRules.armed()
 
-      rules ->
-        case snapshot(state) do
-          {:ok, frame, region, forbidden} -> judge(state, rules, frame, region, forbidden)
-          # Blind is not "no boss": without a frame the fact is NOT rewritten; it ages
-          # on its own until the brain stops believing it.
-          _blind -> state
-        end
+    # sem regra de cor E sem o brilho não há o que procurar
+    if rules == [] and not sparkle?() do
+      %{state | streaks: %{}}
+    else
+      case snapshot(state) do
+        {:ok, frame, region, forbidden} -> judge(state, rules, frame, region, forbidden)
+        # Blind is not "no boss": without a frame the fact is NOT rewritten; it ages
+        # on its own until the brain stops believing it.
+        _blind -> state
+      end
     end
   end
+
+  defp sparkle?, do: Settings.get(:shiny_sparkle) == true
 
   defp snapshot(state) do
     with {:ok, calib} <- Calibration.load(),
@@ -242,9 +253,15 @@ defmodule Pokex.Bots.ShinyGuard do
     # (o chão, uma caixa, um CORPO, que não tem barra); e uma mancha em cima de
     # um bicho que o acervo "Meu pokémon (rastreio)" reconhece é o companheiro
     # dele, que o vigia não caça.
+    # AS BARRAS UMA VEZ SÓ: a cerca e o brilho olham as mesmas barras.
+    marks =
+      if Settings.get(:shiny_needs_creature) or sparkle?(),
+        do: CreatureMarks.find(frame),
+        else: []
+
     corpos =
       if Settings.get(:shiny_needs_creature),
-        do: CreatureFence.bodies(frame, tile_frame),
+        do: CreatureFence.bodies(frame, tile_frame, marks: marks),
         else: :anywhere
 
     {state, best, vistos} =
@@ -314,9 +331,35 @@ defmodule Pokex.Bots.ShinyGuard do
          Enum.map(achadas, &{rule, &1}) ++ vistos}
       end)
 
+    {state, vistos} = sparkles(state, frame, marks, tile_frame, region, vistos)
+
     state = keepsake(state, vistos, frame)
     publish_special(vistos, frame.scale)
     broadcast_reading(state, best)
+  end
+
+  # O BRILHO AO LADO DO NOME. A estrela fica ao lado do nome, que fica em cima
+  # da barra: a "mancha" que sai daqui é o CORPO do bicho (meio tile abaixo da
+  # barra, o mesmo ponto que a cor entregaria), pra que o olho junte o brilho
+  # à barra certa (`CrowdScan.mark_special/3`) e o rastro cace esse bicho.
+  defp sparkles(state, frame, marks, tile_frame, region, vistos) do
+    if sparkle?() do
+      hits =
+        frame
+        |> Sparkle.find(marks)
+        |> Enum.map(fn %{bar: {bx, by}, px: px, point: star} ->
+          on_screen(
+            %{px: px, point: {bx, by + div(tile_frame, 2)}, star: star},
+            region,
+            frame.scale
+          )
+        end)
+
+      state = advance(state, @sparkle_rule, List.first(hits), hits != [])
+      {state, Enum.map(hits, &{@sparkle_rule, &1}) ++ vistos}
+    else
+      {state, vistos}
+    end
   end
 
   # …e o holofote também tem voz, uma vez por elenco: calar em silêncio seria a
@@ -475,7 +518,10 @@ defmodule Pokex.Bots.ShinyGuard do
   # Sighted: record and announce, no action here. The Catcher listens for {:shiny_seen, _} and
   # arms the guaranteed ball.
   defp fire(state, rule, mancha) do
-    reason = "✨ #{rule.name} na tela — mancha de #{mancha.px}px da cor dele"
+    reason =
+      if rule.slug == @sparkle_rule.slug,
+        do: "✨ shiny na tela — o brilho ao lado do nome (#{mancha.px}px)",
+        else: "✨ #{rule.name} na tela — mancha de #{mancha.px}px da cor dele"
 
     # the trophy shelf first: the encounter is logged even if a broadcast fails.
     # `star_px` is the field's historical name (the star is gone, the field stayed): it now
@@ -654,8 +700,12 @@ defmodule Pokex.Bots.ShinyGuard do
   # On, the cadence is the scan's; off (or no rule armed), a slow tick just to re-check the
   # switch.
   defp schedule(state) do
+    # o brilho ao lado do nome vigia na mesma cadência das cores: sem ele e
+    # sem regra armada, o vigia só confere de segundo em segundo se ligaram algo
+    armed? = ColorRules.armed() != [] or sparkle?()
+
     ms =
-      if state.active? and Settings.get(:shiny_guard_enabled) and ColorRules.armed() != [],
+      if state.active? and Settings.get(:shiny_guard_enabled) and armed?,
         do: Settings.get(:special_color_scan_ms),
         else: @idle_poll_ms
 

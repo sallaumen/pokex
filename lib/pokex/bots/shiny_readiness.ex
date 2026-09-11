@@ -42,8 +42,25 @@ defmodule Pokex.Bots.ShinyReadiness do
     armed = ColorRules.armed()
     names = Enum.map(armed, & &1.name)
 
-    %{armed: names, gaps: gaps(rules, armed), notes: notes(names, armed)}
+    # O BRILHO AO LADO DO NOME arma o caçador sozinho: com ele ligado, não
+    # ensinar cor nenhuma não é uma lacuna — é o caminho (11/09).
+    if Settings.get(:shiny_sparkle) == true do
+      names = ["brilho ao lado do nome" | names]
+
+      %{
+        armed: names,
+        gaps: gaps_with_sparkle(rules, armed),
+        notes: notes(names, [:sparkle | armed])
+      }
+    else
+      %{armed: names, gaps: gaps(rules, armed), notes: notes(names, armed)}
+    end
   end
+
+  # With the sparkle on, the colour rules are optional: only an ARMED rule that
+  # cannot work (stale proof, unreachable trigger) is worth a step.
+  defp gaps_with_sparkle(_rules, []), do: guard_gap()
+  defp gaps_with_sparkle(rules, armed), do: gaps(rules, armed)
 
   @doc "Nothing blocking: the hunter scans and a sighting becomes a ball."
   @spec ready?(t) :: boolean

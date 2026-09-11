@@ -308,6 +308,9 @@ defmodule Pokex.Settings.Locked do
     shiny_needs_creature:
       {"Shiny (visão)",
        "só conta cor que estiver em cima de um bicho vivo (a barra de vida prova)"},
+    shiny_sparkle:
+      {"Shiny (visão)",
+       "o brilho amarelo ao lado do nome (opção do cliente) marca o shiny, sem cor por espécie"},
     shiny_aim_max_candidates:
       {"Shiny (visão)", "quantos alvos por varredura a mira por cor pode enfileirar"},
     shiny_max_blobs:

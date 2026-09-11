@@ -273,6 +273,12 @@ defmodule Pokex.Settings do
     shiny_always_ball: true,
     shiny_aim_max_candidates: 3,
     shiny_needs_creature: true,
+    # O BRILHO AO LADO DO NOME (11/09): o cliente tem uma opção que desenha uma
+    # estrela amarela ao lado do nome de todo shiny. É um glifo da interface —
+    # os mesmos pixels pra toda espécie, sem luz do lugar — e mora ao lado do
+    # NOME, que fica em cima da barra de vida que o olho já acha. Uma regra
+    # global, sem cor por espécie (`Pokex.Vision.Sparkle`).
+    shiny_sparkle: true,
     # O DISJUNTOR DO HOLOFOTE. Um tom que acende em muitos lugares ao mesmo
     # tempo não está identificando um bicho: está acendendo a tela.
     #

@@ -34,8 +34,9 @@ defmodule Pokex.Vision.CreatureFence do
   The live bodies in `frame`, each tagged with the name of HIS pokémon when the tracking
   collection recognises it.
 
-  `tile_frame` is one game tile in frame pixels. `opts[:sprites]` and `opts[:floor]` are the
-  test seams.
+  `tile_frame` is one game tile in frame pixels. `opts[:marks]` are the eye's marks when the
+  caller already found them (the sparkle looks at the same bars); `opts[:sprites]` and
+  `opts[:floor]` are the test seams.
   """
   @spec bodies(Frame.t(), pos_integer, keyword) :: [body]
   def bodies(%Frame{} = frame, tile_frame, opts \\ []) do
@@ -44,8 +45,8 @@ defmodule Pokex.Vision.CreatureFence do
     box = Settings.get(:pokemon_sprite_box_px)
     aimed = if SpriteLibrary.empty?(lib), do: nil, else: SpriteLibrary.aimed(lib)
 
-    frame
-    |> CreatureMarks.find()
+    opts
+    |> Keyword.get_lazy(:marks, fn -> CreatureMarks.find(frame) end)
     |> Enum.map(fn %{point: {x, y}} ->
       # DOIS PONTOS, DE PROPÓSITO. A cerca mede do corpo inteiro, um tile abaixo
       # da barra; a sprite ensinada foi recortada MEIO tile abaixo dela (#553:

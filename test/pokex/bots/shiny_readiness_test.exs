@@ -20,6 +20,8 @@ defmodule Pokex.Bots.ShinyReadinessTest do
 
     SettingsStash.stash!(
       shiny_guard_enabled: false,
+      # the colour path alone: with the sparkle on, no colour is a gap (own test below)
+      shiny_sparkle: false,
       engine_capture_hold_ms: 6_000,
       ball_key: "f1",
       ball_types: [%{"key" => "f1", "name" => "Poké Ball"}, %{"key" => "f3", "name" => "Ultra"}]
@@ -42,6 +44,21 @@ defmodule Pokex.Bots.ShinyReadinessTest do
   end
 
   defp keys(steps), do: Enum.map(steps, & &1.key)
+
+  # O BRILHO AO LADO DO NOME arma o caçador sozinho (11/09): sem cor ensinada
+  # a única porteira é o interruptor, e o cartão diz que vigia o brilho.
+  test "with the sparkle on and nothing taught, only the switch stands between him and a shiny" do
+    SettingsStash.stash!(shiny_sparkle: true)
+
+    check = ShinyReadiness.check()
+    assert keys(check.gaps) == [:guard_off]
+    assert check.armed == ["brilho ao lado do nome"]
+
+    SettingsStash.stash!(shiny_guard_enabled: true)
+    check = ShinyReadiness.check()
+    assert check.gaps == []
+    assert ShinyReadiness.ready?(check)
+  end
 
   # A QUARTA PORTEIRA. `armed/0` diz "ligada e provada"; o caçador ainda exige
   # que a prova seja DESTE quadro. Mexer no raio da busca aposenta todas as

@@ -96,10 +96,12 @@ defmodule Pokex.Bots.CrowdWatchTest do
     CrowdWatch.look_now(watch)
     CrowdWatch.look_now(watch)
 
-    assert_receive {:engine_log, :macro,
+    # `:debug` since 11/09: the Central draws the eye in bars, and the line was
+    # 65% of his diary
+    assert_receive {:engine_log, :debug,
                     "olho: 👀 vi 2 (lista 3) · pokémon a 2 tiles · mais perto a 2 tiles · caveira · 12ms"}
 
-    refute_receive {:engine_log, :macro, "olho: 👀" <> _}, 100
+    refute_receive {:engine_log, _level, "olho: 👀" <> _}, 100
   end
 
   test "the clock is a fight clock: 250ms with enemies or a revive pending, 1s walking clear, idle without a hunt",

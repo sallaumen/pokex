@@ -169,7 +169,11 @@ defmodule Pokex.Bots.CrowdWatch do
     if line == state.last_line do
       state
     else
-      broadcast({:engine_log, :macro, "olho: " <> line})
+      # `:debug`, não `:macro`: esta linha era 65% do diário dele (16 mil em
+      # 3 h de 11/09 — "esses de caçada tão poluindo muito meus logs"). A
+      # Central já desenha o que o olho vê, em barras; a frase fica no
+      # interruptor de depuração.
+      broadcast({:engine_log, :debug, "olho: " <> line})
       %{state | last_line: line}
     end
   end

@@ -207,7 +207,9 @@ defmodule Pokex.Bots.Engine.ShadowTest do
     assert orders().phase == :sizing
     assert orders().route == :go
     assert orders().fire == :hold
-    assert_receive {:engine_log, :macro, "quadro: 🧠" <> contando}
+    # `:debug` since 11/09: "contando quem vem" is the clock ticking, one line
+    # per creature that enters the count
+    assert_receive {:engine_log, :debug, "quadro: 🧠" <> contando}
     assert contando =~ "contando"
   end
 

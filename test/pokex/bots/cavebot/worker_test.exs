@@ -165,7 +165,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
   end
 
   defp await_log(matching) do
-    assert_receive {:cavebot_log, :macro, text}, 1_000
+    assert_receive {:cavebot_log, _level, text}, 1_000
     if text =~ matching, do: text, else: await_log(matching)
   end
 
@@ -963,7 +963,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     assert_receive {:cavebot, %{state: :walking, wp_index: 1, counters: %{waypoints: 1}}}, 1_000
   end
 
-  test "the hunt narrates the edges: route, waypoint (macro) and step (debug)", %{worker: worker} do
+  test "the hunt narrates the edges: route (macro), waypoint and step (debug)", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     two_waypoint_route!()
     :ok = Worker.run(worker)
@@ -974,8 +974,10 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
     tick!(worker)
     assert_receive {:combat_cmd, :run}, 1_000
 
+    # the corner reached is `:debug` since 11/09 (the map shows it; 888 lines in
+    # 3 h of his diary); the corner SKIPPED stays `:macro`
     tick!(worker)
-    assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2" <> _}, 1_000
+    assert_receive {:cavebot_log, :debug, "caçada: waypoint 1/2" <> _}, 1_000
 
     tick!(worker)
     assert_receive {:cavebot_log, :debug, "caçada: segurando right+down → wp 2/2"}, 1_000
@@ -1215,7 +1217,7 @@ defmodule Pokex.Bots.Cavebot.WorkerTest do
       Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
       tick!(worker)
 
-      assert_receive {:cavebot_log, :macro, "caçada: waypoint 1/2" <> _}, 1_000
+      assert_receive {:cavebot_log, :debug, "caçada: waypoint 1/2" <> _}, 1_000
       refute_receive {:cavebot_log, :macro, "caçada: 🪜" <> _}, 200
     end
   end

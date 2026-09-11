@@ -195,7 +195,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert text =~ "3 inimigos na tela"
       assert text =~ "Venonat 100%, Paras 100%, Venomoth 100%"
       # the own-row measurement rides the same first tick — see its own test
-      assert_receive {:engine_log, :macro, _measurement}
+      assert_receive {:engine_log, :debug, _measurement}
       assert_shadow()
 
       send(worker, :tick)
@@ -210,7 +210,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       send(worker, :tick)
       settle(worker)
       assert_receive {:engine_log, :debug, _first}
-      assert_receive {:engine_log, :macro, _measurement}
+      assert_receive {:engine_log, :debug, _measurement}
       assert_shadow()
 
       see(~w(Venonat Paras Venomoth Oddish))
@@ -228,7 +228,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       send(worker, :tick)
       settle(worker)
       assert_receive {:engine_log, :debug, _count}
-      assert_receive {:engine_log, :macro, _measurement}
+      assert_receive {:engine_log, :debug, _measurement}
       assert_shadow()
 
       WorldState.forget(:battle)
@@ -249,7 +249,9 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert_receive {:engine_log, :debug, count}
       assert count =~ "2 inimigos"
 
-      assert_receive {:engine_log, :macro, measurement}
+      # `:debug` since 11/09: the reading flips on every revive (the pokémon
+      # leaves the list and comes back) and the Central draws the list live
+      assert_receive {:engine_log, :debug, measurement}
       assert measurement =~ "NÃO aparece na lista"
       assert measurement =~ "2 linha(s)"
     end

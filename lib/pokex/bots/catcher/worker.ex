@@ -770,13 +770,14 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp anchor_without_ball(%{logic: %{throw: nil} = logic}, %{
          source: :shiny_aim,
          diag: %{anchor: true},
-         corpses: corpses
+         corpses: corpses,
+         captured_at: at
        }) do
     log(
       :macro,
       "🌟 a bola da âncora NÃO saiu — a lógica recusou #{length(corpses)} âncora(s): " <>
         "fila #{length(logic.queue)}, ignorados #{map_size(logic.ignored)}, " <>
-        "última observação #{inspect(logic.last_obs_at)}"
+        "esta observação #{at}, a última que ela viu #{inspect(logic.last_obs_at)}"
     )
   end
 
@@ -1114,7 +1115,13 @@ defmodule Pokex.Bots.Catcher.Worker do
   # portão de modo como a do shiny, o "🌟 bola em" sai e a faixa acende.
   defp throw_at_anchors(state) do
     ref = trail_ref(%{})
-    at = now()
+    # A OBSERVAÇÃO DA ÂNCORA NÃO É UMA FOTO. A varredura da hora da bola
+    # carimba a foto dela no fim do trabalho, no MESMO milissegundo em que esta
+    # chamada nasce, e o portão de frescor da lógica (`captured_at <=
+    # last_obs_at`) engolia a âncora em silêncio: 19:51:19 de 11/09, o corpo
+    # em 1268,768, ele parado do lado, "a lógica recusou 1 âncora(s)". A
+    # âncora é sempre a observação mais nova que a lógica já viu.
+    at = fresher_than(state.logic, now())
     standing = Trail.standing(state.trail, ref)
     tile = ref.tile
 
@@ -1157,6 +1164,9 @@ defmodule Pokex.Bots.Catcher.Worker do
         end
     end
   end
+
+  defp fresher_than(%Logic{last_obs_at: last}, now) when is_integer(last), do: max(now, last + 1)
+  defp fresher_than(_logic, now), do: now
 
   defp trail_snapshot(state) do
     ref = trail_ref(%{})

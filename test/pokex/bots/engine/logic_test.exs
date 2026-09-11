@@ -30,9 +30,13 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # anda. Um mundo sem coordenada não põe ninguém pra dormir.
   @here {100, 200, 7}
 
+  # `heavy?: true` alone, in this file, has always meant THE BOSS (the named or
+  # measured one, who cuts the gathering queue); the special sets `special?`
+  # and `boss?: false` explicitly.
   defp situation(overrides \\ %{}) do
     Map.merge(
       %{
+        boss?: Map.get(overrides, :heavy?, false),
         enemies: 4,
         worth_fighting?: true,
         growing?: false,
@@ -3610,6 +3614,88 @@ defmodule Pokex.Bots.Engine.LogicTest do
       off = Config.merge(%{bunch_ms: 0, gather_target: 1, capture_hold_ms: 0})
       {_logic, orders} = Logic.step(Logic.new(), walking(), off, 10_000)
       refute orders.phase == :capturing
+    end
+  end
+
+  # "POSTURA NO SHINY É JUNTAR PRIMEIRO!" (11/09). Em 09:12:54 o vigia viu o
+  # Shiny Golem com 3 na tela e o cérebro abriu fogo andando ("matando o que já
+  # abriu"): o especial casava o ramo do chefe, que fura a fila da juntada.
+  describe "the special gathers first; only the boss skips the queue" do
+    @his_mode Config.merge(%{
+                gather_piles: false,
+                engage_from: 6,
+                gather_target: 6,
+                bunch_ms: 4_000
+              })
+
+    test "the shiny seen by colour with three on screen does not open fire on the spot" do
+      shiny =
+        world(%{
+          situation:
+            situation(%{
+              enemies: 3,
+              heavy?: true,
+              special?: true,
+              boss?: false,
+              worth_fighting?: true
+            }),
+          hunt: hunt(%{state: :walking})
+        })
+
+      {_logic, orders} = Logic.step(Logic.new(), shiny, @his_mode, 1_000)
+
+      refute orders.phase == :engaged, "abriu fogo sem juntar: #{orders.why}"
+      assert orders.why =~ "✨ especial na tela: juntando primeiro"
+    end
+
+    test "the boss by name still cuts the queue" do
+      boss =
+        world(%{
+          situation: situation(%{enemies: 3, heavy?: true, boss?: true, worth_fighting?: true}),
+          hunt: hunt(%{state: :walking})
+        })
+
+      {_logic, orders} = Logic.step(Logic.new(), boss, @his_mode, 1_000)
+
+      assert orders.phase == :engaged
+    end
+
+    # …ONCE THE FIGHT WITH THE SPECIAL HAS OPENED, IT IS THE BOSS until the pile
+    # zeroes with it off screen: the bench left the sleeping shiny behind after
+    # the first revive and went gathering ten steps ahead (0 kills in 3 min).
+    test "after the first opening the special cuts the queue, until it is gone" do
+      shiny = fn enemies, special? ->
+        world(%{
+          situation:
+            situation(%{
+              enemies: enemies,
+              heavy?: special?,
+              special?: special?,
+              boss?: false,
+              worth_fighting?: true,
+              ready_keys: []
+            }),
+          hunt: hunt(%{state: :walking})
+        })
+      end
+
+      # a fight already open with the special on screen
+      opened = %{Logic.new() | state: :engaged, special_opened?: true}
+
+      # the list blinks to zero with the shiny still on screen: the latch holds
+      {logic, _} = Logic.step(opened, shiny.(0, true), @his_mode, 1_000)
+      assert logic.special_opened?
+
+      {_logic, orders} = Logic.step(logic, shiny.(1, true), @his_mode, 1_200)
+      assert orders.phase == :engaged, "the survivor shiny was sent to gather: #{orders.why}"
+
+      # the pile zeroes with the shiny gone: next sighting gathers first again
+      {logic, _} = Logic.step(logic, shiny.(0, false), @his_mode, 5_000)
+      refute logic.special_opened?
+
+      {_logic, orders} = Logic.step(logic, shiny.(3, true), @his_mode, 5_200)
+      refute orders.phase == :engaged
+      assert orders.why =~ "juntando primeiro"
     end
   end
 end

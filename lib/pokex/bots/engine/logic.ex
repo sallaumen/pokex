@@ -203,7 +203,14 @@ defmodule Pokex.Bots.Engine.Logic do
             # THE AREA IS HEAVY (skulls), latched for the fight: an effect over
             # the pile hides skulls without changing the area. An empty list
             # clears it.
-            heavy_area?: false
+            heavy_area?: false,
+            # A LUTA COM O ESPECIAL JÁ ABRIU. Ele junta primeiro (11/09) — mas
+            # só na chegada: aberta a luta, o sobrevivente da corrente é chefe
+            # (fura a fila, ciclo do stun) até a pilha zerar com ele fora da
+            # tela. Sem isto a bancada deixava o shiny dormindo pra trás depois
+            # do primeiro revive e ia juntar de novo, 10 passos adiante — 0
+            # shinies mortos em 3 min em duas sementes de seis.
+            special_opened?: false
 
   @type t :: %__MODULE__{}
   @type orders :: Orders.t()
@@ -274,7 +281,16 @@ defmodule Pokex.Bots.Engine.Logic do
     )
   end
 
-  defp track_heavy(logic, %{enemies: 0}), do: %{logic | heavy_area?: false}
+  # …e a luta aberta com o especial só fecha quando a pilha zera COM ele fora
+  # da tela: o revive recolhe o pokémon e a lista pisca em zero com o shiny
+  # dormindo do lado.
+  defp track_heavy(logic, %{enemies: 0} = situation),
+    do: %{
+      logic
+      | heavy_area?: false,
+        special_opened?: logic.special_opened? and Map.get(situation, :special?, false)
+    }
+
   defp track_heavy(logic, _pile_or_blind), do: logic
 
   defp latch_heavy(logic, %{heavy?: true}), do: %{logic | heavy_area?: true}
@@ -1049,10 +1065,15 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp normal(%{hunt: %{state: :fighting}} = t), do: ruler(t)
 
-  defp normal(%{s: %{heavy?: true}} = t),
-    do: engaged(%{t | logic: enter(t.logic, :engaged, t.now)})
-
+  # O CHEFE fura a fila; o ESPECIAL junta primeiro — até a luta com ele abrir
+  # (`cuts_queue?/1`, ver `ruler/1`).
   defp normal(t) do
+    if cuts_queue?(t),
+      do: engaged(%{t | logic: enter(t.logic, :engaged, t.now)}),
+      else: normal_light(t)
+  end
+
+  defp normal_light(t) do
     if prepare?(t, t.config.prepare_max_enemies) do
       {reset_fight(t.logic, :travelling)
        |> mark(:reset_revive, t.now)
@@ -1137,11 +1158,23 @@ defmodule Pokex.Bots.Engine.Logic do
   # de área, e um chefe com ataque 10x não dá o tempo que a economia custa:
   # "1 segundo sem stun no campo quer dizer que eu morri" (29/08). Na tela,
   # briga-se JÁ, com a postura de chefe do `engaged/1`.
-  defp ruler(%{s: %{heavy?: true}} = t),
-    do: engaged(%{t | logic: enter(t.logic, :engaged, t.now)})
+  #
+  # …O ESPECIAL NÃO. Isto casava `heavy?`, e o shiny visto pela cor é `heavy?`
+  # também: em 11/09 09:12:54 o vigia viu o Shiny Golem com 3 na tela e o
+  # cérebro abriu fogo andando ("matando o que já abriu"), sem esperar a pilha
+  # fechar em cima do pokémon. "Postura no shiny é juntar primeiro!" — ele
+  # vale a luta (`worth_fighting?`) e não se recua dele (`heavy?`), mas passa
+  # pela régua e pela juntada como qualquer pilha. Só o chefe por nome ou por
+  # grit (`boss?`) fura a fila — e o especial depois de a luta com ele abrir
+  # (`special_opened?`, o latch do sobrevivente).
+  defp ruler(t) do
+    if cuts_queue?(t),
+      do: engaged(%{t | logic: enter(t.logic, :engaged, t.now)}),
+      else: ruler_queue(t)
+  end
 
-  defp ruler(%{logic: %{state: :bunching}} = t), do: bunching(t)
-  defp ruler(%{logic: %{state: :engaged}} = t), do: engaged(t)
+  defp ruler_queue(%{logic: %{state: :bunching}} = t), do: bunching(t)
+  defp ruler_queue(%{logic: %{state: :engaged}} = t), do: engaged(t)
   # A PILHA DEIXADA PRA TRÁS CONTINUA SENDO OLHADA. Este ramo era `skipping(t)`
   # seco: uma vez decidido "não vale", o cérebro andava de mãos baixas SEM
   # reler a lista — o estado só saía por chefe ou emergência. Diário de 02/09,
@@ -1153,7 +1186,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # cada tique: encheu enquanto eu andava, é régua de novo (e com a juntada
   # desligada a régua abre parada); esvaziou, a rota segue LIMPA, sem carregar
   # o "não vale" pra próxima pilha.
-  defp ruler(%{logic: %{state: :skipping}} = t) do
+  defp ruler_queue(%{logic: %{state: :skipping}} = t) do
     cond do
       t.s.enemies == 0 ->
         {reset_fight(t.logic, :travelling),
@@ -1167,7 +1200,7 @@ defmodule Pokex.Bots.Engine.Logic do
     end
   end
 
-  defp ruler(t), do: sizing(%{t | logic: enter_sizing(t.logic, t.now)})
+  defp ruler_queue(t), do: sizing(%{t | logic: enter_sizing(t.logic, t.now)})
 
   # Walking a pile together is still SIZING — it is the same question, asked
   # while moving — so the clock started at the first sighting keeps running and
@@ -1283,7 +1316,7 @@ defmodule Pokex.Bots.Engine.Logic do
     # no relógio de uma luta que já estava em curso — e chamando de FORA do
     # `engaged` (a fila das bandas) é ele que garante que a luta é uma luta,
     # não um `:idle` narrando fogo.
-    {t.logic |> enter(:engaged, t.now) |> stun!(t),
+    {t.logic |> enter(:engaged, t.now) |> open_special(t) |> stun!(t),
      Orders.standing_and_firing(
        :engaged,
        t.band,
@@ -1472,10 +1505,24 @@ defmodule Pokex.Bots.Engine.Logic do
   # por ciclo na bancada), NEM sai com a barra gasta no meio da cobertura:
   # stun em cima de sono pago desperdiça o sono e desalinha a emenda. O stun
   # tem UM relógio — a emenda.
+  # …E O ESPECIAL SÓ COM A LUTA ABERTA: o stun daqui sai com a abertura junto
+  # (`boss_stun/1`), e "juntar primeiro" (11/09) é exatamente não abrir antes
+  # de a pilha fechar. Aberta a luta, o ciclo é o mesmo do chefe — o chefe por
+  # nome ou grit (`boss?`) segue furando a fila.
   defp boss_stun_due?(t) do
-    heavy?(t) and control_ready?(t) and close_enough_to_stun?(t) and
-      emenda_due?(t) and elapsed?(t, :stunned, 1_500)
+    heavy?(t) and (cuts_queue?(t) or fight_open?(t)) and control_ready?(t) and
+      close_enough_to_stun?(t) and emenda_due?(t) and elapsed?(t, :stunned, 1_500)
   end
+
+  defp cuts_queue?(t),
+    do: Map.get(t.s, :boss?, false) or (special?(t) and t.logic.special_opened?)
+
+  defp special?(t), do: Map.get(t.s, :special?, false)
+
+  defp open_special(logic, t),
+    do: %{logic | special_opened?: logic.special_opened? or special?(t)}
+
+  defp fight_open?(t), do: t.logic.state in [:engaged, :resetting]
 
   # A cobertura restante chegou na pegada? Com testemunha, é aritmética; sem
   # (o jogo real, por enquanto), o carimbo da ordem aproxima: cobertura do
@@ -1893,10 +1940,16 @@ defmodule Pokex.Bots.Engine.Logic do
          Orders.walking(
            :sizing,
            t.band,
-           "só #{count(t.s)} à vista — seguindo a rota, contando quem vem"
+           "só #{count(t.s)} à vista — seguindo a rota, contando quem vem#{special_note(t)}"
          )}
     end
   end
+
+  # O ESPECIAL NA FRASE: sem isto ele não tem como ver no diário que o shiny
+  # foi visto e que a juntada é de propósito, não o cérebro cego pra ele.
+  defp special_note(t),
+    do:
+      if(Map.get(t.s, :special?, false), do: " · ✨ especial na tela: juntando primeiro", else: "")
 
   # R12 — A JANELA FECHOU; AGORA DEIXA ELES CHEGAREM.
   #
@@ -1937,10 +1990,26 @@ defmodule Pokex.Bots.Engine.Logic do
   # e limpá-la com a barra inteira foi como a barra chegou vazia na pilha de
   # verdade: "gastei minhas skills num bicho bobo" (28/08). Uma tecla de dano
   # resolve; desconhecido abre inteiro, como sempre (fail-open pra caçada).
-  defp fire_all(t, why),
-    do:
-      {%{t.logic | state: :engaged},
-       Orders.standing_and_firing(:engaged, t.band, hand_for(t), why)}
+  # …E COM O ESPECIAL NA PILHA, O CONTROLE VAI NA FRENTE. Juntar primeiro
+  # (11/09) tirou o stun-com-abertura do chefe da chegada do shiny; na hora de
+  # abrir ele volta a ser prefixo, como no ciclo do chefe — abrir com a corrente
+  # e o controle por último deixava o shiny 3,6 s acordado mordendo dentro da
+  # luta (bancada dos shinies empilhados, semente 1): um ciclo perdido.
+  defp fire_all(t, why) do
+    logic = %{t.logic | state: :engaged} |> open_special(t)
+
+    if heavy?(t) and control_ready?(t) and close_enough_to_stun?(t) do
+      {stun!(logic, t),
+       Orders.standing_and_firing(
+         :engaged,
+         t.band,
+         crowd(t) ++ hand_for(t),
+         why <> " · controle na frente, é o especial"
+       )}
+    else
+      {logic, Orders.standing_and_firing(:engaged, t.band, hand_for(t), why)}
+    end
+  end
 
   defp hand_for(t) do
     case {Map.get(t.s, :worth_fighting?), small(t)} do
@@ -2042,7 +2111,7 @@ defmodule Pokex.Bots.Engine.Logic do
          Orders.standing(
            :bunching,
            t.band,
-           "#{count(t.s)} vindo — esperando eles fecharem em cima do pokémon"
+           "#{count(t.s)} vindo — esperando eles fecharem em cima do pokémon#{special_note(t)}"
          )}
 
       true ->
@@ -2057,10 +2126,15 @@ defmodule Pokex.Bots.Engine.Logic do
   # fall in the incognito boss, and half a run standing still on his own route
   # (09/09). The hunts he named for this rule have no skulls; the hard ones
   # keep the whole wait until the eye has proven itself there.
+  # …E O ESPECIAL É A EXCEÇÃO DA EXCEÇÃO: ele não fura a fila (11/09), então a
+  # espera dele é ESTA — e ela acaba quando a pilha fecha em cima do pokémon,
+  # que é o que ele pediu ("esperar os monstros agruparem ali no meu Pokémon").
+  # Esperar o relógio inteiro com o shiny já mordendo é só mordida: na bancada
+  # dos shinies empilhados o pior momento caía de 38-77% pra 8-11%.
   defp pile_closed?(%{siege: %{read?: true, pet_seen?: true} = siege} = t),
     do:
-      not heavy?(t) and not siege.heavy? and siege.loose == 0 and siege.pinned >= 1 and
-        siege.unseen <= siege.pinned
+      not cuts_queue?(t) and (not siege.heavy? or special?(t)) and siege.loose == 0 and
+        siege.pinned >= 1 and siege.unseen <= siege.pinned
 
   defp pile_closed?(_no_eye), do: false
 

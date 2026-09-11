@@ -282,7 +282,6 @@ test/pokex/bots/engine/shadow_test.exs: test "a vida sem leitura é dita em voz 
 test/pokex/bots/engine/shadow_test.exs: test "o auto combo não junta: com a tela cheia ele para e abre"
 test/pokex/bots/engine/shadow_test.exs: test "o modo econômico não junta pilha"
 test/pokex/bots/engine/situation_test.exs: test "a comparação ignora caso e espaços da lista"
-test/pokex/bots/engine/situation_test.exs: test "a cor vista liga heavy? e fura a régua sozinha"
 test/pokex/bots/engine/situation_test.exs: test "a folga é ajustável, e é o que decide"
 test/pokex/bots/engine/situation_test.exs: test "a pokémon with no damage keys classified cannot be spent"
 test/pokex/bots/engine/situation_test.exs: test "canal ausente é especial nenhum — nenhuma bancada antiga ganha postura"

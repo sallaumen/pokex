@@ -46,6 +46,9 @@ defmodule Pokex.Sim.Verdict do
      "a vida nunca caiu abaixo da metade — nenhuma janela cascateou"},
     {:stun_sempre, "chefe sempre no ciclo",
      "nenhum chefe passou de uma janela estrutural acordado (3s) — acima disso um ciclo se perdeu"},
+    {:stun_na_luta, "chefe no ciclo com a luta aberta",
+     "nenhum chefe passou de uma janela estrutural acordado (3s) DEPOIS de a luta abrir — " <>
+       "antes dela o especial junta primeiro (11/09), e chegar mordendo é a escolha dele"},
     {:limpa, "limpa a tela", "terminou sem monstro de pé"},
     {:nao_recua, "não recua", "nunca andou a rota ao contrário com a barra vazia (R7)"},
     {:recolhe_seguro, "recolhe com o campo seguro",
@@ -64,6 +67,7 @@ defmodule Pokex.Sim.Verdict do
           | :aguenta
           | :nao_recua
           | :stun_sempre
+          | :stun_na_luta
           | :limpa
           | :recolhe_seguro
           | :captura
@@ -187,6 +191,21 @@ defmodule Pokex.Sim.Verdict do
 
   defp check(:stun_sempre, %{metrics: %{boss_awake_max_ms: pior}}),
     do: {false, "um chefe ficou #{pior}ms acordado — um ciclo do combo se perdeu"}
+
+  # A MESMA RÉGUA, A PARTIR DA LUTA ABERTA. "Postura no shiny é juntar
+  # primeiro!" (11/09): o especial visto pela cor passa pela juntada como
+  # qualquer pilha, e o trecho em que ele chega mordendo enquanto ela fecha é
+  # decisão dele — medido na bancada dos shinies empilhados, 4 a 10 s. O ciclo
+  # que a promessa cobra é o de dentro da luta.
+  defp check(:stun_na_luta, %{metrics: %{bosses_born: 0}}),
+    do: {false, "nenhum chefe nasceu — a promessa não foi exercida"}
+
+  defp check(:stun_na_luta, %{metrics: %{boss_awake_in_fight_max_ms: pior}}) when pior <= 3_000,
+    do: {true, "pior trecho acordado com a luta aberta: #{pior}ms"}
+
+  defp check(:stun_na_luta, %{metrics: %{boss_awake_in_fight_max_ms: pior}}),
+    do:
+      {false, "um chefe ficou #{pior}ms acordado com a luta aberta — um ciclo do combo se perdeu"}
 
   # …e `aguenta` é a outra metade: as janelas estruturais custam mordida, mas
   # nunca podem CASCATEAR — vida abaixo da metade é ciclo perdido virando

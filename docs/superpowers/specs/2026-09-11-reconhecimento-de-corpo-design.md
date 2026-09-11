@@ -214,6 +214,26 @@ Estado do acervo dele agora (`~/.pokex/corpses.json`, backup
 ligado (2 amostras), **Kabutops** desligado = veto (3 amostras), Shiny Golem
 desligado (fotos guardadas), Scizor e Shiny Venusaur desligados.
 
+### 3.5 O corpo escondido: a luz do item, e por que a identidade vem do bicho vivo
+
+Ele matou um shiny nesta madrugada e a bola não saiu. Primeiro, porque a
+varredura nem rodou — a chamada da bola saía no mesmo tique em que a rota
+voltava a andar (390 de 398 chamadas fechadas; corrigido no #597). Depois,
+porque **em cima do corpo acende uma luz por ~34 s**: é a luz de **item
+dropado** — qualquer pokémon, várias cores, não é marca de shiny (correção
+dele) — e enquanto ela está lá o corpo não se vê. Um casador de corpo, seja
+qual for, não casa o que não vê.
+
+Consequência pro desenho: **a identidade do corpo vem do bicho VIVO** e viaja
+com a âncora (#592) até o lugar onde ele morreu. O que existe pra isso: a
+guarda por cor (`ShinyGuard`/`ColorRules`, o vigia só conta cor em cima de
+bicho vivo) e as fotos dele do shiny de pé (`live_shiny_1..3`, §3.4). Cada
+âncora ganha `form` (hunted / common / unknown) quando o bicho ainda está de
+pé; ao fechar a rodada, uma âncora `hunted` leva a bola no ponto dela mesmo
+sem corpo visível, com a bola da forma. A varredura do corpo vira confirmação
+quando dá pra ver, não condição. A luz do item, se for medida um dia, serve
+só como "caiu um corpo aqui" — nunca como "é shiny".
+
 ## 4. Os caminhos
 
 **A. Só os portões: âncora + forma comum ensinada como veto + prova.** Nada de
@@ -372,6 +392,17 @@ as manchas de fora (#592); passa a listar a forma vencedora de cada âncora.
 - Pokémon dele, cerca do shiny, rastreador e mira do shiny no `SpriteMatch`
   (§5.5). Os testes existentes de cada um continuam; o `@clear_by` e o piso
   passam a vir da bancada.
+
+### PR 2b — a identidade viaja com a âncora (a luz do item, §3.5)
+
+- A âncora (#592) guarda a forma do bicho de pé: `hunted` quando a guarda por
+  cor (regra ensinada e provada do shiny) ou a sprite viva do acervo o
+  reconhece, `common` quando o acervo reconhece a forma comum, `unknown` no
+  resto. A regra de cor do Shiny Kabutops (preto + verde) é dele pra ensinar.
+- Ao fechar a rodada, âncora `hunted` = bola no ponto, com a bola da forma,
+  corpo visível ou não; a confirmação é "inconclusiva" enquanto a luz cobre o
+  corpo (nunca "capturado" por ausência).
+- Medir antes: no jogo, a bola jogada em cima da luz pega o corpo? (só ele.)
 
 ### PR 4 — identidade pelo texto (depende da resposta dele, §9)
 

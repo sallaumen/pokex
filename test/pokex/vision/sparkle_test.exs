@@ -83,6 +83,18 @@ defmodule Pokex.Vision.SparkleTest do
     assert Sparkle.find(frame, [%{point: {140, 110}}]) == []
   end
 
+  # 17:01 of 11/09, first hunt with the sparkle on: "qualquer bicho na minha
+  # tela, ele tá falando que tem shiny". Nine yellow specks of sand beside
+  # names in twelve of the guard's own raw photos — 4×4 to 5×5 px,
+  # (216-248, 184-192, 88-104) — and each one was a sighting. The real star is
+  # 38-63 px and its yellow keeps green ≥ 196 and blue ≤ 96.
+  for n <- 1..3 do
+    test "a speck of desert sand beside a name is not a star (#{n})" do
+      frame = frame!("desert_specks_#{unquote(n)}.png")
+      assert Sparkle.find(frame, [%{point: {140, 40}}]) == []
+    end
+  end
+
   test "a mark near the frame's edge is looked at without crashing" do
     frame = frame!("feraligatr_common.png")
     assert Sparkle.find(frame, [%{point: {2, 2}}, %{point: {279, 139}}]) == []

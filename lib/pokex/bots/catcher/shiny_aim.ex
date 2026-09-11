@@ -123,7 +123,11 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
               min_cell_px: rule.min_cell_px,
               # …mais o HUD que a prova do chão aprendeu (uma banda escura vê o
               # próprio cliente, e ele é mais alto que qualquer criatura)
-              forbidden: forbidden ++ Map.get(rule, :forbidden, [])
+              forbidden: forbidden ++ Map.get(rule, :forbidden, []),
+              # os pedaços de um corpo são um corpo: uma bola por bicho, não
+              # uma por placa do casco
+              merge_px: round(tile_px * frame.scale),
+              merge_min_px: div(rule.min_px, 4)
             )
 
           # TODA MANCHA ACIMA DO GATILHO, não só a maior. Com a lava em 40.000 px

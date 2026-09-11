@@ -1983,26 +1983,28 @@ defmodule PokexWeb.CalibrationLiveTest do
 
       {:ok, view, _html} = live(conn, "/calibration")
 
-      # o vermelho está em toda parte: seis manchas espalhadas, nenhuma dominante
+      # o verde está em toda parte: treze manchas espalhadas MAIS de um tile
+      # umas das outras (pedaços a menos de um tile são um bicho só), nenhuma
+      # dominante
       espalhado =
-        cor_frame(64, 64, {30, 30, 30}, [
+        cor_frame(700, 700, {30, 30, 30}, [
           {{2, 2, 8, 8}, @verde},
-          {{20, 2, 8, 8}, @verde},
-          {{40, 2, 8, 8}, @verde},
-          {{2, 20, 8, 8}, @verde},
-          {{20, 20, 8, 8}, @verde},
-          {{40, 20, 8, 8}, @verde},
-          {{2, 40, 8, 8}, @verde},
-          {{20, 40, 8, 8}, @verde},
-          {{40, 40, 8, 8}, @verde},
-          {{2, 52, 8, 8}, @verde},
-          {{20, 52, 8, 8}, @verde},
-          {{40, 52, 8, 8}, @verde},
-          {{52, 52, 8, 8}, @verde}
+          {{200, 2, 8, 8}, @verde},
+          {{400, 2, 8, 8}, @verde},
+          {{600, 2, 8, 8}, @verde},
+          {{2, 200, 8, 8}, @verde},
+          {{200, 200, 8, 8}, @verde},
+          {{400, 200, 8, 8}, @verde},
+          {{600, 200, 8, 8}, @verde},
+          {{2, 400, 8, 8}, @verde},
+          {{200, 400, 8, 8}, @verde},
+          {{400, 400, 8, 8}, @verde},
+          {{600, 400, 8, 8}, @verde},
+          {{2, 600, 8, 8}, @verde}
         ])
 
       com_foto(view, espalhado)
-      html = render_click(view, "special_pick", %{"x" => 5, "y" => 5, "cw" => 64, "nw" => 64})
+      html = render_click(view, "special_pick", %{"x" => 5, "y" => 5, "cw" => 700, "nw" => 700})
 
       assert html =~ "não separa", "um tom espalhado tem que ser reprovado em uma palavra"
       assert html =~ "cenário", "…e dizer o que fazer com ele"
@@ -2205,11 +2207,18 @@ defmodule PokexWeb.CalibrationLiveTest do
       {:ok, _} = Fake.start_link(%{})
       {:ok, view, _html} = live(conn, "/calibration")
 
-      # muitos quadradinhos da mesma cor espalhados: o tom e do cenario
-      manchas = for i <- 0..19, do: {{i * 3, rem(i, 5) * 12, 2, 2}, @verde}
-      com_foto(view, cor_frame(64, 64, {40, 40, 40}, manchas ++ [{{10, 30, 10, 10}, @verde}]))
+      # muitos quadradinhos da mesma cor espalhados pela foto, cada um mais de
+      # um tile longe do outro (pedaços a menos de um tile são um bicho só): o
+      # tom e do cenario
+      manchas = for i <- 0..19, do: {{rem(i, 5) * 130 + 3, div(i, 5) * 130 + 3, 4, 4}, @verde}
 
-      html = render_click(view, "special_pick", %{"x" => 15, "y" => 35, "cw" => 64, "nw" => 64})
+      com_foto(
+        view,
+        cor_frame(700, 700, {40, 40, 40}, manchas ++ [{{300, 600, 10, 10}, @verde}])
+      )
+
+      html =
+        render_click(view, "special_pick", %{"x" => 305, "y" => 605, "cw" => 700, "nw" => 700})
 
       assert html =~ "lugares diferentes desta foto"
       assert html =~ "aperte o", "o conselho tem que ser apertar a folga, nao trocar o tom"

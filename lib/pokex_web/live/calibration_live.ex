@@ -1456,9 +1456,8 @@ defmodule PokexWeb.CalibrationLive do
   # o vermelho que ele pegou do Charizard casava 142.659 px (3,9% da tela) e a
   # maior mancha tinha 85.331 dos 264.131 casados — dominância 0,5. É a lava.
   # O preto do bicho, no recorte dele, dá 10.503 numa mancha contra 2.638 de
-  # resto: dominância 4,0. A régua é essa, e não o número cru.
-  @dominancia_boa 3.0
-  @dominancia_quase 1.5
+  # resto: dominância 4,0. A dominância continua na leitura (o painel a mostra);
+  # quem decide o veredito é o que passa do gatilho (`special_verdict/1`).
   @manchas_demais 12
   @caixas_desenhadas 60
 
@@ -1466,17 +1465,33 @@ defmodule PokexWeb.CalibrationLive do
     draft = socket.assigns.special_draft
     frame = socket.assigns.special_shot.frame
 
-    result = ColorMark.scan(frame, draft_specs(draft), min_cell_px: draft.min_cell_px)
-
-    maior = result.manchas |> List.first() |> then(&if(&1, do: &1.px, else: 0))
-    resto = max(result.px - maior, 0)
-    total = frame.width * frame.height
-
     # O MESMO CRIVO DO VIGIA, AQUI NA FOTO. O painel contava manchas e o vigia
     # contava manchas EM CIMA DE BICHO VIVO: ele via a foto acesa em seis lugares
     # e não tinha como saber que cinco deles já eram descartados. E o pokémon
     # DELE, que o acervo de rastreio conhece, agora aparece com nome.
     {socket, corpos, tile_frame} = bodies_of_shot(socket)
+
+    # …e os pedaços de um bicho contam como UM (`merge_px`): o casco do Shiny
+    # Golem acendia em cinco manchas e a frase dizia "10 lugares — não separa".
+    result =
+      ColorMark.scan(frame, draft_specs(draft),
+        min_cell_px: draft.min_cell_px,
+        merge_px: tile_frame,
+        merge_min_px: div(draft.min_px, 4)
+      )
+
+    maior = result.manchas |> List.first() |> then(&if(&1, do: &1.px, else: 0))
+    resto = max(result.px - maior, 0)
+    total = frame.width * frame.height
+
+    # UM LUGAR É O QUE DISPARA. "Se eu subo muito o tom, começa a pegar uns
+    # falsos alertas … os quadrados, se são muito pequenos, são falsos alertas"
+    # (11/09): o vigia só acorda com uma mancha ≥ gatilho, então o painel conta
+    # do mesmo jeito — os pontinhos abaixo do gatilho aparecem na frase, não no
+    # veredito.
+    {disparam, abaixo} = Enum.split_with(result.manchas, &(&1.px >= draft.min_px))
+    maior_fora = abaixo |> Enum.map(& &1.px) |> Enum.max(fn -> 0 end)
+
     peneira = CreatureFence.sort(result.manchas, corpos, tile_frame)
 
     assign(socket,
@@ -1488,6 +1503,9 @@ defmodule PokexWeb.CalibrationLive do
         sem_bicho: length(peneira.bodyless),
         maior: maior,
         manchas: length(result.manchas),
+        lugares: length(disparam),
+        maior_fora: maior_fora,
+        gatilho: draft.min_px,
         pct: if(total > 0, do: result.px * 100 / total, else: 0.0),
         dominancia: if(resto > 0, do: maior / resto, else: if(maior > 0, do: 999.0, else: 0.0)),
         caixas: result.manchas |> Enum.take(@caixas_desenhadas) |> Enum.map(& &1.box),
@@ -1514,21 +1532,36 @@ defmodule PokexWeb.CalibrationLive do
   end
 
   # O veredito em UMA palavra, e a frase que diz o que fazer com ela.
+  #
+  # Era a dominância (a maior mancha contra o resto) que decidia — e o casco do
+  # Shiny Golem, em cinco placas, valia 0,3 do resto de si mesmo. Agora os
+  # pedaços de um bicho já vêm juntos (`merge_px`) e o que decide é o que o
+  # vigia faria: quantas manchas passam do gatilho. Um tom salpicado pela foto
+  # inteira continua espalhado, disparando ou não — a prova do chão o recusaria.
   defp special_verdict(%{maior: 0}), do: :nada
   defp special_verdict(%{manchas: n}) when n > @manchas_demais, do: :espalhado
-
-  defp special_verdict(%{dominancia: d}) when d >= @dominancia_boa, do: :separa
-  defp special_verdict(%{dominancia: d}) when d >= @dominancia_quase, do: :quase
+  defp special_verdict(%{lugares: 0}), do: :fraco
+  defp special_verdict(%{lugares: 1}), do: :separa
+  defp special_verdict(%{lugares: n}) when n <= 3, do: :quase
   defp special_verdict(_espalhado), do: :espalhado
 
   # O NÚMERO NA FRASE. Ele VÊ o destaque na foto e conta com os olhos ("pega os
   # corpos mortos ali"); a frase dizia "espalhado" sem dizer quanto. Com o número
   # a frase vira a mesma coisa que ele está vendo.
   defp verdict_word(:nada, _leitura), do: "esse tom não está nesta foto"
-  defp verdict_word(:separa, _leitura), do: "separa: acha UM alvo e mais nada"
 
-  defp verdict_word(:quase, %{manchas: n}),
-    do: "quase: acha o alvo, mas o chão também responde (#{n} lugares)"
+  defp verdict_word(:fraco, %{maior: maior, gatilho: gatilho}),
+    do: "acende, mas nenhuma mancha chega ao gatilho (#{gatilho}px): a maior tem #{maior}px"
+
+  defp verdict_word(:separa, %{maior_fora: 0}), do: "separa: acha UM alvo e mais nada"
+
+  defp verdict_word(:separa, %{maior_fora: fora, gatilho: gatilho}),
+    do:
+      "separa: acha UM alvo e mais nada (fora dele, a maior mancha tem #{fora}px — " <>
+        "abaixo do gatilho de #{gatilho}px, o vigia não a vê)"
+
+  defp verdict_word(:quase, %{lugares: n}),
+    do: "quase: acha o alvo, mas mais #{n - 1} lugar(es) também passam do gatilho"
 
   defp verdict_word(:espalhado, %{manchas: n}),
     do: "não separa: esse tom casou em #{n} lugares diferentes desta foto"
@@ -1537,6 +1570,10 @@ defmodule PokexWeb.CalibrationLive do
     do: "clique EM CIMA da cor diferente do bicho — o que está pego não aparece aqui"
 
   defp verdict_hint(:separa), do: "é assim que tem que ficar. Salve e meça o chão."
+
+  defp verdict_hint(:fraco),
+    do:
+      "clique mais no meio do bicho pra medir de novo, ou baixe o gatilho até a mancha dele passar"
 
   defp verdict_hint(:quase),
     do: "aperte o tom (menos folga de luz, teto mais baixo) até o resto sumir"
@@ -1578,7 +1615,9 @@ defmodule PokexWeb.CalibrationLive do
       {:ok,
        ColorMark.scan(frame, ColorRules.specs_for(entry),
          min_cell_px: entry["min_cell_px"],
-         forbidden: ShinyGuard.forbidden_boxes(calib, frame, region)
+         forbidden: ShinyGuard.forbidden_boxes(calib, frame, region),
+         merge_px: round(Calibration.tile_px(calib) * frame.scale),
+         merge_min_px: div(entry["min_px"], 4)
        ).manchas, frame.scale}
     else
       _blind -> :blind
@@ -4002,6 +4041,7 @@ defmodule PokexWeb.CalibrationLive do
                     case special_verdict(@special_reading) do
                       :separa -> "border-pk-ok-line bg-pk-ok-dim"
                       :quase -> "border-pk-warn-line bg-pk-warn-dim"
+                      :fraco -> "border-pk-warn-line bg-pk-warn-dim"
                       :espalhado -> "border-pk-danger-line bg-pk-danger-dim"
                       :nada -> "border-pk-line bg-pk-bg"
                     end
@@ -4012,6 +4052,7 @@ defmodule PokexWeb.CalibrationLive do
                     case special_verdict(@special_reading) do
                       :separa -> "text-pk-ok"
                       :quase -> "text-pk-warn"
+                      :fraco -> "text-pk-warn"
                       :espalhado -> "text-pk-danger"
                       :nada -> "text-pk-text-2"
                     end
@@ -4021,6 +4062,7 @@ defmodule PokexWeb.CalibrationLive do
                         case special_verdict(@special_reading) do
                           :separa -> "hero-check-circle"
                           :quase -> "hero-exclamation-triangle"
+                          :fraco -> "hero-exclamation-triangle"
                           :espalhado -> "hero-x-circle"
                           :nada -> "hero-minus-circle"
                         end

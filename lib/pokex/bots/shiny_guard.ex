@@ -254,7 +254,11 @@ defmodule Pokex.Bots.ShinyGuard do
             min_cell_px: rule.min_cell_px,
             # as caixas do personagem e do pokémon MAIS o que a prova do chão
             # aprendeu ser o HUD do jogo (uma banda escura vê o próprio cliente)
-            forbidden: forbidden ++ Map.get(rule, :forbidden, [])
+            forbidden: forbidden ++ Map.get(rule, :forbidden, []),
+            # os pedaços de um bicho são um bicho (o casco do Shiny Golem acende
+            # em cinco placas): o gatilho é cobrado do bicho inteiro
+            merge_px: tile_frame,
+            merge_min_px: div(rule.min_px, 4)
           )
 
         # TODA MANCHA ACIMA DO GATILHO. Pegar só a maior fazia a lava tapar o

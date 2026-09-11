@@ -25,6 +25,21 @@
       "deps/**",
       "_build/**",
       "priv/static/**"
+    ],
+    "ignoreRules": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-color",
+        "value": "rgb(203 166 247 / 0.9)",
+        "createdAt": "2026-09-11T13:59:33.520Z",
+        "reason": "pk-shiny token (#cba6f7) with alpha, same pattern as the existing pk-revive-pulse glow"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgb(203 166 247 / 0.35)",
+        "createdAt": "2026-09-11T13:59:33.564Z",
+        "reason": "pk-shiny token (#cba6f7) with alpha, same pattern as the existing pk-revive-pulse glow"
+      }
     ]
   }
 }

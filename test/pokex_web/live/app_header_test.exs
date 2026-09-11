@@ -47,6 +47,39 @@ defmodule PokexWeb.AppHeaderTest do
     end
   end
 
+  # ✨ THE SHINY ON EVERY PAGE (11/09): one photo with the shiny standing
+  # lights the strip wherever he is looking; the ball turns it into the ball.
+  test "a shiny on screen lights the strip on every page, and the ball takes it over", %{
+    conn: conn
+  } do
+    for path <- ["/cavebot", "/", "/calibration"] do
+      {:ok, view, _html} = live(conn, path)
+      refute has_element?(view, "#shiny-banner"), "#{path} shows a shiny strip with no shiny"
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        "shiny",
+        {:shiny_on_screen, %{vistos: [%{name: "Shiny Golem", px: 394, point: {1130, 98}}]}}
+      )
+
+      assert has_element?(view, "#shiny-banner[data-state=on_screen]", "SHINY NA TELA"),
+             "#{path} did not light the strip on a sighting"
+
+      assert has_element?(view, "#shiny-banner", "Shiny Golem")
+
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        "shiny",
+        {:shiny_ball, %{point: {829, 205}, name: "Shiny Golem"}}
+      )
+
+      assert has_element?(view, "#shiny-banner[data-state=ball]", "BOLA NO Shiny Golem"),
+             "#{path} did not show the ball"
+
+      assert has_element?(view, "#shiny-banner", "829,205")
+    end
+  end
+
   test "the menu comes grouped, with Painel and the ⚙️ above the groups", %{conn: conn} do
     # the structure first: a destination landing in two groups (or in none) is
     # exactly the kind of mistake that survives a read of the markup

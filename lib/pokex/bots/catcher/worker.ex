@@ -786,6 +786,10 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp note_throw(state, [], _obs), do: state
 
   defp note_throw(state, _performs, obs) do
+    # …e a bola do shiny acende a faixa do cabeçalho em toda página
+    # (`HeaderState`): o "🌟 bola em" era uma linha no feed.
+    if shiny_reading?(obs, state), do: announce_shiny_ball(obs)
+
     # A BOLA DO SHINY, não qualquer bola. Isto rodava em TODO arremesso: uma bola
     # em corpo comum da varredura carimbava "bola" na prateleira do shiny (uma
     # mentira: nenhuma bola foi nele) e zerava `shiny_pending?`, de modo que
@@ -807,6 +811,13 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp shiny_reading?(%{source: :shiny_aim}, _state), do: true
   defp shiny_reading?(nil, %{aim: aim}), do: aim != nil
   defp shiny_reading?(_ordinary_reading, _state), do: false
+
+  defp announce_shiny_ball(%{corpses: [point | _]} = obs) do
+    name = get_in(obs, [:known, point, :name]) || "shiny"
+    Phoenix.PubSub.broadcast(Pokex.PubSub, "shiny", {:shiny_ball, %{point: point, name: name}})
+  end
+
+  defp announce_shiny_ball(_no_corpse_in_the_reading), do: :ok
 
   defp run_step(state, obs) do
     {logic, actions} = Logic.step(state.logic, obs, now())

@@ -252,6 +252,28 @@
   animation: pk-revive-pulse 900ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* O SHINY NA TELA. "Não vi na UI nada falando que tinha um shiny… algo
+   brilhando, que realmente chame atenção" (11/09). A faixa do cabeçalho pisca
+   enquanto o vigia vê o shiny de pé, e fica acesa parada depois: a palavra
+   ao lado diz o mesmo pra quem não vê a luz. Cai com o resto no
+   `prefers-reduced-motion`. */
+@keyframes pk-shiny-blink {
+  0% {
+    background: var(--color-pk-shiny);
+    color: var(--color-pk-bg);
+    box-shadow: 0 0 0 0 rgb(203 166 247 / 0.9);
+  }
+  100% {
+    background: var(--color-pk-shiny-dim);
+    color: var(--color-pk-shiny);
+    box-shadow: 0 0 32px 6px rgb(203 166 247 / 0.35);
+  }
+}
+
+.pk-shiny-live {
+  animation: pk-shiny-blink 600ms ease-in-out infinite alternate;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before {

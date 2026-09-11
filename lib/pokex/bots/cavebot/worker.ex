@@ -804,7 +804,8 @@ defmodule Pokex.Bots.Cavebot.Worker do
     body = state.body
     spawn(fn -> body.perform(actions, :high) end)
 
-    log(:macro, "🖱️ pokémon mandado a #{where} (#{times}x)")
+    # `:debug`: sai a cada pilha e não decide nada que ele precise ler correndo
+    log(:debug, "🖱️ pokémon mandado a #{where} (#{times}x)")
     state
   end
 
@@ -1203,7 +1204,10 @@ defmodule Pokex.Bots.Cavebot.Worker do
     text =
       "waypoint #{wp_before + 1}/#{wp_total(state)}#{advance_mark(state.logic)}#{where(state.pos)}"
 
-    log(:macro, text)
+    # `:debug`: um canto a cada poucos segundos é o mapa da Central, não uma
+    # notícia — 888 linhas em 3 h de 11/09. O canto PULADO continua em `:macro`
+    # (é ele que denuncia a parede), e a volta fechada tem a frase dela.
+    log(if(skipped?(state.logic), do: :macro, else: :debug), text)
 
     state = %{
       state
@@ -1216,6 +1220,9 @@ defmodule Pokex.Bots.Cavebot.Worker do
 
   defp advance_mark(%Logic{advance: :skipped}), do: " ⏭ pulei (não cheguei)"
   defp advance_mark(_arrived_or_unknown), do: ""
+
+  defp skipped?(%Logic{advance: :skipped}), do: true
+  defp skipped?(_arrived_or_unknown), do: false
 
   defp where({x, y, z}), do: " · #{x},#{y} andar #{z}"
   defp where(_blind), do: " · sem coordenada"

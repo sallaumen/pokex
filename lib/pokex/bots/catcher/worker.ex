@@ -880,14 +880,17 @@ defmodule Pokex.Bots.Catcher.Worker do
   # A CHAMADA DIZ O QUE ACHOU. "Não vi log, nada a respeito" (11/09) era metade
   # da queixa: com o portão fechado o `scan_obs/1` devolvia `nil` e `advance/2`
   # engolia, então uma captura que nunca começou e uma que não achou corpo eram
-  # a mesma tela em branco. `:macro` porque é o momento que ele procura no
-  # diário da manhã seguinte.
+  # a mesma tela em branco. Era `:macro` por ser o momento que ele procura no
+  # diário da manhã seguinte; desde 11/09 quem conta esse momento é a linha da
+  # mira ao fechar ("N olhada(s) segurada(s) por bicho de pé"), e esta desceu.
   defp announce_cue(nil),
     do:
-      log(:macro, "🎯 hora da bola — mas a varredura está fechada agora (luta, modo ou mini-game)")
+      log(:debug, "🎯 hora da bola — mas a varredura está fechada agora (luta, modo ou mini-game)")
 
+  # `:debug`: a rodada que fecha sem corpo é a regra, não a notícia — a linha da
+  # mira por cor ao fechar (`say_tally/1`) já diz o que a hora da bola viu.
   defp announce_cue(%{corpses: []}),
-    do: log(:macro, "🎯 hora da bola — varri e não achei corpo nenhum no chão")
+    do: log(:debug, "🎯 hora da bola — varri e não achei corpo nenhum no chão")
 
   defp announce_cue(%{corpses: corpses} = obs) do
     case {length(corpses), length(Logic.admissible(obs))} do
@@ -1172,7 +1175,9 @@ defmodule Pokex.Bots.Catcher.Worker do
   # -- a mira do shiny ---------------------------------------------------------
 
   defp open_aim(state, kind \\ :sighting) do
-    log(:macro, aim_opened_msg(kind))
+    # a sessão da hora da bola abre a cada rodada: só o fechamento (a contagem)
+    # merece o feed; o avistamento continua em `:macro`
+    log(if(kind == :cue, do: :debug, else: :macro), aim_opened_msg(kind))
 
     aim = %{
       since: now(),

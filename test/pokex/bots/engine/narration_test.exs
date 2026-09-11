@@ -116,6 +116,41 @@ defmodule Pokex.Bots.Engine.NarrationTest do
     end
   end
 
+  # THE CLOCK TICKING IS NOT NEWS (11/09): a decision line that only advances a
+  # counter waits behind the debug switch; the edge stays in the feed.
+  describe "the progressive line" do
+    test "counters and waits are :debug, edges are :macro" do
+      antes = tick(picture(), orders("andando a rota"))
+
+      for why <- [
+            "revive pedido há 4s — a barra está ilegível",
+            "corpo no chão — segurando a rota pra bola (3s)",
+            "só 3 inimigos à vista — seguindo a rota, contando quem vem",
+            "6 inimigos vindo — esperando eles fecharem em cima do pokémon",
+            "corrente saindo — parado até ela acabar, sem chamar mais ninguém",
+            "hora da bola — segurando a rota pra olhar o chão"
+          ] do
+        assert [{:debug, _}] = Narration.spoken(antes, tick(picture(), orders(why))), why
+      end
+
+      for why <- ["7 inimigos em cima e perto: estourando a área", "nada aqui — seguindo a rota"] do
+        assert [{:macro, _}] = Narration.spoken(antes, tick(picture(), orders(why))), why
+      end
+    end
+
+    test "his own row is :debug too — it flips on every revive" do
+      [{level, linha}] =
+        Narration.spoken(
+          tick(picture(%{own_row_seen?: :by_hp}), orders("x")),
+          tick(picture(%{own_row_seen?: false}), orders("x")),
+          "o Venusaur"
+        )
+
+      assert level == :debug
+      assert linha =~ "NÃO aparece na lista"
+    end
+  end
+
   test "o primeiro tique da noite não tem nada com que comparar, e fala" do
     linhas = Narration.lines(tick(), tick(picture(%{own_row_seen?: false}), orders("andando")))
 

@@ -43,10 +43,35 @@ defmodule Pokex.Bots.Engine.Narration do
   @spec spoken(tick, tick, String.t()) :: [{:macro | :debug, String.t()}]
   def spoken(previous, current, who \\ "o pokémon em campo") do
     Enum.flat_map(
-      [{&count/3, :debug}, {&blind/3, :macro}, {&own_row/3, :macro}, {&decision/3, :macro}],
-      fn {fun, level} -> Enum.map(fun.(previous, current, who), &{level, &1}) end
+      [{&count/3, :debug}, {&blind/3, :macro}, {&own_row/3, :debug}, {&decision/3, :by_phrase}],
+      fn {fun, level} -> Enum.map(fun.(previous, current, who), &{level(level, &1), &1}) end
     )
   end
+
+  # A LINHA PROGRESSIVA DESCE PRA `:debug`. Em 11/09 ("esses de caçada tão
+  # poluindo muito meus logs… tenho que ver os pontos importantes") o diário
+  # tinha 24 mil linhas em 3 h, e o cérebro contando — "revive pedido há 4s",
+  # "segurando a rota pra bola (3s)", "só 3 à vista, contando quem vem", "6
+  # vindo — esperando eles fecharem" — era uma frase nova a cada segundo pra
+  # dizer que nada mudou. A BORDA fica em `:macro` (abriu fogo, revive agora,
+  # hora da bola, não vale a área, nada aqui); o relógio andando, não. E a
+  # linha própria dele vira `:debug` pelo mesmo motivo: ela muda a cada revive
+  # (o pokémon sai e volta pra lista) e a Central desenha a lista ao vivo.
+  @quiet [
+    "revive pedido há ",
+    "segurando a rota pra bola (",
+    "seguindo a rota, contando quem vem",
+    "esperando eles fecharem em cima do pokémon",
+    # a corrente que saiu já foi dita pelo combate ("💥 abrindo com a mão do
+    # cérebro"); e a hora da bola tem a frase da mira ao fechar
+    "corrente saindo — parado até ela acabar",
+    "hora da bola — segurando a rota pra olhar o chão"
+  ]
+
+  defp level(:by_phrase, line),
+    do: if(Enum.any?(@quiet, &String.contains?(line, &1)), do: :debug, else: :macro)
+
+  defp level(level, _line), do: level
 
   # A cegueira, separada da contagem: `nil` e zero são fatos opostos, e este é o
   # único que precisa acordar alguém.

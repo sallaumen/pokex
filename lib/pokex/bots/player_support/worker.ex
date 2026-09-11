@@ -977,15 +977,17 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   defp shield(state, keys, why) do
     cond do
+      # as três esperas em `:debug`: a aura que SAI fica em `:macro`; a que
+      # espera era 3% do diário dele (11/09)
       Combo.running?(hunt_mode()) ->
-        say_once(state, :chain, "🛡️ defesa: esperando a corrente do combo acabar")
+        say_once(state, :chain, "🛡️ defesa: esperando a corrente do combo acabar", :debug)
 
       ReviveLedger.landed_within?(Settings.get(:rescue_blackout_ms)) ->
-        say_once(state, :blackout, "🛡️ defesa: o pokémon ainda está voltando do revive")
+        say_once(state, :blackout, "🛡️ defesa: o pokémon ainda está voltando do revive", :debug)
 
       true ->
         case ready_only(keys) do
-          [] -> say_once(state, :cooling, "🛡️ defesa: a aura esfria (#{why})")
+          [] -> say_once(state, :cooling, "🛡️ defesa: a aura esfria (#{why})", :debug)
           ready -> press_shield(state, ready, why)
         end
     end
@@ -1002,10 +1004,11 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     %{state | last_shield_at: now(), shield_note: nil, counters: bump(state.counters, :shields)}
   end
 
-  defp say_once(%{shield_note: note} = state, note, _text), do: state
+  defp say_once(state, note, text, level \\ :macro)
+  defp say_once(%{shield_note: note} = state, note, _text, _level), do: state
 
-  defp say_once(state, note, text) do
-    broadcast_log(:macro, text)
+  defp say_once(state, note, text, level) do
+    broadcast_log(level, text)
     %{state | shield_note: note}
   end
 
@@ -1235,7 +1238,9 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     dispatch_rescue(state.body, stun)
     drain_notes(notes)
     ReviveLedger.note()
-    broadcast_log(:macro, "🚑 revive — Pokémon com #{state.hp_pct}% de vida")
+    # `:debug`: o revive já fala duas vezes ("despachado — as teclas saíram" é o
+    # recibo que fica em `:macro`); três linhas por revive eram 2,7% do diário.
+    broadcast_log(:debug, "🚑 revive — Pokémon com #{state.hp_pct}% de vida")
 
     %{
       state
@@ -1281,6 +1286,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     Enum.each(notes, fn
       {:alarm, text} -> Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :hp, text})
       {:log, text} -> broadcast_log(:macro, text)
+      {:log, level, text} -> broadcast_log(level, text)
     end)
   end
 
@@ -1404,17 +1410,21 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     loadout = Loadout.current()
 
     case Plan.for(hunt_mode()).crowd(loadout, %{config: %{}}) do
-      [] -> {:off, [log: no_control_text(loadout)]}
+      [] -> {:off, [no_control_note(loadout)]}
       crowd -> control_stun(crowd)
     end
   end
 
-  defp no_control_text(nil), do: "🚑 sem controle pronto no pokémon — revivendo direto"
+  defp no_control_note(nil),
+    do: {:log, :macro, "🚑 sem controle pronto no pokémon — revivendo direto"}
 
-  defp no_control_text(_loadout) do
+  # No Auto Combo a frase é a mesma a cada revive (240 vezes em 3 h de 11/09):
+  # `:debug`. Sem controle pronto fora dele é um aviso, e fica em `:macro`.
+  defp no_control_note(_loadout) do
     if hunt_mode() == :auto_combo,
-      do: "🚑 o controle é a última parte do combo — revivendo dentro do sono dele",
-      else: "🚑 sem controle pronto no pokémon — revivendo direto"
+      do:
+        {:log, :debug, "🚑 o controle é a última parte do combo — revivendo dentro do sono dele"},
+      else: {:log, :macro, "🚑 sem controle pronto no pokémon — revivendo direto"}
   end
 
   # The hunt mode, read as a fact with an age like everything else. With no hunt running

@@ -111,6 +111,25 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     assert ShinyAim.judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile) == []
   end
 
+  # ...EXCEPT THE CREATURE THE RULE IS FOR. His "Shiny Golem" corpse photos fire
+  # on the HUD, so he switches them off - and switched off they scored 0.97 on the
+  # real corpse and refused the ball the colour rule of the same name exists for.
+  @tag :tmp_dir
+  test "a corpse switched off under the colour rule's own name is not a veto", %{tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+
+    Pokex.SettingsStash.stash!(corpse_sprite_box_px: 24, corpse_match_min_similarity: 0.6)
+
+    recorte = %Frame{width: 24, height: 24, rgba: :binary.copy(<<40, 160, 60, 255>>, 24 * 24)}
+    {:ok, _n} = Pokex.Bots.Catcher.CorpseLibrary.add("electrode SHINY ", recorte)
+    [%{"slug" => slug}] = Pokex.Bots.Catcher.CorpseLibrary.list()
+    :ok = Pokex.Bots.Catcher.CorpseLibrary.set_enabled(slug, false)
+
+    assert [%{name: "Electrode shiny"}] =
+             ShinyAim.judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile)
+  end
+
   @tag :tmp_dir
   test "a corpse still switched ON does not veto anything", %{tmp_dir: tmp} do
     Application.put_env(:pokex, :home_dir, tmp)

@@ -38,8 +38,19 @@ defmodule Pokex.Bots.Catcher.Trail do
   @occluded_max 12
   # how long a corpse is worth a ball (the item light lasts ~34 s; a corpse minutes)
   @anchor_ttl_ms 120_000
+  # A SHINY IS ALIVE WHILE ITS SPARKLE SHOWS. The game (11/09): the shiny falls
+  # and becomes a body, and the star beside its name leaves only then. So a
+  # hunted bar missing from the eye's read is a DEATH only once the guard's
+  # sparkle is gone — and stays gone: the guard blinks in the green-haze pile
+  # (18:34 of 11/09: sparkle gone at 30.4 s, seen again at 31.3 s), so a corpse
+  # waits a short grace after the sparkle's last sighting.
+  @shiny_grace_ms 1_200
+  # …and the body lies where the bar was JUST before the sparkle left. A hunted
+  # bar lost far longer than this wandered off (or the guard hallucinated a
+  # sparkle elsewhere): there is no body at that stale spot — drop it, no ball.
+  @corpse_fresh_ms 4_000
 
-  defstruct tracks: %{}, next_id: 1, anchors: [], pos: nil
+  defstruct tracks: %{}, next_id: 1, anchors: [], pos: nil, sparkle_at: nil
 
   @type point :: {integer, integer}
   @type world :: {float, float}
@@ -61,7 +72,8 @@ defmodule Pokex.Bots.Catcher.Trail do
           tracks: %{pos_integer => track},
           next_id: pos_integer,
           anchors: [anchor],
-          pos: {integer, integer, integer} | nil
+          pos: {integer, integer, integer} | nil,
+          sparkle_at: integer | nil
         }
 
   @spec new() :: t
@@ -79,6 +91,12 @@ defmodule Pokex.Bots.Catcher.Trail do
     seen = Enum.map(hostiles, &Map.put(&1, :world, to_world(&1.point, ref)))
     pet = pet_world(reading, ref)
 
+    # the shiny is alive while its sparkle is on screen (the guard's fresh
+    # sparkle points, `shiny_on?`); a body appears only after it has left.
+    sparkle_on? = Map.get(reading, :shiny_on?, false)
+    sparkle_at = if sparkle_on?, do: now, else: trail.sparkle_at
+    shiny_alive? = sparkle_on? or (sparkle_at != nil and now - sparkle_at < @shiny_grace_ms)
+
     {tracks, left} = match(Map.values(trail.tracks), seen, pet, now)
 
     born =
@@ -86,14 +104,20 @@ defmodule Pokex.Bots.Catcher.Trail do
       |> Enum.with_index(trail.next_id)
       |> Enum.map(fn {hostile, id} -> birth(hostile, id, now) end)
 
-    {fallen, alive} = Enum.split_with(tracks, &fallen?/1)
+    {fallen, alive} =
+      if shiny_alive?, do: {[], tracks}, else: Enum.split_with(tracks, &fallen?/1)
+
+    # only a bar seen just before the sparkle left is a body; a hunted bar lost
+    # far longer wandered off — no corpse there, and no ball at the stale spot.
+    corpses = Enum.filter(fallen, &(now - &1.seen_at <= @corpse_fresh_ms))
     kept = Enum.reject(alive, &lost?/1)
 
     %{
       trail
       | tracks: Map.new(kept ++ born, &{&1.id, &1}),
         next_id: trail.next_id + length(born),
-        anchors: Enum.map(fallen, &fall(&1, now)) ++ trail.anchors
+        anchors: Enum.map(corpses, &fall(&1, now)) ++ trail.anchors,
+        sparkle_at: sparkle_at
     }
   end
 

@@ -79,11 +79,17 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
     end
   end
 
-  # NADA VIVO NA TELA. A contagem é a do CÉREBRO (`:situation`), não a da lista
-  # crua: a lista inclui a linha do próprio pokémon dele, e cobrar zero dela
-  # seria nunca jogar bola nenhuma. Quadro velho ou ausente é "não sei", e não
-  # saber aqui é não jogar.
-  defp screen_clear(:ask, now) do
+  @doc """
+  NADA VIVO NA TELA. `:ok`, or `{:blocked, reason}` while the brain still counts
+  an enemy.
+
+  A contagem é a do CÉREBRO (`:situation`), não a da lista crua: a lista inclui
+  a linha do próprio pokémon dele, e cobrar zero dela seria nunca jogar bola
+  nenhuma. Quadro velho ou ausente é "não sei", e não saber aqui é não jogar.
+  Vale pra toda bola da caçada, não só pra do shiny: a varredura comum também
+  confunde bicho de pé com corpo.
+  """
+  def screen_clear(:ask, now) do
     case WorldState.get(:situation, @situation_max_age_ms, now) do
       {:ok, %{enemies: 0}} -> :ok
       {:ok, %{enemies: n}} when is_integer(n) -> {:blocked, {:alive_on_screen, n}}
@@ -91,8 +97,8 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
     end
   end
 
-  defp screen_clear(0, _now), do: :ok
-  defp screen_clear(n, _now) when is_integer(n), do: {:blocked, {:alive_on_screen, n}}
+  def screen_clear(0, _now), do: :ok
+  def screen_clear(n, _now) when is_integer(n), do: {:blocked, {:alive_on_screen, n}}
 
   @doc """
   The largest blob of each rule, at or above the rule's floor, with NO body within `tile_px`

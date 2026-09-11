@@ -942,12 +942,19 @@ defmodule Pokex.Bots.Catcher.Worker do
   # O que o detector de corpo precisa é da TELA parada, não do modo: ele acha
   # mancha que não se move, e um personagem andando move tudo. Com a estrada
   # SEGURADA pelo cérebro (`route: :hold`) ele está tão parado quanto no modo
-  # Parado — e é exatamente o instante que o `{:capture_now}` marca, depois da
-  # pilha morrer e o revive sair. A luta continua barrando pelo `combat_engaged?`
-  # logo acima, que é quem impede bolar um inimigo parado.
+  # Parado.
+  #
+  # …MAS PARADO NÃO É "A LUTA ACABOU". A estrada fica segurada a luta inteira —
+  # enquanto a pilha junta, durante a corrente, no revive — e o `combat_engaged?`
+  # que devia barrar bicho vivo é do Combat, que no Auto Combo nem entra em luta.
+  # Duas horas de caçada em 10/09: 2.123 bolas, 1.353 com a pilha ainda chegando
+  # e 272 no meio do combo; só 435 com a lista zerada. A bola comum segue a
+  # mesma regra que a do shiny já seguia (`ShinyAim.screen_clear/2`).
   defp standing? do
-    Settings.get(:player_mode) == "still" or road_held?()
+    Settings.get(:player_mode) == "still" or (road_held?() and screen_clear?())
   end
+
+  defp screen_clear?, do: ShinyAim.screen_clear(:ask, now()) == :ok
 
   defp road_held? do
     case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now()) do
@@ -1267,14 +1274,8 @@ defmodule Pokex.Bots.Catcher.Worker do
       state.aim != nil ->
         "mirando o corpo do shiny pela cor"
 
-      # A CAÇADA ANDANDO NÃO VARRE — mas a caçada PARADA varre. O detector é de
-      # mancha que não se move, e um personagem andando move tudo; com a estrada
-      # segurada pelo cérebro ele está parado de verdade (`standing?/0`). Isto
-      # dizia "na caçada só o shiny leva bola", que era verdade enquanto o
-      # portão exigia o modo Parado — e era a única pista de que a captura nunca
-      # rodava numa caçada.
-      Settings.get(:player_mode) != "still" and not road_held?() ->
-        "andando — a bola sai quando a rota parar"
+      reason = hunt_hold() ->
+        reason
 
       state.combat_engaged? ->
         "esperando fim da luta"
@@ -1288,6 +1289,22 @@ defmodule Pokex.Bots.Catcher.Worker do
 
       true ->
         nil
+    end
+  end
+
+  # A CAÇADA ANDANDO NÃO VARRE — mas a caçada PARADA varre. O detector é de
+  # mancha que não se move, e um personagem andando move tudo; com a estrada
+  # segurada pelo cérebro ele está parado de verdade (`standing?/0`). Isto
+  # dizia "na caçada só o shiny leva bola", que era verdade enquanto o
+  # portão exigia o modo Parado — e era a única pista de que a captura nunca
+  # rodava numa caçada. Parado ainda não basta: com bicho vivo na lista a bola
+  # espera.
+  defp hunt_hold do
+    cond do
+      Settings.get(:player_mode) == "still" -> nil
+      not road_held?() -> "andando — a bola sai quando a rota parar"
+      not screen_clear?() -> "bicho vivo na tela — a bola espera a lista zerar"
+      true -> nil
     end
   end
 

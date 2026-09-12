@@ -241,6 +241,12 @@ defmodule Pokex.Bots.Engine.Worker do
   # mas o reset não é conferido e o recibo de tecla nenhuma existe — e a
   # calibração que ele vê "perfeita" é a que o leitor recusa. Mesma categoria
   # do alarme de vida: é o setor que ele deixa tocando.
+  #
+  # E O ALARME DIZ QUAL DOS TRÊS CASOS É. Em 12/09 ele ficou 5h05 de pé —
+  # contando de 3 s a 18.304 s sem UM reset — repetindo "recalibre a barra
+  # dele". Recalibrar conserta UM dos três; nos outros dois é conselho errado
+  # dito com toda a confiança, e passar cinco horas seguindo um conselho errado
+  # é pior do que não ter alarme. `Perception.skill_bar_gap/1` separa.
   defp watch_bar_blindness(state, %{bar_seen?: false, own_out?: out}, now) when out != false do
     since = state.bar_blind_since || now
     said = state.bar_blind_said_at
@@ -250,9 +256,8 @@ defmodule Pokex.Bots.Engine.Worker do
       name = (state.loadout && state.loadout.name) || "pokémon"
 
       text =
-        "🎛️ sem leitura da barra de skills há #{div(now - since, 1_000)}s — o recorte da " <>
-          "barra do #{name} não passa no reconhecimento (combo e revive seguem pelo relógio, " <>
-          "sem conferir o reset); recalibre a barra dele pelo /time"
+        "🎛️ sem leitura da barra de skills há #{div(now - since, 1_000)}s (combo e revive " <>
+          "seguem pelo relógio, sem conferir o reset) — #{bar_blind_cause(name, now)}"
 
       log(:macro, text)
       Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:rule_alarm, :hp, text})
@@ -264,6 +269,27 @@ defmodule Pokex.Bots.Engine.Worker do
 
   defp watch_bar_blindness(state, _barra_lida_ou_chao, _now),
     do: %{state | bar_blind_since: nil, bar_blind_said_at: nil}
+
+  # O conserto que corresponde à causa, e só ele.
+  defp bar_blind_cause(name, now) do
+    case Perception.skill_bar_gap(now) do
+      :ok ->
+        "a leitura voltou agora"
+
+      :never ->
+        "o feed da barra nunca publicou nada nesta sessão: quem o liga é a caçada, " <>
+          "então ou ela não está rodando ou o feed morreu na largada"
+
+      {:stale, age} ->
+        "o recorte está CERTO (a última leitura prestou) e tem #{age} ms, acima do teto " <>
+          "de #{Settings.get(:skill_bar_fact_max_age_ms)} ms — quem não está dando conta é a " <>
+          "captura, não a calibração; recalibrar não muda nada"
+
+      _recorte_recusado ->
+        "o recorte da barra do #{name} não passa no reconhecimento; recalibre a barra dele " <>
+          "pelo /time"
+    end
+  end
 
   # --- VITALS: the four numbers the simulator is still guessing at -------------
   #

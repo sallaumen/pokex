@@ -82,5 +82,30 @@ defmodule Pokex.Bots.SkillReceiptTest do
     test "nothing was asked for at all is confirmed — vacuously, and honestly" do
       assert SkillReceipt.verdict(%{fired: [], missed: [], unknown: []}) == :confirmed
     end
+
+    # "Não consegui ver" e "essa pergunta não cabia" pedem consertos opostos, e
+    # os dois saíam como `unknown`. No Auto Combo dele a tecla é `shift+3`, que
+    # dispara a corrente DENTRO do jogo: nenhum cooldown de slot responde por
+    # ela. Medido nos eventos de 08 a 12/09: 10.978 recibos, 3 `fired`.
+    test "a key that is not a hotbar slot is not the same as a bar nobody could read" do
+      check = SkillReceipt.check(["1", "2"], ["1"], ["shift+3"])
+
+      assert check == %{fired: [], missed: [], unknown: [], off_bar: ["shift+3"]}
+      assert SkillReceipt.verdict(check) == :unconfirmed
+    end
+
+    test "the bar keys keep answering with the off-bar ones in the same press" do
+      check = SkillReceipt.check(["1", "2"], ["2"], ["1", "2", "shift+3"])
+
+      assert check == %{fired: ["1"], missed: ["2"], unknown: [], off_bar: ["shift+3"]}
+      assert SkillReceipt.verdict(check) == {:missed, ["2"]}
+    end
+
+    # …e um slot de verdade com a barra ilegível continua `unknown`: é a caixa
+    # que diz "recalibre", e ela não pode ser diluída pela outra.
+    test "an unreadable bar still says unknown for a real slot" do
+      assert SkillReceipt.check(nil, nil, ["1", "shift+3"]) ==
+               %{fired: [], missed: [], unknown: ["1"], off_bar: ["shift+3"]}
+    end
   end
 end

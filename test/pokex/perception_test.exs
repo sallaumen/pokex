@@ -96,4 +96,29 @@ defmodule Pokex.PerceptionTest do
     stale_at = 10_000 + Pokex.Settings.get(:skill_bar_fact_max_age_ms) + 1
     assert Perception.ready_skills(stale_at) == nil
   end
+
+  # …E POR QUÊ. `ready_skills/1` junta três causas num `nil`, e o conserto de
+  # cada uma é diferente: só a terceira se conserta recalibrando. Em 12/09 o
+  # alarme passou 5h05 mandando recalibrar sem nunca ter olhado qual era.
+  test "skill_bar_gap separates the three ways the bar goes unread" do
+    assert Perception.skill_bar_gap(10_000) == :never
+
+    WorldState.put(:skill_bar, %{states: [:ready], ready_keys: ["1"]}, 10_000)
+    assert Perception.skill_bar_gap(10_100) == :ok
+
+    # veio quadro e o reconhecimento recusou: recalibrar É a resposta
+    WorldState.put(:skill_bar, %{states: nil, ready_keys: nil}, 10_200)
+    assert Perception.skill_bar_gap(10_300) == :unreadable
+
+    # a leitura PRESTOU e envelheceu: o recorte está certo, a captura é que não
+    # está dando conta — e aqui recalibrar não muda nada
+    WorldState.put(:skill_bar, %{states: [:ready], ready_keys: ["1"]}, 10_000)
+    ceiling = Pokex.Settings.get(:skill_bar_fact_max_age_ms)
+    assert Perception.skill_bar_gap(10_000 + ceiling + 40) == {:stale, ceiling + 40}
+
+    # uma leitura VELHA E RECUSADA continua sendo caso de recalibrar: o que
+    # envelheceu não foi uma leitura boa.
+    WorldState.put(:skill_bar, %{states: nil, ready_keys: nil}, 10_000)
+    assert Perception.skill_bar_gap(10_000 + ceiling + 40) == :unreadable
+  end
 end

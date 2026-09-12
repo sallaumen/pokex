@@ -42,7 +42,6 @@ defmodule Pokex.Bots.MiniGame.Replay do
                key_watch: 1,
                tap: 1,
                focus_click: 1,
-               capture_sequence: 1,
                capture: 2,
                capture_screen: 0,
                cursor_position: 0}
@@ -67,8 +66,6 @@ defmodule Pokex.Bots.MiniGame.Replay do
     def click(_button, _point), do: refuse(:click)
     @impl true
     def move(_point), do: refuse(:move)
-    @impl true
-    def capture_sequence(_point), do: refuse(:capture_sequence)
     @impl true
     def capture(_region, _filename), do: refuse(:capture)
     @impl true

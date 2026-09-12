@@ -1,3 +1,5 @@
+> **Substituído.** O feed `:corpses` (baseline + diff, `Interpret.Corpses`) e `loot_enabled` não existem desde 30/07 (apagados em 09/09). A captura de hoje: [o desenho do shiny na caçada](../specs/2026-09-09-shiny-na-cacada-design.md) e [o plano da captura limpa](2026-09-11-captura-limpa-e-escalavel.md).
+
 # Corpse Capture (parado/movimento) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

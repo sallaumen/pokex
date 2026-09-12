@@ -51,7 +51,6 @@ defmodule Pokex.Rig.SimTest do
     assert Sim.move({5, 5}) == :ok
     assert Sim.tap("shift+3") == :ok
     assert Sim.focus_click({5, 5}) == :ok
-    assert Sim.capture_sequence({5, 5}) == :ok
     assert Sim.hold_latency_ms() == 0
     assert {:ok, %{count: 0}} = Sim.middle_watch()
     assert Sim.key_watch([1, 2]) == {:ok, []}

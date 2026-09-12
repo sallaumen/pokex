@@ -46,9 +46,6 @@ defmodule Pokex.RigDouble do
       def focus_click(_point), do: :ok
 
       @impl true
-      def capture_sequence(_point), do: :ok
-
-      @impl true
       def capture(_region, filename), do: {:ok, filename}
 
       @impl true
@@ -72,7 +69,6 @@ defmodule Pokex.RigDouble do
                      move: 1,
                      tap: 1,
                      focus_click: 1,
-                     capture_sequence: 1,
                      capture: 2,
                      capture_screen: 0,
                      cursor_position: 0,

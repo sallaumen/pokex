@@ -201,10 +201,6 @@ defmodule Pokex.Bots.Catcher.Trail do
   def spend(trail, world),
     do: %{trail | anchors: Enum.reject(trail.anchors, &(&1.world == world))}
 
-  @doc "The round is over and nothing is owed: forget every anchor."
-  @spec clear_anchors(t) :: t
-  def clear_anchors(trail), do: %{trail | anchors: []}
-
   # --- the frame ---------------------------------------------------------------
 
   # The minimap may be unreadable for a look; the last position it gave is the

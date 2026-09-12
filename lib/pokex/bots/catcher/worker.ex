@@ -131,7 +131,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   def init(%{body: body, scanner: scanner, aimer: aimer, auto_tick?: auto_tick?}) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Engine.Worker.topic())
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Perception.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     # a SHINY sighting overrides capture_enabled for the next ball
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
@@ -275,12 +274,10 @@ defmodule Pokex.Bots.Catcher.Worker do
     end
   end
 
-  @impl true
-  def handle_info({:world, _key, _obs}, state), do: {:noreply, state}
-
   # O OLHO DIZ ONDE CADA BICHO ESTÁ (`CrowdWatch`, a cada ~250 ms, no tópico do
   # cérebro). Quando a hora da bola chega eles já morreram e sumiram da leitura,
   # por isso o lugar é guardado enquanto estão de pé.
+  @impl true
   def handle_info({:crowd, %{read?: true, hostiles: hostiles} = reading}, state),
     do: {:noreply, state |> remember_standing(hostiles) |> follow(reading)}
 

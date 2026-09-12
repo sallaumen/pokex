@@ -24,7 +24,6 @@ defmodule Pokex.Rig do
   @callback move(point) :: :ok | {:error, term}
   @callback tap(String.t()) :: :ok | {:error, term}
   @callback focus_click(point) :: :ok | {:error, term}
-  @callback capture_sequence(point) :: :ok | {:error, term}
   @callback capture(region, filename :: String.t()) :: {:ok, String.t()} | {:error, term}
   @callback capture_screen() :: {:ok, String.t()} | {:error, term}
   # The screen size in POINTS, straight from the window server — the only source

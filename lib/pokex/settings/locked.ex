@@ -222,6 +222,11 @@ defmodule Pokex.Settings.Locked do
     ball_rules:
       {"Aposentadas",
        "qual bola pra qual corpo: agora é um campo de cada corpo ensinado, na Calibração"},
+    player_hp_logout:
+      {"Aposentadas",
+       "sair do jogo pela SUA vida: parava o bot no meio da luta e o jogo recusava o Ctrl+Q (11/09)"},
+    player_hp_logout_pct:
+      {"Aposentadas", "a altura daquela saída; ninguém mais pergunta por ela"},
     engine_kite_when_spent: {"O modo decide", "recuar com a barra vazia"},
     # --- Where the monsters are (vision) ---
     crowd_scan_radius_tiles:
@@ -292,7 +297,7 @@ defmodule Pokex.Settings.Locked do
       {"Revive (mecânica)", "medido: o sono leva ~2s pra pegar; o pokémon fica em campo isso"},
     rescue_blackout_ms:
       {"Revive (mecânica)",
-       "medido: depois do revive o pokémon leva 2s pra voltar; nada é apertado"},
+       "700ms cegos depois do F4: antes disso o jogo engole tecla; a partir daí o combo volta"},
     fainted_revive_cooldown_ms: {"Revive (mecânica)", "piso entre dois revives de um caído"},
     shield_skill_cooldown_ms:
       {"Revive (mecânica)", "anti-spam da defesa; se está pronta é a barra que diz"},

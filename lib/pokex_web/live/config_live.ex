@@ -82,22 +82,6 @@ defmodule PokexWeb.ConfigLive do
           keywords: "vida personagem player você piso alarme"
         },
         %{
-          key: :player_hp_logout,
-          kind: :bool,
-          label: "Sair do jogo se a sua vida cair",
-          hint:
-            "Sangrando abaixo do CORTE abaixo, sai do jogo (Ctrl+Q, conferido na tela). É a única fuga que existe quando não há pokémon em pé — desligar isto foi o que custou as mortes de 30/08, 03/09 e 10/09.",
-          keywords: "logout automático sair personagem auto"
-        },
-        %{
-          key: :player_hp_logout_pct,
-          kind: :pct,
-          label: "…e sai quando ela chegar em",
-          hint:
-            "O alarme acima é o AVISO; este é a AÇÃO, e mora mais embaixo. Sair do jogo é caro, então só vale quando o alternativo é morrer.",
-          keywords: "logout corte vida personagem sair altura"
-        },
-        %{
           key: :revive_stock,
           kind: :int,
           label: "Revives na bag",

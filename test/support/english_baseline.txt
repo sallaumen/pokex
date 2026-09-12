@@ -567,7 +567,6 @@ test/pokex_web/live/config_live_test.exs: test "filtra as linhas pelo que ele di
 test/pokex_web/live/config_live_test.exs: test "fora da faixa é recusado COM o motivo, e nada muda"
 test/pokex_web/live/config_live_test.exs: test "grupo sem linha casando some inteiro"
 test/pokex_web/live/config_live_test.exs: test "juntar andando não tem campo: mostra o valor em cada modo"
-test/pokex_web/live/config_live_test.exs: test "o logout automático do personagem tem a própria linha"
 test/pokex_web/live/config_live_test.exs: test "os minutos do freio do chão idem"
 test/pokex_web/live/config_live_test.exs: test "toda chave do Settings é linha, constante ou de outra página"
 test/pokex_web/live/config_live_test.exs: test "um enum vira select com as opções do Settings"

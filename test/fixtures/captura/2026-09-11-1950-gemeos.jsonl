@@ -1,0 +1,32 @@
+{"t": 0, "tag": "abertura", "me": [1695, 686], "pos": [307, 1425, 6], "hostiles": [[2753, 1521, 100], [536, 1069, 100]], "pet": [2263, 466], "vistos": [[2857, 1445, 55]], "listed": 3, "enemies": 3, "route": null}
+{"t": 92, "tag": "filme", "me": [1695, 686], "pos": [307, 1425, 6], "hostiles": [[2753, 1521, 100], [536, 1069, 100]], "pet": [2263, 466], "vistos": [[2857, 1445, 55]], "listed": 3, "enemies": 3, "route": "hold"}
+{"t": 2098, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[2112, 1220, 100], [626, 1069, 100]], "pet": [1211, 466], "vistos": [[2258, 1144, 53]], "listed": 5, "enemies": 5, "route": "hold"}
+{"t": 4108, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1117, 918, 100], [1022, 1069, 100], [1541, 1220, 100]], "pet": [2201, 316], "vistos": [[1569, 1144, 55]], "listed": 5, "enemies": 5, "route": "hold"}
+{"t": 6121, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1268, 918, 100], [1418, 1069, 96], [1268, 1220, 100], [2451, 1371, 100]], "pet": [1720, 560], "vistos": [[1268, 1144, 58]], "listed": 5, "enemies": 5, "route": "hold"}
+{"t": 8134, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1418, 1069, 88], [1268, 1220, 44]], "pet": [1418, 918], "vistos": [[1418, 842, 52]], "listed": 5, "enemies": 5, "route": "hold"}
+{"t": 9358, "tag": "revive", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1418, 918, 72], [2022, 1371, 68]], "pet": [1418, 1069], "vistos": [[1418, 842, 56]], "listed": 3, "enemies": 3, "route": "hold"}
+{"t": 10157, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1418, 918, 60], [2022, 1371, 20]], "pet": null, "vistos": [], "listed": 2, "enemies": 2, "route": "hold"}
+{"t": 12149, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1418, 918, 60], [2022, 1371, 20]], "pet": [1720, 904], "vistos": [[1418, 842, 52]], "listed": 3, "enemies": 3, "route": "hold"}
+{"t": 14160, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1720, 918, 44]], "pet": [1720, 1069], "vistos": [[1720, 842, 51]], "listed": 2, "enemies": 2, "route": "hold"}
+{"t": 15198, "tag": "revive", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1720, 918, 20]], "pet": [1720, 1069], "vistos": [[1720, 842, 51]], "listed": 2, "enemies": 2, "route": "hold"}
+{"t": 15595, "tag": "hora-da-bola", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1720, 918, 20]], "pet": null, "vistos": [[1720, 842, 51]], "listed": 2, "enemies": 1, "route": "hold"}
+{"t": 16197, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1720, 918, 20]], "pet": null, "vistos": [[1720, 842, 51]], "listed": 2, "enemies": 2, "route": "hold"}
+{"t": 18179, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [[1720, 918, 20]], "pet": [1518, 768], "vistos": [[1720, 842, 52]], "listed": 2, "enemies": 2, "route": "hold"}
+{"t": 20191, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [], "pet": [1418, 768], "vistos": [[1418, 842, 52]], "listed": 2, "enemies": 2, "route": "hold"}
+{"t": 20814, "tag": "revive", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [], "pet": [1418, 768], "vistos": [], "listed": 2, "enemies": 1, "route": "hold"}
+{"t": 21735, "tag": "queda", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [], "pet": null, "vistos": [], "listed": 0, "enemies": 0, "route": null}
+{"t": 21770, "tag": "queda", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [], "pet": null, "vistos": [], "listed": 0, "enemies": 1, "route": null}
+{"t": 22019, "tag": "bola", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [], "pet": null, "vistos": [], "listed": 1, "enemies": 1, "route": null}
+{"t": 22393, "tag": "bola", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [], "pet": null, "vistos": [], "listed": 1, "enemies": 1, "route": null}
+{"t": 22414, "tag": "filme", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [], "pet": null, "vistos": [], "listed": 1, "enemies": 1, "route": "go"}
+{"t": 22451, "tag": "bola", "me": [1695, 686], "pos": [309, 1425, 6], "hostiles": [], "pet": null, "vistos": [], "listed": 1, "enemies": 1, "route": null}
+{"t": 24615, "tag": "filme", "me": [1695, 686], "pos": [314, 1426, 6], "hostiles": [[687, 678, 100]], "pet": [2480, 1583], "vistos": [], "listed": 1, "enemies": 2, "route": "go"}
+{"t": 26623, "tag": "filme", "me": [1695, 686], "pos": [320, 1428, 6], "hostiles": [[1117, 1192, 100], [2032, 1371, 100]], "pet": [2046, 617], "vistos": [], "listed": 4, "enemies": 4, "route": "go"}
+{"t": 28632, "tag": "filme", "me": [1695, 686], "pos": [326, 1428, 6], "hostiles": [[1173, 617, 100], [928, 1069, 100], [2480, 165, 100]], "pet": [1348, 768], "vistos": [], "listed": 5, "enemies": 5, "route": "go"}
+{"t": 30647, "tag": "filme", "me": [1695, 686], "pos": [326, 1423, 6], "hostiles": [[966, 1418, 100], [1268, 1371, 100], [1197, 1521, 100]], "pet": [1418, 1328], "vistos": [], "listed": 6, "enemies": 6, "route": "hold"}
+{"t": 32660, "tag": "filme", "me": [1695, 686], "pos": [326, 1423, 6], "hostiles": [[1569, 923, 100], [1268, 1069, 100], [1569, 1083, 100], [1268, 1220, 100], [1418, 1220, 100], [2234, 165, 100], [966, 297, 100]], "pet": [1418, 1069], "vistos": [], "listed": 8, "enemies": 8, "route": "hold"}
+{"t": 34668, "tag": "filme", "me": [1695, 686], "pos": [326, 1423, 6], "hostiles": [[1871, 485, 100], [1569, 1069, 100], [1121, 768, 100], [1268, 1220, 100], [1418, 1220, 100], [1569, 1220, 100]], "pet": [1418, 1069], "vistos": [], "listed": 8, "enemies": 8, "route": "hold"}
+{"t": 36673, "tag": "filme", "me": [1695, 686], "pos": [326, 1423, 6], "hostiles": [[1418, 918, 68], [1569, 918, 68], [1268, 918, 60], [1268, 1069, 68], [1268, 1220, 68], [1418, 1220, 68]], "pet": null, "vistos": [], "listed": 8, "enemies": 8, "route": "hold"}
+{"t": 38899, "tag": "filme", "me": [1695, 686], "pos": [326, 1423, 6], "hostiles": [], "pet": null, "vistos": [], "listed": 1, "enemies": 1, "route": "hold"}
+{"t": 40893, "tag": "filme", "me": [1695, 686], "pos": [326, 1423, 6], "hostiles": [], "pet": null, "vistos": [], "listed": 1, "enemies": 1, "route": "hold"}
+{"t": 42915, "tag": "filme", "me": [1695, 686], "pos": [326, 1423, 6], "hostiles": [], "pet": [1418, 768], "vistos": [], "listed": 1, "enemies": 1, "route": "go"}

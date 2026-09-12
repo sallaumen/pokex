@@ -162,6 +162,27 @@ defmodule Pokex.Sim.World do
     # `stun_hold_ms` (crença) contra `stun_ms` (verdade).
     combo_key: nil,
     combo_chain_ms: 4_000,
+    # ONDE O CONTROLE CAI DENTRO DA CORRENTE — e com ele, onde o SONO começa.
+    #
+    # Ele mudou o combo no cliente. Em 30/08 era "usar todas as skills,
+    # finalizar com stun e depois usar o revive pra repetir esse combo": o sono
+    # nasce quando a corrente ACABA, e o revive do ciclo cabe folgado atrás
+    # dele. Em 12/09: "o stun é a primeira coisa do auto-combo, pra já salvar o
+    # pokémon se ele tiver com baixa vida, não a última coisa, e como ele
+    # geralmente dura 4,5s, temos, de forma muito crítica, que usar o revive
+    # para recuperar os cooldowns dentro desses 4.5s" — o sono nasce na PRENSA,
+    # e a corrente inteira corre DENTRO dele.
+    #
+    # É knob e não constante porque os cenários antigos são de outro jogo: seis
+    # deles rodam `mode: :auto_combo` e mediram a corrente na ordem de 30/08 —
+    # trocá-la embaixo deles reescreveria o que as promessas provaram —, e os
+    # de especial nem corrente têm (`mode: nil`, skill por skill). O combo de
+    # hoje tem cenário próprio: `especial-combo-de-hoje`.
+    combo_stun_first: false,
+    # A TESTEMUNHA DO SONO DO ESPECIAL, que o jogo não tem. Ver
+    # `Sim.Bench.witness/2`: com `false` a foto entrega `special_asleep_left_ms`
+    # e `special_tiles` como `nil`, que é o que o cérebro lê no jogo.
+    special_witness: true,
     # measured BY HIM — which keys, put together, kill one monster ("com a
     # Vespiquen, 3, 4 e 5 garantem"). A shortcut that DERIVES a damage for
     # every key in it, so he can start from the fact he holds.
@@ -278,32 +299,32 @@ defmodule Pokex.Sim.World do
     revive_stock: nil,
     # O CHEFE. "No level mais alto tem monstros que normalmente tenho que usar
     # todas as skills, finalizar com stun e depois usar o revive pra repetir
-    # esse combo, deixando o boss sempre stunado — eles geralmente têm a vida
+    # esse combo, deixando o special sempre stunado — eles geralmente têm a vida
     # 10x maior e um ataque 10x maior também" (29/08). Nenhum destes números é
     # medido: os multiplicadores são a régua DELE (5x ou 10x, escolhíveis), e o
     # intervalo é o do mapa dele.
     #
-    # `nil` desliga — nenhum cenário antigo ganha um chefe que não pediu. O
+    # `nil` desliga — nenhum cenário antigo ganha um especial que não pediu. O
     # nascimento tem jitter de ±25% da semente, porque "de tempos em tempos"
     # não é um metrônomo.
-    boss_every_ms: nil,
+    special_every_ms: nil,
     # O RETARDATÁRIO: "os outros podem ficar longe e fazer eu morrer durante o
     # revive" (02/09). A cada tanto (±25%) um bicho comum nasce ACORDADO a
     # `straggler_from_tiles` dele, na borda da tela, e vem — quem chega depois
     # de a pilha dormir. `nil` desliga; nenhum cenário antigo ganha um.
     straggler_every_ms: nil,
     straggler_from_tiles: 6,
-    boss_hp_mult: 10,
-    boss_atk_mult: 10,
-    boss_name: "Chefe",
+    special_hp_mult: 10,
+    special_atk_mult: 10,
+    special_name: "Especial",
     # A REGRA DE COR ENSINADA pra esta dungeon: modela o `ShinyGuard` vendo o
-    # chefe pela cor (uma regra `kind: "chefe"` provada na calibração). Ligado,
-    # o chefe é reconhecido assim que aparece NA TELA — antes de qualquer
+    # especial pela cor (uma regra `kind: "especial"` provada na calibração). Ligado,
+    # o especial é reconhecido assim que aparece NA TELA — antes de qualquer
     # luta, que é justamente onde o nome não separa nada e o grit ainda não
     # tem entrega pra contar. Desligado (o padrão), nenhum cenário antigo
     # ganha um canal que ele não pediu.
-    boss_color: false,
-    # How long a dead boss's corpse stays on the ground for the ball. SHORT on
+    special_color: false,
+    # How long a dead special's corpse stays on the ground for the ball. SHORT on
     # purpose in scenarios: the real corpse lasts minutes, but the aim only has
     # it while the road stands on it — a road that walks off loses it at once.
     corpse_ms: 20_000,
@@ -347,7 +368,7 @@ defmodule Pokex.Sim.World do
             walk_debt_ms: 0,
             mobs: [],
             # THE SHINY CORPSES on the ground: `%{pos, at}`, kept for `corpse_ms`
-            # after a boss dies with the colour rule taught — what the Catcher's
+            # after a special dies with the colour rule taught — what the Catcher's
             # aim looks for (spec 2026-09-09-shiny-na-cacada). A corpse that
             # decays without a ball is a `balls_lost`.
             corpses: [],
@@ -381,12 +402,12 @@ defmodule Pokex.Sim.World do
               # fechar o grupo" (02/09) — o mundo sabe o que está segurado, e é
               # ele quem acusa.
               chain_while_walking: 0,
-              # o placar do chefe: nascidos, mortos, e o MAIOR trecho contínuo
-              # com um chefe ACORDADO em campo — a medida da frase "1 segundo
+              # o placar do especial: nascidos, mortos, e o MAIOR trecho contínuo
+              # com um especial ACORDADO em campo — a medida da frase "1 segundo
               # sem stun no campo quer dizer que eu morri"
-              bosses_born: 0,
-              bosses_dead: 0,
-              boss_awake_max_ms: 0,
+              specials_born: 0,
+              specials_dead: 0,
+              special_awake_max_ms: 0,
               # the middle clicks that sent the pokémon to its spot (`park_pet/2`)
               parks: 0,
               # os que chegaram tarde, acordados (`maybe_straggler/1`)
@@ -398,8 +419,8 @@ defmodule Pokex.Sim.World do
             },
             # o streak corrente da exposição acordada, e a hora do próximo
             # nascimento (nil = ainda não sorteada)
-            boss_awake_streak_ms: 0,
-            next_boss_at: nil,
+            special_awake_streak_ms: 0,
+            next_special_at: nil,
             # a hora do próximo RETARDATÁRIO (nil = ainda não sorteada) — ver
             # `maybe_straggler/1`
             next_straggler_at: nil,
@@ -605,26 +626,26 @@ defmodule Pokex.Sim.World do
   #
   # `nil` (the default) keeps every SCENARIO a controlled experiment: monsters
   # arriving from off-stage would ruin the one question it exists to ask.
-  # --- o chefe -----------------------------------------------------------
+  # --- o especial -----------------------------------------------------------
 
   # "Bosses para nascer aleatoriamente de tempos em tempos" (29/08). O
-  # primeiro sorteio acontece no primeiro tique (o campo `next_boss_at` nasce
+  # primeiro sorteio acontece no primeiro tique (o campo `next_special_at` nasce
   # nil), e cada nascimento sorteia o próximo — intervalo ±25%, da MESMA
   # semente que governa o resto do mundo.
-  defp maybe_boss(%{knobs: %{boss_every_ms: nil}} = world), do: world
+  defp maybe_special(%{knobs: %{special_every_ms: nil}} = world), do: world
 
-  defp maybe_boss(%{next_boss_at: nil} = world) do
-    {at, rand} = jitter(world.knobs.boss_every_ms, world.rand)
-    %{world | next_boss_at: world.clock + at, rand: rand}
+  defp maybe_special(%{next_special_at: nil} = world) do
+    {at, rand} = jitter(world.knobs.special_every_ms, world.rand)
+    %{world | next_special_at: world.clock + at, rand: rand}
   end
 
-  defp maybe_boss(world) do
-    if world.clock >= world.next_boss_at do
-      {at, rand} = jitter(world.knobs.boss_every_ms, world.rand)
+  defp maybe_special(world) do
+    if world.clock >= world.next_special_at do
+      {at, rand} = jitter(world.knobs.special_every_ms, world.rand)
 
       %{world | rand: rand}
-      |> spawn_boss()
-      |> Map.put(:next_boss_at, world.clock + at)
+      |> spawn_special()
+      |> Map.put(:next_special_at, world.clock + at)
     else
       world
     end
@@ -635,60 +656,60 @@ defmodule Pokex.Sim.World do
     {div(base * 3, 4) + roll - 1, rand}
   end
 
-  # Nasce na BORDA da tela, do lado pra onde ele olha: um chefe que brota
+  # Nasce na BORDA da tela, do lado pra onde ele olha: um especial que brota
   # embaixo do personagem não dá nem o primeiro segundo de reação, e um fora
   # da tela não é "nasceu" pra leitura nenhuma.
-  defp spawn_boss(world) do
+  defp spawn_special(world) do
     {px, py, pz} = world.pos
     {pos, rand} = free_spot(%{world | knobs: %{world.knobs | nest_radius: 2}}, {px + 5, py, pz})
 
     %{
       world
-      | mobs: world.mobs ++ [boss_mob(world, pos)],
+      | mobs: world.mobs ++ [special_mob(world, pos)],
         rand: rand,
         next_id: world.next_id + 1,
-        stats: bump(world.stats, :bosses_born, 1)
+        stats: bump(world.stats, :specials_born, 1)
     }
   end
 
-  defp boss_mob(world, pos) do
+  defp special_mob(world, pos) do
     %{
       id: world.next_id,
-      name: world.knobs.boss_name,
-      nest: :boss,
+      name: world.knobs.special_name,
+      nest: :special,
       pos: pos,
-      hp: world.knobs.mob_hp * world.knobs.boss_hp_mult,
-      max_hp: world.knobs.mob_hp * world.knobs.boss_hp_mult,
+      hp: world.knobs.mob_hp * world.knobs.special_hp_mult,
+      max_hp: world.knobs.mob_hp * world.knobs.special_hp_mult,
       spawn: pos,
       woke?: true,
       walk_debt_ms: 0,
       bite_debt_ms: 0,
       asleep_from: 0,
       asleep_until: 0,
-      boss?: true,
-      bite_mult: world.knobs.boss_atk_mult
+      special?: true,
+      bite_mult: world.knobs.special_atk_mult
     }
   end
 
   # A MEDIDA DA FRASE DELE: "1 segundo sem stun no campo quer dizer que eu
-  # morri". O streak cresce enquanto existe chefe ACORDADO ADJACENTE à vítima
+  # morri". O streak cresce enquanto existe especial ACORDADO ADJACENTE à vítima
   # — na distância em que a mordida sai (`chew/3` usa reach 1) — e o máximo fica no placar: é o
-  # número que a promessa `stun_sempre` cobra. A CHEGADA e o chefe acordado a
+  # número que a promessa `stun_sempre` cobra. A CHEGADA e o especial acordado a
   # dois tiles não contam de propósito: a morte da frase é a mordida, e a
-  # mordida é adjacente. O streak zera quando cada chefe dorme, morre ou se
+  # mordida é adjacente. O streak zera quando cada especial dorme, morre ou se
   # afasta.
-  defp watch_boss(world, dt_ms) do
+  defp watch_special(world, dt_ms) do
     victim = if world.own.out?, do: world.own.pos, else: world.pos
 
     awake? =
       Enum.any?(
         world.mobs,
-        &(Map.get(&1, :boss?, false) and not asleep?(&1, world) and in_reach?(&1, victim, 1))
+        &(Map.get(&1, :special?, false) and not asleep?(&1, world) and in_reach?(&1, victim, 1))
       )
 
-    streak = if awake?, do: world.boss_awake_streak_ms + dt_ms, else: 0
+    streak = if awake?, do: world.special_awake_streak_ms + dt_ms, else: 0
 
-    if Map.get(world.knobs, :trace_boss, false) and awake? and rem(streak, 1000) < dt_ms do
+    if Map.get(world.knobs, :trace_special, false) and awake? and rem(streak, 1000) < dt_ms do
       IO.puts(
         "AWAKE #{streak}ms t=#{world.clock} dist=#{inspect(special_tiles(world))} " <>
           "out=#{world.own.out?} hp=#{world.own.hp_pct} rr=#{world.rescue_ready_at} " <>
@@ -698,8 +719,11 @@ defmodule Pokex.Sim.World do
 
     %{
       world
-      | boss_awake_streak_ms: streak,
-        stats: %{world.stats | boss_awake_max_ms: max(world.stats.boss_awake_max_ms, streak)}
+      | special_awake_streak_ms: streak,
+        stats: %{
+          world.stats
+          | special_awake_max_ms: max(world.stats.special_awake_max_ms, streak)
+        }
     }
   end
 
@@ -867,12 +891,12 @@ defmodule Pokex.Sim.World do
     |> follow(dt_ms)
     |> move_mobs(dt_ms)
     |> bite(dt_ms)
-    |> watch_boss(dt_ms)
+    |> watch_special(dt_ms)
     |> Map.update!(:clock, &(&1 + dt_ms))
     |> decay_corpses()
     |> land_revive()
     |> repopulate()
-    |> maybe_boss()
+    |> maybe_special()
     |> maybe_straggler()
   end
 
@@ -1267,7 +1291,7 @@ defmodule Pokex.Sim.World do
   # for exactly one moment: the prefix of the rescue. It buys the seconds the
   # revive needs — the pile is asleep while the field is empty.
   defp damage(world, _key, :crowd) do
-    if Map.get(world.knobs, :trace_boss, false),
+    if Map.get(world.knobs, :trace_special, false),
       do: IO.puts("STUN t=#{world.clock} dist=#{inspect(special_tiles(world))}")
 
     %{sleep(world, world.knobs.stun_radius) | stunned_at: world.clock}
@@ -1303,24 +1327,41 @@ defmodule Pokex.Sim.World do
   end
 
   @doc """
-  AS TECLAS QUE A CORRENTE DO CLIENTE DISPARA, na ordem em que ele as descreveu:
-  o dano primeiro e o CONTROLE por último.
+  AS TECLAS QUE A CORRENTE DO CLIENTE DISPARA, na ordem do knob
+  `combo_stun_first`: com ele, o CONTROLE primeiro e o dano atrás; sem ele, o
+  combo de 30/08, dano primeiro e controle no fim.
 
-  "Usar todas as skills, finalizar com stun e depois usar o revive pra repetir
-  esse combo" (Lucas, 30/08), e de novo em 01/09: "os monstros que tiverem
-  sobrevivido ainda estarão sob o efeito da skill de controle". O sono no fim é
-  o que faz o revive do ciclo ser de graça — modelar a corrente sem ele seria
-  provar um combo que o jogo não dá.
+  ELE MUDOU O COMBO NO CLIENTE, e o mundo simulado só sabia o antigo. Em
+  30/08 era "usar todas as skills, finalizar com stun e depois usar o revive pra
+  repetir esse combo"; em 12/09:
+
+    "hoje no meu auto combo, o stun é a primeira coisa do auto-combo, pra já
+     salvar o pokémon se ele tiver com baixa vida, não a última coisa, e como
+     ele geralmente dura 4,5s, temos, de forma muito crítica, que usar o revive
+     para recuperar os cooldowns dentro desses 4.5s"
+
+  Não é detalhe de ordem: é ONDE O SONO COMEÇA. Com o controle no fim, o sono
+  nasce quando a corrente acaba e o revive do ciclo cabe folgado atrás dele; com
+  o controle na frente, o sono nasce na PRENSA e o revive tem 4,5 s no total pra
+  sair — a corrente inteira corre dentro da janela de sono, não antes dela.
+
+  O cérebro já conta assim desde `Combat.Combo.stun_age_ms/2`; deixar o mundo
+  simulado disparando o controle por último faria a bancada medir um bot que
+  acredita numa coisa contra um mundo que faz outra — e uma bancada assim não
+  serve de juiz.
 
   Auras e cura ficam de fora: elas respondem a momentos (a mobada, uma barra de
   vida) e não a uma corrente de ataque.
   """
   @spec combo_keys(t) :: [String.t()]
   def combo_keys(world) do
-    for kind <- [:aoe, :single, :crowd],
+    for kind <- combo_order(world),
         {key, %{kind: ^kind}} <- Enum.sort(world.keys),
         do: key
   end
+
+  defp combo_order(%{knobs: %{combo_stun_first: true}}), do: [:crowd, :aoe, :single]
+  defp combo_order(_combo_de_30_08), do: [:aoe, :single, :crowd]
 
   @doc """
   A dureza que este mundo está impondo, em teclas — `nil` quando ninguém a
@@ -1406,8 +1447,8 @@ defmodule Pokex.Sim.World do
   end
 
   @doc """
-  Quantos tiles até o chefe mais perto, medidos do pokémon (é dele que o stun
-  sai) — nil sem chefe na tela. É o que a bancada entrega ao cérebro no lugar
+  Quantos tiles até o especial mais perto, medidos do pokémon (é dele que o stun
+  sai) — nil sem especial na tela. É o que a bancada entrega ao cérebro no lugar
   do CrowdScan do jogo.
   """
   @spec special_tiles(t) :: non_neg_integer | nil
@@ -1415,7 +1456,7 @@ defmodule Pokex.Sim.World do
     origem = if world.own.out?, do: world.own.pos, else: world.pos
 
     world.mobs
-    |> Enum.filter(&Map.get(&1, :boss?, false))
+    |> Enum.filter(&Map.get(&1, :special?, false))
     |> Enum.map(fn %{pos: {mx, my, _}} ->
       {ox, oy, _} = origem
       max(abs(mx - ox), abs(my - oy))
@@ -1424,15 +1465,15 @@ defmodule Pokex.Sim.World do
   end
 
   @doc """
-  Quanto falta do sono do chefe mais perto, em ms — 0 acordado, nil sem chefe.
-  É a testemunha que a postura de chefe pede: "o chefe está dormindo, e por
+  Quanto falta do sono do especial mais perto, em ms — 0 acordado, nil sem especial.
+  É a testemunha que a postura do especial pede: "o especial está dormindo, e por
   quanto tempo ainda?" respondida pelo MUNDO, não pelo carimbo de um aperto
   que pode ter pego o vento.
   """
   @spec special_asleep_left_ms(t) :: non_neg_integer | nil
   def special_asleep_left_ms(world) do
     world.mobs
-    |> Enum.filter(&Map.get(&1, :boss?, false))
+    |> Enum.filter(&Map.get(&1, :special?, false))
     |> Enum.map(&max(Map.get(&1, :asleep_until, 0) - world.clock, 0))
     |> Enum.min(fn -> nil end)
   end
@@ -1466,7 +1507,7 @@ defmodule Pokex.Sim.World do
     stats =
       world.stats
       |> bump(:killed, length(dead))
-      |> bump(:bosses_dead, Enum.count(dead, &Map.get(&1, :boss?, false)))
+      |> bump(:specials_dead, Enum.count(dead, &Map.get(&1, :special?, false)))
       |> bump(:casts, 1)
       |> bump(:reached, reached)
 
@@ -1482,8 +1523,8 @@ defmodule Pokex.Sim.World do
   # Only a BOSS with the colour taught leaves a corpse the aim can see: the
   # common corpse has no taught body in the cave, and without the rule the
   # guard never announces the shiny (the Catcher's session never opens).
-  defp corpses_of(%{knobs: %{boss_color: true}} = world, dead) do
-    for %{boss?: true, pos: pos} <- dead, do: %{pos: pos, at: world.clock}
+  defp corpses_of(%{knobs: %{special_color: true}} = world, dead) do
+    for %{special?: true, pos: pos} <- dead, do: %{pos: pos, at: world.clock}
   end
 
   defp corpses_of(_no_rule, _dead), do: []
@@ -1522,19 +1563,19 @@ defmodule Pokex.Sim.World do
   end
 
   @doc """
-  A boss born where the test wants it, with the health it wants — the
-  world's own boss (`spawn_boss/1`) rolls both. `hp:` in points.
+  A special born where the test wants it, with the health it wants — the
+  world's own special (`spawn_special/1`) rolls both. `hp:` in points.
   """
-  @spec summon_boss(t, {integer, integer, integer}, keyword) :: t
-  def summon_boss(world, pos, opts \\ []) do
-    hp = Keyword.get(opts, :hp, world.knobs.mob_hp * world.knobs.boss_hp_mult)
-    boss = %{boss_mob(world, pos) | hp: hp, max_hp: max(hp, 1)}
+  @spec summon_special(t, {integer, integer, integer}, keyword) :: t
+  def summon_special(world, pos, opts \\ []) do
+    hp = Keyword.get(opts, :hp, world.knobs.mob_hp * world.knobs.special_hp_mult)
+    special = %{special_mob(world, pos) | hp: hp, max_hp: max(hp, 1)}
 
     %{
       world
-      | mobs: world.mobs ++ [boss],
+      | mobs: world.mobs ++ [special],
         next_id: world.next_id + 1,
-        stats: bump(world.stats, :bosses_born, 1)
+        stats: bump(world.stats, :specials_born, 1)
     }
   end
 
@@ -1684,20 +1725,20 @@ defmodule Pokex.Sim.World do
     do: abs(mx - px) <= div(knobs.screen_w, 2) and abs(my - py) <= div(knobs.screen_h, 2)
 
   @doc """
-  O chefe está na tela E a cor dele foi ensinada? — o canal `boss_color?` que o
+  O especial está na tela E a cor dele foi ensinada? — o canal `special_color?` que o
   `ShinyGuard` entrega ao cérebro no jogo de verdade.
 
   Na tela, e não ao alcance: é essa a diferença que importa. O grit só conta
   depois que a luta abre, e a mordida do 10× começa antes disso.
   """
-  def boss_color_seen?(%{knobs: %{boss_color: true}} = world) do
+  def special_color_seen?(%{knobs: %{special_color: true}} = world) do
     Enum.any?(
       world.mobs,
-      &(Map.get(&1, :boss?, false) and on_screen?(&1, world.pos, world.knobs))
+      &(Map.get(&1, :special?, false) and on_screen?(&1, world.pos, world.knobs))
     )
   end
 
-  def boss_color_seen?(_sem_regra_ensinada), do: false
+  def special_color_seen?(_sem_regra_ensinada), do: false
 
   @doc """
   THE MIDDLE CLICK: the pokémon is sent `{dx, dy}` tiles from him. It lands on
@@ -2145,7 +2186,7 @@ defmodule Pokex.Sim.World do
     {mobs, on_pet, on_player} =
       Enum.reduce(world.mobs, {[], 0, 0}, fn mob, {kept, pet, player} ->
         {mob, bites} = chew(mob, world, dt_ms)
-        # a mordida do chefe pesa o multiplicador: "um ataque 10x maior também"
+        # a mordida do especial pesa o multiplicador: "um ataque 10x maior também"
         weight = bites * Map.get(mob, :bite_mult, 1)
 
         cond do

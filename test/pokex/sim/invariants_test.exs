@@ -98,15 +98,15 @@ defmodule Pokex.Sim.InvariantsTest do
   end
 
   # O A/B QUE PROVA O CANAL DA COR. Os dois cenários são o MESMO mundo — mesmo
-  # ninho, mesmo chefe 5×, mesmas sementes; a única diferença é a regra de cor
-  # ensinada (`boss_color`). Um cenário sozinho não diz se a cor serve pra
+  # ninho, mesmo especial 5×, mesmas sementes; a única diferença é a regra de cor
+  # ensinada (`special_color`). Um cenário sozinho não diz se a cor serve pra
   # alguma coisa: ele diz que o bot sobreviveu. Este diz o quanto ela MUDA, e
   # é a forma de o ganho não evaporar num refactor futuro sem ninguém notar.
   #
   # Medido em 01/09, 6 sementes de 3 minutos:
-  #   grit sozinho   pior 5%   mediana 15%   chefes 0..2
-  #   grit + cor     pior 27%  mediana 34%   chefes 2..3
-  describe "o chefe pela cor, medido contra o mesmo mundo sem ela" do
+  #   grit sozinho   pior 5%   mediana 15%   especiais 0..2
+  #   grit + cor     pior 27%  mediana 34%   especiais 2..3
+  describe "o especial pela cor, medido contra o mesmo mundo sem ela" do
     defp piores(id, sementes) do
       for seed <- sementes do
         %{metrics: m} = Bench.run(%{Scenario.get(id) | seed: seed}, duration_ms: @minutes_ms)
@@ -114,17 +114,17 @@ defmodule Pokex.Sim.InvariantsTest do
       end
     end
 
-    defp chefes_mortos(id, sementes) do
+    defp especiais_mortos(id, sementes) do
       for seed <- sementes do
         %{metrics: m} = Bench.run(%{Scenario.get(id) | seed: seed}, duration_ms: @minutes_ms)
-        Map.get(m, :bosses_dead, 0)
+        m.specials_dead
       end
     end
 
     test "a cor levanta o pior momento da caçada" do
       sementes = 1..6
-      sem = piores("chefe-incognito", sementes)
-      com = piores("chefe-pela-cor", sementes)
+      sem = piores("especial-incognito", sementes)
+      com = piores("especial-pela-cor", sementes)
 
       # A MARGEM ENCOLHEU PORQUE O CHÃO SUBIU. A cerca do sono (03/09) segura o
       # revive que recolhe o pokémon com bicho acordado na tela, e isso melhora
@@ -141,7 +141,7 @@ defmodule Pokex.Sim.InvariantsTest do
       # Medido em 03/09, com a cerca do sono (o revive de conveniência deixou de
       # recolher o pokémon com bicho acordado na tela): sem cor a mediana subiu
       # pra 19 e o pior momento de 3 pra 5; com cor, 22 e 19. O bot CEGO — que é
-      # o mundo "chefe-incognito" — melhorou muito, porque boa parte do que a
+      # o mundo "especial-incognito" — melhorou muito, porque boa parte do que a
       # detecção por cor comprava era justamente sobreviver aos revives nus que
       # ela evitava.
       #
@@ -152,13 +152,13 @@ defmodule Pokex.Sim.InvariantsTest do
              "a mediana não melhorou: sem cor #{inspect(sem)}, com cor #{inspect(com)}"
     end
 
-    test "e ela não compra a sobrevivência parando de matar chefe" do
+    test "and it does not buy survival by killing fewer specials" do
       sementes = 1..6
-      sem = chefes_mortos("chefe-incognito", sementes)
-      com = chefes_mortos("chefe-pela-cor", sementes)
+      sem = especiais_mortos("especial-incognito", sementes)
+      com = especiais_mortos("especial-pela-cor", sementes)
 
       assert Enum.sum(com) >= Enum.sum(sem),
-             "matou MENOS chefes com a cor: sem #{inspect(sem)}, com #{inspect(com)}"
+             "matou MENOS especiais com a cor: sem #{inspect(sem)}, com #{inspect(com)}"
     end
 
     defp mediana(lista) do

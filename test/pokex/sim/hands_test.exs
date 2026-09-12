@@ -586,11 +586,11 @@ defmodule Pokex.Sim.HandsTest do
     alias Pokex.Sim.Knobs
 
     defp with_corpse do
-      world = mundo(@barra, %{boss_color: true, corpse_ms: 30_000})
+      world = mundo(@barra, %{special_color: true, corpse_ms: 30_000})
       {x, y, z} = world.pos
 
       world
-      |> World.summon_boss({x + 1, y + 1, z}, hp: 1)
+      |> World.summon_special({x + 1, y + 1, z}, hp: 1)
       |> World.press({:press, "3"})
     end
 

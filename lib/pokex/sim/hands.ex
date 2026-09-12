@@ -448,7 +448,7 @@ defmodule Pokex.Sim.Hands do
 
   # O #453 DA BANCADA: o resgate de verdade reconhece o stun que o cérebro
   # acabou de mandar (via carimbo) e não re-stuna um bolo já dormido. Sem este
-  # espelho, cada revive da postura de chefe queimava um SEGUNDO controle —
+  # espelho, cada revive da postura do especial queimava um SEGUNDO controle —
   # 45s de cooldown por um sono que já existia.
   defp stunned_recently?(world, config) do
     is_integer(world.stunned_at) and

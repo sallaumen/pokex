@@ -255,11 +255,11 @@ defmodule Pokex.Sim.Bench do
       recalls_unsafe: 0,
       eye_at_recall: %{agree: 0, disagree: 0, blind: 0},
       min_hp: nil,
-      bosses_born: 0,
-      bosses_dead: 0,
-      boss_awake_max_ms: 0,
-      boss_awake_in_fight_ms: 0,
-      boss_awake_in_fight_max_ms: 0,
+      specials_born: 0,
+      specials_dead: 0,
+      special_awake_max_ms: 0,
+      special_awake_in_fight_ms: 0,
+      special_awake_in_fight_max_ms: 0,
       player_hp: 100,
       # POR ONDE ELE ANDOU — a pergunta que nenhuma métrica daqui respondia, e
       # a única que enxerga a queixa dele de 29/08: "ele vai para locais onde
@@ -337,13 +337,13 @@ defmodule Pokex.Sim.Bench do
   # that land on him are the whole price of a pokemon off the field.
   defp tally_risk(metrics, world, orders, picture) do
     # O CHEFE ACORDADO COM A LUTA ABERTA. O mundo mede o trecho acordado
-    # inteiro (`boss_awake_max_ms`, a régua do `stun_sempre`); este é o mesmo
+    # inteiro (`special_awake_max_ms`, a régua do `stun_sempre`); este é o mesmo
     # trecho contado só enquanto o cérebro está em luta (`engaged`/`resetting`),
     # porque desde 11/09 o especial JUNTA PRIMEIRO — o tempo em que ele chega
     # mordendo enquanto a pilha fecha é decisão dele, não um ciclo perdido.
     in_fight =
-      if orders.phase in [:engaged, :resetting] and world.boss_awake_streak_ms > 0,
-        do: metrics.boss_awake_in_fight_ms + @tick_ms,
+      if orders.phase in [:engaged, :resetting] and world.special_awake_streak_ms > 0,
+        do: metrics.special_awake_in_fight_ms + @tick_ms,
         else: 0
 
     %{
@@ -351,8 +351,8 @@ defmodule Pokex.Sim.Bench do
       | by_band: Map.update(metrics.by_band, orders.band, @tick_ms, &(&1 + @tick_ms)),
         min_hp: lowest(metrics.min_hp, picture.own_hp),
         player_hp: min(metrics.player_hp, world.player.hp_pct),
-        boss_awake_in_fight_ms: in_fight,
-        boss_awake_in_fight_max_ms: max(metrics.boss_awake_in_fight_max_ms, in_fight)
+        special_awake_in_fight_ms: in_fight,
+        special_awake_in_fight_max_ms: max(metrics.special_awake_in_fight_max_ms, in_fight)
     }
   end
 
@@ -472,11 +472,11 @@ defmodule Pokex.Sim.Bench do
         casts: metrics.casts + (world.stats.casts - before.stats.casts),
         reached: metrics.reached + (world.stats.reached - before.stats.reached),
         vanished: metrics.vanished + (world.stats.vanished - before.stats.vanished),
-        # o placar do chefe vem inteiro do mundo — nascidos, mortos e o maior
-        # trecho com um chefe acordado em campo (a régua do `stun_sempre`)
-        bosses_born: world.stats.bosses_born,
-        bosses_dead: world.stats.bosses_dead,
-        boss_awake_max_ms: world.stats.boss_awake_max_ms
+        # o placar do especial vem inteiro do mundo — nascidos, mortos e o maior
+        # trecho com um especial acordado em campo (a régua do `stun_sempre`)
+        specials_born: world.stats.specials_born,
+        specials_dead: world.stats.specials_dead,
+        special_awake_max_ms: world.stats.special_awake_max_ms
     }
   end
 
@@ -685,10 +685,10 @@ defmodule Pokex.Sim.Bench do
       # A DISTÂNCIA DO CHEFE, respondida pelo mundo — o papel que o CrowdScan
       # faz no jogo. Do POKÉMON, não do personagem: o stun sai dele.
       # O CANAL DA COR: o `ShinyGuard` do jogo publica a presença do especial
-      # (o shiny, que é o "chefe" dele), e o cérebro a lê. Aqui o mundo
+      # (o shiny, que é o "especial" dele), e o cérebro a lê. Aqui o mundo
       # responde — e só quando o cenário disse que a regra de cor existe pra
-      # esta dungeon (`boss_color`).
-      especial?: World.boss_color_seen?(world),
+      # esta dungeon (`special_color`).
+      especial?: World.special_color_seen?(world),
       # THE BALL IN PROGRESS, as the Catcher's `:capture` fact would say it: a
       # shiny corpse on screen is the aim looking for it, and the brain holds
       # the feet on that (`Engine.Logic.hold_for_capture/2`).
@@ -696,14 +696,31 @@ defmodule Pokex.Sim.Bench do
       # no Catcher lives in this world: a closing round never holds the feet
       # to look at the ground here (DÍVIDA: the bench does not model the ball)
       catcher_armed?: Map.get(World.capture_input(world), :armed?) == true,
-      special_tiles: World.special_tiles(world),
+      special_tiles: witness(world, World.special_tiles(world)),
       # THE EYE, as the world observes it (`World.observe(world, :crowd)`: the
       # bars it draws, placed by production's `CrowdScan.place/4`). A blind
       # world has no eye, which is nil, never an empty picture.
       crowd: crowd(world, battle),
-      special_asleep_left_ms: World.special_asleep_left_ms(world),
+      special_asleep_left_ms: witness(world, World.special_asleep_left_ms(world)),
       prev: previous
     }
+  end
+
+  # A TESTEMUNHA QUE O JOGO NÃO TEM.
+  #
+  # `special_asleep_left_ms` e `special_tiles` chegam aqui do mundo, que sabe
+  # tudo. No jogo NINGUÉM os escreve: nenhum módulo fora do simulador põe essas
+  # chaves na foto, e o cérebro as lê como `nil` a noite inteira. Cada pergunta
+  # do ciclo do especial tem DOIS braços por causa disso — um com a testemunha
+  # (aritmética) e outro sem ela (o carimbo do próprio módulo) —, e enquanto a
+  # bancada respondia sempre pelo primeiro, ela media um cérebro que não é o
+  # que roda na máquina dele.
+  #
+  # `special_witness: false` cala a testemunha e deixa o cenário exercer o
+  # braço do jogo. Ligada por padrão porque é o que os cenários históricos
+  # mediram.
+  defp witness(world, value) do
+    if Map.get(world.knobs, :special_witness, true), do: value, else: nil
   end
 
   # Read off the OBSERVATION, never off `world.own.out?` — the same three answers

@@ -41,9 +41,15 @@ defmodule Pokex.Bots.Combat.Combo do
   def window_ms, do: Settings.get(:auto_combo_window_ms)
 
   @doc """
-  AS TECLAS QUE O JOGO VAI DISPARAR quando a corrente sair — o dano primeiro e o
-  controle por último, na mesma ordem que o mundo simulado usa
+  AS TECLAS QUE O JOGO VAI DISPARAR quando a corrente sair — o CONTROLE primeiro
+  e o dano atrás, na mesma ordem que o mundo simulado usa
   (`Sim.World.combo_keys/1`).
+
+  A ordem mudou com o combo dele: "o stun é a primeira coisa do auto-combo, pra
+  já salvar o pokémon se ele tiver com baixa vida, não a última coisa" (12/09).
+  Aqui ela não muda o carimbo (a corrente inteira é carimbada de uma vez, na
+  prensa), mas uma lista que mente sobre o combo vira a próxima crença errada —
+  foi assim que o relógio do sono passou dias contando do fim da janela.
 
   Existe porque o relógio das teclas (`SkillClock`) é a MEMÓRIA DO BOT do que
   foi gasto, e no Auto Combo o bot não aperta nenhuma delas: quem aperta é o
@@ -55,7 +61,7 @@ defmodule Pokex.Bots.Combat.Combo do
   ataque.
   """
   @spec chain_keys(Loadout.t() | nil) :: [String.t()]
-  def chain_keys(%Loadout{} = loadout), do: loadout.aoe ++ loadout.single ++ loadout.crowd
+  def chain_keys(%Loadout{} = loadout), do: loadout.crowd ++ loadout.aoe ++ loadout.single
   def chain_keys(_no_loadout), do: []
 
   @doc """

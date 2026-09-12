@@ -921,6 +921,31 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:shiny_ball, %{point: {600, 250}, name: "Shiny Golem"}}, 1_000
   end
 
+  # A BOLA DO SHINY É A DELE. O corpo comum leva a bola ensinada na foto que o
+  # acervo reconhece; a âncora não tem foto, então a escolha é uma chave só
+  # (`shiny_ball_key`) — e ela existe pra bola cara não sair no que a varredura
+  # acha no chão.
+  @tag :tmp_dir
+  test "and the ball that flies at the anchor is the shiny's own" do
+    SettingsStash.stash!(
+      shiny_ball_key: "f3",
+      ball_types: [%{"key" => "f1", "name" => "Poké Ball"}, %{"key" => "f3", "name" => "Ultra"}]
+    )
+
+    worker = start_hunt_worker(scanner: fn -> nil end)
+    me = {500, 350}
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+    seen = fn hostiles -> %{read?: true, me: me, hostiles: hostiles, pet: nil} end
+
+    send(worker, {:crowd, seen.([Map.merge(%{point: {600, 250}}, shiny)])})
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+    for _ <- 1..3, do: send(worker, {:crowd, seen.([])})
+
+    assert_receive {:performed, :high, actions}, 3_000
+    assert {:press, "f3"} in actions
+  end
+
   # A LEITURA DO OLHO CHEGA A TODO CATCHER VIVO. `{:crowd, …}` é transmissão, não
   # chamada: o Catcher GLOBAL da aplicação — que nunca rodou, e por isso não tem
   # `Logic` nenhuma — recebe a mesma queda que o caçador armado. A semente 45698

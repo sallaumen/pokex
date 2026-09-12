@@ -39,6 +39,38 @@ defmodule Pokex.Bots.Catcher.BallsTest do
     end
   end
 
+  # O SHINY NÃO TEM CORPO ENSINADO — ele é seguido pela barra até a queda, e o
+  # que sobra é uma âncora. Não há foto onde pendurar a escolha, então a bola
+  # dele é UMA chave só, e ela existe pra bola cara não ser gasta no que a
+  # varredura acha no chão.
+  describe "choosing the ball for the shiny's anchor" do
+    test "the shiny's choice is the ball that goes out" do
+      assert Balls.key_for("Shiny (brilho)", :anchor, nil, "f2", @types) == "f2"
+    end
+
+    test "no choice, or one for a ball he does not have, falls back to the default" do
+      assert Balls.key_for("Shiny (brilho)", :anchor, nil, nil, @types) == Balls.default_key()
+      assert Balls.key_for("Shiny (brilho)", :anchor, nil, "", @types) == Balls.default_key()
+      assert Balls.key_for("Shiny (brilho)", :anchor, nil, "f9", @types) == Balls.default_key()
+    end
+
+    # A âncora não passa pelo acervo: o nome dela vem do que o cliente
+    # desenhava em cima do bicho, e não há bola ensinada pra ele. Se a escolha
+    # do corpo vazasse pra cá, um Tentacool ensinado mudaria a bola do shiny.
+    test "the taught corpse's choice never reaches the anchor" do
+      assert Balls.key_for("Tentacool", :anchor, "f2", nil, @types) == Balls.default_key()
+    end
+
+    # …e o contrário: a bola cara do shiny não pode sair no corpo comum.
+    test "and the shiny's choice never reaches an ordinary corpse" do
+      assert Balls.key_for("Rattata", :corpse, nil, "f2", @types) == Balls.default_key()
+    end
+
+    test "an unnamed anchor still gets a ball — the shiny's" do
+      assert Balls.key_for(nil, :anchor, nil, "f2", @types) == "f2"
+    end
+  end
+
   describe "naming a ball for the feed" do
     test "a configured ball is named" do
       assert Balls.label("f2", @types) == "Bola de aquáticos"

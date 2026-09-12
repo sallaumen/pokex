@@ -742,17 +742,26 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # Logic says "throw at X"; Catcher.Ball knows HOW (position, settle, hit the
   # configured hotkey, hold the cursor). nil when nothing was thrown.
-  defp throw_balls([], _body), do: nil
+  defp throw_balls([], _obs, _body), do: nil
 
-  defp throw_balls(performs, body) do
+  defp throw_balls(performs, obs, body) do
+    kind = target_kind(obs)
+
     performs
     |> Enum.flat_map(fn {:capture_sequence, point, name} ->
-      key = Balls.key_for(name)
+      key = Balls.key_for(name, kind)
       say(Narration.special_ball(key, name))
       Ball.sequence(point, key)
     end)
     |> Body.perform(:high, body)
   end
+
+  # DE QUAL LENTE VEIO ESTE CORPO, que é o que decide a bola: a âncora do
+  # brilho leva a bola do shiny, e tudo mais leva a do corpo ensinado. A mesma
+  # marca que o `Logic` carimba no arremesso (`source`), lida da leitura, que é
+  # de onde ele a tira.
+  defp target_kind(%{source: :anchor}), do: :anchor
+  defp target_kind(_sweep_or_library), do: :corpse
 
   # The return used to be DISCARDED — a real actuation error vanished and the
   # feed wrote "bola arremessada" anyway.
@@ -809,7 +818,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     # Logic says "throw at X"; Catcher.Ball knows HOW (position, settle, hit the
     # configured hotkey, hold the cursor). Each step passes the input and
     # mini-game gates instead of an opaque Rig primitive.
-    result = throw_balls(performs, state.body)
+    result = throw_balls(performs, obs, state.body)
 
     # The return used to be DISCARDED — a real actuation error vanished and the
     # feed wrote "bola arremessada" anyway.

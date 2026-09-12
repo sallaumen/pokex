@@ -271,6 +271,15 @@ defmodule Pokex.Settings do
     shiny_guard_enabled: false,
     # A shiny ALWAYS deserves a pokéball, even with capture_enabled off.
     shiny_always_ball: true,
+    # A BOLA DO SHINY: a tecla do hotbar que vai no corpo do shiny (vazio = a
+    # padrão, `ball_key`). O corpo comum pendura a escolha dele na foto que o
+    # acervo ensinou; o shiny não tem foto — ele é seguido pela barra até a
+    # queda —, então é uma chave só, e ela existe pra bola cara não ser gasta
+    # no que a varredura acha no chão.
+    #
+    # Vazio e não `nil` porque o crachá do `Settings` valida pelo TIPO da
+    # semente: com `nil` na semente nenhuma tecla seria aceita ("esperava ?").
+    shiny_ball_key: "",
     # APOSENTADA, ainda DECLARADA (o crachá `__keys__`: tirar uma chave faz este
     # build se declarar mais velho que o settings.json dele e o Settings passa a
     # LER sem ESCREVER, #506/#507). Era a fila da mira por COR do corpo do

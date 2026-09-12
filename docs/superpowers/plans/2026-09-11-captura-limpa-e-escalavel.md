@@ -82,12 +82,12 @@ Referências de linha abaixo são de `origin/main` em `2c580fe7` (#616); re-loca
 
 **Interfaces:** nada novo; só remoções. Depois desta tarefa `capture_sequence` só existe como a AÇÃO do `Catcher.Logic` (`{:capture_sequence, point, name}`, 3-tupla) — nunca mais como primitivo do Rig.
 
-- [ ] **Step 1: enumerar os sítios do primitivo morto**
+- [x] **Step 1: enumerar os sítios do primitivo morto**
 
 Run: `/usr/bin/grep -rn "capture_sequence" lib test | /usr/bin/grep -v "{:capture_sequence, _, _}\|{:capture_sequence, point, \|{:capture_sequence, throw.point\|capture_sequence, _point, _name"`
 Expected: exatamente os sítios listados em **Files** (rig.ex, rig/mac.ex, rig/fake.ex, rig/sim.ex, body.ex ×5, fishing/worker.ex, diagnostics_live.ex) mais os testes que os exercitam.
 
-- [ ] **Step 2: o botão do diagnóstico faz a mesma coisa pelo caminho vivo**
+- [x] **Step 2: o botão do diagnóstico faz a mesma coisa pelo caminho vivo**
 
 Em `lib/pokex_web/live/diagnostics_live.ex`, substitua o corpo de `handle_info({:delayed_seq, point}, socket)`:
 
@@ -103,14 +103,14 @@ Em `lib/pokex_web/live/diagnostics_live.ex`, substitua o corpo de `handle_info({
   end
 ```
 
-- [ ] **Step 3: apagar os sítios e as cláusulas** (rig.ex callback; mac/fake/sim impls; as cinco cláusulas do body.ex — `actuators/1`, `execute/1`, `guarded_input?/1`, `first_action/1`, `action_label/1`; o braço do fishing). Apague também os testes que só existiam pra elas (`/usr/bin/grep -rln "capture_sequence" test/pokex/rig test/pokex/bots/body_test.exs`).
+- [x] **Step 3: apagar os sítios e as cláusulas** (rig.ex callback; mac/fake/sim impls; as cinco cláusulas do body.ex — `actuators/1`, `execute/1`, `guarded_input?/1`, `first_action/1`, `action_label/1`; o braço do fishing). Apague também os testes que só existiam pra elas (`/usr/bin/grep -rln "capture_sequence" test/pokex/rig test/pokex/bots/body_test.exs`).
 
-- [ ] **Step 4: apagar `Trail.clear_anchors/1`, `CorpseLibrary.best/1` (+ seu teste), `ShinyAim.judge/6` (+ trocar chamadas nos testes), a assinatura de `Perception.topic()` e a cláusula `{:world, …}` no worker**
+- [x] **Step 4: apagar `Trail.clear_anchors/1`, `CorpseLibrary.best/1` (+ seu teste), `ShinyAim.judge/6` (+ trocar chamadas nos testes), a assinatura de `Perception.topic()` e a cláusula `{:world, …}` no worker**
 
 Run: `/usr/bin/grep -rn "clear_anchors\|CorpseLibrary.best(\|ShinyAim.judge(\|Perception.topic()" lib test`
 Expected: nenhuma linha em `lib/pokex/bots/catcher/`; `Perception.topic()` só nos outros assinantes (LiveViews/feeds).
 
-- [ ] **Step 5: o comentário de `settings.ex:513`**
+- [x] **Step 5: o comentário de `settings.ex:513`**
 
 Substitua o bloco "Independent switches, both only meaningful while parado:" por:
 
@@ -119,11 +119,11 @@ Substitua o bloco "Independent switches, both only meaningful while parado:" por
     # na caçada com a estrada segurada e a lista vazia, não só no modo Parado.
 ```
 
-- [ ] **Step 6: docs** — no topo de cada um dos três documentos de 10/07 e da seção de captura do `fase-0-inventario.md`, uma linha: `> **Substituído.** O feed `:corpses` (baseline + diff) e `loot_enabled` não existem desde 30/07 (apagados em 09/09). A captura de hoje: `docs/superpowers/specs/2026-09-09-shiny-na-cacada-design.md` e `docs/superpowers/plans/2026-09-11-captura-limpa-e-escalavel.md`.` Em `2026-09-10-shiny-quatro-abertos.md`, marque as 33 caixas `- [x]` (as quatro entregas estão no código: `shiny_aim.ex:232-243`, `logic.ex:307`, `shiny_guard.ex:288-308`, `ColorRules.proof_fits?/2`).
+- [x] **Step 6: docs** — no topo de cada um dos três documentos de 10/07 e da seção de captura do `fase-0-inventario.md`, uma linha: `> **Substituído.** O feed `:corpses` (baseline + diff) e `loot_enabled` não existem desde 30/07 (apagados em 09/09). A captura de hoje: `docs/superpowers/specs/2026-09-09-shiny-na-cacada-design.md` e `docs/superpowers/plans/2026-09-11-captura-limpa-e-escalavel.md`.` Em `2026-09-10-shiny-quatro-abertos.md`, marque as 33 caixas `- [x]` (as quatro entregas estão no código: `shiny_aim.ex:232-243`, `logic.ex:307`, `shiny_guard.ex:288-308`, `ColorRules.proof_fits?/2`).
 
-- [ ] **Step 7: testes tocados** — `MIX_ENV=test mix test test/pokex/bots/catcher/trail_test.exs test/pokex/bots/catcher/corpse_library_test.exs test/pokex/bots/catcher/shiny_aim_test.exs test/pokex/bots/catcher/worker_test.exs test/pokex/bots/body_test.exs test/pokex/bots/fishing/worker_test.exs test/pokex_web/live/diagnostics_live_test.exs` → `0 failures`.
+- [x] **Step 7: testes tocados** — `MIX_ENV=test mix test test/pokex/bots/catcher/trail_test.exs test/pokex/bots/catcher/corpse_library_test.exs test/pokex/bots/catcher/shiny_aim_test.exs test/pokex/bots/catcher/worker_test.exs test/pokex/bots/body_test.exs test/pokex/bots/fishing/worker_test.exs test/pokex_web/live/diagnostics_live_test.exs` → `0 failures`.
 
-- [ ] **Step 8: gate completo + PR** (Global Constraints). Título sugerido: `o primitivo que a bola já não usa: capture_sequence sai do Rig, e o feed do chão sai do Catcher`.
+- [x] **Step 8: gate completo + PR** (Global Constraints). Título sugerido: `o primitivo que a bola já não usa: capture_sequence sai do Rig, e o feed do chão sai do Catcher`.
 
 ---
 
@@ -141,7 +141,7 @@ Substitua o bloco "Independent switches, both only meaningful while parado:" por
 - Consumes: `Trail.hunted/2`, `Trail.anchors/3` (Task 0/3).
 - Produces: `Pokex.Bots.Catcher.Observation.anchors(candidates, at, diag) :: map` com `source: :anchor`; `Observation.screen_clear/2` (idêntica à antiga `ShinyAim.screen_clear/2`); o fato `:capture` passa a ser `%{pending: n, anchors: n, hunted?: boolean, armed?: boolean}`; o snapshot troca `aim?` por `hunted?: boolean` e `anchors: n`; `shiny_pending?` deixa de ser campo — vira `shiny_open?/1` derivado do rastro.
 
-- [ ] **Step 1: o teste que descreve o novo fato**
+- [x] **Step 1: o teste que descreve o novo fato**
 
 Em `test/pokex/bots/catcher/worker_test.exs`, ao lado de "the shiny's bar followed until it falls buys the ball at the cue, with no colour at all":
 
@@ -169,9 +169,9 @@ Em `test/pokex/bots/catcher/worker_test.exs`, ao lado de "the shiny's bar follow
 
 (`now/0` já existe no arquivo de teste; se não, `defp now, do: System.monotonic_time(:millisecond)`.)
 
-- [ ] **Step 2: rodar e ver falhar** — `MIX_ENV=test mix test test/pokex/bots/catcher/worker_test.exs --only line:<linha do teste>` → falha em `hunted?`/`anchors` (chaves ausentes).
+- [x] **Step 2: rodar e ver falhar** — `MIX_ENV=test mix test test/pokex/bots/catcher/worker_test.exs --only line:<linha do teste>` → falha em `hunted?`/`anchors` (chaves ausentes).
 
-- [ ] **Step 3: o licenciamento do shiny sem sessão**
+- [x] **Step 3: o licenciamento do shiny sem sessão**
 
 `{:shiny_seen, _info}` deixa de abrir sessão; o que ele fazia de útil era a LICENÇA da bola com a captura desligada (`shiny_always_ball`). Ela passa a vir do rastro. No worker:
 
@@ -191,7 +191,7 @@ Em `test/pokex/bots/catcher/worker_test.exs`, ao lado de "the shiny's bar follow
 
 `capture_allowed?/2` (a licença por observação `%{source: :anchor}`) fica como está, só trocando `:shiny_aim` por `:anchor`. Apague o campo `shiny_pending?` e todo uso (`note_throw/3` só carimba a estrela; `snapshot/1` publica `hunted?: Trail.hunted(...) != nil`).
 
-- [ ] **Step 4: `publish_capture/1` e o snapshot**
+- [x] **Step 4: `publish_capture/1` e o snapshot**
 
 ```elixir
   defp publish_capture(state) do
@@ -224,7 +224,7 @@ E em `Engine.Worker.capturing?/1` (`lib/pokex/bots/engine/worker.ex`):
 
 (Atualize o comentário acima dela: "corpo no chão (âncora) ou bola no ar (pending) seguram os pés".) `publish_capture/1` também precisa rodar depois de `follow/2` (a âncora nasce ali): em `handle_info({:crowd, …})` termine com `state = state |> remember_standing(hostiles) |> follow(reading); publish_capture(state); {:noreply, state}`.
 
-- [ ] **Step 5: `Observation`** — `git mv lib/pokex/bots/catcher/shiny_aim.ex lib/pokex/bots/catcher/observation.ex`; módulo `Pokex.Bots.Catcher.Observation` com `@moduledoc` de dois parágrafos (a observação sintética da âncora e o portão da tela vazia), `screen_clear/2` igual, e:
+- [x] **Step 5: `Observation`** — `git mv lib/pokex/bots/catcher/shiny_aim.ex lib/pokex/bots/catcher/observation.ex`; módulo `Pokex.Bots.Catcher.Observation` com `@moduledoc` de dois parágrafos (a observação sintética da âncora e o portão da tela vazia), `screen_clear/2` igual, e:
 
 ```elixir
   @doc "The Logic's observation for the trail's anchors: not a photo, a claim."
@@ -245,13 +245,13 @@ E em `Engine.Worker.capturing?/1` (`lib/pokex/bots/engine/worker.ex`):
 
 No worker, `throw_at_anchors/1` chama `Observation.anchors(candidates, at, %{anchor: true})`; `refuse_shiny/2`, `anchor_without_ball/2`, `capture_allowed?/2`, `advance/2` (o `match?(%{source: :shiny_aim}, obs)`) e `note_throw/3` passam a casar `source: :anchor`. Em `logic.ex` nada muda além do comentário de `other_lens?/2` ("a varredura comum e a âncora são duas lentes").
 
-- [ ] **Step 6: apagar a sessão** — tudo listado em **Files** para o worker. Depois: `/usr/bin/grep -n "aim\b\|aim_\|:aim\|tally\|shiny_pending" lib/pokex/bots/catcher/worker.ex` → só `aim_settle` (a config da bola) pode sobrar.
+- [x] **Step 6: apagar a sessão** — tudo listado em **Files** para o worker. Depois: `/usr/bin/grep -n "aim\b\|aim_\|:aim\|tally\|shiny_pending" lib/pokex/bots/catcher/worker.ex` → só `aim_settle` (a config da bola) pode sobrar.
 
-- [ ] **Step 7: a Central e o painel** — em `cavebot_live.ex`, `capture_aiming?/1` vira `capture_open?(catcher)` = `Map.get(catcher, :hunted?) == true or Map.get(catcher, :anchors, 0) > 0`; a frase `"mirando o corpo pela cor"` vira `"seguindo a barra do shiny"` (hunted) / `"corpo no chão — bola a caminho"` (anchors > 0). Atualize `cavebot_live_test.exs` na mesma frase.
+- [x] **Step 7: a Central e o painel** — em `cavebot_live.ex`, `capture_aiming?/1` vira `capture_open?(catcher)` = `Map.get(catcher, :hunted?) == true or Map.get(catcher, :anchors, 0) > 0`; a frase `"mirando o corpo pela cor"` vira `"seguindo a barra do shiny"` (hunted) / `"corpo no chão — bola a caminho"` (anchors > 0). Atualize `cavebot_live_test.exs` na mesma frase.
 
-- [ ] **Step 8: testes** — apague/renomeie os listados em **Files**; `MIX_ENV=test mix test test/pokex/bots/catcher test/pokex/bots/engine/worker_test.exs test/pokex/bots/black_box_test.exs test/pokex_web/live/cavebot_live_test.exs test/pokex_web/live/config_live_test.exs` → `0 failures`; a bancada (Task 0) e os três testes da rede continuam verdes.
+- [x] **Step 8: testes** — apague/renomeie os listados em **Files**; `MIX_ENV=test mix test test/pokex/bots/catcher test/pokex/bots/engine/worker_test.exs test/pokex/bots/black_box_test.exs test/pokex_web/live/cavebot_live_test.exs test/pokex_web/live/config_live_test.exs` → `0 failures`; a bancada (Task 0) e os três testes da rede continuam verdes.
 
-- [ ] **Step 9: gate completo + PR.** Título: `a mira por cor do corpo se aposenta: o corpo é onde a barra caiu, e o fato diz o que o rastro sabe`. No corpo do PR, a evidência (0 px em todas as sessões de 11/09; #601).
+- [x] **Step 9: gate completo + PR.** Título: `a mira por cor do corpo se aposenta: o corpo é onde a barra caiu, e o fato diz o que o rastro sabe`. No corpo do PR, a evidência (0 px em todas as sessões de 11/09; #601).
 
 ---
 
@@ -264,7 +264,7 @@ No worker, `throw_at_anchors/1` chama `Observation.anchors(candidates, at, %{anc
 **Interfaces:**
 - Produces: anchor `%{world, screen, pos, name, px, fallen_at}`; `Trail.anchors/3` devolve `screen:` = o ponto de tela da última barra vista quando `ref.pos == anchor.pos` (o personagem não andou desde então), senão a projeção do mundo como hoje. `Trail.standing/2` inalterada.
 
-- [ ] **Step 1: os testes**
+- [x] **Step 1: os testes**
 
 Em `trail_test.exs`:
 
@@ -344,9 +344,9 @@ E em `trail_replay_test.exs`, a expectativa de 1950 passa a ser a propriedade:
   end
 ```
 
-- [ ] **Step 2: rodar e ver falhar** — `MIX_ENV=test mix test test/pokex/bots/catcher/trail_test.exs test/pokex/bots/catcher/trail_replay_test.exs` → os três novos e o de 1950 falham.
+- [x] **Step 2: rodar e ver falhar** — `MIX_ENV=test mix test test/pokex/bots/catcher/trail_test.exs test/pokex/bots/catcher/trail_replay_test.exs` → os três novos e o de 1950 falham.
 
-- [ ] **Step 3: o rastro guarda a tela e a posição**
+- [x] **Step 3: o rastro guarda a tela e a posição**
 
 Em `trail.ex`: `@type track` ganha `pos: {integer, integer, integer} | nil`; `@type anchor` ganha `screen: point, pos: {integer, integer, integer} | nil`.
 
@@ -412,7 +412,7 @@ Em `trail.ex`: `@type track` ganha `pos: {integer, integer, integer} | nil`; `@t
   defp anchor_screen(%{world: world}, ref), do: to_screen(world, ref)
 ```
 
-- [ ] **Step 4: o gêmeo velho não cai**
+- [x] **Step 4: o gêmeo velho não cai**
 
 Em `observe/4`, depois de `{fallen, alive} = …` e antes de `corpses = …`:
 
@@ -429,9 +429,9 @@ Em `observe/4`, depois de `{fallen, alive} = …` e antes de `corpses = …`:
 
 (`tracks` aqui é a lista já casada nesta olhada, com os que caem dentro.)
 
-- [ ] **Step 5: rodar** — `MIX_ENV=test mix test test/pokex/bots/catcher/trail_test.exs test/pokex/bots/catcher/trail_replay_test.exs test/pokex/bots/catcher/worker_test.exs` → `0 failures`. Se 1950 ainda cair fora do tile: imprima `result.falls` e os `seen_at`/`screen` dos rastros caçados nas olhadas 20_191–21_770 (`IO.inspect` temporário) — a regra certa é "a âncora é a última barra vista do rastro mais fresco"; ajuste `hunt_at/6` para que o brilho em (1418, 917) sem barra a menos de 1,5 tile CRIE o rastro fresco (hoje ele cria — confira `nearest/2`).
+- [x] **Step 5: rodar** — `MIX_ENV=test mix test test/pokex/bots/catcher/trail_test.exs test/pokex/bots/catcher/trail_replay_test.exs test/pokex/bots/catcher/worker_test.exs` → `0 failures`. Se 1950 ainda cair fora do tile: imprima `result.falls` e os `seen_at`/`screen` dos rastros caçados nas olhadas 20_191–21_770 (`IO.inspect` temporário) — a regra certa é "a âncora é a última barra vista do rastro mais fresco"; ajuste `hunt_at/6` para que o brilho em (1418, 917) sem barra a menos de 1,5 tile CRIE o rastro fresco (hoje ele cria — confira `nearest/2`).
 
-- [ ] **Step 6: gate completo + PR.** Título: `o rastro em tela: a âncora é a última barra vista, e o gêmeo velho não vira corpo`.
+- [x] **Step 6: gate completo + PR.** Título: `o rastro em tela: a âncora é a última barra vista, e o gêmeo velho não vira corpo`.
 
 ---
 
@@ -446,7 +446,7 @@ Em `observe/4`, depois de `{fallen, alive} = …` e antes de `corpses = …`:
 **Interfaces:**
 - Produces: `Catcher.Fact.build(trail, logic, armed?, now) :: %{pending: n, anchors: n, hunted?: b, armed?: b}`; `Catcher.Fact.max_age_ms() :: 3_000` (= `@pulse_ms 1_000 × 3`: o pulso do worker, não a cadência do vigia); `Catcher.Fact.snapshot_fields(fact) :: %{pending_corpses: n, anchors: n, hunted?: b}`.
 
-- [ ] **Step 1: teste**
+- [x] **Step 1: teste**
 
 ```elixir
 defmodule Pokex.Bots.Catcher.FactTest do
@@ -474,7 +474,7 @@ end
 
 (Confira a assinatura de `Logic.new/1` em `logic.ex:28` e ajuste o argumento.)
 
-- [ ] **Step 2: o módulo**
+- [x] **Step 2: o módulo**
 
 ```elixir
 defmodule Pokex.Bots.Catcher.Fact do
@@ -514,7 +514,7 @@ end
 
 No worker: `publish_capture(state)` → `WorldState.put(:capture, Fact.build(state.trail, state.logic, armed?(state), trail_ref(%{}), now()), now())`; `snapshot/1` faz `Map.merge(base, Fact.snapshot_fields(Fact.build(…)))` e apaga `pending_corpses:`/`hunted?:` calculados à parte; `@pulse_ms` do worker vira `Fact.pulse_ms()`. Em `engine/worker.ex`, as duas leituras de `:capture` usam `Pokex.Bots.Catcher.Fact.max_age_ms()` (e o `alias`).
 
-- [ ] **Step 3: uma só voz** — substitua `refuse_shiny/2` e `anchor_without_ball/2` por:
+- [x] **Step 3: uma só voz** — substitua `refuse_shiny/2` e `anchor_without_ball/2` por:
 
 ```elixir
   # THE ANCHOR'S BALL NEVER DISAPPEARS IN SILENCE (17:26:00 and 19:51:19 of
@@ -541,9 +541,9 @@ No worker: `publish_capture(state)` → `WorldState.put(:capture, Fact.build(sta
 
 Chamadas: `explain_no_ball(obs, state, "o mini-game está em curso")`, `… "captura desligada e shiny_always_ball desligado"`, `… "o jogo não está em foco, ou o pânico está armado"`, e depois de `run_step`: `if state.logic.throw == nil, do: explain_no_ball(obs, state, :logic)`.
 
-- [ ] **Step 4: rodar** — `MIX_ENV=test mix test test/pokex/bots/catcher/fact_test.exs test/pokex/bots/catcher/worker_test.exs test/pokex/bots/engine/worker_test.exs test/pokex/bots/cavebot/worker_test.exs test/pokex/bots/player_support/worker_test.exs` → `0 failures`.
+- [x] **Step 4: rodar** — `MIX_ENV=test mix test test/pokex/bots/catcher/fact_test.exs test/pokex/bots/catcher/worker_test.exs test/pokex/bots/engine/worker_test.exs test/pokex/bots/cavebot/worker_test.exs test/pokex/bots/player_support/worker_test.exs` → `0 failures`.
 
-- [ ] **Step 5: gate completo + PR.** Título: `um só relato da captura: o fato e o snapshot saem da mesma conta, com o prazo do Catcher`.
+- [x] **Step 5: gate completo + PR.** Título: `um só relato da captura: o fato e o snapshot saem da mesma conta, com o prazo do Catcher`.
 
 ---
 
@@ -559,9 +559,9 @@ Chamadas: `explain_no_ball(obs, state, "o mini-game está em curso")`, `… "cap
 - `Hunt.follow(state, reading) :: {state, fell? :: boolean}` (o antigo `follow/2` sem o `ball_the_fall`), `Hunt.hunt(state, vistos) :: state`, `Hunt.anchor_targets(state) :: {[candidate], [anchor]}` (o filtro `on_screen?`/`free?` de `throw_at_anchors/1`, devolvendo os candidatos `%{name, px, point, in_frame}` e as âncoras a gastar), `Hunt.spend(state, anchors) :: state`, `Hunt.ref(reading) :: ref`, `Hunt.snapshot(state) :: map`, `Hunt.fresher_than(logic, now) :: integer`. `Hunt` NÃO loga nem chama `advance/2`: devolve fatos; quem joga é o worker.
 - `Narration.scan(obs) :: obs` (o antigo `narrate/1`), `Narration.cue(obs) :: {:macro | :debug, String.t()} | nil`, `Narration.hold_reason(state) :: String.t() | nil`, `Narration.hunt_hold() :: String.t() | nil`, `Narration.library() :: String.t()`, `Narration.corpses_taught() :: String.t()`, `Narration.falls(before, after_look, ref, now) :: [String.t()]`. Puras: devolvem strings; o worker chama `log/2`.
 
-- [ ] **Step 1: o teste da narração** (`narration_test.exs`): três casos de `hold_reason/1` — mini-game em jogo → `"mini-game em jogo"`; `player_mode "hunt"` com a estrada andando → a frase atual de `hunt_hold/0`; captura desligada → `"captura desligada"` (copie as strings exatas de `hold_reason/1`, `worker.ex:1692-1734`).
+- [x] **Step 1: o teste da narração** (`narration_test.exs`): três casos de `hold_reason/1` — mini-game em jogo → `"mini-game em jogo"`; `player_mode "hunt"` com a estrada andando → a frase atual de `hunt_hold/0`; captura desligada → `"captura desligada"` (copie as strings exatas de `hold_reason/1`, `worker.ex:1692-1734`).
 
-- [ ] **Step 2: mover por nome** — cada função listada em **Interfaces** sai do worker para o módulo novo com o MESMO corpo (só `defp` → `def`, e `log/2` trocado por devolver a string). No worker, `handle_info({:crowd, …})`:
+- [x] **Step 2: mover por nome** — cada função listada em **Interfaces** sai do worker para o módulo novo com o MESMO corpo (só `defp` → `def`, e `log/2` trocado por devolver a string). No worker, `handle_info({:crowd, …})`:
 
 ```elixir
   def handle_info({:crowd, %{read?: true, hostiles: hostiles} = reading}, state) do
@@ -602,9 +602,9 @@ e `throw_at_anchors/1` vira:
 
 (`candidate` passa a carregar `fallen_at`.) Os testes do worker afirmam as mesmas frases: nada muda para eles.
 
-- [ ] **Step 3: rodar** — `MIX_ENV=test mix test test/pokex/bots/catcher` → `0 failures`; `wc -l lib/pokex/bots/catcher/worker.ex` → `< 1200` (o varrer fica dentro dele, ~170 linhas, agrupado sob `# --- sweep (o varrer do modo Parado) ---`).
+- [x] **Step 3: rodar** — `MIX_ENV=test mix test test/pokex/bots/catcher` → `0 failures`; `wc -l lib/pokex/bots/catcher/worker.ex` → `< 1200` (o varrer fica dentro dele, ~170 linhas, agrupado sob `# --- sweep (o varrer do modo Parado) ---`).
 
-- [ ] **Step 4: gate completo + PR.** Título: `o Catcher em três: o rastro decide, a narração fala, o worker joga`.
+- [x] **Step 4: gate completo + PR.** Título: `o Catcher em três: o rastro decide, a narração fala, o worker joga`.
 
 ---
 
@@ -624,7 +624,7 @@ Nada a fazer. O `Sweep` e seus handlers no worker são movidos, sem mudar de com
 **Interfaces:**
 - Produces: `Balls.key_for(name, :corpse | :anchor) :: String.t()`; `Balls.key_for(name, kind, chosen, shiny_choice, types)` (a metade testável). O alvo vem de `obs.source` (`:corpse_scan` → `:corpse`, `:anchor` → `:anchor`).
 
-- [ ] **Step 1: testes** (`balls_test.exs`):
+- [x] **Step 1: testes** (`balls_test.exs`):
 
 ```elixir
   test "the anchor's ball is the shiny's choice when it is on the hotbar" do
@@ -646,7 +646,7 @@ Nada a fazer. O `Sweep` e seus handlers no worker são movidos, sem mudar de com
 
 E no `worker_test.exs`, junto de "with the feet still, the ball flies at the fall…": `SettingsStash.stash!(shiny_ball_key: "f3", ball_types: [%{"key" => "f1", "name" => "Poké Ball"}, %{"key" => "f3", "name" => "Ultra"}])` antes da queda, e `assert_receive {:performed, :high, actions}`, `assert {:press, "f3"} in actions`.
 
-- [ ] **Step 2: `Balls`**
+- [x] **Step 2: `Balls`**
 
 ```elixir
   @spec key_for(String.t() | nil, :corpse | :anchor) :: String.t()
@@ -676,11 +676,11 @@ E no `worker_test.exs`, junto de "with the feet still, the ball flies at the fal
 
 Mantenha `key_for/1` e `key_for/3` como atalhos de `:corpse` (o `ShinyReadiness` e a calibração os usam). No worker, `throw_balls/2` recebe `kind` de `source_of(obs)` e chama `Balls.key_for(name, kind)`.
 
-- [ ] **Step 3: a chave e a linha do /config** — `settings.ex`: `# A BOLA DO SHINY: a tecla do hotbar que vai no corpo do shiny (nil = a padrão, ball_key).` + `shiny_ball_key: nil,`; `config_live.ex`: a linha com `<select>` das `ball_types` + "a padrão"; `config_live_test.exs`: a linha aparece e grava.
+- [x] **Step 3: a chave e a linha do /config** — `settings.ex`: `# A BOLA DO SHINY: a tecla do hotbar que vai no corpo do shiny (nil = a padrão, ball_key).` + `shiny_ball_key: nil,`; `config_live.ex`: a linha com `<select>` das `ball_types` + "a padrão"; `config_live_test.exs`: a linha aparece e grava.
 
-- [ ] **Step 4: rodar** — `MIX_ENV=test mix test test/pokex/bots/catcher/balls_test.exs test/pokex/bots/catcher/worker_test.exs test/pokex_web/live/config_live_test.exs test/pokex/settings_test.exs` → `0 failures`.
+- [x] **Step 4: rodar** — `MIX_ENV=test mix test test/pokex/bots/catcher/balls_test.exs test/pokex/bots/catcher/worker_test.exs test/pokex_web/live/config_live_test.exs test/pokex/settings_test.exs` → `0 failures`.
 
-- [ ] **Step 5: gate completo + PR.** Título: `a bola do shiny: o corpo do brilho escolhe a própria tecla`.
+- [x] **Step 5: gate completo + PR.** Título: `a bola do shiny: o corpo do brilho escolhe a própria tecla`.
 
 ---
 
@@ -690,8 +690,8 @@ Mantenha `key_for/1` e `key_for/3` como atalhos de `:corpse` (o `ShinyReadiness`
 - Create: `docs/captura/README.md`
 - Modify: `docs/superpowers/specs/2026-09-11-reconhecimento-de-corpo-design.md` (uma linha no topo: "Depende de `2026-09-11-captura-limpa-e-escalavel.md`; é o passo seguinte — o corpo achado no chão depois da queda, para o bicho que anda no último segundo.")
 
-- [ ] **Step 1: escrever `docs/captura/README.md`** (pt-BR, ~150 linhas) com as seções: (1) **O caminho** — o diagrama do "Mapa de hoje" atualizado pós-Tasks 2–7; (2) **Quem decide o quê** — `ShinyGuard`/`Sparkle` (o brilho), `CrowdWatch`/`CrowdScan` (as barras), `Trail` (identidade, queda, gêmeo, tela × mundo), `Hunt` (alvos), `Logic` (fila/arremesso/conferência/frescor), `Balls`/`Ball` (qual bola, como joga), `Fact` (o relato), `Engine.hold_for_capture` (segurar os pés, teto por rodada); (3) **As linhas do diário e o que provam** — `✨ shiny na tela — o brilho ao lado do nome (Npx)`, `🎯 <nome> caiu em x,y — a barra sumiu`, `🌟 a âncora caiu com a estrada andando`, `🌟 bola na âncora … caiu há Ns`, `🌟 bola em x,y`, `🌟 capturado em x,y`, `🌟 a bola da âncora NÃO saiu — …`; (4) **As configurações vivas** (as que sobraram na Task 3 da auditoria, com o efeito de cada uma) e **as aposentadas** (por quê ficam declaradas); (5) **Como investigar um shiny que passou** — copiar o episódio da caixa-preta antes da rotação, gerar o fixture (Task 0), rodar a bancada, olhar os quadros `queda`/`bola`; (6) **O que ainda não resolve** — o bicho que anda no último segundo (o corpo fica um tile ao lado: só olhando o CHÃO depois da queda), o nome escondido atrás do pet, o minimapa parado; (7) **O que vem depois** — o modo "captura tudo que mata" (a seção do plano com esse nome: todo track que cai vira âncora; o acervo confirma e escolhe a bola), e o corpo achado no chão depois da queda (`2026-09-11-reconhecimento-de-corpo-design.md`).
-- [ ] **Step 2: gate (só docs → `mix format` não toca; CI verde) + PR.** Título: `o mapa da captura, escrito`.
+- [x] **Step 1: escrever `docs/captura/README.md`** (pt-BR, ~150 linhas) com as seções: (1) **O caminho** — o diagrama do "Mapa de hoje" atualizado pós-Tasks 2–7; (2) **Quem decide o quê** — `ShinyGuard`/`Sparkle` (o brilho), `CrowdWatch`/`CrowdScan` (as barras), `Trail` (identidade, queda, gêmeo, tela × mundo), `Hunt` (alvos), `Logic` (fila/arremesso/conferência/frescor), `Balls`/`Ball` (qual bola, como joga), `Fact` (o relato), `Engine.hold_for_capture` (segurar os pés, teto por rodada); (3) **As linhas do diário e o que provam** — `✨ shiny na tela — o brilho ao lado do nome (Npx)`, `🎯 <nome> caiu em x,y — a barra sumiu`, `🌟 a âncora caiu com a estrada andando`, `🌟 bola na âncora … caiu há Ns`, `🌟 bola em x,y`, `🌟 capturado em x,y`, `🌟 a bola da âncora NÃO saiu — …`; (4) **As configurações vivas** (as que sobraram na Task 3 da auditoria, com o efeito de cada uma) e **as aposentadas** (por quê ficam declaradas); (5) **Como investigar um shiny que passou** — copiar o episódio da caixa-preta antes da rotação, gerar o fixture (Task 0), rodar a bancada, olhar os quadros `queda`/`bola`; (6) **O que ainda não resolve** — o bicho que anda no último segundo (o corpo fica um tile ao lado: só olhando o CHÃO depois da queda), o nome escondido atrás do pet, o minimapa parado; (7) **O que vem depois** — o modo "captura tudo que mata" (a seção do plano com esse nome: todo track que cai vira âncora; o acervo confirma e escolhe a bola), e o corpo achado no chão depois da queda (`2026-09-11-reconhecimento-de-corpo-design.md`).
+- [x] **Step 2: gate (só docs → `mix format` não toca; CI verde) + PR.** Título: `o mapa da captura, escrito`.
 
 ---
 

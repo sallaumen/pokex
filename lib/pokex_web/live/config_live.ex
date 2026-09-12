@@ -46,6 +46,7 @@ defmodule PokexWeb.ConfigLive do
   use PokexWeb, :live_view
 
   alias Pokex.Bots.AlarmCategories
+  alias Pokex.Bots.Catcher.Balls
   alias Pokex.Bots.Engine.Config
   alias Pokex.Bots.HuntMode
   alias Pokex.Settings
@@ -410,6 +411,17 @@ defmodule PokexWeb.ConfigLive do
               "bicho como ESPECIAL — mesma postura do shiny visto pela cor, e junta primeiro " <>
               "igual. Vazio desliga.",
           keywords: "especial shiny chefe boss nome postura"
+        },
+        %{
+          key: :shiny_ball_key,
+          kind: :select,
+          label: "A bola do shiny",
+          hint:
+            "Qual tecla do hotbar vai no corpo de um shiny. O corpo comum leva a bola que " <>
+              "você ensinou na foto dele, na Calibração; o shiny não tem foto — ele é seguido " <>
+              "pela barra até cair —, então é uma escolha só, e ela existe pra bola cara não " <>
+              "ser gasta no que a varredura acha no chão.",
+          keywords: "shiny bola pokébola tecla hotbar captura âncora"
         },
         %{
           key: :engine_stun_hold_ms,
@@ -845,6 +857,8 @@ defmodule PokexWeb.ConfigLive do
   # O valor guardado é código (inglês); o que ele lê é produto. Só onde as duas
   # coisas divergem — os outros enums já guardam a palavra que a tela mostra.
   defp option_text(:hunt_mode, value), do: HuntMode.label(HuntMode.parse(value))
+  defp option_text(:shiny_ball_key, ""), do: "a padrão"
+  defp option_text(:shiny_ball_key, key), do: "#{Balls.label(key)} (#{key})"
   defp option_text(_key, value), do: value
 
   defp to_int(value) do
@@ -884,6 +898,13 @@ defmodule PokexWeb.ConfigLive do
   defp unit(_row, :ms), do: "ms"
   defp unit(_row, :pct), do: "%"
   defp unit(_row, _kind), do: nil
+
+  # A BOLA DO SHINY NÃO É UM ENUM FIXO: as opções são o hotbar DELE
+  # (`ball_types`, que ele edita nos Editores) mais "a padrão". Um enum de
+  # código listaria teclas que ele não tem e esconderia as que tem.
+  defp options(:shiny_ball_key) do
+    [""] ++ for(%{"key" => key} <- List.wrap(Settings.get(:ball_types)), do: key)
+  end
 
   defp options(key), do: Settings.enum_values(key)
 

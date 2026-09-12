@@ -227,15 +227,20 @@ defmodule Pokex.Bots.CrowdWatch do
     if why == state.last_why do
       state
     else
-      state = %{state | last_why: why}
-
       with tag when is_binary(tag) <- tag(orders),
            :ok <- allowed(state, now()) do
         {reading, state} = look(state, now(), evidence: true)
         save_photo(reading, tag)
-        state
+        %{state | last_why: why}
       else
-        _nothing_to_keep -> state
+        # UMA FRASE SÓ SE GASTA COM A FOTO NA MÃO. A trava era carimbada aqui em
+        # cima, antes de perguntar; um tique que chegasse com o quadro-negro
+        # velho gastava a frase sem fotografar, e como o cérebro repete a MESMA
+        # frase a cada tique, aquela decisão de revive nunca mais ganhava foto.
+        {:error, _off_or_no_hunt} -> state
+        # …mas uma frase que não é de revive nunca vai virar foto: essa a trava
+        # pode gastar, e gastar poupa reavaliá-la a cada tique.
+        nil -> %{state | last_why: why}
       end
     end
   end

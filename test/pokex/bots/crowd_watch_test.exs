@@ -57,6 +57,14 @@ defmodule Pokex.Bots.CrowdWatchTest do
     )
   end
 
+  # O QUADRO-NEGRO VELHO PELO CARIMBO, não pelo relógio: `WorldState.put/3` leva a
+  # hora do fato, então "velho" é um número — não 1,6 s de espera que numa
+  # máquina carregada vira outra coisa.
+  defp stale_orders!(phase) do
+    at = now() - 10 * Pokex.Settings.get(:engine_orders_max_age_ms)
+    WorldState.put(:orders, %{phase: phase, why: "teste", revive: :hold}, at)
+  end
+
   defp battle!(n),
     do: WorldState.put(:battle, %{enemies: Enum.to_list(1..n//1), captured_at: now()}, now())
 
@@ -190,16 +198,66 @@ defmodule Pokex.Bots.CrowdWatchTest do
     assert tags == ["held.png", "revive.png", "revive.png"]
   end
 
+  # ESTE TESTE É DO RODÍZIO, E O RODÍZIO NÃO TEM RELÓGIO. Ele escrevia `:orders`
+  # uma vez e mandava as 33 frases de uma vez: `send/2` é assíncrono, então as 33
+  # escritas caíam primeiro e o olho drenava a fila inteira contra o ÚNICO
+  # `:orders` que sobrou, envelhecendo a cada mensagem. Como toda foto passa por
+  # `allowed/2` → `cadence/1` → `orders/1` (`engine_orders_max_age_ms`, 1,5 s), o
+  # que o teste media era quantas das 33 cabiam em 1,5 s DE MÁQUINA: 33 numa
+  # ociosa (30 depois do rodízio, verde), 14 ou 25 numa carregada, 7 numa suíte
+  # de 854 s.
+  #
+  # Duas saídas que NÃO servem: renovar `:orders` dentro do laço só muda o
+  # relógio de lugar (continua sendo o tempo de drenar 33 mensagens de fila); e
+  # afrouxar `engine_orders_max_age_ms` tira o olho de `:idle` e o põe a olhar
+  # sozinho no próprio tique — o arquivo foi de 2,6 s pra 15 s e o
+  # `:sys.get_state` estourou os 5 s dele.
+  #
+  # O que serve é não ter fila: uma frase por vez, drenada antes da próxima. Cada
+  # mensagem é tratada a microssegundos do seu `orders!`, e nada se acumula.
   test "only thirty photos stay", %{watch: watch} do
-    orders!(:engaged)
     battle!(3)
 
     for i <- 1..33 do
+      orders!(:engaged)
       send(watch, {:engine, %{}, %{phase: :engaged, why: "revive #{i}", revive: :now}})
+      :sys.get_state(watch)
     end
 
-    :sys.get_state(watch)
     assert length(photos()) == 30
+  end
+
+  # SEM FOTO, A FRASE NÃO SE GASTA. O olho guarda uma foto POR FRASE de revive, e
+  # o cérebro repete a mesma frase a cada tique — a trava `last_why` existe pra
+  # não virar uma foto por tique. Mas ela era carimbada ANTES de perguntar se a
+  # olhada estava autorizada, então um tique que chegasse com o quadro-negro
+  # velho (`:orders` além de `engine_orders_max_age_ms`) gastava a frase sem
+  # tirar foto: o quadro voltava a ficar fresco, o cérebro repetia a MESMA
+  # frase, e aquela decisão de revive ficava PRA SEMPRE sem foto — justo a
+  # decisão que a foto existe pra explicar.
+  test "a decision refused for a stale blackboard is photographed when the eye is allowed again",
+       %{watch: watch} do
+    battle!(3)
+    stale = %{phase: :engaged, why: "revive agora", revive: :now}
+
+    # o quadro-negro chega velho: o olho recusa a olhada, e nenhuma foto sai
+    stale_orders!(:engaged)
+    send(watch, {:engine, %{}, stale})
+    :sys.get_state(watch)
+    assert photos() == []
+
+    # o cérebro repete a MESMA frase com o quadro-negro fresco de novo
+    orders!(:engaged)
+    send(watch, {:engine, %{}, stale})
+    :sys.get_state(watch)
+    assert length(photos()) == 1
+
+    # …e segue sendo UMA: com o quadro-negro FRESCO (a única recusa possível
+    # agora é a trava), a mesma frase não tira foto de novo
+    orders!(:engaged)
+    send(watch, {:engine, %{}, stale})
+    :sys.get_state(watch)
+    assert length(photos()) == 1
   end
 
   describe "the eye's keys" do

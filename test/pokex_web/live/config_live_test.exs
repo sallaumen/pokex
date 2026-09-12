@@ -15,7 +15,6 @@ defmodule PokexWeb.ConfigLiveTest do
   setup do
     SettingsStash.stash_keys!([
       :revive_stock,
-      :player_hp_logout,
       :player_hp_floor_pct,
       :rescue_enabled,
       :pokemon_hp_rescue_pct,
@@ -39,15 +38,13 @@ defmodule PokexWeb.ConfigLiveTest do
     assert html =~ "é repor"
   end
 
-  test "o logout automático do personagem tem a própria linha", %{conn: conn} do
+  # A régua na página (02/09): ele quis subir os "10 passos" e não tinha onde. E
+  # a linha diz, embaixo do rótulo, o que o Econômico força.
+  test "the gathering ruler has its own row, and says what Economy forces", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/config")
 
-    assert html =~ "cfg-row-player_hp_logout"
-    # A régua na página (02/09): ele quis subir os "10 passos" e não tinha
-    # onde. E a linha diz, embaixo do rótulo, o que o Econômico força.
     assert html =~ "cfg-row-engine_patience_tiles"
     assert html =~ "no Econômico: desligado"
-    assert html =~ "Sair do jogo se a sua vida cair"
   end
 
   describe "a busca" do
@@ -63,7 +60,7 @@ defmodule PokexWeb.ConfigLiveTest do
     test "grupo sem linha casando some inteiro", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/config")
 
-      html = view |> element("form[phx-change=search]") |> render_change(%{q: "logout"})
+      html = view |> element("form[phx-change=search]") |> render_change(%{q: "orçamento"})
 
       assert html =~ "cfg-voce"
       refute html =~ "cfg-pesca"
@@ -118,14 +115,14 @@ defmodule PokexWeb.ConfigLiveTest do
     end
 
     test "a linha inteira do liga-desliga é o botão", %{conn: conn} do
-      Settings.put(:player_hp_logout, false)
+      Settings.put(:rescue_enabled, false)
       {:ok, view, _html} = live(conn, ~p"/config")
 
-      view |> element("#cfg-row-player_hp_logout button") |> render_click()
-      assert Settings.get(:player_hp_logout) == true
+      view |> element("#cfg-row-rescue_enabled button") |> render_click()
+      assert Settings.get(:rescue_enabled) == true
 
-      view |> element("#cfg-row-player_hp_logout button") |> render_click()
-      assert Settings.get(:player_hp_logout) == false
+      view |> element("#cfg-row-rescue_enabled button") |> render_click()
+      assert Settings.get(:rescue_enabled) == false
     end
 
     test "um enum vira select com as opções do Settings", %{conn: conn} do

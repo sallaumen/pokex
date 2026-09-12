@@ -353,7 +353,7 @@ defmodule Pokex.Bots.Guardian do
           # with :hp muted, the character stood in six Magneton and died six minutes later).
           {:rule_alarm, :mortal,
            "⚠️ parando com #{length(enemies)} bicho(s) na janela de batalha — o personagem " <>
-             "fica EXPOSTO parado na pilha. Sai de perto, ou liga o player_hp_logout no /config."}
+             "fica EXPOSTO parado na pilha — sem o pokémon batendo, nada segura esses bichos."}
         )
 
       _tela_limpa_ou_velha ->

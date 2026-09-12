@@ -84,9 +84,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       frozen_said?: false,
       player_low_since: nil,
       player_alarmed?: false,
-      # o logout do personagem sai UMA vez por episódio: a barra passa por
-      # todas as alturas abaixo do corte enquanto ele morre
-      player_bailed?: false,
       last_rescue_at: nil,
       # The last time the brain asked for a revive while his switch was off.
       last_switch_warn_at: nil,
@@ -576,8 +573,14 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # frames were 240 ms: on 2026-09-08 that was enough for a "1%" read off the screen the
   # panel had just uncovered to ring the native siren.
   #
-  # The strong action is optional (`player_hp_logout`): logout is the only help the game gives
-  # the character. Without a pokémon standing, running away only changes where he gets hit.
+  # NO STRONG ACTION HERE, AND THAT IS DELIBERATE (2026-09-11). Leaving the game
+  # on his health stopped EVERY bot and latched the keyboard to press Ctrl+Q —
+  # and the game refuses that key in battle: both attempts of that night failed
+  # ten seconds later ("ainda_logado"), with the character at 14% and at 18%,
+  # six to eight monsters on him, and not one key going out in between. He had
+  # to arm the bot by hand to get out of it. What defends the character is the
+  # pokémon STANDING: the combo and the revive keep the pile asleep, and
+  # stopping is the opposite of that. This guard shouts, and nothing else.
   @player_low_confirm_ms 1_200
 
   defp guard_player(state) do
@@ -588,40 +591,15 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
         %{state | player_low_since: nil, player_alarmed?: false}
 
       state.player_hp >= floor + 10 ->
-        %{state | player_low_since: nil, player_alarmed?: false, player_bailed?: false}
+        %{state | player_low_since: nil, player_alarmed?: false}
 
       state.player_hp >= floor ->
         %{state | player_low_since: nil}
 
       true ->
-        %{state | player_low_since: state.player_low_since || now()}
-        |> player_low()
-        |> player_bail()
+        player_low(%{state | player_low_since: state.player_low_since || now()})
     end
   end
-
-  # A AÇÃO MORA MAIS EMBAIXO QUE O AVISO, e não pode depender do grito. O grito
-  # sai UMA vez por episódio, na altura em que a barra cruzou o aviso; a vida
-  # continua caindo depois dele, e era exatamente aí — 4% em 10/09, com o
-  # pokémon fora do campo e sete bichos em cima — que o logout precisava sair.
-  # Amarrado ao grito, ele nasceria com a altura do primeiro quadro e nunca mais
-  # seria perguntado.
-  defp player_bail(%{player_bailed?: true} = state), do: state
-
-  defp player_bail(%{player_low_since: since} = state) when is_integer(since) do
-    corte = Settings.get(:player_hp_logout_pct)
-
-    if Settings.get(:player_hp_logout) and is_integer(corte) and state.player_hp <= corte and
-         now() - since >= @player_low_confirm_ms do
-      broadcast_log(:macro, "🚪 vida do PERSONAGEM em #{state.player_hp}% — SAINDO do jogo")
-      Logout.request("vida do personagem em #{state.player_hp}%")
-      %{state | player_bailed?: true}
-    else
-      state
-    end
-  end
-
-  defp player_bail(state), do: state
 
   # The revive EFFECT judge, charged on every HP reading.
   defp judge_revive_effect(state) do
@@ -674,8 +652,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     state
   end
 
-  # A dry bag is an emergency with its own answer, and it must not depend on
-  # `player_hp_logout`: that switch is about the CHARACTER's HP.
+  # A dry bag is an emergency with its own answer, and the ONLY logout left on
+  # this side: a bag with no revive (or a pokémon that will not stand) is a
+  # character with no defense, and there the game's exit is the only help. His
+  # own health never asks for it — see `guard_player/1`.
   defp dry_act("logout", motivo), do: Logout.request(motivo)
   defp dry_act("stop", motivo), do: BotSupervisor.stop_all(motivo)
   defp dry_act(_alarm_ou_desconhecido, _motivo), do: :ok
@@ -703,11 +683,8 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
     broadcast_log(
       :macro,
-      "⚠️ a vida do PERSONAGEM caiu a #{state.player_hp}% — " <>
-        if(Settings.get(:player_hp_logout),
-          do: "saio do jogo se chegar em #{Settings.get(:player_hp_logout_pct)}%",
-          else: "confere o jogo (ligue player_hp_logout pra ele sair sozinho)"
-        )
+      "⚠️ a vida do PERSONAGEM caiu a #{state.player_hp}% — sigo lutando: o pokémon de pé " <>
+        "é a defesa, o combo e o revive deixam a pilha dormindo. Quem sai do jogo é você"
     )
 
     %{state | player_alarmed?: true}

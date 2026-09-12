@@ -15,8 +15,9 @@ defmodule Pokex.Bots.PlayerSupport.ReviveEffect do
   conclusions ask for the same shout). A fainted pokémon that needs insistence counts a strike
   outright: it was paid for and nobody stood up.
 
-  The worker is the one that shouts (category `:mortal`, which pierces the mute) and asks for
-  the logout (`player_hp_logout`); only the verdict lives here.
+  The worker is the one that shouts (category `:mortal`, which pierces the mute) and takes
+  `revive_dry_action` — the ONLY logout left on the support's side, because a bag with no
+  revive is a character with no defense; only the verdict lives here.
   """
 
   @probe_max_hp 60

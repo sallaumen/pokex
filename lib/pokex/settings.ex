@@ -345,8 +345,14 @@ defmodule Pokex.Settings do
     # …and the receipt is NOT the sleep.
     rescue_stun_settle_ms: 2_000,
     # The other half of the window: how long the pokémon takes to cast again AFTER the
-    # revive.
-    rescue_blackout_ms: 2_000,
+    # revive. HIS CALL of 2026-09-11, 2000 -> 700: measured on his own night (1.072
+    # revives), the first combo press after a revive NEVER came before 2618 ms, median
+    # 2951 — and that is the time his pokémon spends standing there and walking off.
+    # 700 buys about 1.3s of it back and it does enter the zone this window was cut
+    # for: on 30/08, 320 of the night's 441 swallowed keys fell in the first second
+    # after the F4. What says whether the trade paid is the receipts (`kind: "receipt"`,
+    # `missed`) in the seconds right after a revive.
+    rescue_blackout_ms: 700,
     # MORREU.
     pokemon_hp_fainted_below_pct: 35,
     # Quanto tempo a Pokebar pode devolver o MESMO número baixo antes de deixar
@@ -663,22 +669,16 @@ defmodule Pokex.Settings do
     # this count; red and fainted spend to the end.
     engine_revive_reserve: 5,
     # The CHARACTER's HP (the red bar of the "Pokémon" panel): below this for two readings
-    # the support alarms, and logs out if player_hp_logout is on.
+    # the support alarms — and ONLY alarms. Leaving the game on his health retired on
+    # 2026-09-11: it disarmed the bot mid-fight (every bot stopped, keyboard latched)
+    # and the game refused the logout anyway, twice.
     player_hp_floor_pct: 50,
-    # DUAS ALTURAS, PORQUE SÃO DUAS COISAS. `player_hp_floor_pct` é o AVISO — a
-    # altura em que ele quer ouvir "olha a sua vida". `player_hp_logout_pct` é a
-    # AÇÃO, e mora mais embaixo: sair do jogo é caro, e a conta só fecha quando
-    # o alternativo é morrer. Medido no diário dele de 10/09: com aviso em 50 e
-    # ação em 35, os avisos de 36% (02:09) e o de 33% (15:09) não tirariam ele
-    # do jogo, e os de 4% (15:38, a morte) e 0% (22:05) tirariam.
+    # APOSENTADAS 11/09, e declaradas de propósito: ninguém mais as lê — o guarda
+    # da vida do personagem só grita (veja `guard_player/1` no suporte) —, mas
+    # tirar uma chave do crachá `__keys__` é o que impediu o settings.json de
+    # gravar no #506/#507. Chave aposentada fica declarada, como a `ball_rules`.
+    player_hp_logout: false,
     player_hp_logout_pct: 35,
-    # LIGADO. Ele morreu três vezes com este interruptor desligado — 30/08,
-    # 03/09 e 10/09 —, e nas três o bot LEU a vida dele caindo, gritou, e a
-    # própria mensagem dizia "ligue player_hp_logout pra ele sair sozinho".
-    # Na morte de 10/09 o personagem estava a 4% dezoito segundos antes de
-    # morrer, com o pokémon fora do campo e sete Venusauros em cima: sair do
-    # jogo era a única ajuda que o jogo dá, e ela dependia de um botão.
-    player_hp_logout: true,
     # Nor may closing a round wait forever for a pile that stopped coming — the
     # ceiling this same number doubles as, for when to give up and revive.
     engine_closing_timeout_ms: 8_000,

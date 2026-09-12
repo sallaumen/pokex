@@ -235,9 +235,13 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp tick(logic, world, config, now) do
     situation = world.situation
-    # the edge where the client's chain ENDS in a control: read before
-    # `track_survivors/3` consumes it
-    chain_end? = logic.chain_seen? and Map.get(situation, :combo_left_ms) == 0
+    # A BORDA EM QUE A CORRENTE COMEÇA — lida antes de `track_survivors/3`
+    # consumir o `chain_seen?`. Era a borda do FIM: o código acreditava que a
+    # corrente termina em controle, e tirava ali a foto de quem está dormindo.
+    # No combo dele o stun é a PRIMEIRA skill (12/09), então quem dormiu foi
+    # quem estava em volta quando a corrente SAIU — e quem chega durante ela
+    # entrava na foto como coberto sem nunca ter levado o sono.
+    chain_start? = not logic.chain_seen? and (Map.get(situation, :combo_left_ms) || 0) > 0
 
     logic =
       logic
@@ -245,7 +249,7 @@ defmodule Pokex.Bots.Engine.Logic do
       |> track_bar_blind(situation, now)
       |> track_survivors(situation, now)
       |> track_heavy(situation)
-      |> cover_chain_end(chain_end?, situation, config, now)
+      |> cover_chain_start(chain_start?, situation, config, now)
 
     siege = siege(logic, situation, config, now)
 
@@ -296,11 +300,11 @@ defmodule Pokex.Bots.Engine.Logic do
   defp latch_heavy(logic, %{heavy?: true}), do: %{logic | heavy_area?: true}
   defp latch_heavy(logic, _light_or_unread), do: logic
 
-  # In Auto Combo the chain ends in the control, so the chain's end IS the
-  # stun: the cover is taken there, from the picture of that very tick.
-  defp cover_chain_end(logic, false, _situation, _config, _now), do: logic
+  # NO AUTO COMBO O STUN É A PRIMEIRA SKILL da corrente, então a saída dela É o
+  # sono: a foto de quem está coberto sai daqui, do quadro desse tique.
+  defp cover_chain_start(logic, false, _situation, _config, _now), do: logic
 
-  defp cover_chain_end(logic, true, situation, config, now) do
+  defp cover_chain_start(logic, true, situation, config, now) do
     %{logic | stun_cover: cover_now(situation, config, now)}
   end
 
@@ -2468,9 +2472,14 @@ defmodule Pokex.Bots.Engine.Logic do
     combo_just_ended?(t) or within_since?(t, Map.get(t.logic.since, :stunned))
   end
 
+  # O SONO É DA PRENSA, não do fim da janela (`Combat.Combo.stun_age_ms/2`):
+  # no combo dele o stun é a PRIMEIRA skill. A corrente saindo continua
+  # segurando o revive (`not mid_combo?`, que é sobre jogar fora o dano), mas
+  # a COBERTURA passa a vencer na hora certa — antes eram 8 s de licença sobre
+  # um sono de 4,5 s.
   defp combo_just_ended?(t) do
-    case Map.get(t.s, :combo_since_end_ms) do
-      desde when is_integer(desde) -> not mid_combo?(t) and desde <= t.config.stun_window_ms
+    case Map.get(t.s, :combo_stun_age_ms) do
+      idade when is_integer(idade) -> not mid_combo?(t) and idade <= t.config.stun_window_ms
       _sem_corrente -> false
     end
   end

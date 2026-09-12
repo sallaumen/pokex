@@ -118,6 +118,34 @@ defmodule Pokex.Bots.Combat.AutoComboTest do
       assert Combo.left_ms(:auto_combo, agora + 9_000) == 0
     end
 
+    # O RELÓGIO DO SONO CONTA DA PRENSA, não do fim da janela.
+    #
+    # O código acreditava que "no Auto Combo a corrente termina em controle,
+    # então o fim da corrente É o stun". No combo dele o stun é a PRIMEIRA
+    # skill: "hoje no meu auto combo, o stun é a primeira coisa do auto-combo,
+    # pra já salvar o pokémon se ele tiver com baixa vida, não a última coisa,
+    # e como ele geralmente dura 4,5s, temos de forma muito crítica que usar o
+    # revive para recuperar os cooldowns dentro desses 4.5s" (12/09).
+    #
+    # Com a conta velha, `janela + stun_window` dava ao cérebro uma cobertura
+    # de 8 s sobre um sono de 4,5 s — 3,5 s de proteção que não existe, e é
+    # nesse buraco que o revive recolhe o pokémon na frente de bicho acordado.
+    test "the sleep is dated from the press, because the stun is the first skill" do
+      agora = now()
+      SkillClock.pressed("r", agora)
+
+      assert Combo.stun_age_ms(:auto_combo, agora) == 0
+      assert Combo.stun_age_ms(:auto_combo, agora + 1_500) == 1_500
+
+      # …e segue contando depois que a janela fecha: o sono não recomeça ali.
+      assert Combo.stun_age_ms(:auto_combo, agora + 6_000) == 6_000
+    end
+
+    test "with no press at all there is no sleep to date" do
+      assert Combo.stun_age_ms(:auto_combo) == nil
+      assert Combo.stun_age_ms(:economy, now()) == nil
+    end
+
     # A MÃO DELE CONTA IGUAL: o `HandWatch` carimba o R que ele apertou, e a
     # corrente está rodando do mesmo jeito.
     test "um R apertado por ele também abre a janela" do

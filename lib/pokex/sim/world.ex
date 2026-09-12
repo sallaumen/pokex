@@ -1175,19 +1175,21 @@ defmodule Pokex.Sim.World do
     do: max(world.combo_at + janela_ms - world.clock, 0)
 
   @doc """
-  Há quanto tempo a corrente ACABOU, em ms — o espelho de
-  `Combat.Combo.since_end_ms/2`. `nil` quando nenhuma saiu ainda.
+  A IDADE DO SONO, em ms — o espelho de `Combat.Combo.stun_age_ms/2`. `nil`
+  quando nenhuma corrente saiu ainda.
 
-  É o relógio do SONO: a corrente termina em controle, e é ele que dá licença
-  ao revive de recolher o pokémon sem deixar o personagem na frente de bicho
-  acordado. Sem isto na bancada, nenhum cenário tinha sono e toda caçada
-  recuava pra sempre.
+  É o relógio que licencia o revive a recolher o pokémon sem deixar o
+  personagem na frente de bicho acordado. Sem isto na bancada, nenhum cenário
+  tinha sono e toda caçada recuava pra sempre.
+
+  CONTA DA PRENSA: o stun é a PRIMEIRA skill da corrente dele (12/09), não a
+  última. Datar o sono do fim da janela dava ao cérebro uma cobertura de 8 s
+  sobre um sono de 4,5 s.
   """
-  @spec combo_since_end_ms(t, non_neg_integer) :: non_neg_integer | nil
-  def combo_since_end_ms(%{combo_at: nil}, _janela_ms), do: nil
+  @spec combo_stun_age_ms(t) :: non_neg_integer | nil
+  def combo_stun_age_ms(%{combo_at: nil}), do: nil
 
-  def combo_since_end_ms(world, janela_ms),
-    do: max(world.clock - (world.combo_at + janela_ms), 0)
+  def combo_stun_age_ms(world), do: max(world.clock - world.combo_at, 0)
 
   defp drain_chain(%{chain: []} = world, _dt_ms), do: world
 

@@ -875,6 +875,32 @@ defmodule Pokex.Settings do
   # 45.0 and the 2026-07 test pins that use).
   @number_keys [:glow_threshold]
 
+  # O PISO DA BANDA VERMELHA — a única régua do projeto que tem chão, porque
+  # abaixo dele ela deixa de ser uma escolha e vira um buraco.
+  #
+  # O vermelho é a ÚNICA regra que fura a janela do combo (`mid_combo?`) e a
+  # cerca do recolhimento (`recall_safe?`) pra pedir o revive na hora. Medido
+  # nos eventos dele de 11-12/09, 56.206 leituras de vida legíveis: o cérebro
+  # olha a vida do pokémon UMA VEZ POR SEGUNDO (p50, p90 e p99 todos em 1005 ms)
+  # e, debaixo da mobada, o pokémon perde 6-8%/s no p90 e 15-25%/s no p99.
+  #
+  # Uma faixa vermelha MAIS ESTREITA que o dano de uma olhada nunca acende: o
+  # pokémon pula de 14% pro chão entre dois olhares. Em 12/09 a régua estava em
+  # 5%: às 09:22:00 o pokémon caiu de 59% a 10% em seis segundos, a emergência
+  # não armou uma vez, e o bot soltou TRÊS correntes no lugar de um revive.
+  #
+  # 20 cobre o p90 de uma olhada com folga e quase todo o p99. Acima dele a
+  # escolha continua sendo dele (o padrão do projeto é 30; a régua dele era 35).
+  @red_floor_pct 20
+
+  @doc "O piso da banda vermelha, em % — abaixo dele a emergência não acende."
+  @spec red_floor_pct() :: pos_integer
+  def red_floor_pct, do: @red_floor_pct
+
+  # Os pisos: chaves em que um valor baixo demais não é gosto, é um buraco de
+  # segurança. Hoje só a banda vermelha.
+  @floors %{engine_band_red_pct: @red_floor_pct}
+
   @ranges %{
     logout_attempts: 1..99,
     tab_confirm_frames: 1..99,
@@ -980,7 +1006,7 @@ defmodule Pokex.Settings do
     engine_patience_tiles: 1..200,
     engine_size_ceiling_ms: 100..600_000,
     engine_band_yellow_pct: 0..100,
-    engine_band_red_pct: 0..100,
+    engine_band_red_pct: @red_floor_pct..100,
     engine_resume_pct: 1..100,
     engine_recover_timeout_ms: 1_000..600_000,
     engine_downed_give_up_ms: 0..7_200_000,
@@ -1331,6 +1357,10 @@ defmodule Pokex.Settings do
           # A value written in Portuguese by an older build becomes today's spelling BEFORE the
           # seed comparison — otherwise a migrated default would be kept as an override forever.
           value <- [Legacy.value(key, value)],
+          # …E O PISO VALE AQUI, não só na escrita. Recusar a escrita não salva
+          # ninguém: o número perigoso já está no disco de quem o gravou antes
+          # do piso existir, e este `load` nunca olhou faixa nenhuma.
+          value <- [floored(key, value)],
           value != base_fun.(key),
           into: %{},
           do: {key, value}
@@ -1338,6 +1368,22 @@ defmodule Pokex.Settings do
       _ -> %{}
     end
   end
+
+  # Um valor abaixo do piso sobe pro piso — e DIZ, porque o silêncio aqui é a
+  # armadilha de #506/#507 ao contrário: a config dele mudando sozinha sem uma
+  # linha no diário.
+  defp floored(key, value) when is_map_key(@floors, key) and is_integer(value) do
+    floor = Map.fetch!(@floors, key)
+
+    if value < floor do
+      note_change(key, value, floor)
+      floor
+    else
+      value
+    end
+  end
+
+  defp floored(_key_without_floor, value), do: value
 
   defp known_key(key_string) do
     Enum.find(@setting_keys, &(Atom.to_string(&1) == key_string))

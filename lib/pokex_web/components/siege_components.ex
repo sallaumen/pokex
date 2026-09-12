@@ -79,7 +79,7 @@ defmodule PokexWeb.SiegeComponents do
         <button
           type="button"
           phx-click="crowd_scan"
-          class="shrink-0 cursor-pointer rounded border border-pk-line px-2 py-0.5 font-mono text-pk-meta text-pk-text-2 hover:bg-pk-raised"
+          class="inline-flex h-6 shrink-0 cursor-pointer items-center rounded border border-pk-line px-2 font-mono text-pk-meta text-pk-text-2 hover:bg-pk-raised"
         >
           foto agora
         </button>
@@ -92,7 +92,7 @@ defmodule PokexWeb.SiegeComponents do
           type="button"
           phx-click="toggle_mirror"
           class={[
-            "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border px-2 py-0.5 font-mono text-pk-meta transition-colors",
+            "inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded border px-2 font-mono text-pk-meta transition-colors",
             if(@mirror?,
               do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
               else: "border-pk-line text-pk-text-2 hover:bg-pk-raised"

@@ -1224,9 +1224,6 @@ defmodule PokexWeb.CavebotLive do
     "o " <> Enum.join(inicio, ", o ") <> " e o " <> ultimo <> " nunca foram ensinados"
   end
 
-  defp enemy_count(%{enemies: enemies}), do: length(enemies)
-  defp enemy_count(_none), do: 0
-
   defp hunt_state_text(nil), do: "parada"
   defp hunt_state_text(%{state: state}), do: state_word(state)
 
@@ -2595,13 +2592,19 @@ defmodule PokexWeb.CavebotLive do
                   end
                 }
               />
+              <%!-- O MESMO NÚMERO DA LISTA LOGO ACIMA. Este cartão contava as
+              LINHAS cruas — o pokémon dele entre elas —, e a lista, três dedos
+              acima, mostrava a conta do cérebro: seis contra cinco na mesma
+              tela, e o que sobra é justamente o erro que custou a caçada de
+              27/08 (a linha dele contada como inimigo). Um placar em dois
+              lugares só serve se for o mesmo placar. --%>
               <.world_tile
                 id="tile-enemies"
                 icon="hero-bolt"
                 label="inimigos"
-                value={to_string(enemy_count(@world))}
+                value={to_string(enemies_seen(@world, @situation))}
                 note={if @world.engaged?, do: "travado no alvo", else: "sem alvo travado"}
-                tone={if enemy_count(@world) > 0, do: :warn, else: :neutral}
+                tone={if enemies_seen(@world, @situation) > 0, do: :warn, else: :neutral}
               />
               <.world_tile
                 id="tile-hunt"
@@ -3373,7 +3376,7 @@ defmodule PokexWeb.CavebotLive do
               mediu 45s. --%>
               <div class="mt-3 border-t border-pk-line pt-3">
                 <div class="flex flex-wrap items-center gap-2">
-                  <h4 class="text-pk-sm font-semibold text-pk-text-1">o alcance da área</h4>
+                  <h4 class="text-pk-body font-semibold text-pk-text">o alcance da área</h4>
                   <button
                     type="button"
                     phx-click="toggle_area_probe"
@@ -3381,7 +3384,7 @@ defmodule PokexWeb.CavebotLive do
                       "rounded border px-2 py-0.5 text-pk-meta",
                       if(@area_probe?,
                         do: "border-pk-ok text-pk-ok",
-                        else: "border-pk-line text-pk-text-2 hover:bg-pk-surface-2"
+                        else: "border-pk-line text-pk-text-2 hover:bg-pk-raised"
                       )
                     ]}
                   >
@@ -3391,7 +3394,7 @@ defmodule PokexWeb.CavebotLive do
                     :if={@area}
                     type="button"
                     phx-click="refresh_area_probe"
-                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
+                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-raised"
                   >
                     atualizar
                   </button>
@@ -3399,7 +3402,7 @@ defmodule PokexWeb.CavebotLive do
                     :if={@area}
                     type="button"
                     phx-click="clear_area_probe"
-                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-surface-2"
+                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-raised"
                   >
                     zerar
                   </button>
@@ -3414,7 +3417,7 @@ defmodule PokexWeb.CavebotLive do
                 </p>
 
                 <div :if={@area} class="mt-2">
-                  <p class="text-pk-sm text-pk-text-1">{area_headline(@area)}</p>
+                  <p class="text-pk-body text-pk-text">{area_headline(@area)}</p>
                   <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">{area_spread(@area)}</p>
                   <%!-- O confundidor, escrito onde ele lê o número: número de dano
                   não diz QUEM causou. Nos quadros do vídeo dele os disparos de
@@ -3437,7 +3440,7 @@ defmodule PokexWeb.CavebotLive do
               mata, não precisa ficar usando 4, 5, 6 sempre". --%>
               <div class="mt-3 border-t border-pk-line pt-3">
                 <div class="flex flex-wrap items-center gap-2">
-                  <h4 class="text-pk-sm font-semibold text-pk-text-1">o que cada tecla tira</h4>
+                  <h4 class="text-pk-body font-semibold text-pk-text">o que cada tecla tira</h4>
                   <button
                     type="button"
                     phx-click="toggle_skill_meter"
@@ -3445,7 +3448,7 @@ defmodule PokexWeb.CavebotLive do
                       "rounded border px-2 py-0.5 text-pk-meta",
                       if(@meter?,
                         do: "border-pk-ok text-pk-ok",
-                        else: "border-pk-line text-pk-text-2 hover:bg-pk-surface-2"
+                        else: "border-pk-line text-pk-text-2 hover:bg-pk-raised"
                       )
                     ]}
                   >
@@ -3455,7 +3458,7 @@ defmodule PokexWeb.CavebotLive do
                     :if={@meter != %{}}
                     type="button"
                     phx-click="refresh_skill_meter"
-                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-surface-2"
+                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-raised"
                   >
                     atualizar
                   </button>
@@ -3463,7 +3466,7 @@ defmodule PokexWeb.CavebotLive do
                     :if={@meter != %{}}
                     type="button"
                     phx-click="clear_skill_meter"
-                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-surface-2"
+                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-raised"
                   >
                     zerar
                   </button>
@@ -3576,7 +3579,7 @@ defmodule PokexWeb.CavebotLive do
       id="cavebot-sim-armed"
       class="rounded-pk border border-pk-danger bg-pk-danger/10 p-3"
     >
-      <p class="flex items-start gap-2 text-pk-sm font-semibold text-pk-danger">
+      <p class="flex items-start gap-2 text-pk-body font-semibold text-pk-danger">
         <.icon name="hero-eye-slash" class="mt-px size-4 shrink-0" />
         <span>
           o simulador está armado — os olhos do bot estão apontados pro mundo falso
@@ -3664,7 +3667,7 @@ defmodule PokexWeb.CavebotLive do
       id="cavebot-glifos"
       class="rounded-pk border border-pk-danger bg-pk-danger/10 p-3"
     >
-      <p class="flex items-start gap-2 text-pk-sm font-semibold text-pk-danger">
+      <p class="flex items-start gap-2 text-pk-body font-semibold text-pk-danger">
         <.icon name="hero-hashtag" class="mt-px size-4 shrink-0" />
         <span>
           a fonte da sua coordenada não tem

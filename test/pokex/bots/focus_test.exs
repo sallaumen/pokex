@@ -1,6 +1,8 @@
 defmodule Pokex.Bots.FocusTest do
   use ExUnit.Case, async: false
 
+  import Pokex.TestWait
+
   alias Pokex.Bots.Focus
   alias Pokex.Bots.InputGate
 
@@ -55,19 +57,6 @@ defmodule Pokex.Bots.FocusTest do
     {:ok, pid} = Focus.start_link(opts)
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
     pid
-  end
-
-  defp eventually(fun, timeout \\ 800) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    poll(fun, deadline)
-  end
-
-  defp poll(fun, deadline) do
-    cond do
-      fun.() -> true
-      System.monotonic_time(:millisecond) > deadline -> false
-      true -> Process.sleep(10) && poll(fun, deadline)
-    end
   end
 
   # THE SETTLE (2026-09-08): the seconds after the game comes back in front read

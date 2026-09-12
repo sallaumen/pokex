@@ -1,6 +1,8 @@
 defmodule Pokex.Bots.ShinyGuardTest do
   use ExUnit.Case, async: false
 
+  import Pokex.TestWait
+
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.ShinyGuard
   alias Pokex.Calibration
@@ -281,16 +283,6 @@ defmodule Pokex.Bots.ShinyGuardTest do
                WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
              )
            end)
-  end
-
-  defp eventually(fun, timeout \\ 1_000) do
-    limite = System.monotonic_time(:millisecond) + timeout
-
-    Stream.repeatedly(fn ->
-      if fun.(), do: true, else: Process.sleep(20) && false
-    end)
-    |> Enum.find(fn ok -> ok or System.monotonic_time(:millisecond) > limite end)
-    |> Kernel.==(true)
   end
 
   test "status exposes the watcher's state" do

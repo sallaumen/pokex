@@ -31,6 +31,8 @@ defmodule Pokex.Bots.GuardianTest do
   # async test that reaches the real Guardian/Body.
   use ExUnit.Case, async: false
 
+  import Pokex.TestWait
+
   alias Pokex.Bots.Guardian
   alias Pokex.Bots.GuardianTest.FakeBody
   alias Pokex.Bots.InputGate
@@ -57,20 +59,6 @@ defmodule Pokex.Bots.GuardianTest do
     end)
 
     %{on_panic: on_panic}
-  end
-
-  defp eventually(fun, timeout \\ 500) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-
-    poll = fn poll ->
-      cond do
-        fun.() -> true
-        System.monotonic_time(:millisecond) > deadline -> false
-        true -> Process.sleep(5) && poll.(poll)
-      end
-    end
-
-    poll.(poll)
   end
 
   # The app-global Guardian kept its 100ms corner poll running for the WHOLE suite, and

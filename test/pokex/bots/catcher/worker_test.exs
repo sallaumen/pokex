@@ -18,6 +18,8 @@ end
 defmodule Pokex.Bots.Catcher.WorkerTest do
   use ExUnit.Case, async: false
 
+  import Pokex.TestWait
+
   alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.Worker
   alias Pokex.Bots.Catcher.WorkerTest.FakeBody
@@ -1056,15 +1058,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   defp now, do: System.monotonic_time(:millisecond)
-
-  defp eventually(fun, timeout) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-
-    Stream.repeatedly(fn ->
-      if fun.(), do: true, else: Process.sleep(20) && false
-    end)
-    |> Enum.find(fn done -> done or System.monotonic_time(:millisecond) > deadline end)
-  end
 
   # A CAPTURA NUNCA ACONTECEU NUMA CAÇADA, e o diário dele prova: no dia 10/09
   # inteiro, 84 "mira pronta" e ZERO varreduras, ZERO bolas comuns. O portão do

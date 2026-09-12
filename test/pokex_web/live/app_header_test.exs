@@ -4,6 +4,8 @@ defmodule PokexWeb.AppHeaderTest do
   sweeping every route for the same markers is what catches it.
   """
   use PokexWeb.ConnCase, async: false
+
+  import Pokex.TestWait
   import Phoenix.LiveViewTest
 
   alias PokexWeb.Layouts
@@ -186,7 +188,7 @@ defmodule PokexWeb.AppHeaderTest do
       {:cavebot, %{state: :walking, wp_index: 2, wp_total: 9, counters: %{}}}
     )
 
-    assert eventually_renders(view, "Ativo")
+    assert eventually(fn -> bot_state(view) =~ "Ativo" end, 500)
 
     Phoenix.PubSub.broadcast(
       Pokex.PubSub,
@@ -194,15 +196,7 @@ defmodule PokexWeb.AppHeaderTest do
       {:cavebot, %{state: :blocked, wp_index: 2, wp_total: 9, counters: %{}}}
     )
 
-    assert eventually_renders(view, "Parado")
-  end
-
-  defp eventually_renders(view, text, tries \\ 50) do
-    cond do
-      view |> element("#app-bot-state") |> render() =~ text -> true
-      tries == 0 -> false
-      true -> Process.sleep(10) && eventually_renders(view, text, tries - 1)
-    end
+    assert eventually(fn -> bot_state(view) =~ "Parado" end, 500)
   end
 
   # 2026-07-30: {:fishing_log, _, _} rides the same topic as snapshots and hit
@@ -231,7 +225,8 @@ defmodule PokexWeb.AppHeaderTest do
         {:fishing, %{state: :fishing, counters: %{}, error: nil}}
       )
 
-      assert eventually_renders(view, "Ativo"), "#{path} died under worker noise"
+      assert eventually(fn -> bot_state(view) =~ "Ativo" end, 500),
+             "#{path} died under worker noise"
 
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
@@ -439,4 +434,7 @@ defmodule PokexWeb.AppHeaderTest do
       refute has_element?(view, "#screen-mismatch-strip")
     end
   end
+
+  # O MESMO CRACHÁ DE SEMPRE: o cabeçalho diz o estado da frota em `#app-bot-state`.
+  defp bot_state(view), do: view |> element("#app-bot-state") |> render()
 end

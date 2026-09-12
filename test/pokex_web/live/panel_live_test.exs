@@ -1,6 +1,8 @@
 defmodule PokexWeb.PanelLiveTest do
   use PokexWeb.ConnCase, async: false
 
+  import Pokex.TestWait
+
   alias Pokex.Bots.Session
   alias Pokex.Bots.StockAlerts
   alias Pokex.Layout.Sentinel
@@ -11,14 +13,6 @@ defmodule PokexWeb.PanelLiveTest do
 
   # the feed arrives via the journal: broadcast → Pokex.Journal → {:journal_event}
   # → panel. Two async hops — the render must wait for the chain.
-  defp eventually_html(view, text, tries \\ 50) do
-    cond do
-      render(view) =~ text -> true
-      tries == 0 -> false
-      true -> Process.sleep(10) && eventually_html(view, text, tries - 1)
-    end
-  end
-
   defp journal_event(source, severity, text) do
     {:journal_event,
      %{
@@ -1069,9 +1063,9 @@ defmodule PokexWeb.PanelLiveTest do
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "mirando linha 0"})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game_log, :macro, "pausando"})
 
-    assert eventually_html(view, "lançando a linha")
-    assert eventually_html(view, "mirando linha 0")
-    assert eventually_html(view, "pausando")
+    assert eventually(fn -> render(view) =~ "lançando a linha" end, 500)
+    assert eventually(fn -> render(view) =~ "mirando linha 0" end, 500)
+    assert eventually(fn -> render(view) =~ "pausando" end, 500)
   end
 
   test "debug logs are hidden until the debug toggle is on", %{conn: conn} do
@@ -1573,7 +1567,7 @@ defmodule PokexWeb.PanelLiveTest do
         {:cavebot_log, :macro, "caçada: waypoint 3/9"}
       )
 
-      assert eventually_html(view, "caçada: waypoint 3/9")
+      assert eventually(fn -> render(view) =~ "caçada: waypoint 3/9" end, 500)
       assert view |> element("#activity-feed") |> render() =~ "🧭"
     end
 
@@ -1816,16 +1810,7 @@ defmodule PokexWeb.PanelLiveTest do
         {:fishing, %{state: :fishing, counters: %{}, error: nil}}
       )
 
-      refute eventually_has(view, "#last-order")
-    end
-
-    defp eventually_has(view, selector, tries \\ 30) do
-      if has_element?(view, selector) and tries > 0 do
-        Process.sleep(10)
-        eventually_has(view, selector, tries - 1)
-      else
-        has_element?(view, selector)
-      end
+      assert eventually(fn -> not has_element?(view, "#last-order") end, 300)
     end
   end
 

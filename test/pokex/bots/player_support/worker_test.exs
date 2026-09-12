@@ -70,6 +70,8 @@ end
 defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   use ExUnit.Case, async: false
 
+  import Pokex.TestWait
+
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Worker
   alias Pokex.Bots.SkillClock
@@ -235,12 +237,15 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
 
-      assert eventually(fn ->
-               match?(
-                 {:ok, %{hp_pct: pct, readable?: true}} when pct >= 85,
-                 WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
-               )
-             end)
+      assert eventually(
+               fn ->
+                 match?(
+                   {:ok, %{hp_pct: pct, readable?: true}} when pct >= 85,
+                   WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
+                 )
+               end,
+               1_200
+             )
     end
 
     @tag :tmp_dir
@@ -327,21 +332,27 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       worker = start_worker(body)
       assert :ok = Worker.run(worker)
 
-      assert eventually(fn ->
-               match?(
-                 {:ok, %{hp_pct: pct, readable?: true}} when pct >= 85,
-                 WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
-               )
-             end)
+      assert eventually(
+               fn ->
+                 match?(
+                   {:ok, %{hp_pct: pct, readable?: true}} when pct >= 85,
+                   WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
+                 )
+               end,
+               1_200
+             )
 
       Agent.update(Fake, &put_in(&1.script[:capture], [{:ok, red.(0)}]))
 
-      assert eventually(fn ->
-               match?(
-                 {:ok, %{readable?: false}},
-                 WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
-               )
-             end)
+      assert eventually(
+               fn ->
+                 match?(
+                   {:ok, %{readable?: false}},
+                   WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
+                 )
+               end,
+               1_200
+             )
 
       assert_receive {:rule_alarm, :mortal, msg}, 3_000
       assert msg =~ "VOCÊ está com 0%"
@@ -1951,19 +1962,8 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
         pokemon_hp_region: {0, 0, 20, 4}
       })
 
-      assert eventually(fn -> Worker.status(worker).counters.reads > 0 end)
+      assert eventually(fn -> Worker.status(worker).counters.reads > 0 end, 1_200)
     end
-  end
-
-  defp eventually(fun, tries \\ 60) do
-    Enum.reduce_while(1..tries, false, fn _try, _acc ->
-      if fun.() do
-        {:halt, true}
-      else
-        Process.sleep(20)
-        {:cont, false}
-      end
-    end)
   end
 
   # 28/08: o personagem MORREU num revive sem stun efetivo. A cadeia: o preparo

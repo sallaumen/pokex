@@ -921,6 +921,38 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:shiny_ball, %{point: {600, 250}, name: "Shiny Golem"}}, 1_000
   end
 
+  # A LEITURA DO OLHO CHEGA A TODO CATCHER VIVO. `{:crowd, …}` é transmissão, não
+  # chamada: o Catcher GLOBAL da aplicação — que nunca rodou, e por isso não tem
+  # `Logic` nenhuma — recebe a mesma queda que o caçador armado. A semente 45698
+  # de 12/09 pegou isso na suíte inteira: a queda de um outro teste chegava nele,
+  # `throw_at_anchors/1` lia `state.logic.counters.throws` com `logic: nil` e o
+  # processo morria de `(BadMapError) expected a map, got: nil` — levando o rastro
+  # junto no restart, com as bolas paradas no meio da caçada.
+  @tag :tmp_dir
+  test "a fall reaching a catcher that never ran keeps the process and the trail" do
+    Settings.put(:player_mode, "hunt")
+    SettingsStash.stash!(special_color_scan_ms: 50)
+    {:ok, body} = FakeBody.start_link(self())
+
+    # sem `Worker.run/1`: este é o caçador ocioso, `logic: nil`
+    idle =
+      start_supervised!({Worker, [name: nil, body: body, aimer: fn -> nil end]}, id: :idle_worker)
+
+    me = {500, 350}
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+    seen = fn hostiles -> %{read?: true, me: me, hostiles: hostiles, pet: nil} end
+
+    send(idle, {:crowd, seen.([Map.merge(%{point: {600, 250}}, shiny)])})
+    # os pés parados e a lista zerada: é aqui que a queda tenta virar bola
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+    for _ <- 1..3, do: send(idle, {:crowd, seen.([])})
+
+    assert %{trail: %{anchors: [%{screen: {600, 250}}]}} = Worker.status(idle)
+    assert Process.alive?(idle)
+    refute_receive {:performed, _priority, _actions}, 300
+  end
+
   # 19:51:19 of 11/09: the corpse at 1268,768, the character standing beside
   # it, and "a lógica recusou 1 âncora(s)" — the round's own scan had stamped
   # its photo in the same millisecond, and the Logic's freshness gate ate the

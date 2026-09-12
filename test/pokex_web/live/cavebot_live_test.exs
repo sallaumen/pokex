@@ -43,6 +43,34 @@ defmodule PokexWeb.CavebotLiveTest do
     }
   end
 
+  # UMA TELA SÓ, no notebook que fica ao lado do jogo (12/09). O mapa era 505px
+  # de altura e o cerco morava DUAS TELAS abaixo da dobra — a página inteira
+  # media 2129px num viewport de 900. Os dois desenhos passam a dividir a coluna
+  # da esquerda, e o mapa é um selo.
+  describe "the cockpit holds both drawings" do
+    test "the eye lives in the cockpit, beside the fight, not below the fold", %{conn: conn} do
+      WorldState.put(:crowd, crowd_fact(), System.monotonic_time(:millisecond))
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#cavebot-cockpit") |> render() =~ ~s(id="siege-card")
+    end
+
+    test "the map is a stamp, not the column", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#cavebot-map") |> render() =~ "max-w-[9rem]"
+    end
+
+    # A gaveta morava FORA do bloco de uma tela: fechada, uma linha de 35px
+    # fazia a página inteira rolar.
+    test "the instruments drawer rides the safety row", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#cavebot-safety-row") |> render() =~ ~s(id="cavebot-instruments")
+    end
+  end
+
   describe "the siege card" do
     test "opens on the fact already on the blackboard", %{conn: conn} do
       WorldState.put(:crowd, crowd_fact(), System.monotonic_time(:millisecond))
@@ -2154,6 +2182,30 @@ defmodule PokexWeb.CavebotLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
       refute has_element?(view, "#cavebot-instruments")
+    end
+  end
+
+  # O TETO DO FEED CONTAVA O QUE ELE NÃO VÊ. O interruptor de debug nasce
+  # desligado e o cérebro fala várias linhas de diagnóstico por frase dita —
+  # então quarenta linhas de buffer viravam três ou quatro na tela ("ainda está
+  # aparecendo só umas 3 ou 4 mensagens", 12/09). Medido na tela renderizada:
+  # 70 linhas recebidas, 28 delas ditas, 16 sobrevivendo.
+  describe "the feed's ceiling" do
+    test "a burst of debug never pushes out what he reads", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      # INTERCALADAS, como na noite dele: cada frase dita vem no meio de um punhado
+      # de diagnósticos. Em bloco, o teto antigo passava — o que ele via era o
+      # fim da fila, e ali as ditas ainda estavam.
+      for i <- 1..12 do
+        for d <- 1..4, do: send(view.pid, {:engine_log, :debug, "quadro: tique #{i}.#{d} nada"})
+        send(view.pid, {:game_log, :macro, "🚑 revive #{i} despachado"})
+      end
+
+      feed = view |> element("#cavebot-log") |> render()
+
+      for i <- 1..12, do: assert(feed =~ "revive #{i} despachado")
+      refute feed =~ "sem novidade"
     end
   end
 

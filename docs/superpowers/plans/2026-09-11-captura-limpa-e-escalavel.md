@@ -4,7 +4,7 @@
 
 **Goal:** Deixar o subsistema de auto-captura com UM caminho que funciona (vigia → brilho → rastro → âncora → bola → conferência), sem peso morto, com um só relato do que o Catcher está fazendo, uma bancada que repete episódios reais da caixa-preta, e uma costura pronta pra escolher a bola por alvo — sem mudar o que já captura hoje (19:43 de 11/09: "caiu em 1418,918" → "bola" → "capturado").
 
-**Architecture:** Hoje `Catcher.Worker` (1.759 linhas) carrega cinco eras: a varredura comum por acervo de sprites (`SpotScan`/`CorpseLibrary`), a mira por COR do corpo (`ShinyAim`, sessões `:sighting`/`:cue`), o brilho + rastro + âncora (`ShinyGuard`/`Sparkle`/`Trail`), o "varrer" do modo Parado (`Sweep`) e portões de eras anteriores (feed `:corpses` aposentado, primitivo `capture_sequence` do Rig). O plano tira o que está morto ou demonstradamente inútil (a mira por cor achou 0 px em 100 % das rodadas de 11/09 — o corpo não tem a cor viva, #601), fixa o rastro no que a tela mostra, unifica o fato `:capture` num módulo só, divide o worker em `Hunt` (rastro/âncora) + `Narration` (frases) + o GenServer, e abre a escolha da bola por alvo. Cada tarefa é um PR verde por si; a bancada (Task 0) e a captura das 19:43 são a rede.
+**Architecture:** Hoje `Catcher.Worker` (1.759 linhas) carrega cinco eras: a varredura comum por acervo de sprites (`SpotScan`/`CorpseLibrary`), a mira por COR do corpo (`ShinyAim`, sessões `:sighting`/`:cue`), o brilho + rastro + âncora (`ShinyGuard`/`Sparkle`/`Trail`), o "varrer" do modo Parado (`Sweep`) e portões de eras anteriores (feed `:corpses` aposentado, primitivo `capture_sequence` do Rig). O plano tira o que está morto ou demonstradamente inútil (a mira por cor achou 0 px em 100 % das rodadas de 11/09 — o corpo não tem a cor viva, #601), fixa o rastro no que a tela mostra, unifica o fato `:capture` num módulo só, divide o worker em `Hunt` (rastro/âncora) + `Narration` (frases) + o GenServer, e abre a escolha da bola por alvo. **A captura de corpos comuns (o acervo de sprites: `SpotScan`, `CorpseLibrary`, a lente `:corpse_scan` da `Logic`, `capture_enabled`) e o "varrer" (`Sweep`) FICAM INTEIROS:** virá um modo "captura tudo que mata" (há caçadas que não são só de shiny), e esse modo nasce em cima deles. Cada tarefa é um PR verde por si; a bancada (Task 0) e a captura das 19:43 são a rede.
 
 **Tech Stack:** Elixir/OTP (GenServer, PubSub, `Pokex.WorldState`), ExUnit, `Pokex.Bots.Catcher.{Worker, Logic, Trail, Ball, Balls, SpotScan, CorpseLibrary}`, `Pokex.Bots.{ShinyGuard, CrowdScan, Engine}`, `Pokex.Vision.{Sparkle, CreatureMarks, CreatureFence}`, Phoenix LiveView (`cavebot_live`, `panel_live`, `config_live`).
 
@@ -15,6 +15,7 @@
 - **Gate por PR, nesta ordem:** `mix format` → só os arquivos de teste tocados durante o trabalho → `MIX_ENV=test mix precommit` completo em segundo plano (1–2 h na máquina dele com o jogo aberto; falha de teste por tempo em arquivo NÃO tocado: re-rodar SÓ aquele arquivo, e só então chamar de flake) → `mix credo` (nos tocados e completo) → `mix dialyzer` → commit → `git push -u origin <branch>` → `gh pr create --body-file` → `gh pr checks --watch --fail-fast` → `gh pr merge --squash --delete-branch` → `git push origin --delete <branch>` (se sobrou) → `git checkout --detach origin/main`.
 - **Nunca remover uma chave de `Settings`.** Tirar uma chave faz o build se declarar mais velho que o `settings.json` dele e o Settings passa a LER sem ESCREVER (#506/#507). Chave aposentada: mantém o default em `lib/pokex/settings.ex`, tira todo leitor, e move o rótulo para o grupo `"Aposentadas"` em `lib/pokex/settings/locked.ex` (ver `ball_rules` como modelo, `locked.ex:222-224`). O conserto do crachá é dívida fora deste plano.
 - **Repo público:** nenhum nome de jogador em fixture ou teste; os fixtures desta pasta (`test/fixtures/captura/`) carregam só pontos e contagens.
+- **A captura de corpos comuns NÃO é apagada nem enfraquecida** (ordem dele, 11/09): `SpotScan`, `CorpseLibrary`, o acervo ensinado na Calibração, `scan_obs/1`, a lente `:corpse_scan` da `Logic`, `capture_enabled`, `corpse_*`, e o `Sweep` ("varrer") ficam como estão. Só o que é demonstradamente morto (Task 1) ou a mira por COR do corpo do SHINY (Task 2, D1) saem. Toda tarefa que tocar o worker mantém `scan_obs/1` → `advance/2` → bola comum funcionando (os testes "the ordinary…"/"pending_corpses rides the snapshot…" de `worker_test.exs` são a prova).
 - **Grep no shell dele é função:** use `/usr/bin/grep`.
 - **A rede de proteção:** `test/pokex/bots/catcher/trail_replay_test.exs` (Task 0) e os testes "the shiny's bar followed until it falls buys the ball at the cue, with no colour at all", "with the feet still, the ball flies at the fall without waiting for the cue" e "the anchor's ball survives a scan stamped in the same instant" em `test/pokex/bots/catcher/worker_test.exs` nunca são apagados nem afrouxados: são a captura das 19:43.
 - **Commit por tarefa**, mensagem em pt-BR no estilo do repo (título = a frase da lição; corpo = o que o diário mostrou), `Co-Authored-By` do modelo executor.
@@ -22,7 +23,15 @@
 ## Duas decisões que são do Lucas (defaults abaixo valem se ele não disser nada)
 
 - **D1 — aposentar a mira por COR do corpo (Task 2).** Evidência: em 11/09 toda sessão (`:sighting` de 90 s e `:cue` de 6 s) fechou com "maior mancha do tom 0 px"; o corpo do shiny não tem a cor do vivo (#601, memória `o-corpo-nao-tem-a-cor-viva`); a sessão de 70 s das 19:50 queimou o teto do "segurar pra bola" e deixou "shiny na tela / mirando" no azulejo com o bicho longe. A detecção do shiny VIVO pela cor (`ColorRules` no vigia, o tom ensinado) FICA — é outro assunto. **Default: aposentar.** Pra manter, pule a Task 2 e ajuste a Task 4 (o fato continua com `aiming?`).
-- **D2 — aposentar o "varrer" do modo Parado (Task 6).** `sweep_enabled` é `false` por padrão, ele caça (modo hunt), e a Central já recusa o botão ("varrer recusado pelo Catcher", #419/#421). **Default: aposentar.** Pra manter, pule a Task 6.
+- **D2 — o "varrer" FICA (decidido por ele em 11/09).** `sweep_enabled` é `false` por padrão e ele caça, mas o varrer é a forma crua de "capturar o chão", e virá um modo que captura tudo que mata. A Task 6 deste plano foi retirada; o varrer só é tocado pela Task 5 (muda de lugar dentro do worker, sem mudar de comportamento).
+
+## O modo "captura tudo que mata" (fora deste plano; o plano o respeita)
+
+Há caçadas que não são só de shiny: nelas, todo corpo que cai merece a bola. A direção, pra quem for desenhar depois (e pra ninguém apagar o que ele vai usar):
+
+- **O rastro já segue TODAS as barras** (`Trail.observe/4` cria um track por bicho; só o caçado — `hunted?` — vira âncora ao cair). O modo nasce de uma regra a mais: com `capture_all_kills` (chave nova) ligado, todo track que cai com a lista vazia vira âncora, e `throw_at_anchors/1` joga nelas na hora da bola — sem acervo, sem cor. O `free?` (nunca em cima de bicho de pé) e o `corpse_max_balls` já limitam o gasto.
+- **O acervo de sprites (`SpotScan`/`CorpseLibrary`) segue sendo a confirmação e a escolha da bola por espécie** (`Balls.key_for(name, :corpse)`): um corpo reconhecido pelo acervo diz o NOME, e o nome escolhe a bola (Task 7 deixa essa costura pronta).
+- **O varrer (`Sweep`)** fica como a rede de segurança do modo Parado (pesca) até esse modo existir; se o modo o tornar redundante, aí se aposenta — noutro plano, com a evidência.
 
 ## Mapa de hoje (o que cada peça faz, pra quem nunca abriu o código)
 
@@ -593,24 +602,15 @@ e `throw_at_anchors/1` vira:
 
 (`candidate` passa a carregar `fallen_at`.) Os testes do worker afirmam as mesmas frases: nada muda para eles.
 
-- [ ] **Step 3: rodar** — `MIX_ENV=test mix test test/pokex/bots/catcher` → `0 failures`; `wc -l lib/pokex/bots/catcher/worker.ex` → `< 1000`.
+- [ ] **Step 3: rodar** — `MIX_ENV=test mix test test/pokex/bots/catcher` → `0 failures`; `wc -l lib/pokex/bots/catcher/worker.ex` → `< 1200` (o varrer fica dentro dele, ~170 linhas, agrupado sob `# --- sweep (o varrer do modo Parado) ---`).
 
 - [ ] **Step 4: gate completo + PR.** Título: `o Catcher em três: o rastro decide, a narração fala, o worker joga`.
 
 ---
 
-### Task 6 (D2): O "varrer" se aposenta
+### Task 6: (retirada — o "varrer" fica, ver D2)
 
-**Files:**
-- Modify: `lib/pokex/bots/catcher/worker.ex` — apagar `handle_cast({:sweep_now, _}, …)`, `handle_info(:sweep, …)` ×2, `handle_info(:sweep_tile, …)` ×2, `handle_info(:sweep_done, …)`, `run_sweep/1`, `begin_sweep/2`, `sweep_points/1`, `around_text/1`, `sweep_hold_reason/1`, `arm_sweep/1` ×2, `disarm_sweep/1`, `cancel_sweep/1` ×2, `broadcast_and_return/1`, `sweep_result/1`, `sweep_now/2`, os campos `sweep_queue`, `sweeps`, `sweep_balls`, `sweep_timer`, `auto_tick?`, a opção `auto_tick?:` de `start_link/1` e `Application.get_env(:pokex, :sweep_auto_tick, …)`, o mapa `sweep:` do `snapshot/1`
-- Delete: `lib/pokex/bots/catcher/sweep.ex`, `test/pokex/bots/catcher/sweep_test.exs`
-- Modify: `lib/pokex_web/live/panel_live.ex` (linhas 181–184, 276–279, 995 e o botão `sweep_now`/`Sweep.sides/0`), `lib/pokex_web/components/settings_overlay.ex:852` (`Sweep.tile_count/2`), `lib/pokex/settings/locked.ex` (`sweep_enabled`, `sweep_interval_ms`, `sweep_radius_tiles`, `sweep_side` → grupo `"Aposentadas"`, rótulo "o varrer do modo Parado — a bola comum é da hora da bola desde #588"), `config/test.exs`/`config/config.exs` (`sweep_auto_tick`, se existir)
-- Test: `test/pokex/bots/catcher/worker_test.exs` (apagar os testes com "sweep"/"varr" no nome: `/usr/bin/grep -n "test \".*\(sweep\|varr\)" test/pokex/bots/catcher/worker_test.exs`), `test/pokex_web/live/panel_live_test.exs` (idem)
-
-- [ ] **Step 1: enumerar** — `/usr/bin/grep -rn "sweep\|Sweep\|varrer" lib test config | /usr/bin/grep -v "^lib/pokex/settings.ex" | wc -l` (anote o número).
-- [ ] **Step 2: apagar tudo em Files**; as quatro chaves ficam declaradas em `settings.ex` com os defaults de hoje.
-- [ ] **Step 3: rodar** — `/usr/bin/grep -rn "sweep\|Sweep\|varrer" lib test config | /usr/bin/grep -v "settings.ex\|locked.ex"` → nenhuma linha; `MIX_ENV=test mix test test/pokex/bots/catcher test/pokex_web/live/panel_live_test.exs test/pokex_web/components` → `0 failures`.
-- [ ] **Step 4: gate completo + PR.** Título: `o varrer se aposenta: a bola comum é da hora da bola`.
+Nada a fazer. O `Sweep` e seus handlers no worker são movidos, sem mudar de comportamento, na Task 5 (ficam no GenServer, agrupados sob um comentário `# --- sweep (o varrer do modo Parado) ---`), e continuam cobertos por `test/pokex/bots/catcher/sweep_test.exs` e pelos testes de "sweep" em `worker_test.exs`.
 
 ---
 
@@ -690,14 +690,14 @@ Mantenha `key_for/1` e `key_for/3` como atalhos de `:corpse` (o `ShinyReadiness`
 - Create: `docs/captura/README.md`
 - Modify: `docs/superpowers/specs/2026-09-11-reconhecimento-de-corpo-design.md` (uma linha no topo: "Depende de `2026-09-11-captura-limpa-e-escalavel.md`; é o passo seguinte — o corpo achado no chão depois da queda, para o bicho que anda no último segundo.")
 
-- [ ] **Step 1: escrever `docs/captura/README.md`** (pt-BR, ~150 linhas) com as seções: (1) **O caminho** — o diagrama do "Mapa de hoje" atualizado pós-Tasks 2–7; (2) **Quem decide o quê** — `ShinyGuard`/`Sparkle` (o brilho), `CrowdWatch`/`CrowdScan` (as barras), `Trail` (identidade, queda, gêmeo, tela × mundo), `Hunt` (alvos), `Logic` (fila/arremesso/conferência/frescor), `Balls`/`Ball` (qual bola, como joga), `Fact` (o relato), `Engine.hold_for_capture` (segurar os pés, teto por rodada); (3) **As linhas do diário e o que provam** — `✨ shiny na tela — o brilho ao lado do nome (Npx)`, `🎯 <nome> caiu em x,y — a barra sumiu`, `🌟 a âncora caiu com a estrada andando`, `🌟 bola na âncora … caiu há Ns`, `🌟 bola em x,y`, `🌟 capturado em x,y`, `🌟 a bola da âncora NÃO saiu — …`; (4) **As configurações vivas** (as que sobraram na Task 3 da auditoria, com o efeito de cada uma) e **as aposentadas** (por quê ficam declaradas); (5) **Como investigar um shiny que passou** — copiar o episódio da caixa-preta antes da rotação, gerar o fixture (Task 0), rodar a bancada, olhar os quadros `queda`/`bola`; (6) **O que ainda não resolve** — o bicho que anda no último segundo (o corpo fica um tile ao lado: só olhando o CHÃO depois da queda), o nome escondido atrás do pet, o minimapa parado.
+- [ ] **Step 1: escrever `docs/captura/README.md`** (pt-BR, ~150 linhas) com as seções: (1) **O caminho** — o diagrama do "Mapa de hoje" atualizado pós-Tasks 2–7; (2) **Quem decide o quê** — `ShinyGuard`/`Sparkle` (o brilho), `CrowdWatch`/`CrowdScan` (as barras), `Trail` (identidade, queda, gêmeo, tela × mundo), `Hunt` (alvos), `Logic` (fila/arremesso/conferência/frescor), `Balls`/`Ball` (qual bola, como joga), `Fact` (o relato), `Engine.hold_for_capture` (segurar os pés, teto por rodada); (3) **As linhas do diário e o que provam** — `✨ shiny na tela — o brilho ao lado do nome (Npx)`, `🎯 <nome> caiu em x,y — a barra sumiu`, `🌟 a âncora caiu com a estrada andando`, `🌟 bola na âncora … caiu há Ns`, `🌟 bola em x,y`, `🌟 capturado em x,y`, `🌟 a bola da âncora NÃO saiu — …`; (4) **As configurações vivas** (as que sobraram na Task 3 da auditoria, com o efeito de cada uma) e **as aposentadas** (por quê ficam declaradas); (5) **Como investigar um shiny que passou** — copiar o episódio da caixa-preta antes da rotação, gerar o fixture (Task 0), rodar a bancada, olhar os quadros `queda`/`bola`; (6) **O que ainda não resolve** — o bicho que anda no último segundo (o corpo fica um tile ao lado: só olhando o CHÃO depois da queda), o nome escondido atrás do pet, o minimapa parado; (7) **O que vem depois** — o modo "captura tudo que mata" (a seção do plano com esse nome: todo track que cai vira âncora; o acervo confirma e escolhe a bola), e o corpo achado no chão depois da queda (`2026-09-11-reconhecimento-de-corpo-design.md`).
 - [ ] **Step 2: gate (só docs → `mix format` não toca; CI verde) + PR.** Título: `o mapa da captura, escrito`.
 
 ---
 
 ## Self-Review
 
-- **Cobertura:** refinar (Tasks 3, 4), limpar (1, 2, 6), organizar (4, 5, 8), escalar (7, 0). A captura das 19:43 é protegida pelos três testes nomeados nas constraints e pela bancada.
+- **Cobertura:** refinar (Tasks 3, 4), limpar (1, 2), organizar (4, 5, 8), escalar (7, 0). A captura das 19:43 é protegida pelos três testes nomeados nas constraints e pela bancada. A captura de corpos comuns e o varrer ficam intactos (ordem dele) — o modo "captura tudo que mata" nasce em cima deles.
 - **Sem placeholders:** cada passo tem o código ou o comando; onde o valor depende de rodar (1950 na Task 3) a asserção é uma propriedade fechada.
 - **Nomes:** `Observation.anchors/3`, `source: :anchor`, `Fact.build/5`, `Fact.max_age_ms/0`, `Hunt.follow/2`, `Hunt.anchor_targets/1`, `Narration.falls/4`, `Balls.key_for/2` e `/5`, `shiny_ball_key` — usados com a mesma grafia em todas as tarefas.
 - **Fora do plano (dívidas nomeadas):** o crachá `__keys__` que impede remover chaves (#506/#507); a detecção do shiny vivo por cor (`ColorRules`) — fica; o corpo achado no chão depois da queda (`2026-09-11-reconhecimento-de-corpo-design.md`).

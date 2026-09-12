@@ -870,6 +870,30 @@ defmodule PokexWeb.CavebotLiveTest do
       refute vision =~ "Venusaur ?"
     end
 
+    # TROCAR O POKÉMON SEM SAIR DA CAÇADA. "É geralmente o único motivo pelo
+    # qual eu vou lá na parte de time no meu dia a dia" (12/09). A escrita é a
+    # MESMA do /time — `Team.set_active/1`, que persiste e anuncia —, nunca uma
+    # segunda regra que possa discordar dela.
+    test "the pokemon on the field is switched from the hunt screen", %{conn: conn} do
+      File.write!(
+        Pokex.Pokedex.Team.file(),
+        JSON.encode!(%{"members" => ["Shiny Venusaur", "Torterra"], "active" => "Shiny Venusaur"})
+      )
+
+      see_world(100, 100, [])
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      card = view |> element("#cavebot-loadout") |> render()
+
+      assert card =~ "Shiny Venusaur"
+      assert card =~ "Torterra"
+
+      view |> form("#cavebot-active-form", %{"active" => "Torterra"}) |> render_change()
+
+      assert Pokex.Pokedex.Team.active() == "Torterra"
+      assert view |> element("#cavebot-loadout") |> render() =~ "Torterra"
+    end
+
     # A caixa não pode pular de altura a cada bicho que entra ou sai: o que ele
     # estava lendo embaixo dela some do lugar. Ela não crescia com a mobada,
     # mas SUMIA com a tela limpa — e some e volta a noite inteira. Medido em
@@ -1165,7 +1189,7 @@ defmodule PokexWeb.CavebotLiveTest do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 
       card = view |> element("#cavebot-loadout") |> render()
-      assert card =~ "ninguém escolhido"
+      assert card =~ "ninguém em campo"
       assert card =~ ~s(href="/time")
     end
 

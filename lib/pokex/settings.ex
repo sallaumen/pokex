@@ -571,7 +571,17 @@ defmodule Pokex.Settings do
     # a morte de 03/09 16:20.
     auto_combo_window_ms: 4_000,
     defense_mode_key: "shift+3",
-    attack_mode_key: "shift+1",
+    # APOSENTADA NA PRÁTICA, ainda DECLARADA (o crachá `__keys__`: tirar uma
+    # chave faz este build se declarar mais velho que o settings.json dele,
+    # #506/#507). No cliente dele a corrente do Auto Combo JÁ entra em modo de
+    # ataque: "nunca mais precisamos apertar o shift+1, o r já faz isso" (12/09).
+    #
+    # E ela custava caro: a tecla da postura viaja no MESMO burst que a corrente
+    # (`Combat.Logic.wear/2` põe a prensa na frente da lista), e era exatamente
+    # essa companhia que fazia o carimbo da corrente não sair (#642). Vazia, a
+    # postura de ataque passa a ser vestida pelo próprio jogo — `wear/2` sabe
+    # disso e continua devolvendo a de DEFESA na hora de juntar.
+    attack_mode_key: "",
     cavebot_arrival_tolerance_tiles: 1,
     # How long without the brain before the hunt stops. Orders are republished every tick
     # (200ms): five seconds of silence is a dead brain, and hunting without it is hunting

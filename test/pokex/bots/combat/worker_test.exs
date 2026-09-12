@@ -243,6 +243,13 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   test "a stance key the one-burst rule threw away is pressed again, never believed", %{
     worker: worker
   } do
+    # a postura de ATAQUE se aposentou no cliente dele (`attack_mode_key` vazia,
+    # a corrente já entra nela), mas o mecanismo continua valendo pra quem
+    # configura uma — e é ele que este teste prende. A config é fotografada no
+    # `Worker.run/1`, então a tecla tem que estar posta ANTES de rearmar.
+    SettingsStash.stash!(attack_mode_key: "shift+1")
+    :ok = Worker.run(worker)
+
     # slow (osascript-like) burst: the Tab spawn is still in flight when the lock lands,
     # so the whole action list behind it — attack stance included — is dropped
     Agent.stop(Fake)
@@ -949,6 +956,15 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       world!(worker, battle_obs(enemies: [0, 1, 2]))
     end
 
+    # A COMPANHIA QUE QUEBRAVA O CARIMBO: uma tecla de postura na mesma prensa
+    # que a corrente. Qualquer uma das duas serve — o defeito era a igualdade
+    # exata com `[Combo.key()]`, e ela falha com QUALQUER acompanhante.
+    defp postura_junto? do
+      Enum.any?([Settings.get(:attack_mode_key), Settings.get(:defense_mode_key)], fn key ->
+        is_binary(key) and key != "" and key in presses()
+      end)
+    end
+
     defp skill_saiu? do
       Enum.any?(~w(1 2 3 4 5 6), &(&1 in presses()))
     end
@@ -1126,25 +1142,31 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     # Sem carimbo a barra segue dizendo "tudo pronto", `spent?` nunca fica
     # verdadeiro, e a regra que pede o revive depois do combo nunca dispara.
     @tag :tmp_dir
-    test "and it stamps even when it goes out in the same burst as the route aura",
+    test "and it stamps even when it goes out in the same burst as the stance key",
          %{worker: worker} do
-      SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 5_000)
+      # a tecla da postura de volta: é ela que viajava no mesmo burst que a
+      # corrente na morte de 12/09, e é a companhia que quebrava o carimbo
+      SettingsStash.stash!(
+        auto_combo_key: "r",
+        auto_combo_window_ms: 5_000,
+        attack_mode_key: "shift+1"
+      )
+
       SkillClock.wipe()
       :ok = Worker.run(worker, 5_000, :auto_combo)
-
-      # a ordem da rota (a aura) vai na frente da corrente no mesmo burst
-      orders!(%{orders: ["shift+1"]})
 
       barra = Pokex.Bots.SkillBar.keys(4)
       assert SkillClock.ready_by_clock(barra, %{}) == barra, "o relógio já nasceu sujo"
 
       abre_o_fogo(worker)
 
+      # a postura viaja NA FRENTE da corrente no mesmo burst — `shift+3` aqui,
+      # que é a que `abre_o_fogo/1` veste ao segurar o fogo antes de liberar
       assert eventually(fn ->
                world!(worker, battle_obs(enemies: [0, 1, 2]))
-               "shift+1" in presses() and SkillClock.ready_by_clock(barra, %{}) == []
+               postura_junto?() and SkillClock.ready_by_clock(barra, %{}) == []
              end),
-             "a aura saiu junto e a corrente não foi carimbada: " <>
+             "a postura saiu junto e a corrente não foi carimbada: " <>
                "#{inspect(SkillClock.ready_by_clock(barra, %{}))} — prensas #{inspect(presses())}"
     end
 

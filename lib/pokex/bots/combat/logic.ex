@@ -613,13 +613,21 @@ defmodule Pokex.Bots.Combat.Logic do
   # in order, so the order cannot come apart.
   #
   # Only on the EDGE — pressing it before every burst would be a key per 300ms.
-  # An unconfigured key changes nothing and leaves the stance unknown, so it is
-  # retried rather than believed.
+  #
+  # SEM TECLA, QUEM VESTE É O JOGO. A postura de ATAQUE dele não tem mais tecla
+  # (`attack_mode_key` vazia desde 12/09): a corrente do Auto Combo já entra
+  # nela sozinha. Sem tecla a prensa não sai — mas a CRENÇA tem que mudar do
+  # mesmo jeito, senão o bot fica achando que segue em defesa e nunca mais
+  # aperta o `shift+3` na próxima juntada. Ele andaria a mobada inteira em modo
+  # de ataque, que é o oposto do que a postura existe pra fazer.
+  #
+  # A de DEFESA continua sendo uma tecla de verdade, e o par volta a alternar
+  # como sempre alternou — só que sem a prensa a mais.
   defp wear(%__MODULE__{stance: stance} = logic, stance), do: {logic, []}
 
   defp wear(logic, wanted) do
     case stance_key(logic, wanted) do
-      nil -> {logic, []}
+      nil -> {%{logic | stance: wanted}, []}
       key -> {%{logic | stance: wanted}, [{:press, key}]}
     end
   end

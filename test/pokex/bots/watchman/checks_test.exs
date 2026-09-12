@@ -96,10 +96,35 @@ defmodule Pokex.Bots.Watchman.ChecksTest do
 
       assert keys(old) == [:skill_bar, :battle, :pokemon, :player]
       assert text(:skill_bar, old) =~ "barra de skills do Torterra não é reconhecida"
-      assert text(:skill_bar, old) =~ "recalibre a barra dele em /calibration"
       assert text(:battle, old) =~ "janela de batalha não é lida"
       assert text(:pokemon, old) =~ "Pokebar"
       assert text(:player, old) =~ "vida do PERSONAGEM não é lida"
+    end
+
+    # …E O CONSERTO É O DA CAUSA. Esta frase ficou 304 vezes no diário de 12/09
+    # mandando recalibrar a barra — e recalibrar conserta UM dos três jeitos de
+    # a barra ficar sem leitura. Nos outros dois é conselho errado dito com
+    # toda a confiança, que é o que fez cinco horas passarem sem o certo.
+    test "the bar's alarm names the fix that matches the cause" do
+      old = %{@all_good | skill_bar: @now - 20_000}
+
+      # veio quadro e o reconhecimento recusou
+      WorldState.put(:skill_bar, %{ready_keys: nil}, @now)
+      assert text(:skill_bar, old) =~ "não passa no reconhecimento"
+      assert text(:skill_bar, old) =~ "recalibre a dele em /calibration"
+
+      # a leitura prestou e envelheceu: o recorte está certo
+      ceiling = Pokex.Settings.get(:skill_bar_fact_max_age_ms)
+      WorldState.put(:skill_bar, %{ready_keys: ~w(1 2)}, @now - ceiling - 500)
+      texto = text(:skill_bar, old)
+      assert texto =~ "a última leitura PRESTOU"
+      assert texto =~ "o problema é a captura, não a calibração"
+      refute texto =~ "recalibre"
+
+      # ninguém fotografou a barra nesta sessão
+      WorldState.forget(:skill_bar)
+      assert text(:skill_bar, old) =~ "não publicou nada nesta sessão"
+      refute text(:skill_bar, old) =~ "recalibre"
     end
 
     test "a reading never sampled is taken as good" do

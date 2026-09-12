@@ -26,6 +26,7 @@ defmodule Pokex.Bots.Watchman.Checks do
   alias Pokex.Bots.ActiveBar
   alias Pokex.Calibration
   alias Pokex.Characters
+  alias Pokex.Perception
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
 
@@ -107,8 +108,8 @@ defmodule Pokex.Bots.Watchman.Checks do
       bad_for?(last_good, :skill_bar, now, stale) ->
         [
           {:skill_bar,
-           "a barra de skills do #{name} não é reconhecida há mais de #{seconds(stale)} s — " <>
-             "combo e revive andam pelo relógio; recalibre a barra dele em /calibration"}
+           "a barra de skills do #{name} não é reconhecida há mais de #{seconds(stale)} s " <>
+             "(combo e revive andam pelo relógio) — #{bar_cause(name, now)}"}
           | problems
         ]
 
@@ -222,6 +223,31 @@ defmodule Pokex.Bots.Watchman.Checks do
 
   # A reading never sampled is taken as good: the watchman's grace covers the
   # start, and a stale entry is the only proof of a broken reading.
+  # O CONSERTO QUE CORRESPONDE À CAUSA. Esta frase ficou 304 vezes no diário de
+  # 12/09 mandando recalibrar, e recalibrar conserta UM dos três casos que
+  # `Perception.skill_bar_gap/1` separa. Dizer o conserto errado com confiança
+  # é o que faz alguém passar cinco horas sem o conserto certo.
+  defp bar_cause(name, now) do
+    case Perception.skill_bar_gap(now) do
+      # a memória do vigia é de um segundo atrás; a leitura pode ter voltado
+      # entre a amostra e o veredito, e aí não há conserto a mandar fazer
+      :ok ->
+        "a leitura voltou agora"
+
+      :never ->
+        "o feed da barra não publicou nada nesta sessão (quem o liga é a caçada)"
+
+      {:stale, age} ->
+        "a última leitura PRESTOU e tem #{age} ms, acima do teto de " <>
+          "#{Settings.get(:skill_bar_fact_max_age_ms)} ms: o problema é a captura, não a " <>
+          "calibração"
+
+      _recorte_recusado ->
+        "o recorte da barra do #{name} não passa no reconhecimento; recalibre a dele em " <>
+          "/calibration"
+    end
+  end
+
   defp bad_for?(last_good, key, now, stale) do
     case Map.get(last_good, key) do
       at when is_integer(at) -> now - at > stale

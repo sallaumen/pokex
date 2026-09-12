@@ -142,6 +142,34 @@ defmodule Pokex.Perception do
   end
 
   @doc """
+  POR QUE a barra não foi lida — as três respostas que `ready_skills/1` junta
+  num `nil` só.
+
+  Em 12/09 o alarme da barra cega ficou 5h05 de pé, contando de 3 s a 18.304 s
+  sem UM reset, dizendo a mesma frase o tempo todo: "recalibre a barra dele".
+  Recalibrar é o conserto de UM dos três casos. Os outros dois não têm nada a
+  ver com calibração — e um alarme que nomeia o conserto errado durante cinco
+  horas é pior do que alarme nenhum, porque ele parece estar respondendo.
+
+    * `:never` — nunca houve fato. Ninguém está fotografando a barra: o feed é
+      por demanda e quem o liga é o motor da caçada.
+    * `{:stale, age_ms}` — a última leitura PRESTOU e está velha demais pro
+      teto (`skill_bar_fact_max_age_ms`). O recorte está certo; o que não está
+      dando conta é a captura. Recalibrar não muda nada.
+    * `:unreadable` — veio quadro e o reconhecimento recusou. ESTE é o caso do
+      recorte errado, e o único em que recalibrar é a resposta.
+  """
+  @spec skill_bar_gap(integer) :: :ok | :never | {:stale, non_neg_integer} | :unreadable
+  def skill_bar_gap(now_ms \\ System.monotonic_time(:millisecond)) do
+    case WorldState.get(:skill_bar, Settings.get(:skill_bar_fact_max_age_ms), now_ms) do
+      {:ok, %{ready_keys: keys}} when is_list(keys) -> :ok
+      {:stale, %{ready_keys: keys}, age} when is_list(keys) -> {:stale, age}
+      :missing -> :never
+      _veio_quadro_e_nao_deu_leitura -> :unreadable
+    end
+  end
+
+  @doc """
   The ready keys from a reading captured strictly AFTER `at` — the receipt for
   a press, rather than the photo that was already on the wall when it went out.
 

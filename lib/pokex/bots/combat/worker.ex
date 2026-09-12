@@ -1016,6 +1016,10 @@ defmodule Pokex.Bots.Combat.Worker do
       fired: Map.get(check, :fired, []),
       missed: Map.get(check, :missed, []),
       unknown: Map.get(check, :unknown, []),
+      # A quarta caixa é o que separa "a barra estava cega" de "essa pergunta
+      # não cabia": no Auto Combo a tecla apertada é a da corrente, e nenhum
+      # cooldown de slot responde por ela.
+      off_bar: Map.get(check, :off_bar, []),
       gap_ms: Settings.get(:combat_skill_gap_ms),
       taps: Settings.get(:combat_skill_tap_count)
     })

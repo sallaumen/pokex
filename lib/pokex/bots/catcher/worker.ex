@@ -1119,8 +1119,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp fresher_than(%Logic{last_obs_at: last}, now) when is_integer(last), do: max(now, last + 1)
   defp fresher_than(_logic, now), do: now
 
-  defp trail_snapshot(state) do
-    ref = trail_ref(%{})
+  defp trail_snapshot(state, ref) do
     at = now()
 
     %{
@@ -1354,10 +1353,11 @@ defmodule Pokex.Bots.Catcher.Worker do
   # (`anchors`) ou uma bola já em andamento (`pending`, que também é a bola
   # comum). `hunted?` é a barra do shiny ainda de pé — ela não segura os pés,
   # mas é o que licencia a bola com a captura desligada e o que o azulejo mostra.
-  defp publish_capture(state), do: WorldState.put(:capture, fact(state), now())
+  defp publish_capture(state), do: WorldState.put(:capture, fact(state, trail_ref(%{})), now())
 
-  defp fact(state),
-    do: Fact.build(state.trail, state.logic, armed?(state), trail_ref(%{}), now())
+  # UMA leitura de calibração por foto: `trail_ref/1` lê o disco, e a
+  # transmissão sai a cada mudança de estado.
+  defp fact(state, ref), do: Fact.build(state.trail, state.logic, armed?(state), ref, now())
 
   defp armed?(state),
     do: match?(%Logic{state: :armed}, state.logic) and Settings.get(:capture_enabled) == true
@@ -1400,6 +1400,7 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp snapshot(state) do
     mode = Settings.get(:player_mode)
+    ref = trail_ref(%{})
 
     %{
       state: mode_state(state.logic, mode),
@@ -1413,7 +1414,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       hold_reason: hold_reason(state),
       last_action: state.last_action,
       # o rastro (`Catcher.Trail`): o shiny de pé e onde ele caiu, na tela de agora
-      trail: trail_snapshot(state),
+      trail: trail_snapshot(state, ref),
       sweep: %{
         enabled?: Settings.get(:sweep_enabled),
         pending: length(state.sweep_queue),
@@ -1423,7 +1424,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     }
     # DOIS FIOS, UMA CONTA SÓ (`Catcher.Fact`): o que a transmissão diz sobre a
     # captura é recortado do MESMO fato que o cérebro lê.
-    |> Map.merge(Fact.snapshot_fields(fact(state)))
+    |> Map.merge(Fact.snapshot_fields(fact(state, ref)))
   end
 
   # Computed at broadcast time from live state — the engage/disengage edge above

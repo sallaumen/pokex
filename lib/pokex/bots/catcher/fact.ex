@@ -53,7 +53,7 @@ defmodule Pokex.Bots.Catcher.Fact do
   def max_age_ms, do: @pulse_ms * 3
 
   @doc "O fato, do rastro e da lógica de agora."
-  @spec build(Trail.t(), %Logic{} | nil, boolean, map, integer) :: t
+  @spec build(Trail.t(), Logic.t() | nil, boolean, map, integer) :: t
   def build(trail, logic, armed?, ref, now) do
     %{
       pending: (logic && Logic.pending(logic)) || 0,

@@ -24,17 +24,17 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Bots.Catcher.Ball
   alias Pokex.Bots.Catcher.Balls
   alias Pokex.Bots.Catcher.CorpseLibrary
-  alias Pokex.Bots.Catcher.Logic
   alias Pokex.Bots.Catcher.Fact
+  alias Pokex.Bots.Catcher.Hunt
+  alias Pokex.Bots.Catcher.Logic
+  alias Pokex.Bots.Catcher.Narration
   alias Pokex.Bots.Catcher.Observation
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Catcher.Sweep
   alias Pokex.Bots.Catcher.Trail
   alias Pokex.Bots.Combat.Worker
-  alias Pokex.Bots.CrowdScan
   alias Pokex.Bots.Engine
   alias Pokex.Bots.InputGate
-  alias Pokex.Bots.ShinyGuard
   alias Pokex.Calibration
   alias Pokex.Perception
   alias Pokex.Perception.WorldState
@@ -43,14 +43,6 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   @topic "catcher"
 
-  # Quanto tempo o lugar onde um bicho estava de pé continua valendo como lugar
-  # de corpo. Eram 20 s, e a rodada é mais longa que isso: em 11/09 o Shiny
-  # Golem morreu às 08:30:47 e a chamada que achou o corpo dele veio às
-  # 08:32:51 — "nenhuma onde o olho viu um bicho de pé", porque a memória já
-  # tinha esquecido a pilha. O lugar só deixa de valer quando ELE anda (a
-  # memória guarda a posição do minimapa e só serve pontos vistos da mesma);
-  # o tempo aqui é só pra não carregar o chão de uma caverna inteira.
-  @standing_memory_ms 120_000
   @kill_topic "combat:kill"
 
   # After a kill whose scan found nothing, re-look at these delays. Not a knob:
@@ -262,7 +254,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # por isso o lugar é guardado enquanto estão de pé.
   @impl true
   def handle_info({:crowd, %{read?: true, hostiles: hostiles} = reading}, state) do
-    state = state |> remember_standing(hostiles) |> follow(reading)
+    state = state |> Hunt.remember_standing(hostiles, now()) |> follow(reading)
     # O FATO NASCE AQUI TAMBÉM: a âncora do shiny aparece nesta olhada, e é ela
     # que segura os pés do cérebro — esperar o próximo passo da bola pra contar
     # é chegar tarde.
@@ -273,7 +265,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # THE GUARD'S BLOB NAMES A TRACK (see `Catcher.Trail`): the eye's reading may
   # have arrived a look before the guard's, so the blob is joined here too.
   def handle_info({:shiny_on_screen, %{vistos: vistos}}, state),
-    do: {:noreply, hunt(state, vistos)}
+    do: {:noreply, Hunt.hunt(state, vistos, now())}
 
   def handle_info(:wake, %{logic: %Logic{state: :armed}} = state),
     do: {:noreply, advance(state, scan_obs(state))}
@@ -300,7 +292,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # quando os corpos estão no chão e a estrada já está parada.
   def handle_info({:capture_now}, %{logic: %Logic{state: :armed}} = state) do
     obs = scan_obs(state)
-    announce_cue(obs)
+    say(Narration.cue(obs))
     state = advance(%{state | repiques: @repiques}, obs)
     # A ÂNCORA DEPOIS: a varredura comum olha o chão com o acervo; onde a barra
     # do shiny sumiu é a evidência que sobra quando o acervo não conhece o
@@ -421,7 +413,7 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # --- Varredura cega ---------------------------------------------------------
+  # --- sweep (o varrer do modo Parado) ----------------------------------------
   # The safety net UNDER the aimed capture (see Catcher.Sweep for the geometry
   # and the why). It lives in THIS process, rather than a worker of its own,
   # because every gate it needs is already computed here — the
@@ -460,7 +452,7 @@ defmodule Pokex.Bots.Catcher.Worker do
         {:ok, broadcast_and_return(%{state | sweep_queue: points, sweeps: state.sweeps + 1})}
 
       {:error, reason} ->
-        {:error, reason_text(reason)}
+        {:error, Narration.reason_text(reason)}
     end
   end
 
@@ -548,6 +540,8 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp sweep_result(text),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:sweep_result, text})
 
+  # --- fim do sweep -----------------------------------------------------------
+
   # capture_enabled OU um shiny ABERTO — e quem diz isso é o RASTRO, não uma
   # marca de avistamento. `shiny_pending?` sozinho nunca serviu de porta: ele
   # só era limpo quando uma bola voava, então um avistamento durante o jogo
@@ -562,7 +556,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # onde ela caiu (a âncora). Era uma SESSÃO de mira por cor que durava até
   # 90 s sem nada no chão — e o que ela licenciava de útil era só isto.
   defp shiny_open?(state) do
-    ref = trail_ref(%{})
+    ref = Hunt.ref(%{})
     Trail.hunted(state.trail, ref) != nil or Trail.anchors(state.trail, ref, now()) != []
   end
 
@@ -727,17 +721,9 @@ defmodule Pokex.Bots.Catcher.Worker do
   # 19:51:19 o corpo estava no chão, ele parado do lado, e a linha que apareceu
   # foi esta. UM relator, uma forma de frase, seja quem for que recusou.
   defp explain_no_ball(%{source: :anchor, diag: %{anchor: true}} = obs, state, why),
-    do: log(:macro, "🌟 a bola da âncora NÃO saiu — #{reason_for(obs, state, why)}")
+    do: log(:macro, "🌟 a bola da âncora NÃO saiu — #{Narration.no_ball(obs, state.logic, why)}")
 
   defp explain_no_ball(_ordinary_obs, _state, _why), do: :ok
-
-  defp reason_for(obs, %{logic: logic}, :logic) do
-    "a lógica recusou #{length(obs.corpses)} âncora(s): fila #{length(logic.queue)}, " <>
-      "ignorados #{map_size(logic.ignored)}, esta observação #{obs.captured_at}, " <>
-      "a última que ela viu #{inspect(logic.last_obs_at)}"
-  end
-
-  defp reason_for(_obs, _state, text) when is_binary(text), do: text
 
   defp gate_aberto? do
     InputGate.allowed?()
@@ -762,18 +748,10 @@ defmodule Pokex.Bots.Catcher.Worker do
     performs
     |> Enum.flat_map(fn {:capture_sequence, point, name} ->
       key = Balls.key_for(name)
-      announce_special_ball(key, name)
+      say(Narration.special_ball(key, name))
       Ball.sequence(point, key)
     end)
     |> Body.perform(:high, body)
-  end
-
-  # Only when a RULE fired. The ordinary ball is the silent case — saying
-  # "Poké Ball" on every throw would bury the one line that matters, which is
-  # the good ball leaving for the creature he is actually hunting.
-  defp announce_special_ball(key, name) do
-    if key != Balls.default_key(),
-      do: log(:macro, "🔴 #{Balls.label(key)} (#{key}) para #{name}")
   end
 
   # The return used to be DISCARDED — a real actuation error vanished and the
@@ -858,12 +836,12 @@ defmodule Pokex.Bots.Catcher.Worker do
     # corpse via the library (only mapped corpses are targets since 2026-07-30)
     # and the name travels in the observation — dropping it meant blind validation.
     for {:capture_sequence, point, _name} <- performs,
-        info = known_at(obs, point),
+        info = Observation.known_at(obs, point),
         info != nil do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
         @topic,
-        {:catcher_log, :macro, "captura: #{recognized(info)}"}
+        {:catcher_log, :macro, "captura: #{Narration.recognized(info)}"}
       )
     end
 
@@ -881,41 +859,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   # palette equals its taught corpse's); moving/capture-off don't even look;
   # the mini-game owns the moment. nil = a step that proves nothing (Logic
   # ignores it), never a false confirmation.
-  # A CHAMADA DIZ O QUE ACHOU. "Não vi log, nada a respeito" (11/09) era metade
-  # da queixa: com o portão fechado o `scan_obs/1` devolvia `nil` e `advance/2`
-  # engolia, então uma captura que nunca começou e uma que não achou corpo eram
-  # a mesma tela em branco. Era `:macro` por ser o momento que ele procura no
-  # diário da manhã seguinte; desde 11/09 quem conta esse momento é a linha da
-  # mira ao fechar ("N olhada(s) segurada(s) por bicho de pé"), e esta desceu.
-  defp announce_cue(nil),
-    do:
-      log(:debug, "🎯 hora da bola — mas a varredura está fechada agora (luta, modo ou mini-game)")
-
-  # `:debug`: a rodada que fecha sem corpo é a regra, não a notícia.
-  defp announce_cue(%{corpses: []}),
-    do: log(:debug, "🎯 hora da bola — varri e não achei corpo nenhum no chão")
-
-  defp announce_cue(%{corpses: corpses} = obs) do
-    case {length(corpses), length(Logic.admissible(obs))} do
-      {n, n} ->
-        log(:macro, "🎯 hora da bola — #{n} corpo(s) no chão")
-
-      {n, 0} ->
-        log(
-          :macro,
-          "🎯 hora da bola — #{n} mancha(s) com cor de corpo, nenhuma onde o olho viu um bicho de pé: nenhuma bola"
-        )
-
-      {n, k} ->
-        log(
-          :macro,
-          "🎯 hora da bola — #{k} corpo(s) onde um bicho estava de pé (#{n - k} mancha(s) longe da luta, sem bola)"
-        )
-    end
-  end
-
-  defp announce_cue(_sem_leitura), do: :ok
-
   defp scan_obs(state) do
     if fight_on?(state) or not standing?() or
          not capture_allowed?(state) or Perception.mini_game_playing?(),
@@ -940,16 +883,9 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp with_pos(nil), do: nil
 
   defp with_pos(obs) do
-    case current_pos() do
+    case Hunt.pos() do
       nil -> obs
       pos -> Map.put(obs, :pos, pos)
-    end
-  end
-
-  defp current_pos do
-    case WorldState.get(:minimap, Settings.get(:cavebot_minimap_fact_max_age_ms), now()) do
-      {:ok, %{pos: {_, _, _} = pos}} -> pos
-      _sem_leitura -> nil
     end
   end
 
@@ -964,33 +900,20 @@ defmodule Pokex.Bots.Catcher.Worker do
       do: obs,
       else:
         Map.merge(obs, %{
-          spots: spots_here(state.standing, Map.get(obs, :pos)),
+          spots: Hunt.spots(state.standing, Map.get(obs, :pos), now()),
           spot_radius: Calibration.tile_px()
         })
   end
 
-  # A IDENTIDADE VIAJA COM A BARRA (`Catcher.Trail`, plano §3.5). O olho lê as
-  # barras a cada olhada; o vigia diz em cima de qual está a cor do shiny
-  # (`CrowdScan.mark_special/3`, os pontos frescos de `ShinyGuard.seen/0`); o
-  # rastro segue essa barra em tiles do mundo até ela sumir — e aí o lugar dela
-  # é a âncora do corpo, com ou sem cor. "Lembra que o pokémon anda por aí,
-  # temos que ter essa posição atualizada e bem certinha" (11/09).
+  # A OLHADA DO OLHO VIRA RASTRO (`Catcher.Hunt`), e a queda tem voz: é a linha
+  # que ele procura no diário quando a bola não saiu. A conta é do `Hunt`; aqui
+  # ficam as mãos (a bola) e o diário.
   defp follow(state, reading) do
-    ref = trail_ref(reading)
-    seen = ShinyGuard.seen()
+    {state, falls} = Hunt.follow(state, reading, screen_clear?(), now())
 
-    # the sparkle still on screen means the shiny is ALIVE: the trail must not
-    # turn its bar, lost in the pile, into a corpse to ball (18:34 of 11/09);
-    # the battle list empty means a hunted bar gone IS the body (19:16:48).
-    marked =
-      reading
-      |> CrowdScan.mark_special(seen, ref.tile)
-      |> Map.merge(%{shiny_on?: seen != [], pile_dead?: screen_clear?()})
+    for line <- Narration.falls(falls), do: log(:macro, line)
 
-    trail = Trail.observe(state.trail, marked, ref, now())
-    fell? = say_falls(state.trail, trail, ref)
-    state = %{state | trail: trail}
-    if fell?, do: ball_the_fall(state), else: state
+    if falls != [], do: ball_the_fall(state), else: state
   end
 
   # THE BALL AT THE FALL. 19:16:01 and 19:16:48 of 11/09: the corpse anchor was
@@ -1014,91 +937,19 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp ball_the_fall(state), do: state
 
-  # MEIO TILE, DE PROPÓSITO. O vigia aponta o CENTRO DA ARTE (a barra mais meio
-  # tile); o rastro guarda cada bicho pelo ponto do corpo do olho (a barra mais
-  # UM tile). Sem o ajuste, um brilho entre dois bichos empilhados ficava a
-  # 75 px do bicho de cima e a 76 px do bicho certo — e às 17:25:59 de 11/09
-  # dois rastros caíram "caçados" de uma vez, um deles o vizinho.
-  defp hunt(state, vistos) do
-    ref = trail_ref(%{})
-    at = now()
-    half = div(ref.tile, 2)
-
-    trail =
-      Enum.reduce(vistos, state.trail, fn %{point: {x, y}, name: name} = visto, trail ->
-        Trail.hunt_at(trail, {x, y + half}, name, Map.get(visto, :px), ref, at)
-      end)
-
-    %{state | trail: trail}
-  end
-
-  defp trail_ref(reading) do
-    me =
-      Map.get(reading, :me) ||
-        case Calibration.load() do
-          {:ok, calib} -> Calibration.player_point(calib)
-          _no_calibration -> nil
-        end
-
-    %{me: me || {0, 0}, tile: Calibration.tile_px(), pos: current_pos()}
-  end
-
-  # A queda tem voz: é a linha que ele procura no diário quando a bola não saiu.
-  # Devolve se alguma barra caiu NESTA olhada.
-  defp say_falls(before, after_look, ref) do
-    at = now()
-    known = Enum.map(Trail.anchors(before, ref, at), & &1.world)
-
-    fresh =
-      for %{world: world} = anchor <- Trail.anchors(after_look, ref, at),
-          world not in known,
-          do: anchor
-
-    for %{name: name, screen: {x, y}} <- fresh do
-      log(:macro, "🎯 #{name} caiu em #{x},#{y} — a barra sumiu; a bola vai lá na hora da bola")
-    end
-
-    fresh != []
-  end
-
-  # A BOLA NA ÂNCORA. Dentro da tela e fresca (o TTL é do `Trail`); a leitura
-  # se diz `source: :anchor` (`Catcher.Observation`), então a bola fura o portão
-  # de modo, o "🌟 bola em" sai e a faixa acende.
+  # A BOLA NA ÂNCORA. Dentro da tela, longe de bicho de pé e fresca (as cercas e
+  # o TTL são do `Hunt`); a leitura se diz `source: :anchor`
+  # (`Catcher.Observation`), então a bola fura o portão de modo, o "🌟 bola em"
+  # sai e a faixa acende.
   defp throw_at_anchors(state) do
-    ref = trail_ref(%{})
-    # A OBSERVAÇÃO DA ÂNCORA NÃO É UMA FOTO. A varredura da hora da bola
-    # carimba a foto dela no fim do trabalho, no MESMO milissegundo em que esta
-    # chamada nasce, e o portão de frescor da lógica (`captured_at <=
-    # last_obs_at`) engolia a âncora em silêncio: 19:51:19 de 11/09, o corpo
-    # em 1268,768, ele parado do lado, "a lógica recusou 1 âncora(s)". A
-    # âncora é sempre a observação mais nova que a lógica já viu.
-    at = fresher_than(state.logic, now())
-    standing = Trail.standing(state.trail, ref)
-    tile = ref.tile
+    at = Hunt.fresher_than(state.logic, now())
 
-    # …e nunca em cima de um bicho de pé: a hora da bola pode chegar com um
-    # sobrevivente na tela, e o tile do corpo pode estar ocupado por ele.
-    free? = fn %{screen: {ax, ay}} ->
-      not Enum.any?(standing, fn {sx, sy} -> abs(sx - ax) <= tile and abs(sy - ay) <= tile end)
-    end
-
-    case Enum.filter(Trail.anchors(state.trail, ref, at), &(on_screen?(&1.screen) and free?.(&1))) do
-      [] ->
+    case Hunt.anchor_targets(state, at) do
+      {[], _nenhuma} ->
         state
 
-      anchors ->
-        for %{name: name, screen: {x, y}, fallen_at: fell} <- anchors do
-          log(
-            :macro,
-            "🌟 bola na âncora do #{name} em #{x},#{y} — caiu há #{div(at - fell, 1000)}s"
-          )
-        end
-
-        candidates =
-          Enum.map(
-            anchors,
-            &%{name: &1.name, px: &1.px || 0, point: &1.screen, in_frame: &1.screen}
-          )
+      {candidates, anchors} ->
+        for candidate <- candidates, do: log(:macro, Narration.anchor_ball(candidate, at))
 
         obs = Observation.anchors(candidates, at, %{anchor: true})
         throws_before = state.logic.counters.throws
@@ -1108,58 +959,12 @@ defmodule Pokex.Bots.Catcher.Worker do
         # foram gastas numa chamada que não virou bola, e o corpo do shiny ficou
         # no chão. Sem bola nova, as âncoras esperam a próxima hora da bola.
         if state.logic.counters.throws > throws_before do
-          %{state | trail: Enum.reduce(anchors, state.trail, &Trail.spend(&2, &1.world))}
+          Hunt.spend(state, anchors)
         else
           log(:macro, "🌟 a âncora ficou pra próxima hora da bola — nenhuma bola saiu agora")
           state
         end
     end
-  end
-
-  defp fresher_than(%Logic{last_obs_at: last}, now) when is_integer(last), do: max(now, last + 1)
-  defp fresher_than(_logic, now), do: now
-
-  defp trail_snapshot(state, ref) do
-    at = now()
-
-    %{
-      hunted: Trail.hunted(state.trail, ref),
-      anchors: Trail.anchors(state.trail, ref, at),
-      standing: length(Trail.standing(state.trail, ref))
-    }
-  end
-
-  defp on_screen?({x, y}) do
-    case Calibration.load() do
-      {:ok, %{screen_w: w, screen_h: h}} when is_integer(w) and is_integer(h) ->
-        x >= 0 and y >= 0 and x < w and y < h
-
-      _unknown_screen ->
-        x >= 0 and y >= 0
-    end
-  end
-
-  defp remember_standing(state, hostiles) do
-    at = now()
-    pos = current_pos()
-    seen = Map.new(for %{point: {_, _} = point} <- hostiles, do: {{pos, point}, at})
-
-    standing =
-      state.standing
-      |> Map.reject(fn {_where, seen_at} -> at - seen_at > @standing_memory_ms end)
-      |> Map.merge(seen)
-
-    %{state | standing: standing}
-  end
-
-  defp spots_here(standing, pos) do
-    at = now()
-
-    for {{seen_pos, point}, seen_at} <- standing,
-        at - seen_at <= @standing_memory_ms,
-        seen_pos == nil or pos == nil or seen_pos == pos,
-        uniq: true,
-        do: point
   end
 
   # PARADO É PARADO, e escolher o modo não é a única forma de estar.
@@ -1211,130 +1016,44 @@ defmodule Pokex.Bots.Catcher.Worker do
       nil
   end
 
-  # Every scan becomes ONE feed line. Before, the three possible outcomes —
-  # didn't scan, scanned and found nothing, scanned and found — produced the
-  # same silence for hours (2026-07-30). The best candidate's score goes along
-  # even when FAILING: distance to the threshold is the aim diagnostic.
-  defp narrate(nil), do: nil
-
-  defp narrate(%{scanning?: false} = obs) do
-    # blindness is rare and must survive restarts → :macro (goes to the JSONL)
-    log(:macro, "🔎 cego: #{reason_text(Map.get(obs, :reason))}")
+  # Every scan becomes ONE feed line (`Catcher.Narration.scan/1`): the three
+  # outcomes — didn't scan, scanned and found nothing, scanned and found — used
+  # to give the same silence for hours (2026-07-30).
+  defp narrate(obs) do
+    say(Narration.scan(obs))
     obs
   end
 
-  defp narrate(%{windows: windows} = obs) do
-    # routine at :debug — lives in the feed, doesn't bloat the on-disk history
-    log(:debug, "🔎 varri #{windows} janelas#{frame_text(obs)} · " <> best_text(obs))
-    obs
-  end
-
-  defp narrate(obs), do: obs
-
-  defp frame_text(%{region: {_x, _y, w, h}}), do: " (#{w}×#{h})"
-  defp frame_text(_no_region), do: ""
-
-  defp best_text(%{best: nil}), do: "acervo vazio"
-
-  defp best_text(%{best: %{name: name, score: score, point: {x, y}}, threshold: threshold}) do
-    verdict = if score >= threshold, do: "✓", else: "✗"
-    "melhor: #{name} #{fmt(score)} #{verdict} em #{x},#{y} (limiar #{fmt(threshold)})"
-  end
-
-  defp best_text(_no_field), do: "sem leitura"
-
-  defp fmt(n) when is_number(n), do: :erlang.float_to_binary(n / 1, decimals: 2)
-  defp fmt(_outro), do: "?"
-
-  defp reason_text(:no_calibration), do: "sem calibração"
-  defp reason_text(:no_anchor), do: "sem personagem nem ponto do pokémon calibrados"
-  defp reason_text(:no_arena), do: "sem arena calibrada"
-  defp reason_text(:no_screen), do: "a calibração não tem as medidas da tela"
-
-  defp reason_text(:outside_arena),
-    do: "os tiles ao redor do personagem caem FORA da arena calibrada — recalibre a arena"
-
-  defp reason_text({:capture_failed, reason}), do: "captura falhou (#{inspect(reason)})"
-  defp reason_text(outro), do: inspect(outro)
+  defp say({level, text}), do: log(level, text)
+  defp say(nil), do: :ok
 
   defp log(level, text),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:catcher_log, level, "captura: #{text}"})
 
   # The library IS the aim — a start with an empty library will aim at NOTHING
   # all session, which deserves a siren, not silence ("looks on but does
-  # nothing" is exactly what eroded trust).
+  # nothing" is exactly what eroded trust). If the ball is off, the library is
+  # irrelevant and THAT is the message: capture once ran "on" for hours (bot
+  # running, loot flowing) with the key false and nothing on screen said so.
   defp announce_library do
-    # If the ball is off, the library is irrelevant and THAT is the message. An
-    # alarm, not a whisper — capture once ran "on" for hours (bot running, loot
-    # flowing) with the key false and nothing on screen said so out loud.
-    if not Settings.get(:capture_enabled) do
-      Phoenix.PubSub.broadcast(
-        Pokex.PubSub,
-        @topic,
-        {:rule_alarm, :capture,
-         "🔒 captura DESLIGADA (só saque) — ligue o botão Captura no painel; " <>
-           "nenhuma Pokébola será arremessada"}
-      )
-    end
+    if not Settings.get(:capture_enabled), do: alarm(Narration.capture_off())
 
     announce_corpses()
   end
 
   defp announce_corpses do
-    case length(CorpseLibrary.list()) do
-      0 ->
-        Phoenix.PubSub.broadcast(
-          Pokex.PubSub,
-          @topic,
-          {:rule_alarm, :capture,
-           "🎯 acervo de corpos VAZIO — a captura não vai mirar nada; fotografe corpos na calibração"}
-        )
-
-      n ->
-        # "N pokémon taught", not "N corpses" — "acervo com 10 corpos" was read
-        # as "10 corpses on screen right now" (2026-07-30)
-        Phoenix.PubSub.broadcast(
-          Pokex.PubSub,
-          @topic,
-          {:catcher_log, :macro,
-           "captura: 🎯 mira pronta — #{n} pokémon ensinado(s) no acervo da calibração"}
-        )
+    case Narration.corpse_library(length(CorpseLibrary.list())) do
+      {:alarm, text} -> alarm(text)
+      {:log, text} -> log(:macro, text)
     end
   end
+
+  defp alarm(text),
+    do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :capture, text})
 
   # The ball flies at a point ADMITTED in an earlier observation; the track
   # center may have drifted a few px since — the nearest neighbor within
   # tolerance is the same corpse.
-  # Dois caminhos chegam aqui e cada um sabe uma coisa diferente: a foto do
-  # corpo sabe QUANTO se parece com a sprite ensinada, a cor sabe QUANTOS pixels
-  # da cor achou. Um número só pros dois mentia num deles.
-  defp recognized(%{name: name, score: score}) when is_number(score),
-    do: "🎯 #{name} reconhecido (#{trunc(score * 100)}%)"
-
-  defp recognized(%{name: name, px: px}) when is_integer(px),
-    do: "🎯 #{name} reconhecido pela cor (#{px} px)"
-
-  defp recognized(%{name: name}), do: "🎯 #{name} reconhecido"
-
-  defp known_at(%{known: known}, {px, py}) when is_map(known) and map_size(known) > 0 do
-    tolerance = Settings.get(:corpse_match_tolerance_px)
-
-    known
-    |> Enum.filter(fn {{x, y}, _info} ->
-      abs(x - px) <= tolerance and abs(y - py) <= tolerance
-    end)
-    |> Enum.min_by(
-      fn {{x, y}, _info} -> (x - px) * (x - px) + (y - py) * (y - py) end,
-      fn -> nil end
-    )
-    |> case do
-      {_point, info} -> info
-      nil -> nil
-    end
-  end
-
-  defp known_at(_obs, _point), do: nil
-
   defp reset_logic(%{logic: nil} = state), do: state
 
   # "Reaprender chão": a fresh Logic (not just the old one restarted) so the queue/throw/
@@ -1353,7 +1072,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # (`anchors`) ou uma bola já em andamento (`pending`, que também é a bola
   # comum). `hunted?` é a barra do shiny ainda de pé — ela não segura os pés,
   # mas é o que licencia a bola com a captura desligada e o que o azulejo mostra.
-  defp publish_capture(state), do: WorldState.put(:capture, fact(state, trail_ref(%{})), now())
+  defp publish_capture(state), do: WorldState.put(:capture, fact(state, Hunt.ref(%{})), now())
 
   # UMA leitura de calibração por foto: `trail_ref/1` lê o disco, e a
   # transmissão sai a cada mudança de estado.
@@ -1400,7 +1119,7 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp snapshot(state) do
     mode = Settings.get(:player_mode)
-    ref = trail_ref(%{})
+    ref = Hunt.ref(%{})
 
     %{
       state: mode_state(state.logic, mode),
@@ -1414,7 +1133,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       hold_reason: hold_reason(state),
       last_action: state.last_action,
       # o rastro (`Catcher.Trail`): o shiny de pé e onde ele caiu, na tela de agora
-      trail: trail_snapshot(state, ref),
+      trail: Hunt.snapshot(state, ref, now()),
       sweep: %{
         enabled?: Settings.get(:sweep_enabled),
         pending: length(state.sweep_queue),
@@ -1430,45 +1149,22 @@ defmodule Pokex.Bots.Catcher.Worker do
   # Computed at broadcast time from live state — the engage/disengage edge above
   # guarantees the fight reason appears/clears promptly; the mini-game one rides
   # on whatever event broadcasts while the game plays (the catcher is passive then).
+  # As FRASES são de `Catcher.Narration`; os portões ficam aqui — são os mesmos
+  # que `standing?/0` e `scan_obs/1` leem, e uma segunda cópia deles dentro de
+  # um narrador seria duas contas da mesma verdade.
+  # Um worker sem `Logic` não segura nada — e sai daqui ANTES dos portões, que
+  # são leituras do quadro-negro a cada transmissão.
   defp hold_reason(%{logic: nil}), do: nil
 
   defp hold_reason(state) do
-    cond do
-      Perception.mini_game_playing?() ->
-        "mini-game em jogo"
-
-      reason = hunt_hold() ->
-        reason
-
-      fight_on?(state) ->
-        "esperando fim da luta"
-
-      # The gate that stayed shut all day without saying its name (2026-07-30:
-      # 1015 kills, 1015 loots, zero scans — the key was false and the only clue
-      # was the "só saque" pill). The reason now heads the hold list instead of
-      # reading as normal state.
-      not Settings.get(:capture_enabled) ->
-        "captura DESLIGADA — só saque"
-
-      true ->
-        nil
-    end
-  end
-
-  # A CAÇADA ANDANDO NÃO VARRE — mas a caçada PARADA varre. O detector é de
-  # mancha que não se move, e um personagem andando move tudo; com a estrada
-  # segurada pelo cérebro ele está parado de verdade (`standing?/0`). Isto
-  # dizia "na caçada só o shiny leva bola", que era verdade enquanto o
-  # portão exigia o modo Parado — e era a única pista de que a captura nunca
-  # rodava numa caçada. Parado ainda não basta: com bicho vivo na lista a bola
-  # espera.
-  defp hunt_hold do
-    cond do
-      Settings.get(:player_mode) == "still" -> nil
-      not road_held?() -> "andando — a bola sai quando a rota parar"
-      not screen_clear?() -> "bicho vivo na tela — a bola espera a lista zerar"
-      true -> nil
-    end
+    Narration.hold_reason(%{
+      mini_game?: Perception.mini_game_playing?(),
+      still?: Settings.get(:player_mode) == "still",
+      road_held?: road_held?(),
+      screen_clear?: screen_clear?(),
+      fight?: fight_on?(state),
+      capture_enabled?: Settings.get(:capture_enabled)
+    })
   end
 
   defp broadcast(state),

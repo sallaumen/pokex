@@ -25,16 +25,20 @@ defmodule Pokex.Bots.Catcher.Observation do
   """
 
   alias Pokex.Perception.WorldState
+  alias Pokex.Settings
 
   # o quadro do cérebro: ele tica a cada 200ms, e é ele que já desconta a linha
   # do PRÓPRIO pokémon da contagem (a lista crua inclui ela)
   @situation_max_age_ms 2_000
 
   @type candidate :: %{
-          name: String.t(),
-          px: non_neg_integer,
-          point: {integer, integer},
-          in_frame: {integer, integer}
+          :name => String.t(),
+          :px => non_neg_integer,
+          :point => {integer, integer},
+          :in_frame => {integer, integer},
+          # quando a evidência é uma âncora do rastro: desde quando o corpo
+          # está no chão (a narração conta a idade dele na linha da bola)
+          optional(:fallen_at) => integer
         }
 
   @doc """
@@ -84,4 +88,31 @@ defmodule Pokex.Bots.Catcher.Observation do
       captured_at: at
     }
   end
+
+  @doc """
+  Quem é o corpo naquele ponto, segundo ESTA leitura.
+
+  A bola voa num ponto ADMITIDO numa observação anterior; o centro da mancha
+  pode ter andado alguns px desde então — o vizinho mais próximo dentro da
+  tolerância é o mesmo corpo. `nil` quando a leitura não conhece ninguém ali.
+  """
+  @spec known_at(map, {integer, integer}) :: map | nil
+  def known_at(%{known: known}, {px, py}) when is_map(known) and map_size(known) > 0 do
+    tolerance = Settings.get(:corpse_match_tolerance_px)
+
+    known
+    |> Enum.filter(fn {{x, y}, _info} ->
+      abs(x - px) <= tolerance and abs(y - py) <= tolerance
+    end)
+    |> Enum.min_by(
+      fn {{x, y}, _info} -> (x - px) * (x - px) + (y - py) * (y - py) end,
+      fn -> nil end
+    )
+    |> case do
+      {_point, info} -> info
+      nil -> nil
+    end
+  end
+
+  def known_at(_obs, _point), do: nil
 end

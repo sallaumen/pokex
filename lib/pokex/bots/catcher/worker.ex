@@ -1051,7 +1051,11 @@ defmodule Pokex.Bots.Catcher.Worker do
   # stopped at 19:16:52 with the body on the ground). The fall is the moment
   # the body is known; with the feet still (the brain holds them while a ball
   # is worked) the ball goes now. Walking, it waits for the cue.
-  defp ball_the_fall(state) do
+  # …E SÓ COM UM CAÇADOR ARMADO. A leitura do olho é uma transmissão: ela chega
+  # a todo Catcher vivo, rodando ou não, e a queda joga só com essa mensagem.
+  # Um worker que nunca rodou não tem `Logic` nenhuma — e ler os contadores
+  # dela ali matava o processo, levando o rastro junto no restart.
+  defp ball_the_fall(%{logic: %Logic{state: :armed}} = state) do
     if standing?() do
       throw_at_anchors(state)
     else
@@ -1059,6 +1063,8 @@ defmodule Pokex.Bots.Catcher.Worker do
       state
     end
   end
+
+  defp ball_the_fall(state), do: state
 
   # MEIO TILE, DE PROPÓSITO. O vigia aponta o CENTRO DA ARTE (a barra mais meio
   # tile); o rastro guarda cada bicho pelo ponto do corpo do olho (a barra mais

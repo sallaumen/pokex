@@ -90,6 +90,26 @@ defmodule Pokex.Bots.Engine.SituationTest do
       assert picture.own_row_seen? == :by_name
     end
 
+    # A MORTE DE 12/09, 16:00, com os números da caixa-preta: a janela de
+    # batalha com UMA linha, sem nome legível e com a barra em 0%, contra uma
+    # Pokebar de 98%. O palpite posicional dava a ela o crachá de "sou eu" e a
+    # foto dizia `enemies: 0`; o cérebro respondeu "nada aqui — seguindo a
+    # rota" por 12,5 s com um shiny de caveira a 2 tiles, em 4% de vida.
+    test "the lone illegible row whose bar says 0% is an enemy, not him" do
+      caida = %{
+        enemies: [0],
+        enemies_detail: [%{row: 0, name: nil, hp_pct: 0.0, shiny?: false}],
+        locked?: false,
+        locked_row: nil
+      }
+
+      picture = Situation.build(inputs(%{battle: caida, own_hp: 98}), @config, 1_000)
+
+      assert picture.rows == 1
+      assert picture.enemies == 1
+      assert picture.own_row_seen? == false
+    end
+
     test "says so when his pokémon is NOT among the rows" do
       picture = Situation.build(inputs(), @config, 1_000)
       assert picture.own_row_seen? == false

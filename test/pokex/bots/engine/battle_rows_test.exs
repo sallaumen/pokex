@@ -165,11 +165,40 @@ defmodule Pokex.Bots.Engine.BattleRowsTest do
       assert BattleRows.enemies(split) == 1
     end
 
-    test "nobody within the slack is still a guess, not a wrong pick" do
+    # A MORTE DE 12/09, 16:00. Sobrou UMA linha na janela de batalha, sem nome
+    # legível e com a barra em 0%, contra uma Pokebar de 98%. O palpite deu a
+    # ela o crachá de "sou eu", `enemies` virou 0, e por 12,5 SEGUNDOS o
+    # cérebro respondeu "nada aqui — seguindo a rota" enquanto o olho via um
+    # shiny com caveira a 2 tiles, em 4% de vida, e o pokémon dele fora de
+    # campo. Uma barra LIDA a 98 pontos da dele não é dúvida: é prova.
+    test "a lone row whose bar contradicts the Pokebar is NOT his" do
+      split = BattleRows.split([row(nil, 0.0)], own(%{hp: 98}))
+
+      assert split.how == false
+      assert split.mine == []
+      assert BattleRows.enemies(split) == 1
+    end
+
+    # …MAS COM PILHA NA TELA O PALPITE SEGUE VALENDO. Chutar uma linha entre
+    # cinco custa um inimigo a menos numa conta de cinco e a caçada continua
+    # lutando; é com UMA linha que o mesmo chute apaga a luta inteira. E o
+    # palpite é o que salva a linha própria quando o nome não se deixa ler
+    # (linha 0 é a dele em 134 de 140 leituras, 18/08).
+    test "with a pile on screen the guess still decides" do
       split = BattleRows.split([row(nil, 0.10), row(nil, 0.20)], own(%{hp: 100}))
 
       assert split.how == :by_position
       assert BattleRows.enemies(split) == 1
+    end
+
+    # …MAS UMA LINHA SEM BARRA SEGUE SENDO DÚVIDA, e a dúvida é do palpite: é
+    # ele que salva a linha própria quando a barra não se deixa ler. Basta UMA
+    # candidata sem barra pra o palpite voltar a decidir.
+    test "and a lone row with no bar at all is still a guess, not an enemy" do
+      split = BattleRows.split([row(nil)], own(%{hp: 100}))
+
+      assert split.how == :by_position
+      assert BattleRows.enemies(split) == 0
     end
   end
 end

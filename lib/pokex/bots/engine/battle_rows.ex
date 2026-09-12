@@ -128,16 +128,56 @@ defmodule Pokex.Bots.Engine.BattleRows do
   # on the field made the whole pile read as his own row once (five Vileplumes
   # on screen, `enemies` 0, the brain answering "seguindo a rota" to a pile that
   # was eating him) — so the ones not picked go back to the enemy list.
+  #
+  # Sem ninguém dentro da folga a vida não decide, e quem responde é
+  # `guess_or_none/4` — o palpite, com o limite que a morte de 12/09 escreveu.
   defp pick([_ | _] = candidates, others, own, how) do
     case closest(candidates, own.hp) do
-      nil ->
-        [first | rest] = candidates
-        %{mine: [first], theirs: others ++ rest, how: fell_back(how)}
-
-      row ->
-        %{mine: [row], theirs: others ++ List.delete(candidates, row), how: by_hp_or(how)}
+      nil -> guess_or_none(candidates, others, own, how)
+      row -> %{mine: [row], theirs: others ++ List.delete(candidates, row), how: by_hp_or(how)}
     end
   end
+
+  # O NOME NÃO SE CONTESTA POR VIDA. Casado o nome, a linha é dele mesmo com a
+  # barra longe: as duas leituras são CAPTURAS diferentes, e é pra isso que a
+  # folga existe. Aqui a vida só escolhia ENTRE xarás, e sem escolha volta o
+  # primeiro deles.
+  defp guess_or_none(candidates, others, _own, :by_name) do
+    [first | rest] = candidates
+    %{mine: [first], theirs: others ++ rest, how: :by_name}
+  end
+
+  defp guess_or_none(candidates, others, own, how) do
+    [first | rest] = candidates
+    sobra = others ++ rest
+
+    if sobra == [] and contradicted?(candidates, own.hp),
+      do: %{mine: [], theirs: others ++ candidates, how: false},
+      else: %{mine: [first], theirs: sobra, how: fell_back(how)}
+  end
+
+  # O PALPITE NÃO PODE SER O MOTIVO DE A TELA FICAR VAZIA.
+  #
+  # Com a pilha cheia, chutar a linha própria custa UM inimigo a menos numa
+  # conta de cinco: a caçada continua lutando, e o chute é o que salva a linha
+  # dele quando o nome não se deixa ler (medido em 18/08: linha 0 é a dele em
+  # 134 de 140 leituras). Com uma linha só, o mesmo chute apaga a luta inteira.
+  #
+  # A morte de 12/09, 16:00: sobrou UMA linha, sem nome legível e com a barra em
+  # 0%, contra uma Pokebar de 98%. O chute deu a ela o crachá de "sou eu",
+  # `enemies` virou 0, e por 12,5 SEGUNDOS o cérebro respondeu "nada aqui —
+  # seguindo a rota" enquanto o olho via um shiny com caveira a 2 tiles, em 4%
+  # de vida, e o pokémon dele já fora de campo. O personagem morreu ali.
+  #
+  # Então: quando descontar deixaria a tela VAZIA e a barra da candidata é
+  # legível e está longe da Pokebar, ela não é dele. Uma barra lida a 98 pontos
+  # da dele não é uma dúvida — é prova. Errar pro outro lado custa o bot lutar
+  # com um inimigo a mais; errar pra este lado custa a caçada virar as costas
+  # pra um bicho em cima dele.
+  defp contradicted?(candidates, own_hp) when is_integer(own_hp),
+    do: Enum.all?(candidates, &is_number(Map.get(&1, :hp_pct)))
+
+  defp contradicted?(_candidates, _no_pokebar), do: false
 
   # THE CLOSEST, not "the only one within the slack". The old rule refused to
   # decide whenever several rows were near his health — which is every fresh
@@ -162,8 +202,9 @@ defmodule Pokex.Bots.Engine.BattleRows do
   defp by_hp_or(:by_name), do: :by_name
   defp by_hp_or(other), do: other
 
-  defp fell_back(:by_name), do: :by_name
-  defp fell_back(_no_name), do: :by_position
+  # Só o `:by_hp` chega aqui: o nome casado é respondido antes, na primeira
+  # cláusula de `guess_or_none/4`, e nunca vira palpite.
+  defp fell_back(:by_hp), do: :by_position
 
   defp named?(_row, nil), do: false
 

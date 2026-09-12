@@ -227,6 +227,9 @@ defmodule Pokex.Settings.Locked do
        "sair do jogo pela SUA vida: parava o bot no meio da luta e o jogo recusava o Ctrl+Q (11/09)"},
     player_hp_logout_pct:
       {"Aposentadas", "a altura daquela saída; ninguém mais pergunta por ela"},
+    shiny_aim_max_candidates:
+      {"Aposentadas",
+       "a fila da mira por COR do corpo: o corpo não tem a cor do vivo (0 px em toda sessão de 11/09) e quem acha o corpo é o rastro da barra"},
     engine_kite_when_spent: {"O modo decide", "recuar com a barra vazia"},
     # --- Where the monsters are (vision) ---
     crowd_scan_radius_tiles:
@@ -316,8 +319,6 @@ defmodule Pokex.Settings.Locked do
     shiny_sparkle:
       {"Shiny (visão)",
        "o brilho amarelo ao lado do nome (opção do cliente) marca o shiny, sem cor por espécie"},
-    shiny_aim_max_candidates:
-      {"Shiny (visão)", "quantos alvos por varredura a mira por cor pode enfileirar"},
     shiny_max_blobs:
       {"Shiny (visão)",
        "acima de quantas manchas o tom vira holofote e a regra cala (um shiny é UMA mancha)"},

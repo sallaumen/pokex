@@ -218,7 +218,7 @@ defmodule Pokex.Bots.ShinyGuard do
 
   @doc """
   The character's and the STANDING pokémon's 3×3-tile boxes, in FRAME pixels of `region`:
-  the own pokémon's green can match a shiny's. The aim (`Catcher.ShinyAim`) refuses the same
+  the own pokémon's green can match a shiny's. The ball (`Catcher.Worker`) refuses the same
   ground. Points in SCREEN coordinates; the frame knows its own scale.
   """
   def forbidden_boxes(calib, %Frame{scale: scale}, {rx, ry, _w, _h}) do

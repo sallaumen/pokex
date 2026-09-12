@@ -2123,15 +2123,25 @@ defmodule PokexWeb.CavebotLiveTest do
       refute html =~ "varri 12 janelas"
     end
 
-    test "the capture tile says shiny while the aim is on", %{conn: conn} do
+    test "the capture tile says shiny while the trail has one", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
+      tile = fn -> view |> element("#tile-capture") |> render() end
+      catcher = fn extra -> Map.merge(%{counters: %{captures: 0}}, extra) end
 
-      send(view.pid, {:catcher, %{aim?: true, pending_corpses: 1, counters: %{captures: 0}}})
-      assert view |> element("#tile-capture") |> render() =~ "shiny"
-      assert view |> element("#tile-capture") |> render() =~ "bola no ar"
+      # the bar still standing: followed, nothing on the ground yet
+      send(view.pid, {:catcher, catcher.(%{hunted?: true, anchors: 0, pending_corpses: 0})})
+      assert tile.() =~ "shiny"
+      assert tile.() =~ "seguindo a barra do shiny"
 
-      send(view.pid, {:catcher, %{aim?: false, pending_corpses: 0, counters: %{captures: 0}}})
-      assert view |> element("#tile-capture") |> render() =~ "corpos na fila"
+      # it fell: the anchor is the body, and the road holds for it
+      send(view.pid, {:catcher, catcher.(%{hunted?: false, anchors: 1, pending_corpses: 0})})
+      assert tile.() =~ "corpo no chão"
+
+      send(view.pid, {:catcher, catcher.(%{hunted?: false, anchors: 1, pending_corpses: 1})})
+      assert tile.() =~ "bola no ar"
+
+      send(view.pid, {:catcher, catcher.(%{hunted?: false, anchors: 0, pending_corpses: 0})})
+      assert tile.() =~ "corpos na fila"
     end
   end
 

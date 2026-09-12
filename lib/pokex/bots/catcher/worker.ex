@@ -25,7 +25,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Bots.Catcher.Balls
   alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.Logic
-  alias Pokex.Bots.Catcher.ShinyAim
+  alias Pokex.Bots.Catcher.Observation
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Catcher.Sweep
   alias Pokex.Bots.Catcher.Trail
@@ -39,7 +39,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
-  alias Pokex.Vision.ColorRules
 
   @topic "catcher"
 
@@ -58,11 +57,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   # frame is usually dirty (death animation, the loot, the own pokémon walking
   # over it). Three chances in 2s suffice; more is capture burned for nothing.
   @repiques [400, 1_000, 2_000]
-  # a mira por cor aberta pela hora da bola: pelo menos as duas fotos que
-  # confirmam um corpo (mais uma), e uma vida curta — se não há corpo de shiny,
-  # a rota não pode ficar presa numa sessão de 90 s
-  @cue_aim_looks 3
-  @cue_aim_ttl_ms 6_000
 
   @config_keys [
     :corpse_match_tolerance_px,
@@ -81,8 +75,6 @@ defmodule Pokex.Bots.Catcher.Worker do
       body: Keyword.get(opts, :body, Body),
       # kill-anchored vision; injectable in tests like the Body
       scanner: Keyword.get(opts, :scanner, &SpotScan.scan/0),
-      # the shiny's corpse by colour (Catcher.ShinyAim); injectable like the scanner
-      aimer: Keyword.get(opts, :aimer, &ShinyAim.scan/0),
       # Entry door, like every sibling in this family. The env used to be read RAW inside
       # `arm_sweep/1`, so in the suite the `sweep_timer` stayed nil forever and re-arming
       # could not be exercised: the rule written right above it (must not go quiet until
@@ -128,11 +120,11 @@ defmodule Pokex.Bots.Catcher.Worker do
     do: GenServer.cast(server, {:sweep_now, around})
 
   @impl true
-  def init(%{body: body, scanner: scanner, aimer: aimer, auto_tick?: auto_tick?}) do
+  def init(%{body: body, scanner: scanner, auto_tick?: auto_tick?}) do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @kill_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, Engine.Worker.topic())
     Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-    # a SHINY sighting overrides capture_enabled for the next ball
+    # o vigia transmite aqui; o rastro é quem guarda o shiny (`Catcher.Trail`)
     Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
 
     {:ok,
@@ -140,12 +132,6 @@ defmodule Pokex.Bots.Catcher.Worker do
        logic: nil,
        body: body,
        scanner: scanner,
-       aimer: aimer,
-       # the AIM SESSION opened by a shiny sighting: when it opened, the
-       # candidates of the previous look (two photos confirm a corpse) and the
-       # points already announced. nil = no shiny to look for.
-       aim: nil,
-       aim_timer: nil,
        auto_tick?: auto_tick?,
        timer: nil,
        combat_engaged?: false,
@@ -172,8 +158,6 @@ defmodule Pokex.Bots.Catcher.Worker do
        scans: 0,
        with_target: 0,
        blind: 0,
-       # a shiny was just seen: the NEXT ball ignores capture_enabled
-       shiny_pending?: false,
        # BLIND sweep (see Catcher.Sweep): its own cadence timer, the tiles still
        # owed by the sweep in progress, and the session counters. Deliberately a
        # separate timer from `timer` (the Logic's deadline wake) — they mean
@@ -208,7 +192,6 @@ defmodule Pokex.Bots.Catcher.Worker do
         combat_engaged?: seed_combat_engaged()
     }
 
-    state = %{state | shiny_pending?: false}
     state = state |> monitorar_combate() |> cancel_timer() |> arm_sweep() |> arm_pulse()
     announce_library()
     broadcast(state)
@@ -221,9 +204,8 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   def handle_call(:halt, _from, state) do
     {logic, _} = Logic.stop(state.logic)
-    state = state |> Map.put(:logic, logic) |> disarm_sweep() |> disarm_pulse() |> close_aim()
-    # `close_aim/1` only rewrites the fact when an aim was open: the brain must
-    # hear "nobody armed" either way
+    state = state |> Map.put(:logic, logic) |> disarm_sweep() |> disarm_pulse()
+    # the brain has to hear "nobody armed" the moment he stops
     publish_capture(state)
     broadcast(state)
     {:reply, :ok, cancel_timer(state)}
@@ -278,8 +260,14 @@ defmodule Pokex.Bots.Catcher.Worker do
   # cérebro). Quando a hora da bola chega eles já morreram e sumiram da leitura,
   # por isso o lugar é guardado enquanto estão de pé.
   @impl true
-  def handle_info({:crowd, %{read?: true, hostiles: hostiles} = reading}, state),
-    do: {:noreply, state |> remember_standing(hostiles) |> follow(reading)}
+  def handle_info({:crowd, %{read?: true, hostiles: hostiles} = reading}, state) do
+    state = state |> remember_standing(hostiles) |> follow(reading)
+    # O FATO NASCE AQUI TAMBÉM: a âncora do shiny aparece nesta olhada, e é ela
+    # que segura os pés do cérebro — esperar o próximo passo da bola pra contar
+    # é chegar tarde.
+    publish_capture(state)
+    {:noreply, state}
+  end
 
   # THE GUARD'S BLOB NAMES A TRACK (see `Catcher.Trail`): the eye's reading may
   # have arrived a look before the guard's, so the blob is joined here too.
@@ -313,12 +301,11 @@ defmodule Pokex.Bots.Catcher.Worker do
     obs = scan_obs(state)
     announce_cue(obs)
     state = advance(%{state | repiques: @repiques}, obs)
-    # A ÂNCORA PRIMEIRO: onde a barra do shiny sumiu é a evidência mais forte
-    # que a hora da bola tem — o corpo não precisa ter a cor do vivo. A mira
-    # por cor abre em seguida; um corpo que ela achar no mesmo tile já está
-    # `ignored` pela bola que acabou de sair.
-    state = throw_at_anchors(state)
-    {:noreply, aim_by_colour_at_cue(state)}
+    # A ÂNCORA DEPOIS: a varredura comum olha o chão com o acervo; onde a barra
+    # do shiny sumiu é a evidência que sobra quando o acervo não conhece o
+    # bicho — e o corpo não precisa ter a cor do vivo. Um corpo que a varredura
+    # achar no mesmo tile já está `ignored` pela bola que acabou de sair.
+    {:noreply, throw_at_anchors(state)}
   end
 
   # kill = accelerator (both shapes: Task 5 drops the payload; tolerate the old one meanwhile).
@@ -378,45 +365,13 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   def handle_info({:DOWN, _ref, :process, _obj, _reason}, state), do: {:noreply, state}
 
-  # A shiny is on screen: arm the override so the ball flies even with capture
-  # off, and open the aim session — its corpse is looked for by COLOUR on its
-  # own timer, in any player_mode (the guard's palette is the only aim a hunt
-  # has; see Catcher.ShinyAim).
-  def handle_info({:shiny_seen, _info}, %{logic: %Logic{state: :armed}} = state) do
-    state = %{state | shiny_pending?: true}
-    {:noreply, if(state.aim == nil, do: open_aim(state), else: state)}
-  end
-
-  def handle_info({:shiny_seen, _info}, state), do: {:noreply, %{state | shiny_pending?: true}}
-
-  def handle_info(:aim, %{aim: nil} = state), do: {:noreply, state}
-
-  # One look per tick: candidates confirmed by the previous look become the
-  # Logic's corpses. The session closes when the ball's story ends (nothing
-  # pending and the shiny no longer waiting), or when the corpse never shows.
-  def handle_info(:aim, %{aim: %{since: since} = aim} = state) do
-    ttl = Map.get(aim, :ttl) || aim_ttl_ms()
-
-    cond do
-      not match?(%Logic{state: :armed}, state.logic) ->
-        {:noreply, close_aim(state)}
-
-      now() - since >= ttl ->
-        if aim.kind == :sighting, do: log(:macro, aim_expired_msg(ttl))
-        {:noreply, close_aim(state)}
-
-      true ->
-        {state, obs} = aim_look(state)
-        state = advance(state, obs)
-
-        if aim_done?(state) do
-          {:noreply, close_aim(state)}
-        else
-          publish_capture(state)
-          {:noreply, schedule_aim(state)}
-        end
-    end
-  end
+  # A SHINY NA TELA NÃO ABRE SESSÃO NENHUMA. Ela procurava o corpo pela COR do
+  # bicho vivo, e o corpo não tem essa cor: em 11/09 toda sessão fechou com
+  # "maior mancha do tom 0 px" — uma de 70 s queimou o teto do segurar pra bola
+  # e deixou "shiny na tela" no azulejo com ele longe. O avistamento é do vigia;
+  # quem sabe onde o corpo está é o rastro (`Catcher.Trail`), e é dele que sai a
+  # licença da bola com a captura desligada (`shiny_open?/1`).
+  def handle_info({:shiny_seen, _info}, state), do: {:noreply, state}
 
   # A tick that outran its own cancellation (halt races the timer message that
   # was already in the mailbox). The bot is stopped: nothing may fly. The manual
@@ -592,21 +547,28 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp sweep_result(text),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:sweep_result, text})
 
-  # capture_enabled OR um shiny NA HISTÓRIA — e a história é a sessão de mira,
-  # que nasce no avistamento e morre em 90s.
-  #
-  # `shiny_pending?` sozinho não serve de porta: ele só era limpo quando uma
-  # bola voava, então um avistamento durante o jogo manual (a guarda é filha
-  # sempre-viva da aplicação) ficava armado por horas e dava bola no PRIMEIRO
-  # corpo comum da sessão seguinte, com a captura desligada — e ainda carimbava
-  # aquele avistamento velho como capturado.
+  # capture_enabled OU um shiny ABERTO — e quem diz isso é o RASTRO, não uma
+  # marca de avistamento. `shiny_pending?` sozinho nunca serviu de porta: ele
+  # só era limpo quando uma bola voava, então um avistamento durante o jogo
+  # manual (a guarda é filha sempre-viva da aplicação) ficava armado por horas e
+  # dava bola no PRIMEIRO corpo comum da sessão seguinte, com a captura
+  # desligada. O rastro esquece a barra sozinho, e a âncora tem TTL.
   defp capture_allowed?(state),
-    do: Settings.get(:capture_enabled) or (state.aim != nil and Settings.get(:shiny_always_ball))
+    do:
+      Settings.get(:capture_enabled) or (shiny_open?(state) and Settings.get(:shiny_always_ball))
+
+  # UM SHINY ABERTO É O QUE O RASTRO SABE: a barra de pé (caçada) ou o lugar
+  # onde ela caiu (a âncora). Era uma SESSÃO de mira por cor que durava até
+  # 90 s sem nada no chão — e o que ela licenciava de útil era só isto.
+  defp shiny_open?(state) do
+    ref = trail_ref(%{})
+    Trail.hunted(state.trail, ref) != nil or Trail.anchors(state.trail, ref, now()) != []
+  end
 
   # A OBSERVAÇÃO DO SHINY TRAZ A PRÓPRIA LICENÇA: a âncora de uma barra caçada
-  # chega antes de qualquer sessão de mira abrir (17:26:00 de 11/09), e o
-  # shiny sempre merece a bola.
-  defp capture_allowed?(state, %{source: :shiny_aim}),
+  # chega antes de a rodada fechar (17:26:00 de 11/09), e o shiny sempre merece
+  # a bola.
+  defp capture_allowed?(state, %{source: :anchor}),
     do: capture_allowed?(state) or Settings.get(:shiny_always_ball) == true
 
   defp capture_allowed?(state, _obs), do: capture_allowed?(state)
@@ -625,8 +587,9 @@ defmodule Pokex.Bots.Catcher.Worker do
           refuse_shiny(obs, "o mini-game está em curso")
           state
 
-        # the shiny's corpse is aimed by colour on a fresh frame: no mode owns it
-        match?(%{source: :shiny_aim}, obs) ->
+        # a âncora do shiny é uma afirmação sobre o chão, não uma foto: nenhum
+        # modo manda nela (`Catcher.Observation`)
+        match?(%{source: :anchor}, obs) ->
           do_advance(state, obs)
 
         # PARADO É PARADO: modo Parado, ou caçada com a estrada segurada pelo
@@ -718,13 +681,14 @@ defmodule Pokex.Bots.Catcher.Worker do
   # A fight is on: everything reaching here is contaminated by the live enemy sprite
   # (tile-locked, stands still — indistinguishable from a corpse). No admissions, no throws,
   # no confirms until combat disengages (see the {:combat,...} handler above).
-  # …except the shiny aim, whose "no living body within a tile" test is the
-  # answer to that very worry (Catcher.ShinyAim).
-  defp do_advance(%{combat_engaged?: true} = state, %{source: :shiny_aim} = obs),
+  # …except the shiny's ANCHOR, which is not a reading of the ground at all:
+  # it is where a bar the guard marked stopped being read, and the trail only
+  # calls that a death with the battle list empty (`Catcher.Trail`).
+  defp do_advance(%{combat_engaged?: true} = state, %{source: :anchor} = obs),
     do: advance_gated(state, obs)
 
-  # …e com a captura DESLIGADA, só a mira do shiny passa: a sessão aberta não
-  # pode virar licença pra jogar bola em corpo comum.
+  # …e com a captura DESLIGADA, só a âncora do shiny passa: ela não pode virar
+  # licença pra jogar bola em corpo comum.
   defp do_advance(state, obs) when not is_map_key(obs, :source) do
     if Settings.get(:capture_enabled), do: advance_gated(state, obs), else: state
   end
@@ -759,13 +723,13 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # A BOLA DO SHINY NUNCA SOME EM SILÊNCIO. Às 17:26:00 de 11/09 duas âncoras
   # foram anunciadas e nenhuma bola saiu, sem uma linha dizendo por quê.
-  defp refuse_shiny(%{source: :shiny_aim, diag: %{anchor: true}}, why),
+  defp refuse_shiny(%{source: :anchor, diag: %{anchor: true}}, why),
     do: log(:macro, "🌟 a bola da âncora NÃO saiu — #{why}")
 
   defp refuse_shiny(_obs, _why), do: :ok
 
   defp anchor_without_ball(%{logic: %{throw: nil} = logic}, %{
-         source: :shiny_aim,
+         source: :anchor,
          diag: %{anchor: true},
          corpses: corpses,
          captured_at: at
@@ -846,25 +810,15 @@ defmodule Pokex.Bots.Catcher.Worker do
     if shiny_reading?(obs, state), do: announce_shiny_ball(obs)
 
     # A BOLA DO SHINY, não qualquer bola. Isto rodava em TODO arremesso: uma bola
-    # em corpo comum da varredura carimbava "bola" na prateleira do shiny (uma
-    # mentira: nenhuma bola foi nele) e zerava `shiny_pending?`, de modo que
-    # `aim_done?/1` fechava a caçada do corpo do shiny antes de alguém tê-lo
-    # visto. Quem responde é a leitura que gerou o arremesso.
-    if state.shiny_pending? and shiny_reading?(obs, state) do
-      ShinyLog.resolve_last("ball")
+    # em corpo comum da varredura carimbava "bola" na prateleira do shiny — uma
+    # mentira, nenhuma bola foi nele. Quem responde é a leitura que gerou o
+    # arremesso.
+    if shiny_reading?(obs, state), do: ShinyLog.resolve_last("ball")
 
-      %{
-        state
-        | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()},
-          shiny_pending?: false
-      }
-    else
-      %{state | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()}}
-    end
+    %{state | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()}}
   end
 
-  defp shiny_reading?(%{source: :shiny_aim}, _state), do: true
-  defp shiny_reading?(nil, %{aim: aim}), do: aim != nil
+  defp shiny_reading?(%{source: :anchor}, _state), do: true
   defp shiny_reading?(_ordinary_reading, _state), do: false
 
   defp announce_shiny_ball(%{corpses: [point | _]} = obs) do
@@ -942,8 +896,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     do:
       log(:debug, "🎯 hora da bola — mas a varredura está fechada agora (luta, modo ou mini-game)")
 
-  # `:debug`: a rodada que fecha sem corpo é a regra, não a notícia — a linha da
-  # mira por cor ao fechar (`say_tally/1`) já diz o que a hora da bola viu.
+  # `:debug`: a rodada que fecha sem corpo é a regra, não a notícia.
   defp announce_cue(%{corpses: []}),
     do: log(:debug, "🎯 hora da bola — varri e não achei corpo nenhum no chão")
 
@@ -1114,8 +1067,8 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   # A BOLA NA ÂNCORA. Dentro da tela e fresca (o TTL é do `Trail`); a leitura
-  # fala a língua da mira por cor (`source: :shiny_aim`), então a bola fura o
-  # portão de modo como a do shiny, o "🌟 bola em" sai e a faixa acende.
+  # se diz `source: :anchor` (`Catcher.Observation`), então a bola fura o portão
+  # de modo, o "🌟 bola em" sai e a faixa acende.
   defp throw_at_anchors(state) do
     ref = trail_ref(%{})
     # A OBSERVAÇÃO DA ÂNCORA NÃO É UMA FOTO. A varredura da hora da bola
@@ -1152,7 +1105,7 @@ defmodule Pokex.Bots.Catcher.Worker do
             &%{name: &1.name, px: &1.px || 0, point: &1.screen, in_frame: &1.screen}
           )
 
-        obs = ShinyAim.obs(candidates, {0, 0, 0, 0}, at, %{anchor: true})
+        obs = Observation.anchors(candidates, at, %{anchor: true})
         throws_before = state.logic.counters.throws
         state = advance(state, obs)
 
@@ -1234,12 +1187,12 @@ defmodule Pokex.Bots.Catcher.Worker do
   # que devia barrar bicho vivo é do Combat, que no Auto Combo nem entra em luta.
   # Duas horas de caçada em 10/09: 2.123 bolas, 1.353 com a pilha ainda chegando
   # e 272 no meio do combo; só 435 com a lista zerada. A bola comum segue a
-  # mesma regra que a do shiny já seguia (`ShinyAim.screen_clear/2`).
+  # mesma regra que a do shiny já seguia (`Observation.screen_clear/2`).
   defp standing? do
     Settings.get(:player_mode) == "still" or (road_held?() and screen_clear?())
   end
 
-  defp screen_clear?, do: ShinyAim.screen_clear(:ask, now()) == :ok
+  defp screen_clear?, do: Observation.screen_clear(:ask, now()) == :ok
 
   defp road_held? do
     case WorldState.get(:orders, Settings.get(:engine_orders_max_age_ms), now()) do
@@ -1398,152 +1351,23 @@ defmodule Pokex.Bots.Catcher.Worker do
     %{state | logic: logic}
   end
 
-  # -- a mira do shiny ---------------------------------------------------------
-
-  defp open_aim(state, kind \\ :sighting) do
-    # a sessão da hora da bola abre a cada rodada: só o fechamento (a contagem)
-    # merece o feed; o avistamento continua em `:macro`
-    log(if(kind == :cue, do: :debug, else: :macro), aim_opened_msg(kind))
-
-    aim = %{
-      since: now(),
-      prev: [],
-      said: MapSet.new(),
-      kind: kind,
-      tally: new_tally(),
-      ttl: if(kind == :cue, do: @cue_aim_ttl_ms, else: aim_ttl_ms())
-    }
-
-    state = schedule_aim(%{state | aim: aim})
-    broadcast(state)
-    state
-  end
-
-  # A RODADA FECHOU: O CORPO DO SHINY É PROCURADO PELA COR TAMBÉM. A mira por
-  # cor só abria com o vigia vendo o shiny VIVO — e em 11/09 ele não viu (tom
-  # apertado demais na sprite de pé, pilha de nove), mas viu o corpo: "Shiny
-  # Golem: 1 mancha da cor sem bicho embaixo — cenário, ou corpo no chão (o
-  # corpo é assunto da bola, não do vigia)". A bola nunca foi pedida. Agora a
-  # hora da bola abre a mira sozinha, com regra armada; a sessão vive o bastante
-  # pras duas fotos que confirmam um corpo, e morre cedo se não há nada.
-  defp aim_by_colour_at_cue(%{aim: nil} = state) do
-    case ColorRules.armed() do
-      [] -> state
-      _regras -> open_aim(state, :cue)
-    end
-  end
-
-  defp aim_by_colour_at_cue(state), do: state
-
-  defp aim_opened_msg(:cue), do: "🎯 hora da bola — procurando corpo de shiny pela cor"
-  defp aim_opened_msg(_sighting), do: "🌟 shiny visto — procurando o corpo pela cor"
-
-  defp aim_expired_msg(ttl),
-    do: "🌟 shiny visto, corpo não achado em #{div(ttl, 1000)}s — bola guardada"
-
-  # A SESSÃO DIZ O QUE VIU AO FECHAR. Em 11/09 09:13 o corpo do Shiny Golem
-  # estava na tela e a mira fechou muda: a cor viva (47,43,46 ±1) tem ZERO
-  # pixels no corpo (a arte do corpo sombreia o casco em cinza neutro) — e o
-  # diário não distinguia isso de uma olhada segurada, de um corpo vetado pelo
-  # acervo ou de uma mancha com bicho em cima. Uma linha por sessão, com a
-  # maior mancha do tom contra o gatilho, é o que separa "não olhei" de "olhei
-  # e a cor não estava lá".
-  defp new_tally,
-    do: %{
-      looks: 0,
-      held: 0,
-      blind: 0,
-      biggest_px: 0,
-      trigger: 0,
-      above: 0,
-      oversized: 0,
-      refused: 0,
-      bodied: 0,
-      corpses: 0
-    }
-
-  defp tally_look(%{aim: %{tally: t} = aim} = state, diag, corpses) do
-    t = %{
-      t
-      | looks: t.looks + 1,
-        corpses: t.corpses + corpses,
-        biggest_px: max(t.biggest_px, Map.get(diag, :biggest_px, 0)),
-        trigger: max(t.trigger, Map.get(diag, :trigger, 0)),
-        above: t.above + Map.get(diag, :above, 0),
-        oversized: t.oversized + Map.get(diag, :oversized, 0),
-        refused: t.refused + Map.get(diag, :refused, 0),
-        bodied: t.bodied + Map.get(diag, :bodied, 0)
-    }
-
-    %{state | aim: %{aim | tally: t}}
-  end
-
-  defp tally_look(state, _diag, _corpses), do: state
-
-  defp tally(%{aim: %{tally: t} = aim} = state, key) when key in [:held, :blind],
-    do: %{state | aim: %{aim | tally: Map.update!(t, key, &(&1 + 1))}}
-
-  defp tally(state, _key), do: state
-
-  defp say_tally(%{since: since, tally: t, kind: kind}) do
-    if t.looks + t.held + t.blind > 0 do
-      log(
-        :macro,
-        "#{tally_prefix(kind)} corpo do shiny pela cor: #{t.looks} foto(s) em #{seconds(since)}s — " <>
-          Enum.join(tally_parts(t), " · ")
-      )
-    end
-  end
-
-  defp seconds(since),
-    do: ((now() - since) / 1000) |> Float.round(1) |> to_string() |> String.replace(".", ",")
-
-  defp tally_parts(t) do
-    [
-      {t.looks > 0, "maior mancha do tom #{t.biggest_px} px (gatilho #{t.trigger})"},
-      {t.looks > 0, "#{t.above} acima do gatilho"},
-      {t.oversized > 0, "#{t.oversized} maior(es) que um bicho"},
-      {t.refused > 0, "#{t.refused} recusada(s) pelo acervo"},
-      {t.bodied > 0, "#{t.bodied} com bicho de pé em cima"},
-      {t.held > 0, "#{t.held} olhada(s) segurada(s) por bicho de pé"},
-      {t.blind > 0, "#{t.blind} olhada(s) cega(s)"},
-      {t.corpses > 0, "#{t.corpses} corpo(s) → bola"},
-      {t.corpses == 0, "nenhum corpo"}
-    ]
-    |> Enum.filter(&elem(&1, 0))
-    |> Enum.map(&elem(&1, 1))
-  end
-
-  defp tally_prefix(:cue), do: "🎯 hora da bola —"
-  defp tally_prefix(_sighting), do: "🌟 shiny visto —"
-
-  defp close_aim(%{aim: nil} = state), do: state
-
-  # O AZULEJO FICAVA ACESO. Fechar a sessão corrigia o fato do quadro-negro pro
-  # cérebro mas não avisava as telas: o azulejo "captura · shiny · bola no ar"
-  # seguia âmbar até algum evento sem relação disparar um broadcast — entre uma
-  # luta e outra, minutos anunciando um shiny que não existe mais.
-  defp close_aim(state) do
-    if state.aim_timer, do: Process.cancel_timer(state.aim_timer)
-    say_tally(state.aim)
-    state = %{state | aim: nil, aim_timer: nil, shiny_pending?: false}
-    publish_capture(state)
-    broadcast(state)
-    state
-  end
-
-  # THE FACT FOR THE BRAIN: "I am aiming at a shiny's corpse" — the engine holds
-  # the feet on it (`Engine.Logic.hold_for_capture/2`). Rewritten on every aim
-  # tick, on every step of the ordinary ball (`pending` — corpses queued or a
-  # ball in the air hold the feet too) and once on close, so a session that dies
-  # with its worker simply ages out of the brain's belief.
+  # O FATO PRO CÉREBRO: o que o Catcher TEM em mãos — o cérebro segura os pés
+  # nele (`Engine.Logic.hold_for_capture/2`). Dizia `aiming?` por uma SESSÃO de
+  # mira que vivia até 90 s sem nada no chão (e uma de 70 s, em 19:50 de 11/09,
+  # queimou o teto do segurar antes da hora da bola de verdade). Agora são as
+  # duas coisas que existem mesmo: um corpo que o rastro sabe onde está
+  # (`anchors`) ou uma bola já em andamento (`pending`, que também é a bola
+  # comum). `hunted?` é a barra do shiny ainda de pé — ela não segura os pés,
+  # mas é o que licencia a bola com a captura desligada e o que o azulejo mostra.
   defp publish_capture(state) do
+    ref = trail_ref(%{})
+
     WorldState.put(
       :capture,
       %{
-        aiming?: state.aim != nil,
         pending: (state.logic && Logic.pending(state.logic)) || 0,
-        corpses: if(state.aim, do: MapSet.to_list(state.aim.said), else: []),
+        anchors: length(Trail.anchors(state.trail, ref, now())),
+        hunted?: Trail.hunted(state.trail, ref) != nil,
         # SOMEONE IS HERE TO THROW: armed, with the capture switch on. The brain
         # holds the feet when a round closes only for this — parar pra olhar
         # sem ninguém pra jogar é só parar.
@@ -1568,72 +1392,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp disarm_pulse(%{pulse_timer: timer} = state) do
     Process.cancel_timer(timer)
     %{state | pulse_timer: nil}
-  end
-
-  defp schedule_aim(state) do
-    if state.aim_timer, do: Process.cancel_timer(state.aim_timer)
-    timer = Process.send_after(self(), :aim, Settings.get(:special_color_scan_ms))
-    %{state | aim_timer: timer}
-  end
-
-  # The story of the ball ended: no shiny waiting for one, nothing queued or in
-  # flight. A throw keeps the session alive for its own confirmation scans.
-  # …e uma sessão aberta pela hora da bola precisa de pelo menos as duas fotos
-  # que confirmam um corpo (`ShinyAim.steady/3`) antes de dizer que não há nada.
-  # …fotos de verdade: uma olhada segurada (bicho de pé) não é uma foto do chão.
-  # Em 11/09 09:12:58 três sessões da hora da bola fecharam sem nunca olhar,
-  # contando as olhadas seguradas como olhadas.
-  defp aim_done?(state) do
-    not state.shiny_pending? and Logic.pending(state.logic) == 0 and
-      state.aim.tally.looks >= @cue_aim_looks
-  end
-
-  # Seen by the guard, corpse not yet found: the TTL is the corpse's own life
-  # on the ground (minutes) cut short — waiting longer would be waiting for
-  # the ordinary kills of the whole night.
-  defp aim_ttl_ms, do: Application.get_env(:pokex, :shiny_aim_ttl_ms, 90_000)
-
-  # One look; candidates seen on the PREVIOUS look are the corpses handed to
-  # the Logic. The raw candidates become the next look's `prev`.
-  defp aim_look(state) do
-    case safe_scan(state.aimer) do
-      %{scanning?: true, candidates: candidates} = obs ->
-        tolerance = Settings.get(:corpse_match_tolerance_px)
-        steady = ShinyAim.steady(candidates, state.aim.prev, tolerance)
-        diag = Map.get(obs, :diag, %{})
-        obs = ShinyAim.obs(steady, obs.region, obs.captured_at, diag)
-        state = state |> announce_corpses(steady) |> tally_look(diag, length(steady))
-        {%{state | aim: %{state.aim | prev: candidates}}, obs}
-
-      # SEGURAR NÃO É CEGAR. A mira recusa a olhada enquanto há bicho de pé na
-      # tela (é hora de matar, não de jogar bola) — contar isso como varredura
-      # cega encheria o placar do painel de uma cegueira que não existe.
-      %{scanning?: false, reason: {:alive_on_screen, n}} ->
-        log(:debug, "🌟 mira segurada: #{n} bicho(s) de pé — primeiro mata")
-        {tally(state, :held), nil}
-
-      %{scanning?: false, reason: :no_picture} ->
-        log(:debug, "🌟 mira segurada: sem quadro do cérebro pra saber quem está de pé")
-        {tally(state, :held), nil}
-
-      %{scanning?: false} = obs ->
-        log(:debug, "🌟 mira cega: #{inspect(Map.get(obs, :reason))}")
-        {tally(state, :blind), obs}
-
-      _nothing ->
-        {state, nil}
-    end
-  end
-
-  defp announce_corpses(state, steady) do
-    Enum.reduce(steady, state, fn %{name: name, point: {x, y} = point}, state ->
-      if MapSet.member?(state.aim.said, point) do
-        state
-      else
-        log(:macro, "🌟 corpo do #{name} em #{x},#{y} — bola")
-        %{state | aim: %{state.aim | said: MapSet.put(state.aim.said, point)}}
-      end
-    end)
   end
 
   defp cancel_timer(%{timer: nil} = state), do: state
@@ -1662,9 +1420,10 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp snapshot(state) do
     mode = Settings.get(:player_mode)
+    ref = trail_ref(%{})
 
     %{
-      state: if(state.aim != nil, do: :armed, else: mode_state(state.logic, mode)),
+      state: mode_state(state.logic, mode),
       mode: mode,
       counters:
         ((state.logic && state.logic.counters) || %Logic{}.counters)
@@ -1675,9 +1434,11 @@ defmodule Pokex.Bots.Catcher.Worker do
       hold_reason: hold_reason(state),
       last_action: state.last_action,
       pending_corpses: (state.logic && Logic.pending(state.logic)) || 0,
-      aim?: state.aim != nil,
-      # a caçada do shiny está aberta mesmo antes de o corpo aparecer
-      shiny_pending?: state.shiny_pending?,
+      # A CAÇADA DO SHINY, pelo que o rastro sabe: a barra ainda de pé, e
+      # quantos corpos ele tem no chão. Era `aim?`/`shiny_pending?`, de uma
+      # sessão de mira por cor que podia estar acesa sem nada no chão.
+      hunted?: Trail.hunted(state.trail, ref) != nil,
+      anchors: length(Trail.anchors(state.trail, ref, now())),
       # o rastro (`Catcher.Trail`): o shiny de pé e onde ele caiu, na tela de agora
       trail: trail_snapshot(state),
       sweep: %{
@@ -1698,9 +1459,6 @@ defmodule Pokex.Bots.Catcher.Worker do
     cond do
       Perception.mini_game_playing?() ->
         "mini-game em jogo"
-
-      state.aim != nil ->
-        "mirando o corpo do shiny pela cor"
 
       reason = hunt_hold() ->
         reason

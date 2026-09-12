@@ -334,7 +334,7 @@ defmodule Pokex.Bots.Catcher.Logic do
   defp ate(%{ate: expiry}), do: expiry
   defp ate(expiry) when is_integer(expiry), do: expiry
 
-  # A varredura de corpos não se nomeia; a mira por cor sim (`ShinyAim.obs/3`).
+  # A varredura de corpos não se nomeia; a âncora sim (`Catcher.Observation`).
   defp source_of(obs), do: Map.get(obs, :source, :corpse_scan)
 
   defp present?(corpses, point, tolerance),

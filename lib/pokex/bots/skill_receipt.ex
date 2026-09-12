@@ -22,13 +22,23 @@ defmodule Pokex.Bots.SkillReceipt do
     * `off_bar` - the key is not a hotbar slot, so this receipt could never have said
       anything about it. NOT the same as `unknown`, and filing it as one is how a whole
       night of data lies.
+    * `refilled` - a revive landed between the two readings, and a revive gives the WHOLE
+      bar back. "It was ready and it still is" stops being evidence: the key may well have
+      fired and been handed straight back. Not `missed`, because accusing here makes the
+      bot press again what already went out.
 
-  A DIFERENÇA ENTRE OS DOIS ÚLTIMOS CUSTOU CINCO DIAS DE MEDIÇÃO. No modo Auto
-  Combo dele a tecla apertada é `shift+3`, que dispara a corrente DENTRO do jogo
-  e não é slot nenhum da barra: o recibo saía `unknown` em 100% das prensas por
-  construção. Contados nos eventos de 08 a 12/09: 10.978 recibos, 3 `fired`. Um
-  gráfico disso diz "a barra está cega" com a mesma cara que "essa pergunta não
-  cabia aqui" — e as duas coisas pedem consertos opostos.
+  A DIFERENÇA ENTRE OS DOIS ÚLTIMOS CUSTOU CINCO DIAS DE MEDIÇÃO. As três teclas
+  que ele aperta hoje são `r` (a corrente do Auto Combo, `auto_combo_key`),
+  `shift+3` (a postura de defesa) e `shift+1` (a de ataque, aposentada em #643).
+  NENHUMA delas é slot da barra: a corrente dispara DENTRO do jogo e a postura
+  é um atalho do cliente. O recibo se responde comparando o cooldown de um slot
+  antes e depois, então a pergunta nunca coube — `unknown` em 100% das prensas,
+  por construção.
+
+  Contado nos recibos de 12/09: 2.146 recibos, e as teclas neles são `r` (1.146),
+  `shift+3` (1.000) e `shift+1` (179). De 08 a 12/09: 10.978 recibos, 3 `fired`.
+  Um gráfico disso diz "a barra está cega" com a mesma cara que "essa pergunta
+  não cabia aqui" — e as duas coisas pedem consertos opostos.
   """
 
   @type reading :: [String.t()] | nil
@@ -36,7 +46,8 @@ defmodule Pokex.Bots.SkillReceipt do
           fired: [String.t()],
           missed: [String.t()],
           unknown: [String.t()],
-          off_bar: [String.t()]
+          off_bar: [String.t()],
+          refilled: [String.t()]
         }
 
   @doc """
@@ -47,20 +58,46 @@ defmodule Pokex.Bots.SkillReceipt do
   all, which makes every key unknown.
   """
   @spec check(reading, reading, [String.t()]) :: check
-  def check(before, later, keys) do
+  def check(before, later, keys), do: check(before, later, keys, false)
+
+  @doc """
+  Same, told whether a revive landed inside the window.
+
+  O REVIVE DEVOLVE A BARRA INTEIRA, então um recibo que o atravessa não tem o
+  que medir: "estava pronta e continua pronta" deixa de ser prova de que a
+  tecla não saiu — ela pode ter saído e voltado. Sem isto o recibo acusa
+  `missed` em teclas que funcionaram, e `missed` manda o worker APERTAR DE
+  NOVO: a interferência vira gasto.
+
+  É o meio termo que ele pediu (12/09): "se alguma interferência rolar, avisa
+  que até deu certo, só que com ressalva" — aqui isso é a caixa `refilled`, que
+  o veredito trata como `:unconfirmed` (sem luz verde, sem retentativa) e o
+  worker narra como aviso.
+  """
+  @spec check(reading, reading, [String.t()], boolean) :: check
+  def check(before, later, keys, revived?) do
     keys
-    |> Enum.reduce(%{fired: [], missed: [], unknown: [], off_bar: []}, fn key, acc ->
-      Map.update!(acc, verdict_for(before, later, key), &[key | &1])
-    end)
+    |> Enum.reduce(
+      %{fired: [], missed: [], unknown: [], off_bar: [], refilled: []},
+      fn key, acc -> Map.update!(acc, verdict_for(before, later, key, revived?), &[key | &1]) end
+    )
     |> Map.new(fn {outcome, keys} -> {outcome, Enum.reverse(keys)} end)
   end
 
   # A pergunta só existe pra tecla que é slot: o resto o cooldown não responde.
-  defp verdict_for(_before, _later, key) when not is_binary(key), do: :off_bar
+  defp verdict_for(_before, _later, key, _revived?) when not is_binary(key), do: :off_bar
 
-  defp verdict_for(before, later, key) do
-    if hotbar?(key), do: on_bar_verdict(before, later, key), else: :off_bar
+  defp verdict_for(before, later, key, revived?) do
+    if hotbar?(key),
+      do: before |> on_bar_verdict(later, key) |> softened(revived?),
+      else: :off_bar
   end
+
+  # SÓ A ACUSAÇÃO AMOLECE. `fired` continua `fired` (a tecla esfriou APESAR do
+  # revive, o que só acontece se ela saiu depois dele), e `unknown` já é o meio
+  # honesto. O que o revive tira é o direito de dizer "não saiu".
+  defp softened(:missed, true), do: :refilled
+  defp softened(outcome, _revived?), do: outcome
 
   defp hotbar?(key), do: key in ~w(1 2 3 4 5 6 7 8 9 0)
 
@@ -84,6 +121,11 @@ defmodule Pokex.Bots.SkillReceipt do
   middle — nothing is known to have failed, but nothing is known to have
   worked either, so a caller about to do something irreversible should treat
   it as a warning rather than as a green light.
+
+  `refilled` cai no meio honesto pela mesma razão que `off_bar`: a pergunta não
+  teve como ser respondida. A diferença é que ela CHEGOU A SER FEITA e a
+  resposta veio contaminada — por isso ela tem caixa própria e vira aviso no
+  diário, em vez de sumir dentro de `unknown`.
   """
   @spec verdict(check) :: :confirmed | :unconfirmed | {:missed, [String.t()]}
   def verdict(%{missed: [_ | _] = missed}), do: {:missed, missed}
@@ -91,5 +133,6 @@ defmodule Pokex.Bots.SkillReceipt do
   # Nada foi visto porque não havia o que ver: continua sendo o meio honesto —
   # quem ia fazer algo irreversível não ganhou luz verde nenhuma.
   def verdict(%{off_bar: [_ | _]}), do: :unconfirmed
+  def verdict(%{refilled: [_ | _]}), do: :unconfirmed
   def verdict(%{}), do: :confirmed
 end

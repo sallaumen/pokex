@@ -1023,7 +1023,15 @@ defmodule Pokex.Bots.Combat.Worker do
     # is the service.
     send(parent, {:skill_bar_seen, later, skills})
 
-    check = SkillReceipt.check(before, later, skills)
+    # O REVIVE DEVOLVE A BARRA INTEIRA, e um recibo que o atravessa não tem o
+    # que medir: "estava pronta e continua pronta" deixa de ser prova de que a
+    # tecla não saiu. Sem esta pergunta o recibo acusa `missed` em teclas que
+    # funcionaram — e `missed` manda apertar de novo, então a interferência
+    # vira gasto. A janela é a mesma da prensa (`combat_confirm_ms`), medida
+    # do começo dela: `landed_within?(agora - at, agora)` pergunta exatamente
+    # "o último revive pousou DEPOIS que esta prensa começou?".
+    revived? = ReviveLedger.landed_within?(now() - at, now())
+    check = SkillReceipt.check(before, later, skills, revived?)
 
     # …e o recibo vira NÚMERO, não só um aviso. Quanto tempo entre duas teclas o
     # jogo aceita é uma pergunta sobre o JOGO, e ele já responde: uma tecla que
@@ -1039,9 +1047,15 @@ defmodule Pokex.Bots.Combat.Worker do
       # não cabia": no Auto Combo a tecla apertada é a da corrente, e nenhum
       # cooldown de slot responde por ela.
       off_bar: Map.get(check, :off_bar, []),
+      # A QUINTA: um revive pousou no meio e reencheu a barra. A pergunta foi
+      # feita e a resposta veio contaminada — caixa própria pra que uma noite
+      # de dados não confunda "não saiu" com "não deu pra ver".
+      refilled: Map.get(check, :refilled, []),
       gap_ms: Settings.get(:combat_skill_gap_ms),
       taps: Settings.get(:combat_skill_tap_count)
     })
+
+    refilled_log(Map.get(check, :refilled, []))
 
     case SkillReceipt.verdict(check) do
       {:missed, missed} -> send(parent, {:skills_missed, missed})
@@ -1049,6 +1063,22 @@ defmodule Pokex.Bots.Combat.Worker do
     end
   catch
     kind, reason -> Logger.debug("combat receipt crashed: #{inspect({kind, reason})}")
+  end
+
+  # A RESSALVA, dita em voz alta. "Se alguma interferência rolar, avisa que até
+  # deu certo, só que com ressalva" (Lucas, 12/09). Não é uma falha — é o
+  # recibo dizendo que não teve como julgar, e a diferença importa: ninguém
+  # deve sair recalibrando barra por causa disto.
+  defp refilled_log([]), do: :ok
+
+  defp refilled_log(keys) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      @topic,
+      {:combat_log, :debug,
+       "combate: ↩️ o revive reencheu a barra no meio da conferência — " <>
+         "#{Enum.join(keys, ", ")} saiu sem recibo (não é tecla perdida, e não vou reapertar)"}
+    )
   end
 
   defp mute_log([], _cooldowns), do: :ok

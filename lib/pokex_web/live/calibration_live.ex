@@ -3253,7 +3253,7 @@ defmodule PokexWeb.CalibrationLive do
               shared one, and there was no way to tell which you were doing. --%>
         <div
           :if={@bar_target}
-          class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-pk-accent-line bg-pk-accent-dim px-3 py-2"
+          class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-pk-info-line bg-pk-info-dim px-3 py-2"
         >
           <p class="min-w-0 flex-1 text-pk-body text-pk-text">
             🎛 Calibrando a barra de <strong>{@bar_target}</strong>
@@ -3269,7 +3269,7 @@ defmodule PokexWeb.CalibrationLive do
                 calibration, and for one pokémon's bar this is the two-click one. --%>
           <button
             phx-click="calibrate_skillbar"
-            class="shrink-0 cursor-pointer rounded-lg border border-pk-accent-line bg-pk-accent-dim px-3 py-1.5 text-pk-body font-semibold text-pk-text hover:brightness-125"
+            class="shrink-0 cursor-pointer rounded-lg border border-pk-info-line bg-pk-info-dim px-3 py-1.5 text-pk-body font-semibold text-pk-text hover:brightness-125"
           >
             Marcar a barra dele (2 cliques)
           </button>
@@ -3283,7 +3283,7 @@ defmodule PokexWeb.CalibrationLive do
 
         <div
           :if={is_nil(@bar_target) and @team_names != []}
-          class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-pk-line bg-pk-surface-2 px-3 py-2"
+          class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-pk-line bg-pk-surface px-3 py-2"
         >
           <span class="text-pk-body text-pk-text-2">
             🎛 Calibrar a barra de um pokémon do time (fica guardada só dele, e volta sozinha
@@ -3292,7 +3292,7 @@ defmodule PokexWeb.CalibrationLive do
           <.link
             :for={{name, count} <- @team_names}
             navigate={~p"/calibration?#{[bar: name]}"}
-            class="rounded border border-pk-line px-2 py-0.5 text-pk-body text-pk-text hover:bg-pk-surface-3"
+            class="rounded border border-pk-line px-2 py-0.5 text-pk-body text-pk-text hover:bg-pk-raised"
           >
             {name}<span :if={count} class="ml-1 text-pk-text-2">✓ {count}</span>
           </.link>

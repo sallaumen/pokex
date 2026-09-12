@@ -587,7 +587,15 @@ defmodule PokexWeb.CavebotComponents do
           </div>
         </div>
 
-        <div class="grid min-w-0 flex-1 grid-cols-3 gap-1.5 sm:grid-cols-6">
+        <%!-- A LARGURA QUE MANDA É A DA CAIXA, NÃO A DA JANELA. Os seis degraus
+             ligavam em `sm` (640px de viewport), mas até `lg` a página inteira
+             mora numa coluna de 560px — então numa janela não-maximizada as
+             seis peças nasciam com 52px cada uma (medido) e o placar da noite
+             virava "VOLT… 49 c…". Abaixo de `lg` a fileira desce pra linha de
+             baixo do relógio e usa a largura toda; os seis em fila voltam
+             quando a coluna abre, no mesmo degrau em que o resto da página
+             abre. --%>
+        <div class="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-3 lg:w-auto lg:min-w-0 lg:flex-1 lg:grid-cols-6">
           <.world_tile
             id="resumo-voltas"
             icon="hero-arrow-path"

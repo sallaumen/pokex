@@ -792,6 +792,43 @@ defmodule PokexWeb.CavebotLiveTest do
       assert vision =~ "text-pk-ok"
     end
 
+    # UM PLACAR, NÃO DOIS. O cartão "inimigos" contava as LINHAS cruas e a lista,
+    # três dedos acima, mostrava a conta do cérebro: na tela de 12/09 eram seis
+    # contra cinco, e a diferença era o pokémon DELE contado como inimigo — o
+    # erro que custou a caçada de 27/08, agora impresso num cartão.
+    test "the enemy tile and the list say the same number", %{conn: conn} do
+      rows = [
+        %{row: 0, name: "Steelix", hp_pct: 0.7, shiny?: false},
+        %{row: 1, name: "Magneton", hp_pct: 1.0, shiny?: false},
+        %{row: 2, name: "Magneton", hp_pct: 1.0, shiny?: false}
+      ]
+
+      see_world(100, 100, rows)
+
+      picture =
+        Pokex.Bots.Engine.Situation.build(
+          %{
+            battle: %{enemies: [0, 1, 2], enemies_detail: rows},
+            own_name: "Steelix",
+            own_out?: true,
+            own_hp: 70
+          },
+          %{engage_from: 3},
+          System.monotonic_time(:millisecond)
+        )
+
+      WorldState.put(:situation, picture, System.monotonic_time(:millisecond))
+      on_exit(fn -> WorldState.forget(:situation) end)
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      tile = view |> element("#tile-enemies") |> render()
+      [_full, shown] = Regex.run(~r/class="pk-num[^"]*">\s*([^<\s]+)\s*</, tile)
+
+      assert picture.enemies == 2
+      assert shown == "2"
+    end
+
     # "It still shows up as '?'" (2026-09-11). His row carries HIS pokémon's name:
     # with a trailing "?" while the brain only deduced the row from the health,
     # bare once the row's own drawing is the one it learned.

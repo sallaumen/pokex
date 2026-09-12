@@ -134,6 +134,43 @@ defmodule PokexWeb.DesignDriftTest do
     )
   end
 
+  # A CLASSE QUE NÃO EXISTE NÃO QUEBRA: ELA SOME. O `panel_live.ex` carrega o
+  # bilhete desde agosto — "uma substituição em massa cuspiu um nome que não
+  # existe em lugar nenhum do repo; as linhas do feed perderam a cor e nenhum
+  # teste notou". Continuavam 21, medidas em 12/09: `pk-surface-2` (o hover de
+  # sete botões que nunca acendeu), `pk-text-1`, `pk-sm`, `pk-accent-*`. O tema
+  # é a lista de nomes válidos, e é ele quem esta cerca lê — token novo entra
+  # em `assets/css/app.css` e passa a valer aqui no mesmo commit.
+  test "no pk-* class whose token the theme does not define" do
+    theme = File.read!("assets/css/app.css")
+
+    known =
+      ~r/--(?:color|text)-(pk-[a-z0-9-]+):/
+      |> Regex.scan(theme)
+      |> Enum.map(&List.last/1)
+      |> MapSet.new()
+
+    prefixes =
+      "bg|text|border|ring|fill|stroke|from|via|to|decoration|outline|accent|caret|divide"
+
+    offenders =
+      for path <- templates(),
+          source = File.read!(path),
+          [full, token] <- Regex.scan(~r/\b(?:#{prefixes})-(pk-[a-z0-9-]+)\b/, source),
+          token not in known,
+          not comment_line?(source, full),
+          do: "#{Path.relative_to(path, @web)}: #{full}"
+
+    assert offenders == [],
+           """
+           Classe com nome de token que o tema não define. Ela não quebra nada:
+           some, e o botão fica sem hover, o texto sem cor. Use um token de
+           `assets/css/app.css` — ou declare o token novo lá:
+
+           #{Enum.join(Enum.uniq(offenders), "\n")}
+           """
+  end
+
   test "nenhuma cor crua fora das exceções declaradas" do
     offenders =
       for path <- templates(),

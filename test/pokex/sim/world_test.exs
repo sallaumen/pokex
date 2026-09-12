@@ -1482,10 +1482,10 @@ defmodule Pokex.Sim.WorldTest do
       assert world.stats.boss_awake_max_ms == max_antes
     end
 
-    test "boss_asleep_left_ms e boss_tiles respondem pelo chefe mais perto" do
+    test "special_asleep_left_ms e special_tiles respondem pelo chefe mais perto" do
       world = mundo_com_chefe()
-      assert World.boss_asleep_left_ms(world) == nil
-      assert World.boss_tiles(world) == nil
+      assert World.special_asleep_left_ms(world) == nil
+      assert World.special_tiles(world) == nil
 
       chefe = %{
         id: 999,
@@ -1504,8 +1504,8 @@ defmodule Pokex.Sim.WorldTest do
       }
 
       world = %{world | mobs: [chefe]}
-      assert World.boss_tiles(world) == 1
-      assert World.boss_asleep_left_ms(world) == 3_000
+      assert World.special_tiles(world) == 1
+      assert World.special_asleep_left_ms(world) == 3_000
     end
   end
 

@@ -385,34 +385,40 @@ defmodule PokexWeb.ConfigLive do
       ]
     },
     %{
-      id: "chefe",
+      id: "especial",
       icon: "hero-shield-exclamation",
       tint: :danger,
-      title: "Chefe",
+      title: "Especial (shiny)",
       rows: [
         %{
           key: :engine_boss_grit,
           kind: :int,
           label: "Chefe pelo tempo de matar",
           hint:
-            "Quantas skills de dano o bicho engole sem nenhum corpo cair antes de o bot declarar chefe e rodar skills, stun e revive em ciclo. Uma pilha comum não passa de 4. 0 desliga.",
-          keywords: "chefe boss tempo grit stun revive dano"
+            "Quantas skills de dano o bicho engole sem nenhum corpo cair antes de o bot " <>
+              "declarar ESPECIAL e rodar skills, stun e revive em ciclo. É o terceiro caminho " <>
+              "que acha um shiny — os outros dois são a cor (o vigia) e o nome aqui embaixo. " <>
+              "Uma pilha comum não passa de 4. 0 desliga.",
+          keywords: "especial shiny chefe boss tempo grit stun revive dano"
         },
         %{
           key: :engine_boss_names,
           kind: :key,
-          label: "Nomes dos chefes",
+          label: "Nomes dos especiais",
           hint:
-            "Separados por vírgula. Com um destes nomes na janela de batalha o bot entra na postura de chefe na hora. Vazio desliga.",
-          keywords: "chefe boss nome postura"
+            "Separados por vírgula. Com um destes nomes na janela de batalha o bot trata o " <>
+              "bicho como ESPECIAL — mesma postura do shiny visto pela cor, e junta primeiro " <>
+              "igual. Vazio desliga.",
+          keywords: "especial shiny chefe boss nome postura"
         },
         %{
           key: :engine_stun_hold_ms,
           kind: :sec,
           label: "Quanto o seu stun segura",
           hint:
-            "Do aperto até o sono acabar. O ciclo de chefe emenda o próximo stun antes de este acabar.",
-          keywords: "stun sono duração segura chefe"
+            "Do aperto até o sono acabar. O ciclo do especial emenda o próximo stun antes " <>
+              "de este acabar.",
+          keywords: "stun sono duração segura especial shiny"
         }
       ]
     },

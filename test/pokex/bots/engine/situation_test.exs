@@ -318,7 +318,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
       assert picture.own_row_seen? == :by_name
     end
 
-    test "the namesakes come back into `named`, so a boss of his species is visible" do
+    test "the namesakes come back into `named`, so a special of his species is visible" do
       picture = picture_of(~w(Vileplume Vileplume), own_name: "Vileplume")
 
       assert length(picture.named) == picture.enemies
@@ -441,14 +441,14 @@ defmodule Pokex.Bots.Engine.SituationTest do
     end
   end
 
-  # O CHEFE, POR NOME. `heavy?` é o gatilho da postura de chefe do cérebro —
-  # e ele fura a régua (`worth_fighting?`) porque um chefe sozinho vale a luta
+  # O ESPECIAL, POR NOME. `special?` é o gatilho da postura do cérebro —
+  # e ele fura a régua (`worth_fighting?`) porque um especial sozinho vale a luta
   # que cinco bichos comuns valem.
-  describe "o chefe pelo tempo de matar (grit)" do
+  describe "o especial pelo tempo de matar (grit)" do
     # "Ele tem o mesmo nome que os outros pokémons" (31/08): o nome não separa
-    # chefe de comum. O que separa é a pilha ENGOLIR skills sem soltar corpo —
+    # especial de comum. O que separa é a pilha ENGOLIR skills sem soltar corpo —
     # medido na noite fraca de 31/08: máximo 4 entregas por pilha (p99 = 3),
-    # e um chefe 10× engole o dobro em dois giros da barra.
+    # e um especial 10× engole o dobro em dois giros da barra.
     @grit_config %{engage_from: 3, boss_grit: 6}
 
     defp tick(prev, over),
@@ -460,7 +460,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
 
       p2 = tick(p1, %{battle: battle(~w(a b c)), ready_keys: ~w(5)})
       assert p2.grit == 2, "3 e 4 saíram da barra com a pilha de pé"
-      assert p2.heavy? == false
+      assert p2.special? == false
     end
 
     test "tecla que NÃO é de dano não conta — o ciclo stun+revive não infla o medidor" do
@@ -488,20 +488,20 @@ defmodule Pokex.Bots.Engine.SituationTest do
       assert p4.grit == 0
     end
 
-    test "cruzar o knob declara chefe e LATCHA até a pilha zerar" do
+    test "crossing the knob declares a special and LATCHES until the pile zeroes" do
       p1 = tick(nil, %{battle: battle(~w(a b c)), ready_keys: ~w(3 4 5 6 7 8)})
       p2 = tick(p1, %{battle: battle(~w(a b c)), ready_keys: []})
-      assert p2.heavy? == true, "6 entregues ≥ knob 6"
-      assert p2.heavy_latch? == true
+      assert p2.special? == true, "6 entregues ≥ knob 6"
+      assert p2.grit_latch? == true
 
       # o F4 devolve a barra e um comum cai do lado: o grit desconta,
-      # mas a declaração fica — chefe não vira comum no meio da luta
+      # mas a declaração fica — especial não vira comum no meio da luta
       p3 = tick(p2, %{battle: battle(~w(a b)), ready_keys: ~w(3 4 5 6 7 8)})
       assert p3.grit == 2
-      assert p3.heavy? == true, "o latch segura a postura"
+      assert p3.special? == true, "o latch segura a postura"
 
       p4 = tick(p3, %{battle: battle([]), ready_keys: ~w(3 4 5 6 7 8)})
-      assert p4.heavy? == false, "pilha zerada solta o latch"
+      assert p4.special? == false, "pilha zerada solta o latch"
     end
 
     test "knob 0 desliga: só o nome declara" do
@@ -520,19 +520,19 @@ defmodule Pokex.Bots.Engine.SituationTest do
         )
 
       assert p2.grit == 6
-      assert p2.heavy? == false
+      assert p2.special? == false
     end
 
-    test "chefe declarado vale a luta mesmo abaixo da régua" do
+    test "a declared special is worth the fight even below the ruler" do
       p1 = tick(nil, %{battle: battle(~w(a b)), ready_keys: ~w(3 4 5 6 7 8)})
       p2 = tick(p1, %{battle: battle(~w(a b)), ready_keys: []})
-      assert p2.heavy? == true
-      assert p2.worth_fighting? == true, "2 < engage_from 3, mas chefe fura a régua"
+      assert p2.special? == true
+      assert p2.worth_fighting? == true, "2 < engage_from 3, mas especial fura a régua"
     end
   end
 
-  # O ESPECIAL PELA COR — e ele é UM só: "o shiny É o chefe (…) nesse jogo o
-  # que tô chamando de chefe são os shinies" (01/09). Uma regra ensinada liga a
+  # O ESPECIAL PELA COR — e ele é UM só: "o shiny É o especial (…) nesse jogo o
+  # que tô chamando de especial são os shinies" (01/09). Uma regra ensinada liga a
   # postura inteira; não há um segundo tipo de bicho especial pra distinguir.
   # The Catcher aiming at a shiny's corpse (`:capture` fact) rides the picture
   # as `capturing?`; absent is false, never unknown.
@@ -545,8 +545,9 @@ defmodule Pokex.Bots.Engine.SituationTest do
 
   describe "o especial (shiny) pela cor" do
     # "Postura no shiny é juntar primeiro!" (11/09): a cor liga a postura de
-    # luta (heavy?, worth_fighting?) mas NÃO a fila furada do chefe (boss?).
-    test "the colour seen turns heavy? on and is worth the fight, but does not cut the gathering queue" do
+    # luta (`special?`, `worth_fighting?`) — e a fila é a mesma pros três
+    # caminhos que acham o especial, desde 12/09.
+    test "the colour seen turns special? on and is worth the fight" do
       picture =
         Situation.build(
           inputs(%{battle: battle(~w(Electrode)), own_out?: true, especial?: true}),
@@ -554,13 +555,12 @@ defmodule Pokex.Bots.Engine.SituationTest do
           1_000
         )
 
-      assert picture.heavy? == true, "o shiny É o chefe na luta: postura de chefe"
+      assert picture.special? == true, "o shiny liga a postura do especial"
       assert picture.worth_fighting? == true, "um shiny sozinho vale a luta"
       assert picture.special? == true
-      assert picture.boss? == false, "o especial junta primeiro; só o chefe fura a fila"
     end
 
-    test "the boss by name cuts the queue (boss?) and is heavy? too" do
+    test "the name on the list finds the same special" do
       picture =
         Situation.build(
           inputs(%{battle: battle(~w(Electrode)), own_out?: true}),
@@ -568,9 +568,9 @@ defmodule Pokex.Bots.Engine.SituationTest do
           1_000
         )
 
-      assert picture.boss? == true
-      assert picture.heavy? == true
-      assert picture.special? == false
+      # …e a COR não viu nada aqui: é o nome que achou. Um conceito, três
+      # caminhos.
+      assert picture.special? == true
     end
 
     test "sem a cor, um bicho abaixo da régua segue sendo bicho" do
@@ -581,7 +581,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
           1_000
         )
 
-      assert picture.heavy? == false
+      assert picture.special? == false
       assert picture.worth_fighting? == false
     end
 
@@ -593,62 +593,62 @@ defmodule Pokex.Bots.Engine.SituationTest do
           1_000
         )
 
-      assert picture.heavy? == false
+      assert picture.special? == false
     end
   end
 
-  describe "o chefe na foto" do
-    @chefe_config %{engage_from: 3, boss_names: "Chefe, Boss X"}
+  describe "o especial na foto" do
+    @nomes_config %{engage_from: 3, boss_names: "Especial, Shiny X"}
 
-    test "uma linha com nome de chefe liga heavy? e fura a régua" do
+    test "a row with a special name turns special? on and skips the ruler" do
       picture =
         Situation.build(
-          inputs(%{battle: battle(~w(chefe)), own_out?: true}),
-          @chefe_config,
+          inputs(%{battle: battle(~w(especial)), own_out?: true}),
+          @nomes_config,
           1_000
         )
 
-      assert picture.heavy? == true
-      assert picture.worth_fighting? == true, "um chefe sozinho vale a luta"
+      assert picture.special? == true
+      assert picture.worth_fighting? == true, "um especial sozinho vale a luta"
     end
 
     test "a comparação ignora caso e espaços da lista" do
       picture =
         Situation.build(
-          inputs(%{battle: battle(["BOSS X"]), own_out?: true}),
-          @chefe_config,
+          inputs(%{battle: battle(["SHINY X"]), own_out?: true}),
+          @nomes_config,
           1_000
         )
 
-      assert picture.heavy? == true
+      assert picture.special? == true
     end
 
     test "sem nome na lista, bicho comum é bicho comum" do
       picture =
         Situation.build(
           inputs(%{battle: battle(~w(Venonat)), own_out?: true}),
-          @chefe_config,
+          @nomes_config,
           1_000
         )
 
-      assert picture.heavy? == false
+      assert picture.special? == false
     end
 
-    test "lista vazia desliga a postura — nenhum cenário antigo ganha chefe" do
+    test "an empty list turns the posture off: no old scenario gains a special" do
       picture =
         Situation.build(
-          inputs(%{battle: battle(~w(chefe)), own_out?: true}),
+          inputs(%{battle: battle(~w(especial)), own_out?: true}),
           %{engage_from: 3},
           1_000
         )
 
-      assert picture.heavy? == false
+      assert picture.special? == false
     end
 
-    test "cego não tem chefe: nil de linhas é nil de postura" do
-      picture = Situation.build(inputs(%{battle: nil}), @chefe_config, 1_000)
+    test "blind has no special: nil rows is nil posture" do
+      picture = Situation.build(inputs(%{battle: nil}), @nomes_config, 1_000)
 
-      assert picture.heavy? == false
+      assert picture.special? == false
     end
   end
 

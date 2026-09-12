@@ -102,7 +102,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       settle(worker)
 
       assert {:ok, picture} = WorldState.get(:situation, 5_000, now())
-      assert picture.heavy? == true
+      assert picture.special? == true
       assert picture.worth_fighting? == true
     end
 
@@ -116,7 +116,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       settle(worker)
 
       assert {:ok, picture} = WorldState.get(:situation, 5_000, now())
-      assert picture.heavy? == false
+      assert picture.special? == false
     end
 
     # The Catcher aiming at a shiny's corpse reaches the picture as

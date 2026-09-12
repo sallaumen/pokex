@@ -205,7 +205,7 @@ defmodule Pokex.Bots.Engine.Logic do
             # clears it.
             heavy_area?: false,
             # A LUTA COM O ESPECIAL JÁ ABRIU. Ele junta primeiro (11/09) — mas
-            # só na chegada: aberta a luta, o sobrevivente da corrente é chefe
+            # só na chegada: aberta a luta, o sobrevivente da corrente é especial
             # (fura a fila, ciclo do stun) até a pilha zerar com ele fora da
             # tela. Sem isto a bancada deixava o shiny dormindo pra trás depois
             # do primeiro revive e ia juntar de novo, 10 passos adiante — 0
@@ -377,7 +377,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # a pilha passa a VALER a luta (a régua abre parado em vez de "não vale,
   # seguindo a rota") e o ciclo revive → corrente repete até a tela limpar.
   # Com teto: passadas `@survivor_max_chains` correntes, o latch solta e a
-  # linha pede nome/cor — aí é chefe de verdade, com o ciclo dele.
+  # linha pede nome/cor — aí é especial de verdade, com o ciclo dele.
   @survivor_max_chains 6
 
   # A LISTA PISCA: a linha do sobrevivente some por um tique (nome ilegível, a
@@ -431,7 +431,7 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp survivor_note(%{logic: %{survivors: %{chains: n}}} = t) when n > @survivor_max_chains,
     do:
-      " — #{n} correntes e ainda sobrou #{count(t.s)}: deixando pra trás, isso é chefe de verdade (marque o nome ou a cor)"
+      " — #{n} correntes e ainda sobrou #{count(t.s)}: deixando pra trás, isso é especial de verdade (marque o nome ou a cor)"
 
   defp survivor_note(%{logic: %{survivors: %{chains: n}} = logic}),
     do: " — #{survivor_label(logic)} (#{n} de #{@survivor_max_chains}): revive e de novo em cima"
@@ -513,16 +513,16 @@ defmodule Pokex.Bots.Engine.Logic do
   # monster's, not his. The old park — a click recorded at a corner, in the
   # ultrawide's pixels, default 0/0 — is gone with this (08/09).
   #
-  # NOT WITH THE SPECIAL ON SCREEN. The boss posture (stun at every chain's end,
+  # NOT WITH THE SPECIAL ON SCREEN. The special posture (stun at every chain's end,
   # revive inside the measured sleep) has its physics measured with the pokémon
-  # at his side; sent two tiles toward the boss it meets the bite a second
+  # at his side; sent two tiles toward the special it meets the bite a second
   # earlier, and the bench lost a cycle of the combo in one seed of three
-  # (08/09). A boss is one creature — it needs no eight mouths around it.
+  # (08/09). A special is one creature — it needs no eight mouths around it.
   @park_gap_tiles 2
 
   defp with_park({logic, %{route: :hold} = orders}, t) do
     park =
-      if Map.get(t.s, :own_out?) == true and not heavy?(t),
+      if Map.get(t.s, :own_out?) == true and not special?(t),
         do: Siege.park_spot(t.siege, @park_gap_tiles),
         else: nil
 
@@ -610,9 +610,9 @@ defmodule Pokex.Bots.Engine.Logic do
   # ele viu às 23:04 — o relógio zerado dizia "barra cheia" 3s depois do F4.
   #
   # Uma SOBREPOSIÇÃO, não um ramo da fila: as regras continuam decidindo, e só
-  # o que sai muda. O chefe fica de fora — o ciclo dele (stun a cada emenda,
+  # o que sai muda. O especial fica de fora — o ciclo dele (stun a cada emenda,
   # F4 a cada 5s) tem física medida em oito PRs e é mais curto que o prazo da
-  # promessa; segurá-lo era acordar o chefe com o controle na mão. E as fases
+  # promessa; segurá-lo era acordar o especial com o controle na mão. E as fases
   # de emergência ficam de fora porque já seguram a rota por conta própria.
   @held_by_reset [:travelling, :gathering, :sizing, :bunching, :engaged, :skipping]
 
@@ -622,7 +622,7 @@ defmodule Pokex.Bots.Engine.Logic do
     pending? = Map.has_key?(logic.since, :reset_pending)
 
     if pending? and orders.revive == :hold and orders.phase in @held_by_reset and
-         not heavy?(t) do
+         not special?(t) do
       revive = if unanswered?(t), do: :now, else: :hold
 
       {logic,
@@ -725,7 +725,7 @@ defmodule Pokex.Bots.Engine.Logic do
       # Só a perna do CONTROLE fura a fila, nunca a postura inteira: a banda
       # continua dona do revive: gastar um tique de 200ms no stun e reviver no
       # seguinte é exatamente o "controle primeiro, revive na sequência" dele.
-      boss_stun_due?(t) -> boss_stun(t)
+      special_stun_due?(t) -> special_stun(t)
       t.logic.state == :recovering -> recovering(t)
       # R5: a band whose only move is a revive the game will refuse for another
       # forty seconds is not a reason to stand still.
@@ -1197,17 +1197,17 @@ defmodule Pokex.Bots.Engine.Logic do
   # to read twice.
 
   # O CHEFE FURA TODA FILA. Juntar, medir, esperar bolo — tudo isso é economia
-  # de área, e um chefe com ataque 10x não dá o tempo que a economia custa:
+  # de área, e um especial com ataque 10x não dá o tempo que a economia custa:
   # "1 segundo sem stun no campo quer dizer que eu morri" (29/08). Na tela,
-  # briga-se JÁ, com a postura de chefe do `engaged/1`.
+  # briga-se JÁ, com a postura do especial do `engaged/1`.
   #
   # …O ESPECIAL NÃO. Isto casava `heavy?`, e o shiny visto pela cor é `heavy?`
   # também: em 11/09 09:12:54 o vigia viu o Shiny Golem com 3 na tela e o
   # cérebro abriu fogo andando ("matando o que já abriu"), sem esperar a pilha
   # fechar em cima do pokémon. "Postura no shiny é juntar primeiro!" — ele
   # vale a luta (`worth_fighting?`) e não se recua dele (`heavy?`), mas passa
-  # pela régua e pela juntada como qualquer pilha. Só o chefe por nome ou por
-  # grit (`boss?`) fura a fila — e o especial depois de a luta com ele abrir
+  # pela régua e pela juntada como qualquer pilha. Só o especial por nome ou por
+  # grit (`special?`) fura a fila — e o especial depois de a luta com ele abrir
   # (`special_opened?`, o latch do sobrevivente).
   defp ruler(t) do
     if cuts_queue?(t),
@@ -1219,7 +1219,7 @@ defmodule Pokex.Bots.Engine.Logic do
   defp ruler_queue(%{logic: %{state: :engaged}} = t), do: engaged(t)
   # A PILHA DEIXADA PRA TRÁS CONTINUA SENDO OLHADA. Este ramo era `skipping(t)`
   # seco: uma vez decidido "não vale", o cérebro andava de mãos baixas SEM
-  # reler a lista — o estado só saía por chefe ou emergência. Diário de 02/09,
+  # reler a lista — o estado só saía por especial ou emergência. Diário de 02/09,
   # 20:33: "só 2 inimigos em 8s: não vale a área", cinco waypoints andados sem
   # uma contagem sequer, e dez bichos em cima dele quando ele puxou o pânico.
   # "Ele checou que tinha dois, saiu correndo e do nada tinha uns 10."
@@ -1290,58 +1290,58 @@ defmodule Pokex.Bots.Engine.Logic do
   # não cabe.
   # A POSTURA DE CHEFE vem antes de tudo, nas duas metades do combo dele
   # (29/08): "usar todas as skills, finalizar com stun e depois usar o revive
-  # pra repetir esse combo, deixando o boss sempre stunado". O relógio é o
-  # SONO, não a barra — e sem chefe na tela ela devolve nil e a luta comum
+  # pra repetir esse combo, deixando o special sempre stunado". O relógio é o
+  # SONO, não a barra — e sem especial na tela ela devolve nil e a luta comum
   # decide como sempre decidiu.
-  defp engaged(t), do: boss_orders(t) || engaged_regular(t)
+  defp engaged(t), do: special_orders(t) || engaged_regular(t)
 
-  defp boss_orders(t) do
+  defp special_orders(t) do
     cond do
-      not heavy?(t) ->
+      not special?(t) ->
         nil
 
-      # A perna de emergência: chefe ACORDADO e controle no chão — dois chefes
+      # A perna de emergência: especial ACORDADO e controle no chão — dois especiais
       # sobrepostos fazem isso. Esperar 40s de cooldown é a morte que ele
       # descreveu; o F4 compra o controle de volta AGORA.
-      boss_rearm_due?(t) ->
+      special_rearm_due?(t) ->
         {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
          Orders.standing_and_firing(
            :engaged,
            t.band,
            opening(t),
-           "chefe acordado e controle no chão — F4 compra o controle de volta",
+           "especial acordado e controle no chão — F4 compra o controle de volta",
            revive: :now
          )}
 
       # O controle sai de novo com 1s de folga antes do sono acabar — a folga
       # é a frase dele: "1 segundo sem stun no campo quer dizer que eu morri".
-      boss_stun_due?(t) ->
-        boss_stun(t)
+      special_stun_due?(t) ->
+        special_stun(t)
 
       # …e o revive vem logo atrás de cada stun SEM esperar a barra esvaziar:
       # é o revive que devolve o controle pro próximo ciclo.
-      boss_revive_due?(t) ->
+      special_revive_due?(t) ->
         {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
          Orders.standing_and_firing(
            :engaged,
            t.band,
            opening(t),
-           "chefe dormindo — revive agora, o controle do próximo ciclo sai dele",
+           "especial dormindo — revive agora, o controle do próximo ciclo sai dele",
            revive: :now
          )}
 
       # O REVIVE COBERTO: a barra gastou, o piso do item venceu, e o sono
       # ainda cobre a recolhida inteira (pegada + volta + folga) — o F4 sai
-      # SEM stun novo, porque dormir um chefe já dormindo é pagar duas vezes.
+      # SEM stun novo, porque dormir um especial já dormindo é pagar duas vezes.
       # É o "usar o revive sempre que fizer sentido, maximizando dano/s": a
       # barra volta cheia no meio da cobertura, e o stun fica no relógio dele.
-      boss_covered_revive_due?(t) ->
+      special_covered_revive_due?(t) ->
         {t.logic |> mark(:reset_revive, t.now) |> mark(:reset_pending, t.now),
          Orders.standing_and_firing(
            :engaged,
            t.band,
            opening(t),
-           "chefe coberto e barra gasta — F4 recheia a barra dentro do sono",
+           "especial coberto e barra gasta — F4 recheia a barra dentro do sono",
            revive: :now
          )}
 
@@ -1351,9 +1351,9 @@ defmodule Pokex.Bots.Engine.Logic do
   end
 
   # O CONTROLE, sozinho — a única ordem que PARA o dano do especial. Vive fora
-  # do `boss_orders` porque ela também é cobrada acima das bandas de vida (ver
+  # do `special_orders` porque ela também é cobrada acima das bandas de vida (ver
   # `decide/1`): reviver sem stunar é curar debaixo da mordida.
-  defp boss_stun(t) do
+  defp special_stun(t) do
     # `enter/3` é idempotente com o estado atual, então chamar daqui não mexe
     # no relógio de uma luta que já estava em curso — e chamando de FORA do
     # `engaged` (a fila das bandas) é ele que garante que a luta é uma luta,
@@ -1453,7 +1453,7 @@ defmodule Pokex.Bots.Engine.Logic do
 
       # Com o especial na tela não se recua: a barra volta em 40s, o shiny não
       # volta nunca. Não precisa de guarda própria — `heavy?` já é ele.
-      kiting?(t) and not Map.get(t.s, :heavy?, false) ->
+      kiting?(t) and not special?(t) ->
         # PELO CHÃO LIMPO, não pela rota: andar pra frente aqui atravessa spawn
         # novo e o trem cresce mais rápido que a barra volta (medido na noite de
         # 27→28/08, 9+ na tela por minutos a fio). Recuar mantém a pilha colada
@@ -1512,17 +1512,17 @@ defmodule Pokex.Bots.Engine.Logic do
   # O F4 NÃO TEM COOLDOWN NO JOGO — "aquele era um cooldown de segurança" —
   # então nenhuma foto valida revive: o único piso é o de segurança
   # (`rescue_floor_ms`), contado do nosso último pedido.
-  defp boss_rearm_due?(t) do
-    heavy?(t) and not mid_combo?(t) and t.s.own_out? == true and not control_ready?(t) and
-      boss_awake?(t) and
+  defp special_rearm_due?(t) do
+    special?(t) and not mid_combo?(t) and t.s.own_out? == true and not control_ready?(t) and
+      special_awake?(t) and
       elapsed?(t, :reset_revive, t.config.rescue_floor_ms) and
       affordable?(t)
   end
 
-  # O chefe está acordado? Com a testemunha, é o sono zerado; sem ela, é um
+  # O especial está acordado? Com a testemunha, é o sono zerado; sem ela, é um
   # carimbo de stun mais velho que a duração do sono.
-  defp boss_awake?(t) do
-    case Map.get(t.s, :boss_asleep_left_ms) do
+  defp special_awake?(t) do
+    case Map.get(t.s, :special_asleep_left_ms) do
       nil -> not within?(t, :stunned, t.config.stun_hold_ms)
       left -> left == 0
     end
@@ -1535,7 +1535,7 @@ defmodule Pokex.Bots.Engine.Logic do
   #   * a EMENDA — a física que ele mediu na segunda passada: o sono dura 5s
   #     e só pega 2s depois do aperto. O próximo stun tem que sair enquanto o
   #     sono velho ainda cobre a pegada do novo — cobertura restante ≤ pegada
-  #     — senão cada ciclo abre 2s de chefe acordado que nenhuma rajada paga.
+  #     — senão cada ciclo abre 2s de especial acordado que nenhuma rajada paga.
   #     Com o piso de segurança de 5s entre F4s, a conta fecha exata:
   #     aperto a cada ~5s, pegada de 2s, sono de 5s — emenda contínua.
   #
@@ -1543,23 +1543,34 @@ defmodule Pokex.Bots.Engine.Logic do
   # jogo antes de acusá-lo de vento (um stun que não pegou é reapertado, de
   # graça).
   # …e o stun NÃO espera o piso do F4 (o piso protege o ITEM; o sono protege
-  # o pokémon — esperar relógio de segurança com o chefe mordendo custou 2,2s
+  # o pokémon — esperar relógio de segurança com o especial mordendo custou 2,2s
   # por ciclo na bancada), NEM sai com a barra gasta no meio da cobertura:
   # stun em cima de sono pago desperdiça o sono e desalinha a emenda. O stun
   # tem UM relógio — a emenda.
   # …E O ESPECIAL SÓ COM A LUTA ABERTA: o stun daqui sai com a abertura junto
-  # (`boss_stun/1`), e "juntar primeiro" (11/09) é exatamente não abrir antes
-  # de a pilha fechar. Aberta a luta, o ciclo é o mesmo do chefe — o chefe por
-  # nome ou grit (`boss?`) segue furando a fila.
-  defp boss_stun_due?(t) do
-    heavy?(t) and (cuts_queue?(t) or fight_open?(t)) and control_ready?(t) and
+  # (`special_stun/1`), e "juntar primeiro" (11/09) é exatamente não abrir antes
+  # de a pilha fechar. Aberta a luta, o ciclo é o mesmo do especial — o especial por
+  # nome ou grit (`special?`) segue furando a fila.
+  defp special_stun_due?(t) do
+    special?(t) and (cuts_queue?(t) or fight_open?(t)) and control_ready?(t) and
       close_enough_to_stun?(t) and emenda_due?(t) and elapsed?(t, :stunned, 1_500)
   end
 
-  defp cuts_queue?(t),
-    do: Map.get(t.s, :boss?, false) or (special?(t) and t.logic.special_opened?)
+  # JUNTAR PRIMEIRO, MAS NÃO ESPERAR O QUE NÃO VEM. Era "o especial por nome ou
+  # grit fura a fila, o especial junta" — uma distinção que o jogo não tem, e o
+  # mesmo bicho achado por três caminhos (12/09). A regra dele vale pros três:
+  # "Postura no shiny é juntar primeiro!" (11/09), dita depois de ver o especial
+  # abrir fogo andando com 3 na tela e mais gente vindo.
+  #
+  # …E SOZINHO NÃO HÁ FILA PRA FURAR. A fila é a JUNTADA, e um especial sozinho
+  # numa estrada vazia não tem o que juntar: exigir dele o latch da luta aberta
+  # trava os dois lados um no outro — a luta não abre porque não fura a fila, e
+  # não fura porque não abriu. A bancada pegou o laço na hora ("especial-brando:
+  # não matou nada", nas quatro sementes).
+  defp cuts_queue?(t), do: special?(t) and (t.logic.special_opened? or alone?(t))
 
-  defp special?(t), do: Map.get(t.s, :special?, false)
+  defp alone?(%{s: %{enemies: n}}) when is_integer(n), do: n <= 1
+  defp alone?(_unread), do: false
 
   defp open_special(logic, t),
     do: %{logic | special_opened?: logic.special_opened? or special?(t)}
@@ -1572,7 +1583,7 @@ defmodule Pokex.Bots.Engine.Logic do
   #
   # A FOLGA DE 600ms é o preço da margem zero: piso de 5s + pegada de 2s =
   # cobertura de 7s EXATA, então qualquer deriva de fase (rajada, tique,
-  # blackout) viraria chefe acordado. Emendar 600ms antes sobrepõe 600ms de
+  # blackout) viraria especial acordado. Emendar 600ms antes sobrepõe 600ms de
   # sono — que o mundo só estica, nunca encurta — e compra a folga que a
   # aritmética não dá.
   @emenda_folga_ms 600
@@ -1580,19 +1591,19 @@ defmodule Pokex.Bots.Engine.Logic do
   defp emenda_due?(t) do
     pegada = t.config.stun_onset_ms + @emenda_folga_ms
 
-    case Map.get(t.s, :boss_asleep_left_ms) do
+    case Map.get(t.s, :special_asleep_left_ms) do
       nil -> elapsed?(t, :stunned, max(t.config.stun_hold_ms - pegada, 0))
       left -> left <= pegada
     end
   end
 
   # O STUN TEM RAIO. O primeiro rascunho apertava o controle no primeiro
-  # avistamento — com o chefe a 6 tiles, raio 4: sono no vento, e o chefe
+  # avistamento — com o especial a 6 tiles, raio 4: sono no vento, e o especial
   # chegava acordado com o controle já gasto ("se disperdiçar stun à toa (…) é
   # morte na certa"). Sem medida de distância (nil), sai na hora — pior
   # segurar um stun que talvez pegasse do que garantir um que não pega.
   defp close_enough_to_stun?(t) do
-    case Map.get(t.s, :boss_tiles) do
+    case Map.get(t.s, :special_tiles) do
       nil -> true
       tiles -> tiles <= t.config.stun_reach_tiles
     end
@@ -1600,12 +1611,12 @@ defmodule Pokex.Bots.Engine.Logic do
 
   # O revive do ciclo exige um stun VISTO (o carimbo `:stunned` existe e está
   # dentro da janela do R10) — sem essa exigência, um `within?` de carimbo
-  # ausente devolve true e o F4 sairia sem sono nenhum na frente do chefe. O
+  # ausente devolve true e o F4 sairia sem sono nenhum na frente do especial. O
   # desarme da R3b NÃO entra aqui de propósito: com o estoque de verdade
-  # zerado o F4 é um aperto vazio de graça, e correr do chefe é a morte que
+  # zerado o F4 é um aperto vazio de graça, e correr do especial é a morte que
   # ele descreveu — não há plano B a proteger.
-  defp boss_revive_due?(t) do
-    heavy?(t) and not mid_combo?(t) and t.s.own_out? == true and
+  defp special_revive_due?(t) do
+    special?(t) and not mid_combo?(t) and t.s.own_out? == true and
       is_integer(Map.get(t.logic.since, :stunned)) and
       within?(t, :stunned, t.config.stun_window_ms) and
       stun_seen_for_revive?(t) and
@@ -1615,11 +1626,11 @@ defmodule Pokex.Bots.Engine.Logic do
   end
 
   # "Se disperdiçar stun à toa e não usar o ressurect no tempo do stun dele, é
-  # morte na certa" — o F4 do ciclo só sai com o chefe DORMINDO DE VERDADE:
+  # morte na certa" — o F4 do ciclo só sai com o especial DORMINDO DE VERDADE:
   # com o canal presente, sono restante > 0. Sem canal, vale o carimbo, como
   # sempre valeu.
   defp stun_seen_for_revive?(t) do
-    case Map.get(t.s, :boss_asleep_left_ms) do
+    case Map.get(t.s, :special_asleep_left_ms) do
       nil -> true
       left -> left > 0
     end
@@ -1636,19 +1647,23 @@ defmodule Pokex.Bots.Engine.Logic do
   end
 
   # Sono de sobra = pegada (2s) + recolhida e volta (~1s): abaixo disso o
-  # pokémon voltaria com o chefe acordando na cara. Só com testemunha — sem o
+  # pokémon voltaria com o especial acordando na cara. Só com testemunha — sem o
   # canal (o jogo, por enquanto) este atalho não existe e o par clássico
   # responde sozinho.
-  defp boss_covered_revive_due?(t) do
-    left = Map.get(t.s, :boss_asleep_left_ms)
+  defp special_covered_revive_due?(t) do
+    left = Map.get(t.s, :special_asleep_left_ms)
 
-    heavy?(t) and not mid_combo?(t) and t.s.own_out? == true and t.s.spent? == true and
+    special?(t) and not mid_combo?(t) and t.s.own_out? == true and t.s.spent? == true and
       is_integer(left) and left >= t.config.stun_onset_ms + 1_000 and
       elapsed?(t, :reset_revive, t.config.rescue_floor_ms) and
       affordable?(t)
   end
 
-  defp heavy?(t), do: Map.get(t.s, :heavy?, false)
+  # A POSTURA É DO ESPECIAL, e o especial é um só. Havia `heavy?` (a postura) e
+  # `special?` (quem fura a fila) sobre uma distinção que não existe no jogo: "essa
+  # coisa de especial não existe. Isso aí foi um erro lá do passado: ele se
+  # confundiu com o que era Pokémon Shiny e é tudo uma coisa só" (12/09).
+  defp special?(t), do: Map.get(t.s, :special?, false)
 
   # A CORRENTE DO JOGO SAINDO SEGURA TODO REVIVE DE ECONOMIA.
   #
@@ -2006,7 +2021,7 @@ defmodule Pokex.Bots.Engine.Logic do
   # …e o SOBREVIVENTE não espera ninguém fechar: ele já está em cima do
   # pokémon (tomou a corrente inteira ali). Esperar `bunch_ms` a cada volta do
   # ciclo era 6s de mordida 10× por corrente — medido na bancada (02/09): dos
-  # quatro chefes, dois caíam.
+  # quatro especiais, dois caíam.
   defp open(t, why) do
     if t.config.bunch_ms > 0 and not survivor?(t.logic) do
       # O MESMO TIQUE já entra na espera e decide: parado, contando.
@@ -2033,14 +2048,14 @@ defmodule Pokex.Bots.Engine.Logic do
   # verdade: "gastei minhas skills num bicho bobo" (28/08). Uma tecla de dano
   # resolve; desconhecido abre inteiro, como sempre (fail-open pra caçada).
   # …E COM O ESPECIAL NA PILHA, O CONTROLE VAI NA FRENTE. Juntar primeiro
-  # (11/09) tirou o stun-com-abertura do chefe da chegada do shiny; na hora de
-  # abrir ele volta a ser prefixo, como no ciclo do chefe — abrir com a corrente
+  # (11/09) tirou o stun-com-abertura do especial da chegada do shiny; na hora de
+  # abrir ele volta a ser prefixo, como no ciclo do especial — abrir com a corrente
   # e o controle por último deixava o shiny 3,6 s acordado mordendo dentro da
   # luta (bancada dos shinies empilhados, semente 1): um ciclo perdido.
   defp fire_all(t, why) do
     logic = %{t.logic | state: :engaged} |> open_special(t)
 
-    if heavy?(t) and control_ready?(t) and close_enough_to_stun?(t) do
+    if special?(t) and control_ready?(t) and close_enough_to_stun?(t) do
       {stun!(logic, t),
        Orders.standing_and_firing(
          :engaged,
@@ -2065,7 +2080,7 @@ defmodule Pokex.Bots.Engine.Logic do
 
   # `combo_left_ms == 0` só existe no Auto Combo (fora dele é `nil`): a
   # corrente acabou ou nunca saiu — e com a barra gasta as duas pedem o mesmo.
-  # O chefe tem o ciclo dele; o desarme e o orçamento continuam valendo.
+  # O especial tem o ciclo dele; o desarme e o orçamento continuam valendo.
   # `own_out? != false`, não `== true`: a vida ILEGÍVEL não é um pokémon na
   # bola. Às 17:06 de 02/09 a barra não foi lida a caçada inteira, o reset foi
   # recusado por isso e sobrou a retirada — "ao fim do combo é o momento
@@ -2073,10 +2088,10 @@ defmodule Pokex.Bots.Engine.Logic do
   # chão PROVADO (`false`) recusa, e esse já tem o próprio caminho (`downed`).
   # …e o CHEFE só fura este reset quando o cérebro tem controle pra dar (o
   # ciclo stun → revive do Econômico); no Auto Combo a corrente já termina em
-  # stun, e o reset depois dela É o ciclo de chefe.
+  # stun, e o reset depois dela É o ciclo de especial.
   defp combo_reset_ready?(t) do
     Map.get(t.s, :combo_left_ms) == 0 and t.s.spent? == true and t.s.own_out? != false and
-      not (heavy?(t) and crowd(t) != []) and t.logic.reset_broken_at == nil and
+      not (special?(t) and crowd(t) != []) and t.logic.reset_broken_at == nil and
       reset_allowed?(t)
   end
 
@@ -2164,8 +2179,8 @@ defmodule Pokex.Bots.Engine.Logic do
   # ONLY WITHOUT SKULLS — "sem caveira é brincadeira" — and never with the
   # special on screen. In a skull area the chain's end is the stun that keeps
   # the pile asleep, and opening a beat earlier shifts it: the bench lost a
-  # cycle of the boss's combo in two seeds of four of the stacked shinies, one
-  # fall in the incognito boss, and half a run standing still on his own route
+  # cycle of the special's combo in two seeds of four of the stacked shinies, one
+  # fall in the incognito special, and half a run standing still on his own route
   # (09/09). The hunts he named for this rule have no skulls; the hard ones
   # keep the whole wait until the eye has proven itself there.
   # …E O ESPECIAL É A EXCEÇÃO DA EXCEÇÃO: ele não fura a fila (11/09), então a
@@ -2422,12 +2437,12 @@ defmodule Pokex.Bots.Engine.Logic do
   # Tela ILEGÍVEL não é tela limpa: sem saber quem está lá, o sono é a única
   # licença.
   # O CHEFE TEM CERCA PRÓPRIA, e ela é mais exigente que esta: o ciclo dele
-  # (stun a cada emenda, revive DENTRO do sono medido — `boss_covered_revive_due?`
-  # cobra `boss_asleep_left_ms` de sobra) tem física medida em oito PRs. Pôr
+  # (stun a cada emenda, revive DENTRO do sono medido — `special_covered_revive_due?`
+  # cobra `special_asleep_left_ms` de sobra) tem física medida em oito PRs. Pôr
   # esta cerca por cima atrasava o revive que compra o controle de volta: a
-  # bancada mediu um chefe 5,5s ACORDADO no cenário dos shinies empilhados, e
+  # bancada mediu um especial 5,5s ACORDADO no cenário dos shinies empilhados, e
   # "1 segundo sem stun no campo quer dizer que eu morri" (29/08).
-  defp recall_safe?(t), do: heavy?(t) or screen_clear?(t) or fresh_stun?(t)
+  defp recall_safe?(t), do: special?(t) or screen_clear?(t) or fresh_stun?(t)
 
   # O CARIMBO DO SONO, e só quando há sono a carimbar: o controle tem que estar
   # na reserva E pronto. Uma tecla fria carimbada seria uma licença falsa pro

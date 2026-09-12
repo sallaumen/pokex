@@ -95,10 +95,11 @@ defmodule Pokex.Bots.Engine.Situation do
           },
           own_name: String.t() | nil,
           worth_fighting?: boolean,
-          heavy?: boolean,
-          # the named or measured boss: the one that skips the gathering queue
-          boss?: boolean,
-          # the shiny seen by colour: boss posture in the fight, but it gathers first
+          # THE SHINY, by any of the three roads that find it: the colour the
+          # watchman sees, the name on the battle list, or the grit (how many
+          # damage skills the pile swallowed with nobody falling). One creature,
+          # one concept — "isso aí foi um erro lá do passado: ele se confundiu
+          # com o que era Pokémon Shiny e é tudo uma coisa só" (12/09).
           special?: boolean,
           # the Catcher is aiming at a shiny's corpse (the `:capture` fact): the
           # brain holds the feet for it, for a while
@@ -110,9 +111,9 @@ defmodule Pokex.Bots.Engine.Situation do
           # (`ReviveLedger.note/0`, monotonic ms) — the brain re-asks until then
           rescue_noted_at: integer | nil,
           grit: non_neg_integer,
-          heavy_latch?: boolean,
-          boss_tiles: non_neg_integer | nil,
-          boss_asleep_left_ms: non_neg_integer | nil,
+          grit_latch?: boolean,
+          special_tiles: non_neg_integer | nil,
+          special_asleep_left_ms: non_neg_integer | nil,
           growing?: boolean,
           stable_since: integer,
           stable_for_ms: non_neg_integer,
@@ -165,11 +166,11 @@ defmodule Pokex.Bots.Engine.Situation do
       grit(battle.enemies, Map.get(inputs, :ready_keys), Map.get(inputs, :damage_keys, []), prev)
 
     latch? = latch?(battle.enemies, grit, prev, config)
-    # O CHEFE, por NOME: alguma linha inimiga da janela bate com a lista
-    # `boss_names` do /config. É o gatilho da postura de chefe do cérebro —
-    # e passa por cima da régua, porque um chefe sozinho vale a luta que
-    # cinco bichos comuns valem. O latch (grit) é o mesmo chefe, medido.
-    boss? = heavy?(battle.named, config) or latch?
+    # O SHINY PELO NOME: alguma linha inimiga da janela bate com a lista
+    # `boss_names` do /config. Passa por cima da régua, porque um shiny sozinho
+    # vale a luta que cinco bichos comuns valem. O latch (grit) é o mesmo bicho,
+    # achado pelo tempo de matar em vez do nome.
+    named_or_grit? = named_special?(battle.named, config) or latch?
 
     %{
       rows: battle.rows,
@@ -180,40 +181,40 @@ defmodule Pokex.Bots.Engine.Situation do
       # he configured — what the screen prints on the row the brain calls his.
       own_word: own_word,
       own_name: Map.get(inputs, :own_name),
-      # A POSTURA DE CHEFE (stun a cada emenda, revive dentro do sono, sem
-      # recuar) vale pro chefe E pro especial; FURAR A FILA da juntada é só do
-      # chefe (`boss?`). "Postura no shiny é juntar primeiro!" (11/09): o
-      # especial visto com 3 na tela abria fogo andando, sem esperar a pilha.
-      heavy?: boss? or especial?(inputs),
-      boss?: boss?,
-      special?: especial?(inputs),
-      # O CHEFE, pelo TEMPO DE MATAR: skills de dano ENTREGUES (saíram da barra)
-      # sem NENHUM corpo cair da pilha. Nome nenhum — "ele tem o mesmo nome que
-      # os outros pokémons" (31/08). Medido na noite fraca de 31/08 (3h42): o
-      # máximo que uma pilha comum engole é 4 entregas (p99 = 3); um chefe 10×
-      # engole o dobro em dois giros da barra. `heavy_latch?` é a memória: uma
-      # vez declarado, o chefe segue chefe até a pilha ZERAR — matar um bicho
-      # comum do lado dele zera o grit, não a declaração.
+      # A POSTURA DO ESPECIAL — stun a cada emenda, revive dentro do sono, sem
+      # recuar — e ela vale pros TRÊS caminhos, porque é o mesmo bicho achado
+      # de três jeitos. Eram dois campos (`heavy?` e `special?`) sobre uma
+      # distinção que não existe no jogo, e o único efeito prático deles era
+      # furar a fila da juntada — o que contraria a regra dele: "Postura no
+      # shiny é juntar primeiro!" (11/09).
+      special?: especial?(inputs) or named_or_grit?,
+      # O ESPECIAL, pelo TEMPO DE MATAR: skills de dano ENTREGUES (saíram da
+      # barra) sem NENHUM corpo cair da pilha. Nome nenhum — "ele tem o mesmo
+      # nome que os outros pokémons" (31/08). Medido na noite fraca de 31/08
+      # (3h42): o máximo que uma pilha comum engole é 4 entregas (p99 = 3); um
+      # especial 10× engole o dobro em dois giros da barra. `grit_latch?` é a
+      # memória: uma vez declarado, ele segue declarado até a pilha ZERAR —
+      # matar um bicho comum do lado zera o grit, não a declaração.
       grit: grit,
-      heavy_latch?: latch?,
+      grit_latch?: latch?,
       capturing?: Map.get(inputs, :capturing?) == true,
       catcher_armed?: Map.get(inputs, :catcher_armed?) == true,
       rescue_noted_at: Map.get(inputs, :rescue_noted_at),
       # A QUE DISTÂNCIA O CHEFE ESTÁ, em tiles — nil quando ninguém mede. O
-      # stun tem raio: apertá-lo com o chefe a 6 tiles é dormir o vento
-      # (medido na bancada: o primeiro stun saía a 6 e o chefe chegava
+      # stun tem raio: apertá-lo com o especial a 6 tiles é dormir o vento
+      # (medido na bancada: o primeiro stun saía a 6 e o especial chegava
       # acordado). No simulador o mundo responde; no jogo, o CrowdScan é quem
       # sabe — e enquanto não estiver ligado aqui, nil deixa o stun sair na
       # hora, que é o comportamento de antes.
-      boss_tiles: Map.get(inputs, :boss_tiles),
+      special_tiles: Map.get(inputs, :special_tiles),
       # QUANTO FALTA DO SONO DO CHEFE (ms) — 0 acordado, nil sem testemunha.
       # O carimbo do cérebro diz o que ele MANDOU; isto diz o que o CHEFE
       # sentiu — e a diferença é um stun que pegou o vento (pokémon na bola,
-      # alvo fora do raio, lag). Com o canal, a postura de chefe mede o ciclo
+      # alvo fora do raio, lag). Com o canal, a postura do especial mede o ciclo
       # pelo sono real e reaperta de graça um stun que não pegou.
-      boss_asleep_left_ms: Map.get(inputs, :boss_asleep_left_ms),
+      special_asleep_left_ms: Map.get(inputs, :special_asleep_left_ms),
       worth_fighting?:
-        worth_fighting?(battle.enemies, config) or heavy?(battle.named, config) or latch? or
+        worth_fighting?(battle.enemies, config) or named_special?(battle.named, config) or latch? or
           especial?(inputs),
       growing?: growing?,
       stable_since: stable_since,
@@ -414,9 +415,9 @@ defmodule Pokex.Bots.Engine.Situation do
 
   defp worth_fighting?(_unknown, _config), do: false
 
-  # Sem nome legível não há chefe: a comparação é caso-insensível, e a lista
-  # aceita a forma do /config ("Chefe, Boss X") e a de um cenário (["chefe"]).
-  defp heavy?(named, config) do
+  # Sem nome legível não há especial por nome: a comparação é caso-insensível,
+  # e a lista aceita a forma do /config ("Shiny X, Special Y") e a de um cenário.
+  defp named_special?(named, config) do
     case boss_names(Map.get(config, :boss_names)) do
       [] -> false
       names -> Enum.any?(named, &(String.downcase(Map.get(&1, :name) || "") in names))
@@ -427,19 +428,19 @@ defmodule Pokex.Bots.Engine.Situation do
   # uma tecla de dano que estava pronta no tique anterior e saiu da barra neste
   # (cooldown andou = recibo de que o jogo aceitou — tecla engolida continua
   # pronta e não conta). Só teclas de DANO: o ciclo stun+revive do próprio
-  # chefe não pode inflar o medidor que o declara.
+  # especial não pode inflar o medidor que o declara.
   #
   # Zera quando um corpo cai (a pilha encolheu) ou a tela limpa; barra ilegível
   # não conta nem zera. Kite, espera de cooldown e cegueira não somam nada —
-  # foi exatamente isso que separou o chefe da pilha comum na medição: "spent +
-  # pilha parada" dava 28 falsos chefes/hora, entregas sem queda deram ZERO.
+  # foi exatamente isso que separou o especial da pilha comum na medição: "spent +
+  # pilha parada" dava 28 falsos especiais/hora, entregas sem queda deram ZERO.
   # Um corpo caindo DESCONTA o preço típico de um kill em vez de zerar: numa
-  # pilha mista (chefe + comuns) cada comum que morre zerava o medidor e o
-  # chefe comia de graça durante a recontagem — a bancada mediu o tanque em
-  # 5-41% pagando essa latência. Com o desconto, o excedente que o chefe
+  # pilha mista (especial + comuns) cada comum que morre zerava o medidor e o
+  # especial comia de graça durante a recontagem — a bancada mediu o tanque em
+  # 5-41% pagando essa latência. Com o desconto, o excedente que o especial
   # engoliu sobrevive aos kills dos comuns. O preço (4) é o máximo que a noite
   # fraca de 31/08 entregou por corpo (p99 = 3) — e com ele o medidor da noite
-  # inteira nunca passou de 4, zero falsos chefes.
+  # inteira nunca passou de 4, zero falsos especiais.
   @kill_cost 4
 
   defp grit(enemies, ready, damage_keys, prev) do
@@ -466,7 +467,7 @@ defmodule Pokex.Bots.Engine.Situation do
 
   # A declaração LATCHA: o gatilho é o grit cruzar o knob, e a memória segura a
   # postura até a pilha zerar — sem ela, o primeiro corpo comum caindo do lado
-  # do chefe (ou o F4 devolvendo a barra) despia a postura no meio da luta.
+  # do especial (ou o F4 devolvendo a barra) despia a postura no meio da luta.
   # `boss_grit` 0 = desligado, só o nome declara.
   defp latch?(enemies, grit, prev, config) do
     knob = Map.get(config, :boss_grit, 0)
@@ -474,7 +475,7 @@ defmodule Pokex.Bots.Engine.Situation do
 
     cond do
       not alive? -> false
-      Map.get(prev || %{}, :heavy_latch?, false) -> true
+      Map.get(prev || %{}, :grit_latch?, false) -> true
       is_integer(knob) and knob > 0 and grit >= knob -> true
       true -> false
     end
@@ -487,7 +488,7 @@ defmodule Pokex.Bots.Engine.Situation do
   # os dois chegam tarde. A cor chega na hora — é a regra que ele ensinou e
   # PROVOU na calibração, vista pelo `ShinyGuard`.
   #
-  # E ela liga a postura de luta porque o bicho é um só: "o shiny É o chefe"
+  # E ela liga a postura de luta porque o bicho é um só: "o shiny É o especial"
   # (01/09). Vale a luta fora da régua, não se kita (a R7 já se cala com
   # `heavy?`), e o combo skills → stun → revive é exatamente o que ele descreve
   # pra esse monstro. A bola garantida vem do Catcher, pelo mesmo avistamento.

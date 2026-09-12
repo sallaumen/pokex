@@ -342,7 +342,7 @@ defmodule PokexWeb.CavebotComponents do
       </p>
 
       <p
-        :if={@floor && Enum.any?(@waypoints, &(!on_floor?(&1, @floor)))}
+        :if={not @dense? && @floor && Enum.any?(@waypoints, &(!on_floor?(&1, @floor)))}
         id="map-floor-legend"
         class="pointer-events-none absolute left-3 top-2 font-mono text-pk-meta text-pk-text-2"
       >
@@ -352,8 +352,15 @@ defmodule PokexWeb.CavebotComponents do
       <%!-- ONE bottom row, not two corners. Pinned left and right, the scale and
            the mob legend ran into each other the moment the drawing was drawn
            smaller than the sentence — which is every time the map shares its
-           column with the corner being edited. --%>
-      <div class="pointer-events-none absolute inset-x-3 bottom-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 font-mono text-pk-meta">
+           column with the corner being edited.
+
+           …e no selo elas não existem: "48 tiles de ponta a ponta" quebrava em
+           três linhas em cima do desenho e cobria um quarto dele. O cabeçalho
+           do cartão diz o que sobrou de útil nesse tamanho. --%>
+      <div
+        :if={not @dense?}
+        class="pointer-events-none absolute inset-x-3 bottom-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 font-mono text-pk-meta"
+      >
         <p class="text-pk-text-3">
           {if @view, do: "#{round(elem(@view.box, 2))} tiles de ponta a ponta", else: ""}
         </p>

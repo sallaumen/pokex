@@ -1712,10 +1712,11 @@ defmodule PokexWeb.CavebotLive do
 
   # A route may climb: say how many floors it touches, because "andar 7" on a
   # two-floor hunt is a lie the drawing cannot correct on its own.
-  defp floors_label(%Route{} = route) do
-    case Route.floors(route) do
-      [one] -> "andar #{one}"
-      many -> "andares #{Enum.join(many, " e ")}"
+  defp floors_label(%Route{} = route, lit) do
+    case {Route.floors(route), lit} do
+      {[one], _same} -> "andar #{one}"
+      {many, lit} when lit in [nil, false] -> "andares #{Enum.join(many, " e ")}"
+      {_many, lit} -> "andar #{lit} · outros apagados"
     end
   end
 
@@ -2254,7 +2255,7 @@ defmodule PokexWeb.CavebotLive do
                   id="shiny-arm"
                   type="button"
                   phx-click="arm_shiny_guard"
-                  class="cursor-pointer rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 font-mono text-pk-meta font-bold text-pk-ok transition-colors hover:bg-pk-ok hover:text-pk-bg"
+                  class="inline-flex h-6 cursor-pointer items-center rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 font-mono text-pk-meta font-bold text-pk-ok transition-colors hover:bg-pk-ok hover:text-pk-bg"
                 >
                   ligar agora
                 </button>
@@ -2828,7 +2829,7 @@ defmodule PokexWeb.CavebotLive do
                     type="button"
                     phx-click="copy_log"
                     title="Copia o feed inteiro pra colar num relato"
-                    class="cursor-pointer rounded border border-pk-line-strong px-1.5 font-semibold transition hover:border-pk-ok/60 hover:text-pk-text"
+                    class="inline-flex h-6 cursor-pointer items-center rounded border border-pk-line-strong px-1.5 font-semibold transition hover:border-pk-ok/60 hover:text-pk-text"
                   >
                     copiar
                   </button>
@@ -3521,7 +3522,7 @@ defmodule PokexWeb.CavebotLive do
                 mediu 45s. --%>
                 <div class="mt-3 border-t border-pk-line pt-3">
                   <div class="flex flex-wrap items-center gap-2">
-                    <h4 class="text-pk-body font-semibold text-pk-text">o alcance da área</h4>
+                    <h3 class="text-pk-body font-semibold text-pk-text">o alcance da área</h3>
                     <button
                       type="button"
                       phx-click="toggle_area_probe"
@@ -3587,7 +3588,7 @@ defmodule PokexWeb.CavebotLive do
                 mata, não precisa ficar usando 4, 5, 6 sempre". --%>
                 <div class="mt-3 border-t border-pk-line pt-3">
                   <div class="flex flex-wrap items-center gap-2">
-                    <h4 class="text-pk-body font-semibold text-pk-text">o que cada tecla tira</h4>
+                    <h3 class="text-pk-body font-semibold text-pk-text">o que cada tecla tira</h3>
                     <button
                       type="button"
                       phx-click="toggle_skill_meter"
@@ -3971,11 +3972,14 @@ defmodule PokexWeb.CavebotLive do
         <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
           {if @active_route, do: "Mapa de #{@active_route.name}", else: "Mapa"}
         </h2>
+        <%!-- QUAL andar está aceso, não só quais existem. Isso era uma tarja
+             no canto do desenho; no selo ela cobria o desenho, e aqui tem
+             lugar e tipo que se lê. --%>
         <span
           :if={@active_route && @active_route.waypoints != []}
           class="font-mono text-pk-meta text-pk-text-2"
         >
-          {floors_label(@active_route)}
+          {floors_label(@active_route, @compact? && map_floor(@active_route, @pos))}
         </span>
       </div>
 

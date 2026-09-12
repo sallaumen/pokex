@@ -2225,12 +2225,50 @@ defmodule PokexWeb.CavebotLiveTest do
     # de destino já está escrito no cabeçalho do cartão.
     test "the map stamp draws no text that could not be read", %{conn: conn} do
       route_with([{10, 10, 5}, {12, 10, 5}, {12, 12, 6}])
+      put_pos({10, 10, 5})
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 
       mapa = view |> element("#cavebot-map") |> render()
 
-      assert mapa =~ "andares 5 e 6"
+      # Nem letra dentro do desenho, nem tarja de canto por cima dele: a 142px
+      # o "48 tiles de ponta a ponta" quebrava em três linhas e cobria um
+      # quarto do quadrado. O que sobra de útil sobe pro cabeçalho do cartão.
       refute mapa =~ "<text"
+      refute mapa =~ "tiles de ponta a ponta"
+      refute mapa =~ ~s(id="map-floor-legend")
+      assert mapa =~ "andar 5 · outros apagados"
+    end
+
+    # …e no editor, onde o desenho é grande, tudo continua desenhado.
+    test "the big map keeps its numbers and its corner notes", %{conn: conn} do
+      route_with([{10, 10, 5}, {12, 10, 5}, {12, 12, 6}])
+      put_pos({10, 10, 5})
+      {:ok, view, _html} = live(conn, ~p"/cavebot?modo=editar")
+
+      mapa = view |> element("#cavebot-map") |> render()
+
+      assert mapa =~ "<text"
+      assert mapa =~ "tiles de ponta a ponta"
+      assert mapa =~ ~s(id="map-floor-legend")
+    end
+
+    # UM TÍTULO NÃO PULA NÍVEL. Quem navega por cabeçalho lê a página como um
+    # índice, e um h2 seguido de h4 diz que existe um h3 que nunca existiu.
+    test "the headings go down one step at a time", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      levels =
+        ~r/<h([1-6])[\s>]/
+        |> Regex.scan(html, capture: :all_but_first)
+        |> Enum.map(fn [n] -> String.to_integer(n) end)
+
+      assert levels != []
+
+      assert levels
+             |> Enum.chunk_every(2, 1, :discard)
+             |> Enum.all?(fn [a, b] -> b <= a + 1 end),
+             "os níveis saíram assim: #{inspect(levels)}"
     end
 
     test "the frame is measured by the shell, never by a sum written here", %{conn: conn} do

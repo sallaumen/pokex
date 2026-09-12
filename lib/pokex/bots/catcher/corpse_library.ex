@@ -93,15 +93,6 @@ defmodule Pokex.Bots.Catcher.CorpseLibrary do
   """
   defdelegate enabled?(entry), to: SpriteLibrary
 
-  @doc """
-  Best `%{name, score}` in the library for this crop — NO threshold; `nil` only
-  when the library is empty. A FAILING score is still information: the old
-  `:nomatch` hid whether it missed by 0.01 or by 0.40, and against which body
-  (blind validation, 2026-07-30). Measured on real samples the score drops ~0.05
-  per 7px of crop offset, so distance to the threshold IS the aim diagnostic.
-  """
-  def best(%Frame{} = crop), do: SpriteLibrary.best(library(), crop)
-
   @doc "The library resolved once, for a caller about to score many windows."
   def aimed, do: SpriteLibrary.aimed(library())
 end

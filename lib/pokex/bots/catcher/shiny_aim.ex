@@ -101,15 +101,10 @@ defmodule Pokex.Bots.Catcher.ShinyAim do
 
   @doc """
   The largest blob of each rule, at or above the rule's floor, with NO body within `tile_px`
-  of it. `crowd` is the eye's reading (`%{read?: true, hostiles: [%{point}], pet: %{point} | nil}`);
-  nil or unread → nothing is a corpse.
-  """
-  @spec judge(Frame.t(), tuple, list, list, map | nil, pos_integer) :: [candidate]
-  def judge(%Frame{} = frame, region, rules, forbidden, crowd, tile_px),
-    do: frame |> judge_told(region, rules, forbidden, crowd, tile_px) |> elem(0)
+  of it, plus the TALLY of what it threw away: `{candidates, diag}`.
 
-  @doc """
-  `judge/6` plus the TALLY of what it threw away: `{candidates, diag}`.
+  `crowd` is the eye's reading (`%{read?: true, hostiles: [%{point}], pet: %{point} | nil}`);
+  nil or unread → nothing is a corpse.
 
   A look that found nothing said nothing — "acabei de matar um shiny e não vi
   nada" (11/09 09:13): the corpse was on screen with ZERO pixels of the taught

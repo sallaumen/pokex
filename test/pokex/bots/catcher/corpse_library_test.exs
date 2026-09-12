@@ -77,13 +77,17 @@ defmodule Pokex.Bots.Catcher.CorpseLibraryTest do
       assert {:ok, %{name: "Krabby shiny"}} = match(solid(40, 200, 190), 0.72)
     end
 
+    # The wrapper `CorpseLibrary.best/1` is gone (the aim scores many windows
+    # against `aimed/0`, never one against the whole library), but the
+    # guarantee it protected is the library's: a corpse switched OFF still
+    # competes and still reports, so a refusal can be explained.
     @tag :tmp_dir
-    test "best/1 still reports the vetoed winner — a refusal has to be explainable" do
+    test "the vetoed winner is still reported — a refusal has to be explainable" do
       {:ok, 1} = CorpseLibrary.add("Krabby", solid(200, 120, 40))
       :ok = CorpseLibrary.set_enabled("krabby", false)
 
       assert %{name: "Krabby", score: score, aimed?: false} =
-               CorpseLibrary.best(solid(200, 120, 40))
+               SpriteLibrary.best(CorpseLibrary.library(), solid(200, 120, 40))
 
       assert score > 0.9
     end

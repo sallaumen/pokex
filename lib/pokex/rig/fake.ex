@@ -95,9 +95,6 @@ defmodule Pokex.Rig.Fake do
   def focus_click(point), do: record({:focus_click, point}, :focus_click, :ok)
 
   @impl true
-  def capture_sequence(point), do: record({:capture_sequence, point}, :capture_sequence, :ok)
-
-  @impl true
   def capture(region, filename),
     do: record({:capture, region, filename}, :capture, {:ok, "/tmp/fake/#{filename}"})
 

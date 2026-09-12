@@ -181,16 +181,6 @@ defmodule Pokex.Rig.Mac do
   # neutral point (his own tile), which is a click-to-walk no-op by design.
   def focus_click(point), do: run(Commands.click(:left, point))
 
-  @impl true
-  # Move the cursor onto the target, then press F1 — the in-game pokeball hotkey throws at the
-  # CURSOR position, so no click is needed (Lucas rebound it this way). Order matters: position
-  # first, then throw.
-  def capture_sequence(point) do
-    with :ok <- move(point) do
-      press("f1")
-    end
-  end
-
   # The hard safety floor: no ACTUATION (key/click/move) leaves this process while the InputGate
   # is closed — the cursor is in the panic corner OR the game window isn't frontmost. Suppressed
   # calls return :ok (a no-op, not an error) so a worker never mistakes "held for safety" for a

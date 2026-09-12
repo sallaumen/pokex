@@ -54,9 +54,6 @@ defmodule Pokex.Rig.Sim do
   @impl true
   def focus_click(point), do: report({:focus_click, point})
 
-  @impl true
-  def capture_sequence(point), do: report({:capture_sequence, point})
-
   # A simulated frame would be a lie with a real shape: the interpreters would
   # read pixels that mean nothing. The simulator publishes FACTS instead, so the
   # honest answer here is a refusal.

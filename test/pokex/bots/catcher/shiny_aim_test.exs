@@ -10,6 +10,11 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
   @region {100, 100, 300, 300}
   @tile 40
 
+  # `judge/6` was a production wrapper over `judge_told/6` that no caller used:
+  # the scan wants the tally. Here, so the cases below stay about the judging.
+  defp judge(frame, region, rules, forbidden, crowd, tile_px),
+    do: frame |> ShinyAim.judge_told(region, rules, forbidden, crowd, tile_px) |> elem(0)
+
   defp frame(w, h, bg, patches) do
     pixels =
       for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
@@ -64,7 +69,7 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
 
   test "a blob with no body near it is a corpse candidate in screen points" do
     assert [%{name: "Electrode shiny", px: px, point: {sx, sy}, in_frame: {fx, fy}}] =
-             ShinyAim.judge(frame_com_mancha(), @region, rules(), [], crowd([{300, 300}]), @tile)
+             judge(frame_com_mancha(), @region, rules(), [], crowd([{300, 300}]), @tile)
 
     assert px >= 50
     assert_in_delta sx, 117, 2
@@ -85,7 +90,7 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
       ])
 
     assert [%{point: {sx, _sy}, massa: {mx, _my}, in_frame: {fx, _fy}}] =
-             ShinyAim.judge(meia, @region, rules(), [], crowd([]), @tile)
+             judge(meia, @region, rules(), [], crowd([]), @tile)
 
     # a caixa e o alvo tem que coincidir; a massa e outra coisa
     assert fx == sx - elem(@region, 0)
@@ -108,7 +113,7 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     [%{"slug" => slug}] = Pokex.Bots.Catcher.CorpseLibrary.list()
     :ok = Pokex.Bots.Catcher.CorpseLibrary.set_enabled(slug, false)
 
-    assert ShinyAim.judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile) == []
+    assert judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile) == []
   end
 
   # ...EXCEPT THE CREATURE THE RULE IS FOR. His "Shiny Golem" corpse photos fire
@@ -127,7 +132,7 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     :ok = Pokex.Bots.Catcher.CorpseLibrary.set_enabled(slug, false)
 
     assert [%{name: "Electrode shiny"}] =
-             ShinyAim.judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile)
+             judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile)
   end
 
   # THE TALLY. A look that found nothing said nothing; the diary could not tell a
@@ -191,7 +196,7 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     recorte = %Frame{width: 24, height: 24, rgba: :binary.copy(<<40, 160, 60, 255>>, 24 * 24)}
     {:ok, _n} = Pokex.Bots.Catcher.CorpseLibrary.add("Corpo rosa", recorte)
 
-    assert [_um] = ShinyAim.judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile)
+    assert [_um] = judge(frame_com_corpo(), @region, rules(), [], crowd([]), @tile)
   end
 
   # NENHUMA MANCHA MAIOR QUE UM BICHO. O corte por tamanho vinha DEPOIS do teto
@@ -201,7 +206,7 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     # tile 40 no teste: o teto sao 3 tiles de lado = 120px
     cenario = frame(300, 300, {40, 40, 40}, [{{0, 0, 200, 200}, @verde}])
 
-    assert ShinyAim.judge(cenario, @region, rules(), [], crowd([]), @tile) == []
+    assert judge(cenario, @region, rules(), [], crowd([]), @tile) == []
   end
 
   test "the ceiling counts only creature-sized blobs" do
@@ -212,14 +217,14 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     dois =
       frame(400, 400, {40, 40, 40}, [{{0, 0, 200, 200}, @verde}, {{250, 250, 30, 30}, @verde}])
 
-    assert [%{px: px}] = ShinyAim.judge(dois, @region, rules(), [], crowd([]), @tile)
+    assert [%{px: px}] = judge(dois, @region, rules(), [], crowd([]), @tile)
     assert px < 2_000, "sobrou o borrao de cenario, nao o bicho"
   end
 
   # A LAVA MAIOR TAPAVA O BICHO. Pegando só a maior mancha, o shiny dois tiles ao
   # lado não ficava "abaixo do limiar" — ficava sem ser olhado.
   test "every blob past the trigger is a candidate, up to the ceiling" do
-    candidatos = ShinyAim.judge(frame_com_duas_manchas(), @region, rules(), [], crowd([]), @tile)
+    candidatos = judge(frame_com_duas_manchas(), @region, rules(), [], crowd([]), @tile)
 
     assert length(candidatos) == 2
     # a maior primeiro: a fila da bola segue a força da prova
@@ -232,7 +237,7 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
     Pokex.SettingsStash.stash!(shiny_aim_max_candidates: 1)
 
     assert [_uma] =
-             ShinyAim.judge(frame_com_duas_manchas(), @region, rules(), [], crowd([]), @tile)
+             judge(frame_com_duas_manchas(), @region, rules(), [], crowd([]), @tile)
   end
 
   # O RENASCIDO É UM CORPO VIVO. A lista de batalha não o carrega e `hostiles` o
@@ -240,7 +245,7 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
   # a bola voava nele. Pior: gastas as bolas, o ponto ficava vetado por 45 s e o
   # corpo de verdade daquele bicho, no mesmo tile, não levava bola nenhuma.
   test "a respawned creature is a live body and fences the blob out" do
-    assert ShinyAim.judge(
+    assert judge(
              frame_com_mancha(),
              @region,
              rules(),
@@ -252,12 +257,12 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
 
   test "a blob with a hostile body within a tile is a living creature, not a corpse" do
     assert [] =
-             ShinyAim.judge(frame_com_mancha(), @region, rules(), [], crowd([{140, 130}]), @tile)
+             judge(frame_com_mancha(), @region, rules(), [], crowd([{140, 130}]), @tile)
   end
 
   test "a blob with the pet's body within a tile is not a corpse" do
     assert [] =
-             ShinyAim.judge(
+             judge(
                frame_com_mancha(),
                @region,
                rules(),
@@ -268,13 +273,13 @@ defmodule Pokex.Bots.Catcher.ShinyAimTest do
   end
 
   test "without an eye reading nothing is a corpse" do
-    assert [] = ShinyAim.judge(frame_com_mancha(), @region, rules(), [], nil, @tile)
-    assert [] = ShinyAim.judge(frame_com_mancha(), @region, rules(), [], %{read?: false}, @tile)
+    assert [] = judge(frame_com_mancha(), @region, rules(), [], nil, @tile)
+    assert [] = judge(frame_com_mancha(), @region, rules(), [], %{read?: false}, @tile)
   end
 
   test "a blob inside a forbidden box is not seen" do
     forbidden = [{0, 0, 40, 40}]
-    assert [] = ShinyAim.judge(frame_com_mancha(), @region, rules(), forbidden, crowd([]), @tile)
+    assert [] = judge(frame_com_mancha(), @region, rules(), forbidden, crowd([]), @tile)
   end
 
   test "steady keeps only candidates seen on the previous scan" do

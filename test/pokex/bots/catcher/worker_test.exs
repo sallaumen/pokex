@@ -995,6 +995,33 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_receive {:performed, :high, [{:move, {600, 250}} | _]}, 3_000
   end
 
+  # A BARRA CAI NUM CAÇADOR QUE NUNCA RODOU. The eye's reading is a broadcast:
+  # it reaches every Catcher alive, running or not, and the fall throws on that
+  # message alone. A worker that was started but never run has NO Logic — and
+  # reading `state.logic.counters` there killed it (BadMapError on nil), taking
+  # the trail with it on the restart. Not running is not throwing.
+  # the fall still SPEAKS ("caiu em") in a worker that never ran: the trail
+  # follows whatever the eye broadcasts, and only the ball needs an armed Logic
+  @tag :capture_log
+  @tag :tmp_dir
+  test "a bar that falls in a worker that never ran kills nothing and throws nothing" do
+    SettingsStash.stash!(player_mode: "hunt")
+    {:ok, body} = FakeBody.start_link(self())
+    worker = start_supervised!({Worker, [name: nil, body: body]}, id: :idle_worker)
+
+    me = {500, 350}
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+    seen = fn hostiles -> %{read?: true, me: me, hostiles: hostiles, pet: nil} end
+
+    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
+    list_empty()
+    send(worker, {:crowd, seen.([Map.merge(%{point: {600, 250}}, shiny)])})
+    for _ <- 1..3, do: send(worker, {:crowd, seen.([])})
+
+    assert %{state: :idle} = Worker.status(worker)
+    refute_receive {:performed, _priority, _actions}, 300
+  end
+
   @tag :tmp_dir
   test "walking, the fall says so and waits for the hora da bola" do
     worker = start_hunt_worker(scanner: fn -> nil end)

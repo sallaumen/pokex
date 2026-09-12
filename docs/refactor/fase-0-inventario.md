@@ -33,7 +33,7 @@
 |---|---|
 | `Perception` | Fachada: `feed_specs/0` + attach/detach, e leituras de fatos (`mini_game_playing?`, `mini_game_gate` lock-free, `pokemon`, `ready_skills`). |
 | `Perception.WorldState` | Blackboard ETS `:pokex_world` com freshness (max-age por fato, fail-open documentado por consumidor); `put/forget`. |
-| `Perception.Feed` | Um stream por região: captura na cadência, interpreta puro, grava no WorldState, broadcast PubSub `"world"` só em MUDANÇA. Demand-driven (para sem consumidores; monitora quem atachou). Feeds hoje: `:battle`, `:arena`, `:skill_bar`, `:corpses`. |
+| `Perception.Feed` | Um stream por região: captura na cadência, interpreta puro, grava no WorldState, broadcast PubSub `"world"` só em MUDANÇA. Demand-driven (para sem consumidores; monitora quem atachou). Feeds hoje: `:battle`, `:arena`, `:skill_bar` (o `:corpses` foi aposentado em 30/07 e apagado em 09/09). |
 | `Perception.Interpret` (+ `.Corpses`) | Interpretadores puros frame → observação, um por feed. |
 
 Fatos publicados por workers (fora dos feeds): `:mini_game` (worker do mini-game, todo tick), `:pokemon` (PlayerSupport), `:calibration` (BotSupervisor carimba o mtime carregado no start; esquece no stop).
@@ -44,7 +44,7 @@ Fatos publicados por workers (fora dos feeds): `:mini_game` (worker do mini-game
 |---|---|---|
 | Pesca | `Fishing.Worker` + `Fishing.Logic` + `Fisher.{Config,Sensors,Skills}` | Sensores ainda na árvore legada `fisher/` (ver §7.1). |
 | Combate | `Combat.Worker` + `Combat.Logic` | Tab targeting; só dispara skills PRONTAS (fato `:skill_bar`). |
-| Captura/loot | `Catcher.Worker` + `Catcher.Logic` | Baseline+diff do chão; loot (Espaço) e bola com toggles próprios (`loot_enabled`, `capture_enabled`); modos `player_mode` parado/movimento. |
+| Captura | `Catcher.Worker` + `Catcher.{Logic,Trail,SpotScan,Ball,Balls}` | A bola do corpo comum vem do acervo de sprites (`SpotScan` ancorado na morte, `capture_enabled`); a do shiny, do rastro da barra até a queda (`Trail`, o brilho do `ShinyGuard`). O loot é do jogo desde 07/09. |
 | Mini-game | `MiniGame.{Worker,Detector,Player,Pilot,Track}` | Detector 3 passadas (âncora/varredura/cápsula); `Pilot` puro validado no lab; publica o fato `:mini_game`. |
 | Suporte | `PlayerSupport.{Worker,Logic}` | Revive, poção (janela battle-clear), reposicionamento por middle-click; publica `:pokemon`. |
 
@@ -54,7 +54,7 @@ Fatos publicados por workers (fora dos feeds): `:mini_game` (worker do mini-game
 
 - **Pesca** — `Fishing.Worker` (tick) captura via `Fisher.Sensors` (glow/água) + one-shot da SkillBar + injeta o fato `:pokemon` nas observações → `Fishing.Logic` (máquina de estados pura; `hold_gate?` = cooldowns E/OU vida/pokémon ativo segura só a FISGADA, nunca o arremesso; teto `hook_hold_max_ms`) → `Body.perform(actions, :normal)` atômico ([fishing/worker.ex:226](../../lib/pokex/bots/fishing/worker.ex)). Congela sozinho quando o fato `:mini_game` diz jogando; retoma reiniciando o ciclo de cast.
 - **Combate** — `Combat.Worker` atacha aos feeds `:battle` e `:skill_bar` → `Combat.Logic` decide alvo (Tab) e skills prontas → **bursts de tecla DIRETO no Rig** (`Rig.impl().press_many`, [combat/worker.ex:274](../../lib/pokex/bots/combat/worker.ex)), consultando `Perception.mini_game_gate()` antes de cada burst. Intencional (latência/atomicidade) — regra do handoff: medir antes de mexer.
-- **Captura/loot** — `Catcher.Worker` orientado a eventos do fato `:battle` (gate: só avança com luta ENGAJADA encerrada) → baseline do chão + diff (`Interpret.Corpses` no feed `:corpses`) → `Catcher.Logic` → Body (cliques/Espaço; Espaço também é a tecla do mini-game, então o avanço é gateado em `mini_game_playing?`).
+- **Captura** — `Catcher.Worker` orientado à hora da bola do cérebro (`{:capture_now}`, a rodada fechada) e ao olho (`{:crowd}`) → duas lentes: o acervo de sprites ancorado na morte (`SpotScan`, o corpo comum) e o rastro da barra do shiny até a queda (`Trail`, marcado pelo brilho do `ShinyGuard`) → `Catcher.Logic` (fila, arremesso, conferência) → `Catcher.Ball` → Body (`:high`, gateado em `mini_game_playing?`).
 - **Mini-game** — `MiniGame.Worker` captura a faixa dedicada (`mini_game_region`) → `Detector` (3 passadas) arma por streak → `Player` lê a coluna (`Track`), pede decisão ao `Pilot` (puro, normalizado 0..1) e segura/solta Espaço **direto no Rig** (o gate do Body bloquearia o próprio player). Publica `:mini_game` todo tick, inclusive no halt/terminate.
 - **Suporte** — `PlayerSupport.Worker` (tick) lê a própria região de HP → publica `:pokemon` → decide revive/poção/reposição (`Logic`): poção exige `potion_battle_clear_ms` contínuos sem batalha; reposição espera `reposition_battle_clear_ms` e manda o Pokémon pro `pokemon_spot_point` com middle-click nativo via Body `:normal`.
 

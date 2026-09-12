@@ -509,7 +509,7 @@ defmodule Pokex.Settings do
     restore_mouse_after_actions: true,
     # A held key dies on its own after this long without a refresh.
     hold_max_ms: 1_500,
-    # --- Corpse capture ("still" mode) -------------------------------------------------------------
+    # --- Corpse capture -----------------------------------------------------------------------
     # The ground-diff feed that once learned an EMPTY baseline is GONE (retired 2026-07-30,
     # deleted 2026-09-09): the aim is the kill-anchored `SpotScan`, and real operation never had
     # the quiet window a baseline needed. This clock survived it as the Logic's fallback wake
@@ -517,7 +517,8 @@ defmodule Pokex.Settings do
     feed_corpses_ms: 400,
     # Catcher: one ball in flight at a time, confirmed against the next observations.
     player_mode: "still",
-    # Independent switches, both only meaningful while parado:
+    # A conferência da bola comum, em qualquer modo: desde #590 a captura roda
+    # na caçada com a estrada segurada e a lista vazia, não só no modo Parado.
     corpse_match_tolerance_px: 37,
     corpse_max_balls: 2,
     corpse_ignore_ttl_ms: 45_000,

@@ -2,6 +2,7 @@ defmodule PokexWeb.DiagnosticsLive do
   use PokexWeb, :live_view
 
   alias Pokex.Bots.Capture
+  alias Pokex.Bots.Catcher.Ball
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.KeyProbe
   alias Pokex.Calibration
@@ -401,12 +402,18 @@ defmodule PokexWeb.DiagnosticsLive do
      )}
   end
 
+  # A BOLA PELO CAMINHO VIVO. Este botão chamava o primitivo `capture_sequence`
+  # do Rig, que foi aposentado: ele fixava a tecla "f1" e não esperava o
+  # assentamento entre mover e apertar. Aqui ficam os dois passos que ele fazia,
+  # com a tecla configurada — quem joga bola de verdade é `Catcher.Ball`.
   def handle_info({:delayed_seq, point}, socket) do
+    result =
+      with :ok <- Rig.impl().move(point) do
+        Rig.impl().press(Ball.key())
+      end
+
     {:noreply,
-     assign(socket,
-       pending: nil,
-       tools_msg: "capture_sequence → #{inspect(Rig.impl().capture_sequence(point))}"
-     )}
+     assign(socket, pending: nil, tools_msg: "bola (move + tecla) → #{inspect(result)}")}
   end
 
   # UMA MENSAGEM ESTRANHA NÃO DERRUBA A PÁGINA.

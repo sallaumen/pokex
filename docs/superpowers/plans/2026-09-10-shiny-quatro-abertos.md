@@ -85,7 +85,7 @@ real é vetado e não leva bola nenhuma.
   lista é mudança silenciosa de contrato.
 - Consome: `ShinyAim.bodies/1` soma `passive_points` à cerca.
 
-- [ ] **Passo 1: escreva o teste que falha, no olho**
+- [x] **Passo 1: escreva o teste que falha, no olho**
 
 ```elixir
 # test/pokex/bots/crowd_scan_test.exs, dentro do describe de place/4
@@ -102,12 +102,12 @@ test "the reading carries where the respawned creatures are, not just how many" 
 end
 ```
 
-- [ ] **Passo 2: rode e confirme a falha**
+- [x] **Passo 2: rode e confirme a falha**
 
 Rode: `mix test test/pokex/bots/crowd_scan_test.exs -k "respawned creatures are"`
 Esperado: FALHA com `key :passive_points not found`.
 
-- [ ] **Passo 3: devolva os pontos**
+- [x] **Passo 3: devolva os pontos**
 
 Em `lib/pokex/bots/crowd_scan.ex`, no mapa de `place/4`:
 
@@ -129,12 +129,12 @@ Em `lib/pokex/bots/crowd_scan.ex`, no mapa de `place/4`:
 
 E no typespec `placed` (`:70-78`), acrescente `passive_points: [{integer, integer}]`.
 
-- [ ] **Passo 4: rode e confirme o verde**
+- [x] **Passo 4: rode e confirme o verde**
 
 Rode: `mix test test/pokex/bots/crowd_scan_test.exs`
 Esperado: PASSA, e os 31 testes que já existiam continuam passando.
 
-- [ ] **Passo 5: escreva o teste que falha, na mira**
+- [x] **Passo 5: escreva o teste que falha, na mira**
 
 Primeiro dê ao helper `crowd/2` do arquivo um terceiro argumento, porque hoje ele não
 sabe dizer "há um renascido aqui":
@@ -168,12 +168,12 @@ test "a respawned creature is a live body and fences the blob out" do
 end
 ```
 
-- [ ] **Passo 6: rode e confirme a falha**
+- [x] **Passo 6: rode e confirme a falha**
 
 Rode: `mix test test/pokex/bots/catcher/shiny_aim_test.exs -k "respawned creature is a live body"`
 Esperado: FALHA — a lista volta com um candidato.
 
-- [ ] **Passo 7: some os renascidos à cerca**
+- [x] **Passo 7: some os renascidos à cerca**
 
 ```elixir
   # QUALQUER CORPO VIVO, e o renascido é um deles. Magenta quer dizer que o bicho não
@@ -195,12 +195,12 @@ Esperado: FALHA — a lista volta com um candidato.
   end
 ```
 
-- [ ] **Passo 8: rode e confirme o verde**
+- [x] **Passo 8: rode e confirme o verde**
 
 Rode: `mix test test/pokex/bots/catcher/shiny_aim_test.exs test/pokex/bots/crowd_scan_test.exs`
 Esperado: PASSA.
 
-- [ ] **Passo 9: commit**
+- [x] **Passo 9: commit**
 
 ```bash
 git add lib/pokex/bots/crowd_scan.ex lib/pokex/bots/catcher/shiny_aim.ex test/pokex/bots/crowd_scan_test.exs test/pokex/bots/catcher/shiny_aim_test.exs
@@ -240,7 +240,7 @@ a bola como "inconclusiva" e a limpa. A conferência de origem tem que vir DEPOI
 senão uma bola cuja sessão de mira fechou nunca sai da conta e `aim_done?/1` nunca
 fecha nada. A ordem dos ramos é a parte que importa nesta tarefa.
 
-- [ ] **Passo 1: escreva o teste que falha**
+- [x] **Passo 1: escreva o teste que falha**
 
 O arquivo já tem `armed/0` (um `%Logic{}` iniciado com `config/0`) e `obs/2`. Some um
 `obs/3` que marca a lente, porque é isso que falta poder dizer:
@@ -284,12 +284,12 @@ E os dois testes (com `corpse_confirm_after_ms: 800` do `config/0` e o teto duro
   end
 ```
 
-- [ ] **Passo 2: rode e confirme a falha**
+- [x] **Passo 2: rode e confirme a falha**
 
 Rode: `mix test test/pokex/bots/catcher/logic_test.exs -k "proves nothing about this ball"`
 Esperado: FALHA — a segunda leitura devolve `{:log, "capturado..."}` e `pending` vira 0.
 
-- [ ] **Passo 3: marque a origem na bola**
+- [x] **Passo 3: marque a origem na bola**
 
 Em `maybe_throw/3`:
 
@@ -307,7 +307,7 @@ Em `maybe_throw/3`:
     }
 ```
 
-- [ ] **Passo 4: cale a leitura da outra lente, DEPOIS do teto duro**
+- [x] **Passo 4: cale a leitura da outra lente, DEPOIS do teto duro**
 
 Em `confirm/3`, entre o ramo do teto e o de `outra_especie?`:
 
@@ -327,13 +327,13 @@ E no fim do módulo:
   defp source_of(obs), do: Map.get(obs, :source, :corpse_scan)
 ```
 
-- [ ] **Passo 5: rode e confirme o verde**
+- [x] **Passo 5: rode e confirme o verde**
 
 Rode: `mix test test/pokex/bots/catcher/logic_test.exs`
 Esperado: PASSA. Depois `mix test test/pokex/bots/catcher/` inteiro — o worker tem 43
 testes que passam por aqui.
 
-- [ ] **Passo 6: commit**
+- [x] **Passo 6: commit**
 
 ```bash
 git add lib/pokex/bots/catcher/logic.ex test/pokex/bots/catcher/logic_test.exs
@@ -367,7 +367,7 @@ inspecionado. Ele não está "abaixo do limiar"; ele não foi olhado.
   perto.
 - Ajuste novo: `shiny_aim_max_candidates`, faixa `1..8`, padrão **3**.
 
-- [ ] **Passo 1: escreva o teste que falha, no vigia**
+- [x] **Passo 1: escreva o teste que falha, no vigia**
 
 ```elixir
 # test/pokex/bots/shiny_guard_test.exs
@@ -393,12 +393,12 @@ test "a bigger blob of scenery does not hide the creature's own", %{region: regi
 end
 ```
 
-- [ ] **Passo 2: rode e confirme a falha**
+- [x] **Passo 2: rode e confirme a falha**
 
 Rode: `mix test test/pokex/bots/shiny_guard_test.exs -k "does not hide the creature"`
 Esperado: FALHA — `vistos` tem 1.
 
-- [ ] **Passo 3: julgue todas no vigia**
+- [x] **Passo 3: julgue todas no vigia**
 
 Troque, dentro do `Enum.reduce` de `judge/5`:
 
@@ -423,12 +423,12 @@ Troque, dentro do `Enum.reduce` de `judge/5`:
 `advance/4` (a confirmação e o refratário) continua olhando a MAIOR: uma segunda
 mancha não é um segundo avistamento.
 
-- [ ] **Passo 4: rode e confirme o verde**
+- [x] **Passo 4: rode e confirme o verde**
 
 Rode: `mix test test/pokex/bots/shiny_guard_test.exs`
 Esperado: PASSA, com os 19 testes anteriores.
 
-- [ ] **Passo 5: escreva o teste que falha, na mira**
+- [x] **Passo 5: escreva o teste que falha, na mira**
 
 Some um quadro com duas manchas da cor, a do cenário maior que a do bicho:
 
@@ -464,12 +464,12 @@ Some um quadro com duas manchas da cor, a do cenário maior que a do bicho:
 O arquivo é `async: false` e mexe em ajuste global, então o `SettingsStash` é
 obrigatório (ele restaura no `on_exit`).
 
-- [ ] **Passo 6: rode e confirme a falha**
+- [x] **Passo 6: rode e confirme a falha**
 
 Rode: `mix test test/pokex/bots/catcher/shiny_aim_test.exs -k "every blob past the trigger"`
 Esperado: FALHA — vem 1 candidato.
 
-- [ ] **Passo 7: o ajuste novo**
+- [x] **Passo 7: o ajuste novo**
 
 Em `lib/pokex/settings.ex`, junto das outras chaves de shiny:
 
@@ -490,7 +490,7 @@ Em `lib/pokex/settings/locked.ex`:
       {"Shiny (visão)", "quantos alvos por varredura a mira por cor pode enfileirar"},
 ```
 
-- [ ] **Passo 8: julgue todas na mira, com teto**
+- [x] **Passo 8: julgue todas na mira, com teto**
 
 ```elixir
           teto = Settings.get(:shiny_aim_max_candidates)
@@ -504,18 +504,18 @@ Em `lib/pokex/settings/locked.ex`:
 no lugar do `case List.first(result.manchas) do ... end`. A rejeição por corpo vivo
 (`Enum.reject(... within? ...)`) fica onde está, DEPOIS do flat_map, como hoje.
 
-- [ ] **Passo 9: rode e confirme o verde**
+- [x] **Passo 9: rode e confirme o verde**
 
 Rode: `mix test test/pokex/bots/catcher/shiny_aim_test.exs`
 Esperado: PASSA.
 
-- [ ] **Passo 10: valide na bancada ANTES do jogo**
+- [x] **Passo 10: valide na bancada ANTES do jogo**
 
 Rode: `mix test test/pokex/sim/` e depois uma corrida de `/sim` com uma cena de shiny.
 Esperado: o número de bolas por avistamento não passa do teto, e o `Verdict` do
 cenário de shiny continua cobrando a promessa que já cobrava.
 
-- [ ] **Passo 11: commit**
+- [x] **Passo 11: commit**
 
 ```bash
 git add lib/pokex/bots/shiny_guard.ex lib/pokex/bots/catcher/shiny_aim.ex lib/pokex/settings.ex lib/pokex/settings/locked.ex test/pokex/bots/shiny_guard_test.exs test/pokex/bots/catcher/shiny_aim_test.exs
@@ -553,7 +553,7 @@ anuncia shiny no hotbar, uma vez por refratário, a noite inteira. Ao contrário
 - Prova antiga sem `scale` continua confiável (mesma convenção da região, que já
   trata `nil` como "medida no mundo que ele tinha então").
 
-- [ ] **Passo 1: escreva o teste que falha**
+- [x] **Passo 1: escreva o teste que falha**
 
 ```elixir
 # test/pokex/vision/color_rules_test.exs
@@ -581,12 +581,12 @@ test "a proof from before the scale field is still trusted" do
 end
 ```
 
-- [ ] **Passo 2: rode e confirme a falha**
+- [x] **Passo 2: rode e confirme a falha**
 
 Rode: `mix test test/pokex/vision/color_rules_test.exs -k "another scale does not fit"`
 Esperado: FALHA — `mark_proven/5` não existe.
 
-- [ ] **Passo 3: guarde a ampliação**
+- [x] **Passo 3: guarde a ampliação**
 
 ```elixir
   def mark_proven(slug, floor_px, chrome \\ [], region \\ nil, scale \\ nil)
@@ -637,7 +637,7 @@ e as leitoras:
   defp scale_fits?(_no_proof, _scale), do: true
 ```
 
-- [ ] **Passo 4: passe a ampliação nos três chamadores**
+- [x] **Passo 4: passe a ampliação nos três chamadores**
 
 - `lib/pokex/bots/shiny_guard.ex:215` — o quadro está em mão:
   `Enum.split_with(rules, &ColorRules.proof_fits?(&1, {region, frame.scale}))`
@@ -652,12 +652,12 @@ Ajuste também o texto de `warn_stale/2` pra não prometer só a região: **"a p
 chão foi medida noutro quadro (ou noutra ampliação de tela) — meça de novo na
 calibração"**.
 
-- [ ] **Passo 5: rode e confirme o verde**
+- [x] **Passo 5: rode e confirme o verde**
 
 Rode: `mix test test/pokex/vision/color_rules_test.exs test/pokex/bots/shiny_guard_test.exs test/pokex/bots/shiny_readiness_test.exs test/pokex_web/live/calibration_live_test.exs`
 Esperado: PASSA.
 
-- [ ] **Passo 6: commit**
+- [x] **Passo 6: commit**
 
 ```bash
 git add lib/pokex/vision/color_rules.ex lib/pokex/bots/shiny_guard.ex lib/pokex/bots/shiny_readiness.ex lib/pokex_web/live/calibration_live.ex test/pokex/vision/color_rules_test.exs test/pokex/bots/shiny_guard_test.exs

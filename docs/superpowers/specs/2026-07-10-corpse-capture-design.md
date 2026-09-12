@@ -1,3 +1,5 @@
+> **Substituído.** O feed `:corpses` (baseline + diff, `Interpret.Corpses`) e `loot_enabled` não existem desde 30/07 (apagados em 09/09). A captura de hoje: [o desenho do shiny na caçada](2026-09-09-shiny-na-cacada-design.md) e [o plano da captura limpa](../plans/2026-09-11-captura-limpa-e-escalavel.md).
+
 # Corpse Capture Rework — Design
 
 **Date:** 2026-07-10

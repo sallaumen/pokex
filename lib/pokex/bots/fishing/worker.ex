@@ -400,7 +400,6 @@ defmodule Pokex.Bots.Fishing.Worker do
   defp describe_action({:click, :left, {x, y}}), do: "clickE #{x},#{y}"
   defp describe_action({:click, :right, {x, y}}), do: "clickD #{x},#{y}"
   defp describe_action({:move, {x, y}}), do: "move #{x},#{y}"
-  defp describe_action({:capture_sequence, {x, y}}), do: "ball #{x},#{y}"
   defp describe_action({:wait, _ms}), do: nil
   defp describe_action({:log, msg}), do: msg
   defp describe_action({:alarm, msg}), do: msg

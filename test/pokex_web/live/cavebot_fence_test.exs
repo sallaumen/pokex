@@ -34,7 +34,7 @@ defmodule PokexWeb.CavebotFenceTest do
   test "with the fence down the page says nothing about it", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/cavebot")
 
-    refute html =~ "os olhos do bot estão apontados pro mundo falso"
+    refute html =~ "os olhos do bot apontam pro mundo falso"
   end
 
   test "with the fence up it says so, loudly and first", %{conn: conn} do
@@ -43,10 +43,10 @@ defmodule PokexWeb.CavebotFenceTest do
     {:ok, _view, html} = live(conn, ~p"/cavebot")
 
     assert html =~ "cavebot-sim-armed"
-    assert html =~ "os olhos do bot estão apontados pro mundo falso"
+    assert html =~ "os olhos do bot apontam pro mundo falso"
     # …and the way out, because "it is broken" without "here is the switch" is
     # what cost him the walk.
-    assert html =~ "Desarme no simulador"
+    assert html =~ "desarme no simulador"
   end
 
   test "the reading tile stops claiming it is waiting for a first read", %{conn: conn} do

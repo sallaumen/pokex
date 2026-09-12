@@ -115,11 +115,29 @@ defmodule PokexWeb.Layouts do
     default: "max-w-3xl",
     doc: "content width; the only thing that changes page to page"
 
+  # UMA PÁGINA QUE CABE NUMA TELA NÃO PODE ADIVINHAR O TAMANHO DO CABEÇALHO.
+  # A Central media a própria moldura com `calc(100dvh - 4.5rem)`, uma conta
+  # feita à mão a partir do `h-12` do header mais o `py-3` do main — e que
+  # esquecia o `border-b` de 1px. Resultado: 100dvh + 1px de página, uma barra
+  # de rolagem permanente na tela que existe justamente pra não rolar. Pior:
+  # a conta não sabe das tarjas episódicas (shiny, outra VM, tela trocada),
+  # então bastava uma delas subir pra moldura ficar maior que o que sobrou.
+  #
+  # Com isto o shell vira uma coluna de altura exata e o `main` fica com o que
+  # sobrar, medido pelo navegador. Só no `lg`: numa tela estreita a página
+  # rola como qualquer outra.
+  attr :fit_viewport?, :boolean,
+    default: false,
+    doc: "the page is exactly one screen tall and scrolls inside itself (lg and up)"
+
   slot :inner_block, required: true
 
   def app(assigns) do
     ~H"""
-    <div class="min-h-dvh bg-pk-bg text-pk-text">
+    <div class={[
+      "min-h-dvh bg-pk-bg text-pk-text",
+      @fit_viewport? && "lg:flex lg:h-dvh lg:min-h-0 lg:flex-col"
+    ]}>
       <header
         id="app-header"
         class="sticky top-0 z-40 border-b border-pk-line bg-pk-surface/95 backdrop-blur"
@@ -377,7 +395,11 @@ defmodule PokexWeb.Layouts do
 
       <.screen_mismatch_strip check={@screen_check} current_page={@current_page} />
 
-      <main class={["mx-auto w-full px-2 py-3", @max_width]}>
+      <main class={[
+        "mx-auto w-full px-2 py-3",
+        @max_width,
+        @fit_viewport? && "lg:min-h-0 lg:flex-1 lg:overflow-hidden"
+      ]}>
         {render_slot(@inner_block)}
       </main>
 
@@ -447,8 +469,8 @@ defmodule PokexWeb.Layouts do
       aria-live="assertive"
       data-state={@banner.state}
       class={[
-        "sticky top-12 z-30 border-b border-pk-shiny-line backdrop-blur",
-        if(@live?, do: "pk-shiny-live", else: "bg-pk-shiny-dim text-pk-shiny")
+        "sticky top-12 z-30 border-b border-pk-shiny-line bg-pk-shiny-dim text-pk-shiny backdrop-blur",
+        @live? && "pk-shiny-live"
       ]}
     >
       <div class="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">

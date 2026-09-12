@@ -188,4 +188,25 @@ defmodule PokexWeb.DesignDriftTest do
            #{Enum.join(Enum.uniq(offenders), "\n")}
            """
   end
+
+  # QUEM PEDIU PRA PARAR, PARA. `animation-duration: 0.01ms` numa animação
+  # `infinite` não a desliga: ela passa a repetir a cada centésimo de
+  # milissegundo. O pisca-pisca do shiny virava um ESTROBO — pior que a
+  # animação original, e exatamente para quem pediu menos movimento. O que
+  # desliga uma animação que repete é a CONTAGEM.
+  test "prefers-reduced-motion stops what repeats, not only what is long" do
+    css = File.read!("assets/css/app.css")
+
+    [rule] =
+      Regex.run(~r/@media \(prefers-reduced-motion: reduce\) \{(.+?)\n\}/s, css,
+        capture: :all_but_first
+      )
+
+    assert rule =~ "animation-iteration-count: 1 !important",
+           """
+           O bloco de `prefers-reduced-motion` encurta a duração mas não corta
+           as repetições. Toda animação `infinite` do app (hoje
+           `pk-shiny-blink`) vira um estrobo para quem pediu menos movimento.
+           """
+  end
 end

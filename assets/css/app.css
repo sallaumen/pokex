@@ -274,12 +274,33 @@
   animation: pk-shiny-blink 600ms ease-in-out infinite alternate;
 }
 
+/* QUEM PEDIU PRA PARAR, PARA. Encurtar a duração de uma animação `infinite`
+   não a desliga: ela passa a repetir a cada 0,01ms, e o pisca-pisca do shiny
+   virava um ESTROBO — pior do que a animação original, e exatamente pra quem
+   pediu menos movimento. A contagem de repetições é o que desliga; a duração
+   curta só cuida das que rodam uma vez. */
 @media (prefers-reduced-motion: reduce) {
   *,
-  *::before {
+  *::before,
+  *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
+}
+
+/* O QUE FICOU FORA DA CAIXA SE ANUNCIA. Uma caixa com teto e sem indício é o
+   mesmo defeito que a lista de batalha tinha: duas fileiras escondendo duas
+   sem dizer. No macOS a barra de rolagem é um fantasma — ela só aparece quando
+   o dedo já está rolando, que é tarde demais pra quem nem sabe que há mais.
+
+   `scrollbar-color` obriga o navegador a desenhar a barra de verdade (não a
+   sobreposta), e o navegador só desenha o polegar quando REALMENTE há o que
+   rolar: o indício nasce da própria condição, sem uma linha de JS e sem
+   duplicar a regra que decide quais tarjas sobem. */
+.pk-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-pk-line-strong) transparent;
 }
 
 /* UM RASCUNHO NÃO É UM SALVO. O app.js preserva o que foi digitado num campo

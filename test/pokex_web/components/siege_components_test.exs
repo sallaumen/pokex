@@ -94,4 +94,35 @@ defmodule PokexWeb.SiegeComponentsTest do
     html = card(%{reading: reading(hostiles: hostiles, listed: 1)})
     assert html =~ "sem caveira"
   end
+
+  # THE PAGE HAS ONE COLOUR LAW AND THIS DRAWING HAD ANOTHER. `pk-danger` means
+  # something stopped, failed, or is about to hurt HIM — and the eye was
+  # painting a monster at full health with it while the battle list two inches
+  # away painted the same monster neutral. A full pile read as a grid of alarm,
+  # and the one that mattered — the one falling — was the quietest square.
+  test "a standing monster is not painted in the colour of his own danger" do
+    hostiles = [
+      %{point: {1057, 1022}, dx: 1, dy: 2, from_me: 2, from_pet: 1, hp_pct: 100, skull?: false},
+      %{point: {1661, 268}, dx: 5, dy: -3, from_me: 5, from_pet: 5, hp_pct: 12, skull?: false}
+    ]
+
+    html = card(%{reading: reading(hostiles: hostiles, listed: 2)})
+    squares = Regex.scan(~r/data-hostile[^>]*fill="([^"]+)"/, html) |> Enum.map(&List.last/1)
+
+    assert squares == ["var(--color-pk-text-3)", "var(--color-pk-warn)"]
+    refute html =~ "color-pk-danger"
+  end
+
+  # A NUMBER NOBODY CAN READ IS NOT EVIDENCE. He asked for the confidence of
+  # every reading ("para eu ajudar a encontrar bugs", 09/09) and it was written
+  # INSIDE the square — one game tile, 7px across at the radius he hunts with.
+  # The proof moved to a line of real type; the drawing keeps the colour.
+  test "every reading is written where it can be read, not inside its own tile" do
+    html = card(%{reading: reading()})
+
+    refute html =~ ~s(font-size="0.34")
+    assert html =~ "as leituras"
+    assert html =~ "100"
+    assert html =~ "a 5 tiles de você"
+  end
 end

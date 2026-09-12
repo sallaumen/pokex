@@ -127,7 +127,7 @@ defmodule Pokex.Bots.Engine.Situation do
           own_out?: boolean | :unknown,
           ready_keys: [String.t()] | nil,
           combo_left_ms: non_neg_integer | nil,
-          combo_since_end_ms: non_neg_integer | nil,
+          combo_stun_age_ms: non_neg_integer | nil,
           bar_seen?: boolean,
           spent?: boolean | nil,
           prepared?: boolean | nil,
@@ -244,7 +244,7 @@ defmodule Pokex.Bots.Engine.Situation do
       combo_left_ms: Map.get(inputs, :combo_left_ms),
       # HÁ QUANTO TEMPO a corrente acabou — o relógio do sono que cobre o
       # revive (ver `Logic.fresh_stun?/1`).
-      combo_since_end_ms: Map.get(inputs, :combo_since_end_ms),
+      combo_stun_age_ms: Map.get(inputs, :combo_stun_age_ms),
       # A BARRA FOI LIDA NA TELA? `ready_keys` cruza a foto com o relógio, e
       # depois de um revive o relógio está zerado — então "tudo pronto" pode
       # ser a foto ou pode ser ninguém. O reset é cobrado POR IMAGEM (regra

@@ -361,7 +361,7 @@ defmodule Pokex.Bots.Engine.Worker do
       revive_left: ReviveLedger.remaining(),
       rescue_noted_at: ReviveLedger.last_note_at(),
       combo_left_ms: Combo.left_ms(mode, now),
-      combo_since_end_ms: Combo.since_end_ms(mode, now),
+      combo_stun_age_ms: Combo.stun_age_ms(mode, now),
       # THE EYE (`CrowdWatch`'s `:crowd` fact): where the creatures stand, in
       # tiles from him and from his pokémon. Stale is nil — no eye, not an old
       # picture — and `Engine.Siege` says what it would decide with it.

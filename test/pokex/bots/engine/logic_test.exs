@@ -362,7 +362,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # dela é o que deixa a rodada fechar com o revive (03/09).
     defp yellow(overrides \\ %{}) do
       world(%{
-        situation: situation(Map.merge(%{own_hp: 47, combo_since_end_ms: 500}, overrides)),
+        situation: situation(Map.merge(%{own_hp: 47, combo_stun_age_ms: 500}, overrides)),
         hunt: hunt(%{state: :fighting, luring?: true})
       })
     end
@@ -821,7 +821,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
             situation(%{
               enemies: 1,
               combo_left_ms: 0,
-              combo_since_end_ms: 500,
+              combo_stun_age_ms: 500,
               spent?: true,
               own_hp: 100
             }),
@@ -888,7 +888,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
             situation(%{
               enemies: 1,
               combo_left_ms: 0,
-              combo_since_end_ms: 500,
+              combo_stun_age_ms: 500,
               spent?: true,
               own_hp: 100
             }),
@@ -951,7 +951,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
             situation(%{
               enemies: 1,
               combo_left_ms: 0,
-              combo_since_end_ms: 500,
+              combo_stun_age_ms: 500,
               spent?: true,
               own_hp: 100
             }),
@@ -996,7 +996,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
             situation(%{
               enemies: 1,
               combo_left_ms: 0,
-              combo_since_end_ms: 500,
+              combo_stun_age_ms: 500,
               spent?: true,
               own_hp: 100
             }),
@@ -1059,7 +1059,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
           situation:
             situation(
               Map.merge(
-                %{combo_left_ms: 0, combo_since_end_ms: 500, spent?: true, own_hp: 100},
+                %{combo_left_ms: 0, combo_stun_age_ms: 500, spent?: true, own_hp: 100},
                 overrides
               )
             ),
@@ -1101,14 +1101,14 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
     # A BARRA GASTA É O MUNDO LOGO DEPOIS DA CORRENTE — é ela que gasta a barra,
     # e é ela que termina em controle. Por isso o mundo padrão daqui carrega o
-    # sono fresco (`combo_since_end_ms`): sem ele, desde 03/09, o revive de
+    # sono fresco (`combo_stun_age_ms`): sem ele, desde 03/09, o revive de
     # conveniência não recolhe o pokémon com bicho acordado na tela.
     defp spent_fight(overrides \\ %{}) do
       world(%{
         situation:
           situation(
             Map.merge(
-              %{enemies: 4, spent?: true, own_hp: 100, combo_since_end_ms: 500},
+              %{enemies: 4, spent?: true, own_hp: 100, combo_stun_age_ms: 500},
               overrides
             )
           ),
@@ -1335,7 +1335,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
       # licença de recolher é o sono que a corrente acabou de deixar (03/09).
       sem_controle =
         world(%{
-          situation: situation(%{enemies: 4, spent?: true, own_hp: 100, combo_since_end_ms: 500}),
+          situation: situation(%{enemies: 4, spent?: true, own_hp: 100, combo_stun_age_ms: 500}),
           hunt: hunt(%{state: :fighting}),
           hands: %{opening: ["3"], single: [], crowd: []}
         })
@@ -2021,7 +2021,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
                 enemies: enemies,
                 worth_fighting?: false,
                 combo_left_ms: left_ms,
-                combo_since_end_ms: if(left_ms > 0, do: 0, else: 500),
+                combo_stun_age_ms: if(left_ms > 0, do: 0, else: 500),
                 spent?: false
               },
               extra
@@ -2105,7 +2105,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
             own_hp: nil,
             combo_left_ms: 0,
             # a corrente ACABOU de sair: é o sono dela que cobre a recolhida
-            combo_since_end_ms: 500,
+            combo_stun_age_ms: 500,
             worth_fighting?: true
           }),
         hunt: hunt(%{state: :fighting})
@@ -2853,7 +2853,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
             own_hp: 95,
             control_back_in_ms: volta_em,
             # nil = nenhuma corrente saiu: é o mundo SEM sono
-            combo_since_end_ms: nil
+            combo_stun_age_ms: nil
           }),
         hunt: hunt(%{state: :fighting}),
         hands: %{opening: ~w(3 4), small: [], single: [], crowd: ["1"]}
@@ -2874,7 +2874,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
 
     test "com o sono fresco da corrente, ele sai na hora" do
-      mundo = put_in(barra_vazia_sem_controle().situation.combo_since_end_ms, 500)
+      mundo = put_in(barra_vazia_sem_controle().situation.combo_stun_age_ms, 500)
       {logic, _} = Logic.step(Logic.new(), mundo, @sem_stun, 1_000)
       {_logic, orders} = Logic.step(logic, mundo, @sem_stun, 2_000)
 
@@ -2885,7 +2885,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # relógio do controle que decide, é o sono. Com o sono na mesa, o quanto
     # falta pro controle voltar segue sendo irrelevante, perto ou longe.
     test "com o controle longe, o sono fresco basta" do
-      longe = put_in(barra_vazia_sem_controle(38_000).situation.combo_since_end_ms, 500)
+      longe = put_in(barra_vazia_sem_controle(38_000).situation.combo_stun_age_ms, 500)
 
       {logic, _} = Logic.step(Logic.new(), longe, @sem_stun, 1_000)
       {_logic, orders} = Logic.step(logic, longe, @sem_stun, 2_000)
@@ -2894,7 +2894,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
 
     test "sem relógio nenhum, idem" do
-      sem_relogio = put_in(barra_vazia_sem_controle(nil).situation.combo_since_end_ms, 500)
+      sem_relogio = put_in(barra_vazia_sem_controle(nil).situation.combo_stun_age_ms, 500)
 
       {logic, _} = Logic.step(Logic.new(), sem_relogio, @sem_stun, 1_000)
       {_logic, orders} = Logic.step(logic, sem_relogio, @sem_stun, 2_000)
@@ -3208,7 +3208,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
                 spent?: true,
                 own_hp: 100,
                 combo_left_ms: 0,
-                combo_since_end_ms: 30_000
+                combo_stun_age_ms: 30_000
               },
               overrides
             )
@@ -3255,14 +3255,14 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # A CORRENTE ACABOU DE SAIR: é o sono dela que cobre a recolhida, e o ciclo
     # dele segue igual.
     test "com o sono fresco da corrente, o reset sai como sempre" do
-      orders = cerca_orders(mobada(%{combo_since_end_ms: 500}))
+      orders = cerca_orders(mobada(%{combo_stun_age_ms: 500}))
 
       assert orders.revive == :now
       refute orders.why =~ "segurando"
     end
 
     test "com sono fresco a reserva fica guardada" do
-      refute "7" in cerca_segundo(mobada(%{combo_since_end_ms: 500})).opening
+      refute "7" in cerca_segundo(mobada(%{combo_stun_age_ms: 500})).opening
     end
 
     # Sem bicho na tela não há de quem apanhar: recolher é seguro mesmo sem sono.
@@ -3479,9 +3479,17 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert terceiro.siege.covered == 2
     end
 
-    # IN AUTO COMBO THE CHAIN ENDS IN THE CONTROL: the edge where it ends IS
-    # the sleep, and the cover is taken there, from that very tick's picture.
-    test "the chain's end is the sleep: the cover is taken there" do
+    # IN AUTO COMBO THE STUN IS THE CHAIN'S FIRST SKILL: the edge where the
+    # chain STARTS is the sleep, and the cover is taken there, from that very
+    # tick's picture.
+    #
+    # It used to be taken at the chain's END, on the belief that "the chain
+    # ends in the control". His combo does the opposite — "o stun é a primeira
+    # coisa do auto-combo, pra já salvar o pokémon se ele tiver com baixa vida,
+    # não a última coisa" (12/09) — so the picture retrated whoever stood close
+    # when the chain was already OVER, and a creature that walked in during it
+    # was filed as covered without ever having been put to sleep.
+    test "the chain's start is the sleep: the cover is taken there" do
       eye = eye([creature(-2, 0, from_pet: 1), creature(-2, 1, from_pet: 1)])
 
       chain = fn overrides ->
@@ -3493,22 +3501,30 @@ defmodule Pokex.Bots.Engine.LogicTest do
         })
       end
 
-      running = chain.(%{combo_left_ms: 2_500, combo_since_end_ms: nil})
-      ended = chain.(%{combo_left_ms: 0, combo_since_end_ms: 0})
+      quieto = chain.(%{combo_left_ms: 0, combo_stun_age_ms: nil})
+      saindo = chain.(%{combo_left_ms: 2_500, combo_stun_age_ms: 0})
 
-      {logic, _} = Logic.step(Logic.new(), running, @sem_stun, 10_000)
-      assert logic.chain_seen?
+      {logic, _} = Logic.step(Logic.new(), quieto, @sem_stun, 10_000)
+      refute logic.chain_seen?
       assert logic.stun_cover == nil
 
-      {logic, orders} = Logic.step(logic, ended, @sem_stun, 12_500)
+      {logic, _} = Logic.step(logic, saindo, @sem_stun, 12_500)
+
+      assert logic.chain_seen?
 
       assert logic.stun_cover ==
                %{at: 12_500, pet: {-1, 0}, pos: @here, points: [{-2, 0}, {-2, 1}]}
 
-      assert orders.revive == :now
+      # …e a corrente saindo não tira foto nova a cada tique: o sono é UM.
+      {logic, _} =
+        Logic.step(
+          logic,
+          chain.(%{combo_left_ms: 800, combo_stun_age_ms: 1_700}),
+          @sem_stun,
+          14_200
+        )
 
-      assert orders.why =~
-               "o olho diria: olho: 2 colados dormindo · ninguém solto · 0 sem ver → revive seguro"
+      assert logic.stun_cover.at == 12_500
     end
 
     # THE PARK RIDES ON THE HOLD: whenever the road holds for a pile the eye

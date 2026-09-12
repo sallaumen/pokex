@@ -77,28 +77,37 @@ defmodule Pokex.Bots.Combat.Combo do
   def left_ms(_no_combo, _now), do: nil
 
   @doc """
-  Há quanto tempo a corrente ACABOU, em ms — `nil` quando o modo não tem
-  corrente ou quando nenhuma saiu ainda, e `0` enquanto ela está saindo.
+  A IDADE DO SONO, em ms: há quanto tempo a corrente COMEÇOU — `nil` quando o
+  modo não tem corrente ou quando nenhuma saiu ainda.
 
-  É o relógio do SONO. No Auto Combo a corrente termina em controle, então
-  "acabou agorinha" é a licença que o revive precisa pra recolher o pokémon sem
-  deixar o personagem na frente de bicho acordado (a morte de 03/09, 16:20).
+  É o relógio que licencia o revive a recolher o pokémon sem deixar o
+  personagem na frente de bicho acordado (a morte de 03/09, 16:20).
+
+  CONTA DA PRENSA, e isto já foi contado errado. O código acreditava que "no
+  Auto Combo a corrente termina em controle, então o fim da corrente É o stun",
+  e datava o sono a partir de `pressed_at + window`. No combo DELE o stun é a
+  PRIMEIRA skill — "o stun é a primeira coisa do auto-combo, pra já salvar o
+  pokémon se ele tiver com baixa vida, não a última coisa, e como ele
+  geralmente dura 4,5s, temos de forma muito crítica que usar o revive para
+  recuperar os cooldowns dentro desses 4.5s" (12/09). Com a conta velha e os
+  números dele (janela 3 s, `stun_window_ms` 5 s), o cérebro se dava por
+  coberto até 8 s depois da prensa sobre um sono de 4,5 s: 3,5 segundos de
+  proteção que não existem, e é nesse buraco que o revive recolhe o escudo com
+  o bicho já acordado.
+
   Sai do carimbo da tecla e não de uma borda observada: assim um cérebro que
   reiniciou no meio da caçada continua sabendo do sono.
   """
-  @spec since_end_ms(HuntMode.t() | nil, integer) :: non_neg_integer | nil
-  def since_end_ms(mode, now \\ now())
+  @spec stun_age_ms(HuntMode.t() | nil, integer) :: non_neg_integer | nil
+  def stun_age_ms(mode, now \\ now())
 
-  def since_end_ms(:auto_combo, now) do
-    window = window_ms()
+  def stun_age_ms(:auto_combo, now) do
     combo_key = key()
 
-    if combo_key == "" or not is_integer(window) or window <= 0,
-      do: nil,
-      else: desde(SkillClock.pressed_at(combo_key), window, now)
+    if combo_key == "", do: nil, else: idade(SkillClock.pressed_at(combo_key), now)
   end
 
-  def since_end_ms(_no_combo, _now), do: nil
+  def stun_age_ms(_no_combo, _now), do: nil
 
   @doc """
   A corrente ainda está saindo? Só o Auto Combo pode responder que sim.
@@ -114,8 +123,8 @@ defmodule Pokex.Bots.Combat.Combo do
     end
   end
 
-  defp desde(at, window, now) when is_integer(at), do: max(now - (at + window), 0)
-  defp desde(_never_pressed, _janela, _now), do: nil
+  defp idade(at, now) when is_integer(at), do: max(now - at, 0)
+  defp idade(_never_pressed, _now), do: nil
 
   defp remaining(at, window, now) when is_integer(at), do: max(at + window - now, 0)
   defp remaining(_never_pressed, _janela, _now), do: 0

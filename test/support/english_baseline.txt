@@ -525,7 +525,6 @@ test/pokex_web/live/calibration_live_test.exs: test "uma leitura que saiu ainda 
 test/pokex_web/live/cavebot_fence_test.exs: test "o aviso sai pela fonte que a faixa DELE usa, com o dígito e a altura"
 test/pokex_web/live/cavebot_fence_test.exs: test "sem buraco na fonte lida, a Central não diz nada"
 test/pokex_web/live/cavebot_live_test.exs: test "'é aqui que eu estou' uses the live position"
-test/pokex_web/live/cavebot_live_test.exs: test "a caixa da lista tem altura fixa, com ou sem mobada"
 test/pokex_web/live/cavebot_live_test.exs: test "a caçada parada congela a duração e diz a que horas parou"
 test/pokex_web/live/cavebot_live_test.exs: test "a linha do próprio pokémon é marcada, e não conta como inimigo"
 test/pokex_web/live/cavebot_live_test.exs: test "a mesma linha repetida vira uma linha com contador"

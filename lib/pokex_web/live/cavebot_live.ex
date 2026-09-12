@@ -2511,11 +2511,15 @@ defmodule PokexWeb.CavebotLive do
               aparece antes de virar decisão errada — a linha do próprio
               pokémon contada como inimigo custou uma caçada inteira em 27/08.
 
-              ALTURA FIXA: uma lista que cresce e encolhe com a mobada empurra
-              tudo embaixo dela a cada tique, e o que ele estava lendo pula
-              ("está com um tamanho flexível, aumentando e diminuindo",
-              28/08). Duas colunas de peças pequenas, três fileiras
-              reservadas, e o que passar rola dentro da própria caixa. --%>
+              ALTURA FIXA, E A CAIXA NUNCA SAI DO LUGAR (12/09). Ela já não
+              crescia com a mobada, mas SUMIA com a tela limpa — e some e volta
+              o dia inteiro numa caçada. Medido: a coluna respirava 76px a cada
+              pilha, e o feed que ele estava lendo ia de 9 linhas pra 14 e
+              voltava. "Esses elementos que ficam aumentando e diminuindo tiram
+              o efeito de um painel fixo, onde eu posso acompanhar com meus
+              olhos." Agora a caixa é a mesma vazia ou cheia: duas fileiras
+              reservadas (a escolha dele: "algo menor, mais discreto"), e o que
+              passar de quatro rola dentro dela. --%>
               <div class="mt-2 border-t border-pk-line pt-1.5">
                 <p class="flex items-baseline gap-1.5 font-mono text-pk-meta">
                   <span class="uppercase tracking-[0.1em] text-pk-text-3">na tela</span>
@@ -2527,14 +2531,13 @@ defmodule PokexWeb.CavebotLive do
                 </p>
 
                 <ul
-                  :if={@world.enemies != []}
                   id="cavebot-battle-rows"
-                  class="mt-1 grid h-[4.5rem] grid-cols-2 content-start gap-x-2 gap-y-1 overflow-y-auto pr-1"
+                  class="mt-1 grid h-[2.125rem] grid-cols-2 content-start gap-x-2 gap-y-0.5 overflow-y-auto pr-1"
                 >
                   <li
                     :for={row <- @world.enemies}
                     class={[
-                      "flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5",
+                      "flex h-4 min-w-0 items-center gap-1.5 rounded px-1 leading-none",
                       if(mine?(row, @situation), do: "bg-pk-ok-dim", else: "bg-pk-raised")
                     ]}
                   >
@@ -2681,9 +2684,16 @@ defmodule PokexWeb.CavebotLive do
                 id="cavebot-log-lines"
                 class="relative mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1"
               >
+                <%!-- O DEGRAU DE CIMA, porque este é o texto que ele fica LENDO
+                (12/09: "talvez até a fonte deveria ser um pouquinho maior").
+                Os 11px são o degrau das etiquetas — rótulo se reconhece pela
+                forma, frase se lê. --%>
                 <li
                   :for={line <- visible_log(@log, @show_debug)}
-                  class={["flex items-baseline gap-2 font-mono text-pk-meta", log_tone(line)]}
+                  class={[
+                    "flex items-baseline gap-2 font-mono text-pk-body leading-tight",
+                    log_tone(line)
+                  ]}
                 >
                   <span class="pk-num shrink-0 tabular-nums text-pk-text-3">
                     {Calendar.strftime(line.at, "%H:%M:%S")}
@@ -2695,7 +2705,7 @@ defmodule PokexWeb.CavebotLive do
                   se varre: "tá bem confuso de ler e acompanhar enquanto ele
                   joga" (28/08). --%>
                   <span class={[
-                    "w-14 shrink-0 text-right uppercase tracking-[0.08em]",
+                    "w-16 shrink-0 text-right uppercase tracking-[0.08em]",
                     source_tone(line.text)
                   ]}>
                     {source_label(line.text)}

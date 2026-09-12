@@ -25,6 +25,18 @@ defmodule Pokex.Bots.Catcher.Logic do
             error: nil,
             counters: %{captures: 0, tardias: 0, throws: 0, ignored: 0}
 
+  @type t :: %__MODULE__{
+          state: :idle | :armed,
+          config: map | nil,
+          queue: [{integer, integer}],
+          throw: map | nil,
+          ignored: map,
+          last_obs_at: integer | nil,
+          dry_balls: non_neg_integer,
+          error: String.t() | nil,
+          counters: map
+        }
+
   def new(config), do: %__MODULE__{config: config}
 
   def start(%__MODULE__{} = logic, _now) do

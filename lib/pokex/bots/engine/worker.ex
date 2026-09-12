@@ -47,6 +47,7 @@ defmodule Pokex.Bots.Engine.Worker do
   alias Pokex.Bots.Engine.Narration
   alias Pokex.Bots.Engine.Situation
   alias Pokex.Bots.HuntMode
+  alias Pokex.Bots.Catcher.Fact
   alias Pokex.Bots.ShinyGuard
   alias Pokex.Bots.{ReviveLedger, SkillClock}
   alias Pokex.Engine.Events
@@ -386,15 +387,13 @@ defmodule Pokex.Bots.Engine.Worker do
   defp especial?(now), do: ShinyGuard.on_screen?(now)
 
   defp catcher_armed?(now) do
-    case WorldState.get(:capture, ShinyGuard.fact_max_age_ms(), now) do
+    case WorldState.get(:capture, Fact.max_age_ms(), now) do
       {:ok, %{armed?: true}} -> true
       _stale_or_missing_or_halted -> false
     end
   end
 
   defp capturing?(now) do
-    idade = ShinyGuard.fact_max_age_ms()
-
     # A BOLA COMUM TAMBÉM. Só o shiny segurava os pés, e depois do revive a rota
     # andava numa mediana de 1,2 s (328 rodadas de 10/09) — menos que uma bola e
     # a conferência dela. Corpo no chão (a âncora que o rastro sabe) ou bola no
@@ -402,7 +401,7 @@ defmodule Pokex.Bots.Engine.Worker do
     # andamento. Era `aiming?`, uma sessão de mira que ficava acesa até 90 s sem
     # nada no chão — e uma de 70 s (19:50 de 11/09) queimou o teto do segurar
     # antes da hora da bola de verdade.
-    case WorldState.get(:capture, idade, now) do
+    case WorldState.get(:capture, Fact.max_age_ms(), now) do
       {:ok, %{pending: pending}} when is_integer(pending) and pending > 0 -> true
       {:ok, %{anchors: anchors}} when is_integer(anchors) and anchors > 0 -> true
       _stale_or_missing_or_done -> false

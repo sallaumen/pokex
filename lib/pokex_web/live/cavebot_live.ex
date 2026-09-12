@@ -29,6 +29,7 @@ defmodule PokexWeb.CavebotLive do
   alias Pokex.Bots.Combat.Loadout
   alias Pokex.Calibration
   alias Pokex.Perception
+  alias Pokex.Pokedex.Team
   alias Pokex.Settings
   alias Pokex.Sim.Fence
   alias Pokex.World
@@ -59,6 +60,10 @@ defmodule PokexWeb.CavebotLive do
       # vejo na prática se realmente isso tá impactando" (Lucas, 2026-08-12).
       # Heard, never asked, for the same reason as the hunt above.
       Phoenix.PubSub.subscribe(Pokex.PubSub, Combat.Worker.topic())
+      # …e o TIME, pra que trocar o pokémon numa aba (ou no /time) chegue nesta
+      # sem recarregar: quem troca aqui já vê pelo próprio evento, quem troca
+      # lá fora chegaria calado.
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Team.topic())
       # the support speaks on "game": revives, deaths and refusals belong in the
       # hunt's own feed, not only in the panel's
       Phoenix.PubSub.subscribe(Pokex.PubSub, Pokex.Bots.PlayerSupport.Worker.topic())
@@ -108,6 +113,12 @@ defmodule PokexWeb.CavebotLive do
        # what the RUNNING fight holds; nil until it says so, and then the page
        # falls back to the configuration and labels it as such
        combat: nil,
+       # O TIME, só os nomes, e QUEM está em campo. O card já dizia o nome, mas
+       # lido do `Loadout` — que é "está em campo E tem tecla classificada" e
+       # responde nil pro pokémon recém-cadastrado. Pra escolher, a verdade é a
+       # do time; o loadout continua dono do resto do card (abertura, reserva).
+       team: Team.member_names(),
+       active_pokemon: Team.active(),
        # os outros dois placares da noite, pro resumo: o capturador conta as
        # capturas e o suporte conta os revives. Ambos chegam por broadcast; nil
        # até o primeiro, e o resumo lê nil como zero.
@@ -244,6 +255,11 @@ defmodule PokexWeb.CavebotLive do
   def handle_info({:cavebot, snapshot}, socket), do: {:noreply, assign(socket, hunt: snapshot)}
 
   def handle_info({:combat, snapshot}, socket), do: {:noreply, assign(socket, combat: snapshot)}
+
+  # O time mudou em algum lugar (aqui, no /time, noutra aba). Só os nomes vivem
+  # em assign; quem está em campo o card relê do `Loadout` ao desenhar.
+  def handle_info({:team_changed}, socket),
+    do: {:noreply, assign(socket, team: Team.member_names(), active_pokemon: Team.active())}
 
   def handle_info({:engine, situation, orders}, socket),
     do: {:noreply, assign(socket, situation: situation, orders: orders)}
@@ -895,6 +911,17 @@ defmodule PokexWeb.CavebotLive do
   def handle_event("toggle_debug", _params, socket),
     do: {:noreply, assign(socket, show_debug: not socket.assigns.show_debug)}
 
+  # QUEM ESTÁ EM CAMPO, trocado daqui. "É geralmente o único motivo pelo qual eu
+  # vou lá na parte de time no meu dia a dia" (12/09) — e o /time fica a uma tela
+  # de distância da caçada que está rodando. A troca é a MESMA do /time
+  # (`Team.set_active/1`, que persiste e anuncia; o combate relê sem reiniciar),
+  # nunca uma segunda regra: dois lugares que escrevem o mesmo fato de jeitos
+  # diferentes é como um deles envelhece.
+  def handle_event("set_active", %{"active" => name}, socket) do
+    Team.set_active(if(name == "", do: nil, else: name))
+    {:noreply, assign(socket, team: Team.member_names(), active_pokemon: Team.active())}
+  end
+
   # Copied through the CLIENT, because the log he needs to paste is the log he
   # is LOOKING at — and a server-side clipboard does not exist.
   def handle_event("copy_log", _params, socket) do
@@ -1460,6 +1487,10 @@ defmodule PokexWeb.CavebotLive do
       true -> "bg-pk-line-strong"
     end
   end
+
+  # Quem está em campo AGORA: a luta rodando manda (é a prova de que está sendo
+  # obedecido), e fora dela é o time que diz.
+  defp on_field(%{combat: combat, active_pokemon: chosen}), do: active_name(combat) || chosen
 
   defp active_name(combat) do
     case fighting_as(combat) do
@@ -2257,16 +2288,32 @@ defmodule PokexWeb.CavebotLive do
                   lutando como
                 </span>
 
-                <span :if={fighting_as(@combat)} class="text-pk-body font-bold">
-                  {fighting_as(@combat).name}
-                </span>
-                <.link
-                  :if={is_nil(fighting_as(@combat))}
-                  navigate={~p"/time"}
-                  class="text-pk-body font-bold text-pk-warn hover:underline"
-                >
-                  ninguém escolhido — escolhe no /time
-                </.link>
+                <%!-- E TROCADO AQUI. O nome era um texto e a troca morava no
+                /time — "é geralmente o único motivo pelo qual eu vou lá na
+                parte de time no meu dia a dia" (12/09). Vira o próprio
+                seletor, no lugar onde o nome já estava: mesma escrita
+                (`Team.set_active/1`) que a outra tela, mesma frase quando não
+                há ninguém escolhido. --%>
+                <form id="cavebot-active-form" phx-change="set_active">
+                  <select
+                    id="cavebot-active"
+                    name="active"
+                    aria-label="Pokémon em campo"
+                    class={[
+                      "h-6 w-44 cursor-pointer rounded border border-transparent bg-transparent px-1",
+                      "text-pk-body font-bold hover:border-pk-line-strong hover:bg-pk-raised",
+                      "focus:border-pk-ok focus:outline-none",
+                      if(on_field(assigns), do: "text-pk-text", else: "text-pk-warn")
+                    ]}
+                  >
+                    <option value="" selected={is_nil(on_field(assigns))}>
+                      — ninguém em campo —
+                    </option>
+                    <option :for={name <- @team} value={name} selected={on_field(assigns) == name}>
+                      {name}
+                    </option>
+                  </select>
+                </form>
 
                 <span
                   :if={@combat && @combat[:loadout]}
@@ -2284,7 +2331,7 @@ defmodule PokexWeb.CavebotLive do
                 </span>
 
                 <.link navigate={~p"/time"} class="ml-auto text-pk-meta text-pk-info hover:underline">
-                  mudar no /time
+                  teclas no /time
                 </.link>
               </div>
 

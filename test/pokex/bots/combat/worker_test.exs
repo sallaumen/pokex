@@ -1115,6 +1115,39 @@ defmodule Pokex.Bots.Combat.WorkerTest do
              "o relógio não aprendeu a corrente: #{inspect(SkillClock.ready_by_clock(barra, %{}))}"
     end
 
+    # A MORTE DE 12/09, 17:55 — o mesmo defeito de 02/09 por outra porta.
+    #
+    # `combo_chain/2` perguntava se a prensa era `== [Combo.key()]`: igualdade
+    # exata com uma lista de UM elemento. A aura da rota sai no MESMO burst que
+    # a corrente (`["shift+1", "r"]`, porque a ordem da rota vai na frente), a
+    # comparação falhava, e a corrente não era carimbada — 183 de 1.144
+    # correntes em 12/09 (16%) e 294 de 1.072 em 11/09 (27%).
+    #
+    # Sem carimbo a barra segue dizendo "tudo pronto", `spent?` nunca fica
+    # verdadeiro, e a regra que pede o revive depois do combo nunca dispara.
+    @tag :tmp_dir
+    test "and it stamps even when it goes out in the same burst as the route aura",
+         %{worker: worker} do
+      SettingsStash.stash!(auto_combo_key: "r", auto_combo_window_ms: 5_000)
+      SkillClock.wipe()
+      :ok = Worker.run(worker, 5_000, :auto_combo)
+
+      # a ordem da rota (a aura) vai na frente da corrente no mesmo burst
+      orders!(%{orders: ["shift+1"]})
+
+      barra = Pokex.Bots.SkillBar.keys(4)
+      assert SkillClock.ready_by_clock(barra, %{}) == barra, "o relógio já nasceu sujo"
+
+      abre_o_fogo(worker)
+
+      assert eventually(fn ->
+               world!(worker, battle_obs(enemies: [0, 1, 2]))
+               "shift+1" in presses() and SkillClock.ready_by_clock(barra, %{}) == []
+             end),
+             "a aura saiu junto e a corrente não foi carimbada: " <>
+               "#{inspect(SkillClock.ready_by_clock(barra, %{}))} — prensas #{inspect(presses())}"
+    end
+
     # A CORRIDA QUE ELE VIU EM 02/09: 56 combos e 7 revives.
     #
     # Com a barra JÁ vazia a corrente não faz nada no jogo (as skills do bicho

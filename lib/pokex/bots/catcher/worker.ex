@@ -25,6 +25,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Bots.Catcher.Balls
   alias Pokex.Bots.Catcher.CorpseLibrary
   alias Pokex.Bots.Catcher.Logic
+  alias Pokex.Bots.Catcher.Fact
   alias Pokex.Bots.Catcher.Observation
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Catcher.Sweep
@@ -584,7 +585,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     state =
       cond do
         Perception.mini_game_playing?() ->
-          refuse_shiny(obs, "o mini-game está em curso")
+          explain_no_ball(obs, state, "o mini-game está em curso")
           state
 
         # a âncora do shiny é uma afirmação sobre o chão, não uma foto: nenhum
@@ -702,7 +703,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp advance_gated(state, obs) do
     cond do
       not capture_allowed?(state, obs) ->
-        refuse_shiny(obs, "captura desligada e shiny_always_ball desligado")
+        explain_no_ball(obs, state, "captura desligada e shiny_always_ball desligado")
         state
 
       # Ask the GATE before deciding — the cavebot's lesson (Body.step_minimap):
@@ -711,38 +712,32 @@ defmodule Pokex.Bots.Catcher.Worker do
       # the queue and open a confirmation window against an untouched corpse.
       # Skipping the whole step leaves the corpse there for the next kill.
       not gate_aberto?() ->
-        refuse_shiny(obs, "o jogo não está em foco, ou o pânico está armado")
+        explain_no_ball(obs, state, "o jogo não está em foco, ou o pânico está armado")
         hold(state)
 
       true ->
         state = run_step(%{state | held?: false}, obs)
-        anchor_without_ball(state, obs)
+        if state.logic.throw == nil, do: explain_no_ball(obs, state, :logic)
         state
     end
   end
 
-  # A BOLA DO SHINY NUNCA SOME EM SILÊNCIO. Às 17:26:00 de 11/09 duas âncoras
-  # foram anunciadas e nenhuma bola saiu, sem uma linha dizendo por quê.
-  defp refuse_shiny(%{source: :anchor, diag: %{anchor: true}}, why),
-    do: log(:macro, "🌟 a bola da âncora NÃO saiu — #{why}")
+  # A BOLA DA ÂNCORA NUNCA SOME EM SILÊNCIO. Às 17:26:00 de 11/09 duas âncoras
+  # foram anunciadas e nenhuma bola saiu, sem uma linha dizendo por quê; às
+  # 19:51:19 o corpo estava no chão, ele parado do lado, e a linha que apareceu
+  # foi esta. UM relator, uma forma de frase, seja quem for que recusou.
+  defp explain_no_ball(%{source: :anchor, diag: %{anchor: true}} = obs, state, why),
+    do: log(:macro, "🌟 a bola da âncora NÃO saiu — #{reason_for(obs, state, why)}")
 
-  defp refuse_shiny(_obs, _why), do: :ok
+  defp explain_no_ball(_ordinary_obs, _state, _why), do: :ok
 
-  defp anchor_without_ball(%{logic: %{throw: nil} = logic}, %{
-         source: :anchor,
-         diag: %{anchor: true},
-         corpses: corpses,
-         captured_at: at
-       }) do
-    log(
-      :macro,
-      "🌟 a bola da âncora NÃO saiu — a lógica recusou #{length(corpses)} âncora(s): " <>
-        "fila #{length(logic.queue)}, ignorados #{map_size(logic.ignored)}, " <>
-        "esta observação #{at}, a última que ela viu #{inspect(logic.last_obs_at)}"
-    )
+  defp reason_for(obs, %{logic: logic}, :logic) do
+    "a lógica recusou #{length(obs.corpses)} âncora(s): fila #{length(logic.queue)}, " <>
+      "ignorados #{map_size(logic.ignored)}, esta observação #{obs.captured_at}, " <>
+      "a última que ela viu #{inspect(logic.last_obs_at)}"
   end
 
-  defp anchor_without_ball(_state, _obs), do: :ok
+  defp reason_for(_obs, _state, text) when is_binary(text), do: text
 
   defp gate_aberto? do
     InputGate.allowed?()
@@ -1359,32 +1354,17 @@ defmodule Pokex.Bots.Catcher.Worker do
   # (`anchors`) ou uma bola já em andamento (`pending`, que também é a bola
   # comum). `hunted?` é a barra do shiny ainda de pé — ela não segura os pés,
   # mas é o que licencia a bola com a captura desligada e o que o azulejo mostra.
-  defp publish_capture(state) do
-    ref = trail_ref(%{})
+  defp publish_capture(state), do: WorldState.put(:capture, fact(state), now())
 
-    WorldState.put(
-      :capture,
-      %{
-        pending: (state.logic && Logic.pending(state.logic)) || 0,
-        anchors: length(Trail.anchors(state.trail, ref, now())),
-        hunted?: Trail.hunted(state.trail, ref) != nil,
-        # SOMEONE IS HERE TO THROW: armed, with the capture switch on. The brain
-        # holds the feet when a round closes only for this — parar pra olhar
-        # sem ninguém pra jogar é só parar.
-        armed?: armed?(state)
-      },
-      now()
-    )
-  end
+  defp fact(state),
+    do: Fact.build(state.trail, state.logic, armed?(state), trail_ref(%{}), now())
 
   defp armed?(state),
     do: match?(%Logic{state: :armed}, state.logic) and Settings.get(:capture_enabled) == true
 
-  @pulse_ms 1_000
-
   defp arm_pulse(state) do
     state = disarm_pulse(state)
-    %{state | pulse_timer: Process.send_after(self(), :pulse, @pulse_ms)}
+    %{state | pulse_timer: Process.send_after(self(), :pulse, Fact.pulse_ms())}
   end
 
   defp disarm_pulse(%{pulse_timer: nil} = state), do: state
@@ -1420,7 +1400,6 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp snapshot(state) do
     mode = Settings.get(:player_mode)
-    ref = trail_ref(%{})
 
     %{
       state: mode_state(state.logic, mode),
@@ -1433,12 +1412,6 @@ defmodule Pokex.Bots.Catcher.Worker do
       error: state.logic && state.logic.error,
       hold_reason: hold_reason(state),
       last_action: state.last_action,
-      pending_corpses: (state.logic && Logic.pending(state.logic)) || 0,
-      # A CAÇADA DO SHINY, pelo que o rastro sabe: a barra ainda de pé, e
-      # quantos corpos ele tem no chão. Era `aim?`/`shiny_pending?`, de uma
-      # sessão de mira por cor que podia estar acesa sem nada no chão.
-      hunted?: Trail.hunted(state.trail, ref) != nil,
-      anchors: length(Trail.anchors(state.trail, ref, now())),
       # o rastro (`Catcher.Trail`): o shiny de pé e onde ele caiu, na tela de agora
       trail: trail_snapshot(state),
       sweep: %{
@@ -1448,6 +1421,9 @@ defmodule Pokex.Bots.Catcher.Worker do
         balls: state.sweep_balls
       }
     }
+    # DOIS FIOS, UMA CONTA SÓ (`Catcher.Fact`): o que a transmissão diz sobre a
+    # captura é recortado do MESMO fato que o cérebro lê.
+    |> Map.merge(Fact.snapshot_fields(fact(state)))
   end
 
   # Computed at broadcast time from live state — the engage/disengage edge above

@@ -90,14 +90,16 @@ defmodule Pokex.Bots.SkillReceiptTest do
     test "a key that is not a hotbar slot is not the same as a bar nobody could read" do
       check = SkillReceipt.check(["1", "2"], ["1"], ["shift+3"])
 
-      assert check == %{fired: [], missed: [], unknown: [], off_bar: ["shift+3"]}
+      assert check == %{fired: [], missed: [], unknown: [], off_bar: ["shift+3"], refilled: []}
       assert SkillReceipt.verdict(check) == :unconfirmed
     end
 
     test "the bar keys keep answering with the off-bar ones in the same press" do
       check = SkillReceipt.check(["1", "2"], ["2"], ["1", "2", "shift+3"])
 
-      assert check == %{fired: ["1"], missed: ["2"], unknown: [], off_bar: ["shift+3"]}
+      assert check ==
+               %{fired: ["1"], missed: ["2"], unknown: [], off_bar: ["shift+3"], refilled: []}
+
       assert SkillReceipt.verdict(check) == {:missed, ["2"]}
     end
 
@@ -105,7 +107,44 @@ defmodule Pokex.Bots.SkillReceiptTest do
     # que diz "recalibre", e ela não pode ser diluída pela outra.
     test "an unreadable bar still says unknown for a real slot" do
       assert SkillReceipt.check(nil, nil, ["1", "shift+3"]) ==
-               %{fired: [], missed: [], unknown: ["1"], off_bar: ["shift+3"]}
+               %{fired: [], missed: [], unknown: ["1"], off_bar: ["shift+3"], refilled: []}
+    end
+  end
+
+  # O MEIO TERMO QUE ELE PEDIU (12/09): "se alguma interferência rolar, avisa
+  # que até deu certo, só que com ressalva".
+  #
+  # O revive devolve a barra INTEIRA, então um recibo que o atravessa não tem o
+  # que medir: "estava pronta e continua pronta" deixa de ser prova de que a
+  # tecla não saiu — ela pode ter saído e voltado no mesmo movimento. Acusar
+  # `missed` aqui manda o worker APERTAR DE NOVO o que já funcionou.
+  describe "quando um revive reencheu a barra no meio" do
+    test "the accusation becomes a caveat, and nobody presses again" do
+      contaminado = SkillReceipt.check(bar(["1", "2"]), bar(["1", "2"]), ["1"], true)
+
+      assert %{missed: [], refilled: ["1"]} = contaminado
+      assert SkillReceipt.verdict(contaminado) == :unconfirmed
+
+      # …e sem o revive a mesma leitura segue sendo uma tecla perdida
+      limpo = SkillReceipt.check(bar(["1", "2"]), bar(["1", "2"]), ["1"])
+
+      assert %{missed: ["1"], refilled: []} = limpo
+      assert SkillReceipt.verdict(limpo) == {:missed, ["1"]}
+    end
+
+    # SÓ A ACUSAÇÃO AMOLECE. Uma tecla que esfriou APESAR do revive só pode ter
+    # saído depois dele — isso é prova, e prova não se amolece.
+    test "what cooled down anyway stays confirmed" do
+      check = SkillReceipt.check(bar(["1", "2"]), bar(["2"]), ["1"], true)
+
+      assert %{fired: ["1"], refilled: []} = check
+      assert SkillReceipt.verdict(check) == :confirmed
+    end
+
+    test "and a key already cooling stays unknown" do
+      check = SkillReceipt.check(bar(["2"]), bar(["2"]), ["1"], true)
+
+      assert %{unknown: ["1"], refilled: []} = check
     end
   end
 end

@@ -15,6 +15,26 @@ defmodule Pokex.Sim.Hands do
 
   So: one obey, two callers. A rule that is not here does not exist for either.
 
+  ## E ESTA MÃO É UMA IMITAÇÃO, não o worker
+
+  O que roda aqui é um espelho do `Combat.Worker` e do `PlayerSupport.Worker`,
+  escrito à parte — os comentários abaixo dizem "o ESPELHO do `let_go` do
+  combate" porque é isso mesmo. **Uma bancada verde não prova nada sobre o
+  código que aperta a tecla no jogo dele.**
+
+  Não é teoria: as três mortes de 12/09 vieram todas de fora do que esta mão
+  modela. A que custou mais foi o #642 — `Combat.Worker.combo_chain/2` só
+  carimbava a corrente se a prensa fosse EXATAMENTE `[Combo.key()]`, e a tecla
+  da postura viaja no mesmo burst; 16% das correntes dele ficavam sem carimbo e
+  o revive do ciclo nunca era pedido. Esta mão não tem postura nenhuma
+  (`attack_mode_key`/`defense_mode_key` não aparecem em `lib/pokex/sim/`) e não
+  tem carimbo de corrente (ela modela a corrente como FÍSICA do mundo,
+  `combo_chain_ms`), então não tinha como ver.
+
+  A divisão que vale: a bancada mede o CÉREBRO — se as ordens são as certas
+  para um quadro. Quem prova a MÃO é o teste do worker de verdade, contra o
+  diário dele.
+
   ## The four hands, in the order the game gives them
 
     * **Walk** — `route: :go` holds the direction keys toward the current

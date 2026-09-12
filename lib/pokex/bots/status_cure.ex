@@ -91,9 +91,16 @@ defmodule Pokex.Bots.StatusCure do
   defp worth?(_no_policy, _cured?), do: false
 
   # TARGETING AND CHANGING STANCE ARE NOT ATTACKING. Neither Tab nor `shift+N`
-  # makes the pokémon cast anything, and both leave in a burst of their OWN:
-  # without this fence the fight's first potion was spent on the stance change,
-  # and the attack right behind it went out with no cleaning at all.
+  # makes the pokémon cast anything: without this fence the fight's first potion
+  # was spent on the stance change, and the attack right behind it went out with
+  # no cleaning at all.
+  #
+  # E A CERCA É POR TECLA, não pela prensa inteira — de propósito. A postura NÃO
+  # sai numa prensa própria: `Combat.Logic.wear/2` põe a tecla dela na FRENTE da
+  # mesma lista de ações do ataque, então a prensa real é `["shift+1", "r"]`.
+  # Perguntar "esta prensa é só de acompanhante?" com `Enum.any?` acerta;
+  # perguntar com igualdade exata é o defeito que matou o personagem em 12/09
+  # (#642, `combo_chain/2`).
   defp attack?(keys), do: Enum.any?(keys, &(&1 not in bystanders()))
 
   defp bystanders do

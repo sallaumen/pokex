@@ -10,10 +10,10 @@ defmodule PokexWeb.SiegeComponents do
 
   State is never colour alone: the headline says in words what the tiles show.
 
-  ## Cada quadrado diz o QUANTO, não só o quê
+  ## Cada leitura diz o QUANTO, não só o quê
 
   "Me mostrar, quando ele identificar qualquer coisa, qual a taxa de confiabilidade que ele
-  acha… para eu ajudar a encontrar bugs" (09/09). Um quadrado sem número é uma afirmação sem
+  acha… para eu ajudar a encontrar bugs" (09/09). Uma leitura sem número é uma afirmação sem
   prova, e o que muda por quadrado é justamente o que se pode provar:
 
     * **o pokémon dele** — a nota da sprite ensinada (0..100%) quando foi ela que o achou, e
@@ -30,6 +30,11 @@ defmodule PokexWeb.SiegeComponents do
   acredita**. Sem isso o 87% de semelhança da sprite lia-se como 87% de vida num pokémon que
   estava com 96 — duas grandezas diferentes com a mesma cara é como se lê um número errado sem
   perceber.
+
+  Os números moram na gaveta "as leituras", não dentro do quadrado. O quadrado é UM tile: com o
+  raio de 8 que ele caça, o desenho tem 17 tiles de largura e o número saía a 7px — um terço do
+  menor tipo do sistema. Uma prova que não se lê não prova nada. No desenho fica o que a forma e
+  a cor dizem sozinhas; o número fica onde tem tamanho.
   """
   use PokexWeb, :html
 
@@ -63,8 +68,8 @@ defmodule PokexWeb.SiegeComponents do
       ]}
     >
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h2 class="mr-auto shrink-0 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-          👁 o cerco
+        <h2 class="mr-auto flex shrink-0 items-center gap-1.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+          <.icon name="hero-eye" class="size-3.5" /> o cerco
         </h2>
         <%!-- NUMA COLUNA ESTREITA A FRASE DESCE. Ao lado dos dois botões ela
              ficava com trinta pixels e saía uma palavra por linha. --%>
@@ -87,7 +92,7 @@ defmodule PokexWeb.SiegeComponents do
           type="button"
           phx-click="toggle_mirror"
           class={[
-            "shrink-0 cursor-pointer rounded border px-2 py-0.5 font-mono text-pk-meta transition-colors",
+            "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded border px-2 py-0.5 font-mono text-pk-meta transition-colors",
             if(@mirror?,
               do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
               else: "border-pk-line text-pk-text-2 hover:bg-pk-raised"
@@ -95,7 +100,8 @@ defmodule PokexWeb.SiegeComponents do
           ]}
           title="a sua tela por baixo do desenho, renovada a cada 2s — pra ver se o que ele leu é o que está lá"
         >
-          🪞 espelho {if @mirror?, do: "ligado", else: "desligado"}
+          <.icon name="hero-photo" class="size-3.5" />
+          espelho {if @mirror?, do: "ligado", else: "desligado"}
         </button>
       </div>
 
@@ -191,19 +197,6 @@ defmodule PokexWeb.SiegeComponents do
                 >
                   <title>{hostile_title(h)}</title>
                 </rect>
-                <text
-                  data-hostile-label
-                  x={h.dx}
-                  y={h.dy + 0.12}
-                  text-anchor="middle"
-                  font-size="0.34"
-                  font-family="ui-monospace, monospace"
-                  font-weight="700"
-                  fill="var(--color-pk-bg)"
-                  pointer-events="none"
-                >
-                  {hostile_label(h)}
-                </text>
               </g>
               <rect
                 :if={@reading.pet}
@@ -218,20 +211,6 @@ defmodule PokexWeb.SiegeComponents do
               >
                 <title>{pet_title(@reading.pet)}</title>
               </rect>
-              <text
-                :if={@reading.pet}
-                data-pet-label
-                x={@reading.pet.dx}
-                y={@reading.pet.dy + 0.12}
-                text-anchor="middle"
-                font-size="0.34"
-                font-family="ui-monospace, monospace"
-                font-weight="700"
-                fill="var(--color-pk-bg)"
-                pointer-events="none"
-              >
-                {pet_label(@reading.pet)}
-              </text>
             <% end %>
 
             <rect
@@ -269,17 +248,40 @@ defmodule PokexWeb.SiegeComponents do
             <span class="inline-block size-3 border border-dashed border-pk-ok"></span> as oito bocas
           </li>
           <li class="flex items-center gap-1.5">
-            <span class="inline-block size-3 bg-pk-danger"></span> monstro (cor = vida)
+            <span class="inline-block size-3 bg-pk-text-3"></span> monstro de pé
+          </li>
+          <li class="flex items-center gap-1.5">
+            <span class="inline-block size-3 bg-pk-warn"></span> monstro caindo (≤35%)
           </li>
           <li class="flex items-center gap-1.5">
             <span class="inline-block size-3 bg-pk-shiny ring-1 ring-pk-text"></span> shiny (cor
             ensinada)
           </li>
           <li class="flex items-center gap-1.5">
-            <span class="font-mono font-bold text-pk-text-3">42</span> no quadrado: a vida
+            <span class="font-mono font-bold text-pk-text-3">42</span> nas leituras: a vida
           </li>
           <li class="flex items-center gap-1.5">
             <span class="font-mono font-bold text-pk-text-3">≈42%</span> o quanto ele acredita
+          </li>
+        </ul>
+      </details>
+
+      <%!-- O NÚMERO DE CADA QUADRADO, ONDE ELE PODE SER LIDO.
+           "Me mostrar, quando ele identificar qualquer coisa, qual a taxa de
+           confiabilidade que ele acha… para eu ajudar a encontrar bugs"
+           (09/09) — e a resposta foi escrever a taxa DENTRO do quadrado. O
+           quadrado é UM tile: com o raio de 8 que ele usa, o desenho tem 17
+           tiles de largura e cada número saía a 7px, um terço do menor tipo
+           deste sistema. Um número que não se lê não é prova de nada.
+           A prova continua aqui, uma linha por leitura, no tipo que se lê. --%>
+      <details :if={@reading && readings(@reading) != []} class="mt-1 shrink-0">
+        <summary class="cursor-pointer list-none font-mono text-pk-meta text-pk-text-3 hover:text-pk-text-2">
+          as leituras ▸
+        </summary>
+        <ul class="mt-1 space-y-0.5 font-mono text-pk-meta text-pk-text-2">
+          <li :for={{label, text} <- readings(@reading)} class="flex gap-1.5">
+            <span class="w-10 shrink-0 text-right font-bold text-pk-text">{label}</span>
+            <span class="min-w-0 flex-1">{text}</span>
           </li>
         </ul>
       </details>
@@ -348,9 +350,17 @@ defmodule PokexWeb.SiegeComponents do
 
   # --- the palette, the simulator's --------------------------------------------
 
-  defp hp_fill(hp) when hp > 66, do: "var(--color-pk-danger)"
-  defp hp_fill(hp) when hp > 33, do: "var(--color-pk-warn)"
-  defp hp_fill(_low), do: "var(--color-pk-warn-line)"
+  # A MESMA LEI DE COR DA LISTA DE BATALHA, que fica dois dedos ao lado desta
+  # peça. Aqui o olho pintava bicho INTEIRO de `pk-danger` e bicho quase morto
+  # de fio apagado — o inverso do que a lista faz, e o inverso do que a página
+  # inteira significa por `pk-danger` (o que parou, falhou, ou é destrutivo:
+  # a vida DELE, nunca a de um monstro). Uma pilha cheia virava uma grade cor
+  # de alarme, e o bicho prestes a cair era o mais discreto do desenho.
+  #
+  # Bicho de pé é neutro: é o normal da noite. Âmbar é o fato que muda a
+  # decisão — este cai no próximo golpe.
+  defp hp_fill(hp) when hp <= 35, do: "var(--color-pk-warn)"
+  defp hp_fill(_standing), do: "var(--color-pk-text-3)"
 
   # O SHINY TEM COR PRÓPRIA. Ele é o troféu da noite e não pode dividir a
   # paleta com a vida de um bicho comum: quem olha de longe tem que saber que
@@ -382,6 +392,27 @@ defmodule PokexWeb.SiegeComponents do
   end
 
   defp trigger_of(_no_name), do: nil
+
+  # Uma linha por quadrado, na ordem em que o olho os enxerga: o pokémon dele
+  # primeiro (é a âncora do desenho), depois os monstros do mais perto pro mais
+  # longe. O rótulo é o mesmo que estava escrito no quadrado.
+  defp readings(%{} = reading) do
+    pet =
+      case reading[:pet] do
+        nil -> []
+        pet -> [{pet_label(pet), pet_title(pet)}]
+      end
+
+    hostiles =
+      reading
+      |> Map.get(:hostiles, [])
+      |> Enum.sort_by(& &1.from_me)
+      |> Enum.map(&{hostile_label(&1), hostile_title(&1)})
+
+    pet ++ hostiles
+  end
+
+  defp readings(_no_reading), do: []
 
   # A NOTA DA SPRITE quando foi ela que achou; a inicial do caminho quando não
   # foi. Uma letra é o bastante pra ele ver, de relance, que hoje o pokémon

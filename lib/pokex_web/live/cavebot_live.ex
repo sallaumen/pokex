@@ -1475,6 +1475,13 @@ defmodule PokexWeb.CavebotLive do
   defp enemies_seen(_world, %{enemies: n}) when is_integer(n), do: n
   defp enemies_seen(world, _no_reading), do: length(world.enemies)
 
+  # QUANTOS A CAIXA NÃO MOSTRA. Duas fileiras de duas colunas: quatro linhas
+  # visíveis, e o resto rola dentro dela.
+  @battle_rows_visible 4
+
+  defp hidden_rows(%{enemies: enemies}), do: max(length(enemies) - @battle_rows_visible, 0)
+  defp hidden_rows(_no_world), do: 0
+
   # A vida do bicho conta a história ao contrário da dele: cheia é ruim (falta
   # matar), quase vazia é o alvo prestes a cair. O trilho é neutro e o
   # COMPRIMENTO é a informação — verde e vermelho aqui competiriam com as
@@ -1949,11 +1956,14 @@ defmodule PokexWeb.CavebotLive do
   #
   # Cada linha aqui tem uma noite atrás dela.
   defp night_blockers(rack) do
+    stock = revive_stock()
+
     [
       {Settings.get(:rescue_enabled) != true,
        "o resgate está desligado — ninguém revive o pokémon"},
-      {revive_budget_out?(),
-       "os revives acabaram pela conta — repõe e digita o estoque no /config"},
+      {stock == :out, "os revives acabaram pela conta — repõe e digita o estoque no /config"},
+      {stock == :uncounted,
+       "o estoque de revive não está contado — digita quantos você tem no /config"},
       {rack != [] and unwritten(rack) > 0,
        "tem tecla sem cooldown escrito — o relógio chuta e o revive de reset erra a hora"},
       {Settings.get(:engine_band_yellow_pct) == 0,
@@ -1963,10 +1973,15 @@ defmodule PokexWeb.CavebotLive do
     |> Enum.map(&elem(&1, 1))
   end
 
-  defp revive_budget_out? do
+  # "NÃO SEI" NÃO É "PODE DORMIR". A conta sem número lia como estoque cheio e
+  # o selo ficava VERDE — que é exatamente o estado da noite de 4,9 horas
+  # moendo com o pokémon no chão: a bag tinha secado e nada nesta tela sabia.
+  # Três respostas, três linhas: tem, acabou, e ninguém contou.
+  defp revive_stock do
     case ReviveLedger.remaining() do
-      left when is_integer(left) -> left <= 0
-      _sem_conta -> false
+      left when is_integer(left) and left > 0 -> :left
+      left when is_integer(left) -> :out
+      _sem_conta -> :uncounted
     end
   end
 
@@ -1999,7 +2014,7 @@ defmodule PokexWeb.CavebotLive do
 
   defp night_title(blockers) do
     case blockers do
-      [] -> "resgate armado, revives na conta, cooldowns escritos e guarda de vida ligada"
+      [] -> "resgate armado, revives contados, cooldowns escritos e guarda de vida ligada"
       list -> Enum.join(list, " · ")
     end
   end
@@ -2070,6 +2085,7 @@ defmodule PokexWeb.CavebotLive do
       flash={@flash}
       current_page={:cavebot}
       max_width="max-w-[560px] lg:max-w-[1600px]"
+      fit_viewport?={true}
       {Layouts.header(assigns)}
     >
       <%!-- TWO MODES, one page. Watching a hunt and editing a route want the
@@ -2083,8 +2099,14 @@ defmodule PokexWeb.CavebotLive do
            Both modes are bounded by the VIEWPORT: this block is exactly one
            screen tall, and whatever scrolls, scrolls inside itself. The
            `min-h-0` is what lets a flex or grid child shrink below its content
-           and scroll at all. --%>
-      <div class="flex flex-col gap-2 lg:h-[calc(100dvh-4.5rem)]">
+           and scroll at all.
+
+           A altura vem do shell (`fit_viewport?`), não de uma conta escrita
+           aqui: a conta antiga (`calc(100dvh-4.5rem)`) esquecia o fio de 1px
+           embaixo do header e não sabia das tarjas episódicas, então esta
+           página era 1px mais alta que a tela SEMPRE e mais alta ainda sempre
+           que uma tarja subia. --%>
+      <div class="flex flex-col gap-2 lg:h-full lg:min-h-0">
         <header class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <div>
             <%!-- The subtitle explained the page to someone reading it for the
@@ -2179,24 +2201,36 @@ defmodule PokexWeb.CavebotLive do
              da tela, e as duas juntas custavam 76px do que ele quer ver
              enquanto o bot trabalha. Lado a lado quando cabem, empilhadas
              quando a janela é estreita. --%>
-        <div :if={@mode == :watch} class="flex flex-wrap items-stretch gap-2">
-          <%!-- E O QUE FALTA, POR EXTENSO. O `title` do selo responde ao mouse; o
+        <%!-- O ORÇAMENTO DOS AVISOS. Cada tarja aqui é episódica e cada uma
+             empurrava o cockpit pra baixo pelo que ela mede — três delas numa
+             noite ruim comiam 34% da tela, e o feed que ele estava lendo
+             ficava com ZERO linha visível (medido a 1440×790 em 12/09).
+
+             Aviso não pode custar o painel: esta faixa tem teto e rola dentro
+             de si. O cockpit abaixo dela é o que ele fica olhando por horas e
+             não muda de tamanho porque a noite ficou barulhenta. --%>
+        <div
+          id="cavebot-advisories"
+          class="pk-scrollbar flex flex-col gap-1.5 lg:max-h-[7.5rem] lg:shrink-0 lg:overflow-y-auto"
+        >
+          <div :if={@mode == :watch} class="flex flex-wrap items-stretch gap-2">
+            <%!-- E O QUE FALTA, POR EXTENSO. O `title` do selo responde ao mouse; o
                que decide se ele pode dormir não pode depender de alguém passar o
                mouse por cima. Uma linha, só quando há o que dizer. --%>
-          <section
-            :if={@blockers != []}
-            id="cavebot-ready-list"
-            class="flex min-w-[18rem] flex-1 flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-1.5"
-          >
-            <span
-              :for={blocker <- @blockers}
-              class="flex items-center gap-1.5 text-pk-body text-pk-warn"
+            <section
+              :if={@blockers != []}
+              id="cavebot-ready-list"
+              class="flex min-w-[18rem] flex-1 flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-1.5"
             >
-              <.icon name="hero-exclamation-triangle" class="size-3.5 shrink-0" />{blocker}
-            </span>
-          </section>
+              <span
+                :for={blocker <- @blockers}
+                class="flex items-center gap-1.5 text-pk-body text-pk-warn"
+              >
+                <.icon name="hero-exclamation-triangle" class="size-3.5 shrink-0" />{blocker}
+              </span>
+            </section>
 
-          <%!-- O CAMINHO DO SHINY, um passo por vez e com a porta ao lado. A
+            <%!-- O CAMINHO DO SHINY, um passo por vez e com a porta ao lado. A
              configuração dele mora em quatro páginas (a cor na calibração, a
              prova do chão ali também, a guarda no painel, a bola nos editores)
              e nada dizia a ORDEM — então cada passo faltando parecia uma noite
@@ -2205,62 +2239,63 @@ defmodule PokexWeb.CavebotLive do
 
              A guarda tem botão AQUI: é o único passo que é um clique, e ele
              está justamente na tela onde ele passa a noite. --%>
-          <section
-            :if={@shiny.gaps != [] or @shiny.notes != []}
-            id="cavebot-shiny-list"
-            class="flex min-w-[18rem] flex-1 flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pk-line bg-pk-sunken px-3 py-1.5"
-          >
-            <span
-              :for={step <- @shiny.gaps}
-              class="flex flex-wrap items-center gap-1.5 text-pk-body text-pk-warn"
+            <section
+              :if={@shiny.gaps != [] or @shiny.notes != []}
+              id="cavebot-shiny-list"
+              class="flex min-w-[18rem] flex-1 flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pk-line bg-pk-sunken px-3 py-1.5"
             >
-              <.icon name="hero-sparkles" class="size-3.5 shrink-0" />{step.text}
-              <button
-                :if={step.key == :guard_off}
-                id="shiny-arm"
-                type="button"
-                phx-click="arm_shiny_guard"
-                class="cursor-pointer rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 font-mono text-pk-meta font-bold text-pk-ok transition-colors hover:bg-pk-ok hover:text-pk-bg"
+              <span
+                :for={step <- @shiny.gaps}
+                class="flex flex-wrap items-center gap-1.5 text-pk-body text-pk-warn"
               >
-                ligar agora
-              </button>
-              <.link
-                :if={step.key != :guard_off}
-                navigate={step.href}
-                class="cursor-pointer font-mono text-pk-meta text-pk-text-2 underline hover:text-pk-text"
-              >
-                {step.link}
-              </.link>
-            </span>
+                <.icon name="hero-sparkles" class="size-3.5 shrink-0" />{step.text}
+                <button
+                  :if={step.key == :guard_off}
+                  id="shiny-arm"
+                  type="button"
+                  phx-click="arm_shiny_guard"
+                  class="cursor-pointer rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 font-mono text-pk-meta font-bold text-pk-ok transition-colors hover:bg-pk-ok hover:text-pk-bg"
+                >
+                  ligar agora
+                </button>
+                <.link
+                  :if={step.key != :guard_off}
+                  navigate={step.href}
+                  class="cursor-pointer font-mono text-pk-meta text-pk-text-2 underline hover:text-pk-text"
+                >
+                  {step.link}
+                </.link>
+              </span>
 
-            <%!-- Os dois que não impedem o shiny, só o pioram: a bola errada sai
+              <%!-- Os dois que não impedem o shiny, só o pioram: a bola errada sai
                do mesmo jeito, e sem a parada o corpo some antes da segunda
                foto. Cinza, não âmbar — não são passo, são conselho. --%>
-            <span
-              :for={step <- @shiny.notes}
-              class="flex flex-wrap items-center gap-1.5 text-pk-body text-pk-text-2"
-            >
-              <.icon name="hero-information-circle" class="size-3.5 shrink-0" />{step.text}
-              <.link
-                navigate={step.href}
-                class="cursor-pointer font-mono text-pk-meta text-pk-text-3 underline hover:text-pk-text"
+              <span
+                :for={step <- @shiny.notes}
+                class="flex flex-wrap items-center gap-1.5 text-pk-body text-pk-text-2"
               >
-                {step.link}
-              </.link>
-            </span>
-          </section>
-        </div>
+                <.icon name="hero-information-circle" class="size-3.5 shrink-0" />{step.text}
+                <.link
+                  navigate={step.href}
+                  class="cursor-pointer font-mono text-pk-meta text-pk-text-3 underline hover:text-pk-text"
+                >
+                  {step.link}
+                </.link>
+              </span>
+            </section>
+          </div>
 
-        <.hunt_alerts
-          minimap_gap?={@minimap_gap?}
-          hunt={@hunt}
-          sim_armed?={@sim_armed?}
-          world={@world}
-          routes={@routes}
-          active_route={@active_route}
-          notice={@notice}
-          notice_kind={@notice_kind}
-        />
+          <.hunt_alerts
+            minimap_gap?={@minimap_gap?}
+            hunt={@hunt}
+            sim_armed?={@sim_armed?}
+            world={@world}
+            routes={@routes}
+            active_route={@active_route}
+            notice={@notice}
+            notice_kind={@notice_kind}
+          />
+        </div>
 
         <%!-- O RESUMO DA NOITE. Fica ACIMA do cockpit e atravessa as duas
              colunas de propósito: é a única peça desta tela feita pra ser lida
@@ -2286,7 +2321,7 @@ defmodule PokexWeb.CavebotLive do
         <div
           :if={@mode == :watch}
           id="cavebot-cockpit"
-          class="grid gap-2 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.58fr)_minmax(0,1.42fr)]"
+          class="grid gap-2 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.58fr)_minmax(0,1.42fr)] lg:overflow-hidden"
         >
           <%!-- A ESQUERDA É O QUE SE OLHA DE RELANCE: onde ele está na rota, e o
                que está ao redor dele. Os dois desenhos moram juntos porque
@@ -2295,7 +2330,7 @@ defmodule PokexWeb.CavebotLive do
                junto e sempre ter tudo dessa tela visível na minha tela do
                notebook" (12/09). O mapa é um selo no alto; o cerco toma o
                resto da coluna e é medido pela altura que sobrar. --%>
-          <div class="flex flex-col gap-2 lg:min-h-0">
+          <div class="flex flex-col gap-2 lg:min-h-0 lg:overflow-hidden">
             <.route_map_card
               active_route={@active_route}
               pos={@pos}
@@ -2316,7 +2351,7 @@ defmodule PokexWeb.CavebotLive do
             />
           </div>
 
-          <div class="flex flex-col gap-2 lg:min-h-0">
+          <div class="flex flex-col gap-2 lg:min-h-0 lg:overflow-hidden">
             <%!-- WHO the fight is fighting as. He classifies each pokémon's keys on
             /time and the hunt page said nothing about it: "sinto falta dele
             falar ali qual pokémon que eu tô usando (…) pra eu saber que os
@@ -2620,6 +2655,16 @@ defmodule PokexWeb.CavebotLive do
                     {enemies_seen(@world, @situation)}
                   </span>
                   <span :if={@world.enemies == []} class="text-pk-text-3">— nada na lista</span>
+                  <%!-- …E OS QUE NÃO COUBERAM. A caixa reserva duas fileiras de
+                  duas colunas de propósito (ela não pode mudar de tamanho), e
+                  com seis na tela DUAS ficavam escondidas sem nenhum indício
+                  de que existiam: a barra de rolagem de 4 linhas de 16px não
+                  aparece. A conta em cima dizia 6 e a caixa mostrava 4 — o
+                  mesmo defeito de dois números discordando que a régua já
+                  tinha custado uma vez. --%>
+                  <span :if={hidden_rows(@world) > 0} class="text-pk-text-3">
+                    +{hidden_rows(@world)} rolando
+                  </span>
                   <span :if={@world.shiny?} class="ml-auto font-bold text-pk-warn">✨ shiny</span>
                 </p>
 
@@ -2654,7 +2699,13 @@ defmodule PokexWeb.CavebotLive do
                         style={"width: #{enemy_pct(row[:hp_pct])}%"}
                       ></span>
                     </span>
-                    <span class="pk-num w-6 shrink-0 text-right font-mono text-pk-meta tabular-nums text-pk-text-3">
+                    <%!-- O número segue a cor da linha. Cinza sobre o verde
+                    escuro da linha DELE dava 3,87:1 — abaixo do mínimo, e
+                    justamente no número de 11px. --%>
+                    <span class={[
+                      "pk-num w-6 shrink-0 text-right font-mono text-pk-meta tabular-nums",
+                      if(mine?(row, @situation), do: "text-pk-ok", else: "text-pk-text-3")
+                    ]}>
                       {if row[:hp_pct], do: enemy_pct(row[:hp_pct]), else: "?"}
                     </span>
                   </li>
@@ -2752,7 +2803,7 @@ defmodule PokexWeb.CavebotLive do
             <section
               id="cavebot-log"
               phx-hook="CopyToClipboard"
-              class="flex flex-col rounded-lg border border-pk-line bg-pk-surface p-3 lg:min-h-[10rem] lg:flex-1"
+              class="flex flex-col rounded-lg border border-pk-line bg-pk-surface p-3 lg:min-h-0 lg:flex-1"
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -2790,7 +2841,7 @@ defmodule PokexWeb.CavebotLive do
 
               <ol
                 id="cavebot-log-lines"
-                class="relative mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1"
+                class="pk-scrollbar relative mt-2 max-h-44 space-y-0.5 overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1"
               >
                 <%!-- O DEGRAU DE CIMA, porque este é o texto que ele fica LENDO
                 (12/09: "talvez até a fonte deveria ser um pouquinho maior").
@@ -2907,7 +2958,7 @@ defmodule PokexWeb.CavebotLive do
                   :if={@walk_test not in [nil, :running]}
                   id="walk-test-result"
                   class={[
-                    "mt-3 font-mono text-pk-meta",
+                    "font-mono text-pk-meta",
                     if(match?({:ok, _}, @walk_test), do: "text-pk-ok", else: "text-pk-warn")
                   ]}
                 >
@@ -3659,6 +3710,57 @@ defmodule PokexWeb.CavebotLive do
     """
   end
 
+  # UMA TARJA É UMA LINHA, E O PORQUÊ FICA A UM CLIQUE.
+  #
+  # Cada aviso desta página era um bloco de dois parágrafos com 12px de
+  # respiro: 84px medidos, por aviso. Numa noite ruim três deles subiam juntos
+  # e o cockpit — o painel que ele fica olhando por horas — perdia 250px. O
+  # feed ficava com ZERO linha visível (1440×790, 12/09).
+  #
+  # O que a tarja PRECISA dizer numa olhada é o fato e o caminho: "o minimapa
+  # não está calibrado" e o link pra calibração. A prosa que explica POR QUE
+  # aquilo importa é leitura de uma vez na vida — vai pro `<details>`, que ao
+  # contrário de um `title=` abre no teclado e fica aberto enquanto ele lê.
+  attr :id, :string, required: true
+  attr :tone, :atom, required: true, values: [:danger, :warn]
+  attr :icon, :string, required: true
+  slot :inner_block, required: true, doc: "the fact and the way out, on one line"
+  slot :why, doc: "the prose behind it, folded away"
+
+  defp alert_strip(assigns) do
+    ~H"""
+    <section
+      id={@id}
+      class={[
+        "rounded-lg border px-3 py-1.5",
+        @tone == :danger && "border-pk-danger-line bg-pk-danger-dim",
+        @tone == :warn && "border-pk-warn-line bg-pk-warn-dim"
+      ]}
+    >
+      <details class="group">
+        <summary class={[
+          "flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5 text-pk-body font-semibold",
+          @tone == :danger && "text-pk-danger",
+          @tone == :warn && "text-pk-warn"
+        ]}>
+          <.icon name={@icon} class="size-3.5 shrink-0" />
+          <span class="min-w-0">{render_slot(@inner_block)}</span>
+          <span
+            :if={@why != []}
+            class="ml-auto shrink-0 font-mono text-pk-meta font-normal text-pk-text-3"
+          >
+            <span class="group-open:hidden">por quê ▸</span>
+            <span class="hidden group-open:inline">menos ▾</span>
+          </span>
+        </summary>
+        <div :if={@why != []} class="mt-1 text-pk-meta text-pk-text-2">
+          {render_slot(@why)}
+        </div>
+      </details>
+    </section>
+    """
+  end
+
   # EVERYTHING THAT MAKES A READING WRONG, in one place and above both modes.
   # These are conditional by nature: when one is up it pushes the rest of the
   # page down, which is the correct price for the loudest fact on the screen.
@@ -3679,84 +3781,59 @@ defmodule PokexWeb.CavebotLive do
           rota inteira achando que gravava, olhando pra uma coordenada de uma
           hora antes (26/08). O aviso vem antes de tudo porque enquanto ele
           estiver de pé, todo o resto da página é ficção. --%>
-    <section
-      :if={@sim_armed?}
-      id="cavebot-sim-armed"
-      class="rounded-pk border border-pk-danger bg-pk-danger/10 p-3"
-    >
-      <p class="flex items-start gap-2 text-pk-body font-semibold text-pk-danger">
-        <.icon name="hero-eye-slash" class="mt-px size-4 shrink-0" />
-        <span>
-          o simulador está armado — os olhos do bot estão apontados pro mundo falso
-        </span>
-      </p>
-      <p class="mt-1 text-pk-meta text-pk-text-2">
+    <.alert_strip :if={@sim_armed?} id="cavebot-sim-armed" tone={:danger} icon="hero-eye-slash">
+      o simulador está armado — os olhos do bot apontam pro mundo falso.
+      <.link navigate={~p"/sim"} class="underline">desarme no simulador</.link>
+      <:why>
         nada nesta página está sendo lido do jogo: a posição, os inimigos e a vida são do
         momento em que você abriu. Gravar rota não grava nada.
-        <.link navigate={~p"/sim"} class="underline">Desarme no simulador</.link>
-        pra voltar a enxergar.
-      </p>
-    </section>
+      </:why>
+    </.alert_strip>
 
-    <section
-      :if={@minimap_gap?}
-      id="cavebot-minimap-gap"
-      class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
-    >
-      <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
-        <.icon name="hero-map" class="size-4" /> O minimapa não está calibrado nesta tela
-      </p>
-      <p class="mt-1 text-pk-body text-pk-text-2">
-        Sem ele a posição não pode ser lida — nada de gravar rota nem de andar.
-        Refaça o passo <strong>Posição & minimapa</strong>
-        na <.link navigate={~p"/calibration"} class="underline">Calibração</.link>
+    <.alert_strip :if={@minimap_gap?} id="cavebot-minimap-gap" tone={:warn} icon="hero-map">
+      o minimapa não está calibrado nesta tela — a posição não pode ser lida.
+      <.link navigate={~p"/calibration"} class="underline">calibração</.link>
+      <:why>
+        sem ele não dá pra gravar rota nem andar. Refaça o passo <strong>Posição & minimapa</strong>
         e volte aqui.
-      </p>
-    </section>
+      </:why>
+    </.alert_strip>
 
     <%!-- A STOPPED hunt is this page's loudest fact, and it lived in a
           tile's small print: "parou POR QUÊ" needs no hunting of its own.
           Three states, three tones — and the middle one only exists because
           a hunt that is about to fix itself must not read like one asking
           to be rescued (`comeback?`). --%>
-    <section
+    <.alert_strip
       :if={@hunt && @hunt.state == :blocked && !@hunt[:comeback?]}
       id="cavebot-blocked"
-      class="rounded-lg border border-pk-danger-line bg-pk-danger-dim p-3"
+      tone={:danger}
+      icon="hero-hand-raised"
     >
-      <p class="flex items-center gap-2 text-pk-body font-bold text-pk-danger">
-        <.icon name="hero-hand-raised" class="size-4" /> A caçada parou e não volta sozinha
-      </p>
-      <p class="mt-1 text-pk-body text-pk-text-2">
-        {@hunt.hold_reason || "bloqueada sem motivo escrito"} — resolva e solte a caçada de
-        novo no painel.
-      </p>
-    </section>
+      a caçada parou e não volta sozinha: {@hunt.hold_reason || "bloqueada sem motivo escrito"}
+      <:why>resolva o que a travou e solte a caçada de novo no painel.</:why>
+    </.alert_strip>
 
-    <section
+    <.alert_strip
       :if={@hunt && @hunt.state == :blocked && @hunt[:comeback?]}
       id="cavebot-comeback"
-      class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
+      tone={:warn}
+      icon="hero-arrow-path"
     >
-      <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
-        <.icon name="hero-arrow-path" class="size-4" /> A caçada tropeçou — e vai tentar de novo
-      </p>
-      <p class="mt-1 text-pk-body text-pk-text-2">
-        {@hunt.hold_reason || "parada sem motivo escrito"}. Ela reentra pelo canto mais perto;
-        se as tentativas acabarem, aí sim precisa de você.
-      </p>
-    </section>
+      a caçada tropeçou e vai tentar de novo: {@hunt.hold_reason || "parada sem motivo escrito"}
+      <:why>
+        ela reentra pelo canto mais perto; se as tentativas acabarem, aí sim precisa de você.
+      </:why>
+    </.alert_strip>
 
-    <section
+    <.alert_strip
       :if={@hunt && @hunt.state != :blocked && @hunt.hold_reason}
       id="cavebot-held"
-      class="rounded-lg border border-pk-warn-line bg-pk-warn-dim p-3"
+      tone={:warn}
+      icon="hero-pause-circle"
     >
-      <p class="flex items-center gap-2 text-pk-body font-bold text-pk-warn">
-        <.icon name="hero-pause-circle" class="size-4" /> A caçada está esperando
-      </p>
-      <p class="mt-1 text-pk-body text-pk-text-2">{@hunt.hold_reason}</p>
-    </section>
+      a caçada está esperando: {@hunt.hold_reason}
+    </.alert_strip>
 
     <%!-- UM DÍGITO QUE O ATLAS NÃO TEM não vira "não sei ler": vira OUTRO
           dígito. A regra da margem do casador compara o que está no atlas
@@ -3767,30 +3844,18 @@ defmodule PokexWeb.CavebotLive do
           1409` — e a rota gravada saltava pro outro lado do mapa. Só
           aparece pela fonte que ESTA faixa usa: o atlas tem buraco em cinco
           alturas, e quatro delas ele nunca lê. --%>
-    <section
-      :if={@world.coord_gap}
-      id="cavebot-glifos"
-      class="rounded-pk border border-pk-danger bg-pk-danger/10 p-3"
-    >
-      <p class="flex items-start gap-2 text-pk-body font-semibold text-pk-danger">
-        <.icon name="hero-hashtag" class="mt-px size-4 shrink-0" />
-        <span>
-          a fonte da sua coordenada não tem
-          <span class="font-mono">{Enum.join(@world.coord_gap.faltam, " ")}</span>
-          no atlas — o número pode vir ERRADO, não vazio
-        </span>
-      </p>
-      <p class="mt-1 text-pk-meta text-pk-text-2">
+    <.alert_strip :if={@world.coord_gap} id="cavebot-glifos" tone={:danger} icon="hero-hashtag">
+      a fonte da sua coordenada não tem
+      <span class="font-mono">{Enum.join(@world.coord_gap.faltam, " ")}</span>
+      no atlas — o número pode vir ERRADO, não vazio.
+      <.link navigate={~p"/calibration"} class="underline">calibração</.link>
+      <:why>
         a faixa que o bot lê é desenhada com {@world.coord_gap.px}px de altura, e nessa altura {gap_words(
           @world.coord_gap.faltam
-        )} nunca foi ensinado. Um dígito que falta casa com o
-        mais parecido que existe, e casa com folga — o certo não entra na disputa. Ensine na <.link
-          navigate={~p"/calibration"}
-          class="underline"
-        >calibração</.link>, digitando a
-        coordenada que está na tela.
-      </p>
-    </section>
+        )} nunca foi ensinado. Um dígito que falta casa com o mais parecido que existe, e casa
+        com folga — o certo não entra na disputa. Ensine digitando a coordenada que está na tela.
+      </:why>
+    </.alert_strip>
 
     <%!-- …E O OUTRO BURACO, o que a tela acima NÃO enxerga: o alfabeto está
           COMPLETO e mesmo assim o número vem por parecença.
@@ -3801,27 +3866,22 @@ defmodule PokexWeb.CavebotLive do
           resposta é não. O que faltava era o dígito DELE: o atlas casava por
           semelhança, e semelhança repete o mesmo erro em todo frame — duas
           leituras erradas se confirmam com a confiança de duas certas. --%>
-    <section
+    <.alert_strip
       :if={@world.coord_guessed}
       id="cavebot-glifos-chute"
-      class="rounded-pk border border-pk-warn-line bg-pk-warn-dim p-3"
+      tone={:warn}
+      icon="hero-question-mark-circle"
     >
-      <p class="flex items-start gap-2 text-pk-body font-semibold text-pk-warn">
-        <.icon name="hero-question-mark-circle" class="mt-px size-4 shrink-0" />
-        <span>
-          a coordenada está sendo lida por PARECENÇA: {@world.coord_guessed.guessed} de {@world.coord_guessed.glyphs} glifos ({@world.coord_guessed.pct}%) não têm acerto exato no atlas
-        </span>
-      </p>
-      <p class="mt-1 text-pk-meta text-pk-text-2">
-        Os dígitos existem no alfabeto — o que não existe é o desenho DESTA tela. Um glifo casado
-        por semelhança erra igual em todo frame, então duas leituras erradas se confirmam entre si.
-        O bot já recusa um SALTO vindo de uma leitura assim (fica na última posição boa em vez de
-        se teleportar), mas isso segura a caçada em vez de resolvê-la. Ensine estes glifos na <.link
-          navigate={~p"/calibration"}
-          class="underline"
-        >calibração</.link>, digitando a coordenada que está na tela.
-      </p>
-    </section>
+      a coordenada está sendo lida por PARECENÇA: {@world.coord_guessed.guessed} de {@world.coord_guessed.glyphs} glifos ({@world.coord_guessed.pct}%) sem acerto exato.
+      <.link navigate={~p"/calibration"} class="underline">calibração</.link>
+      <:why>
+        os dígitos existem no alfabeto — o que não existe é o desenho DESTA tela. Um glifo casado
+        por semelhança erra igual em todo frame, então duas leituras erradas se confirmam entre
+        si. O bot já recusa um SALTO vindo de uma leitura assim (fica na última posição boa em
+        vez de se teleportar), mas isso segura a caçada em vez de resolvê-la. Ensine estes
+        glifos digitando a coordenada que está na tela.
+      </:why>
+    </.alert_strip>
 
     <%!-- The route being EDITED and the route the hunt WALKS are two
           different things, and believing they were the same cost a
@@ -3830,7 +3890,7 @@ defmodule PokexWeb.CavebotLive do
     <p
       :if={armed_elsewhere(@routes, @active_route)}
       id="armed-elsewhere"
-      class="mt-3 flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+      class="flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-1.5 text-pk-body text-pk-warn"
     >
       <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
       <span class="min-w-0 flex-1">
@@ -3849,7 +3909,7 @@ defmodule PokexWeb.CavebotLive do
     <p
       :if={@routes != [] and armed_route(@routes) == nil}
       id="none-armed"
-      class="mt-3 flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
+      class="flex items-start gap-1.5 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-1.5 text-pk-body text-pk-warn"
     >
       <.icon name="hero-exclamation-triangle" class="mt-0.5 size-4 shrink-0" />
       nenhuma rota armada — a caçada não tem o que andar
@@ -3859,7 +3919,7 @@ defmodule PokexWeb.CavebotLive do
       :if={@notice}
       id="cavebot-notice"
       class={[
-        "mt-3 font-mono text-pk-meta",
+        "font-mono text-pk-meta",
         if(@notice_kind == :ok, do: "text-pk-ok", else: "text-pk-warn")
       ]}
     >
@@ -3935,6 +3995,7 @@ defmodule PokexWeb.CavebotLive do
             selected={@selected}
             heading_to={heading_to(@hunt, @active_route)}
             recording?={@recording?}
+            dense?={@compact?}
           />
         </div>
       </div>

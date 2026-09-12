@@ -673,7 +673,7 @@ defmodule PokexWeb.CavebotLiveTest do
       Pokex.SettingsStash.stash!(
         rescue_enabled: true,
         engine_band_yellow_pct: 60,
-        revive_stock: 0
+        revive_stock: 50
       )
 
       {:ok, view, _html} = live(conn, ~p"/cavebot")
@@ -682,8 +682,29 @@ defmodule PokexWeb.CavebotLiveTest do
       refute has_element?(view, "#cavebot-ready-list")
     end
 
+    # "NÃO SEI" NÃO É "PODE DORMIR". `revive_stock: 0` desliga a conta, e a
+    # pergunta "acabaram?" respondia NÃO — o mesmo não de uma bag cheia. O selo
+    # ficava verde sobre a única coisa que já custou uma noite inteira (4,9
+    # horas moendo com o pokémon no chão, 28/08, com a bag seca desde 23:43).
+    test "an uncounted revive bag is not a promise that the night survives", %{conn: conn} do
+      Pokex.SettingsStash.stash!(
+        rescue_enabled: true,
+        engine_band_yellow_pct: 60,
+        revive_stock: 0
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      refute view |> element("#cavebot-ready") |> render() =~ "pronto pra noite"
+      assert view |> element("#cavebot-ready-list") |> render() =~ "não está contado"
+    end
+
     test "o resgate desligado é dito por extenso, não escondido num title", %{conn: conn} do
-      Pokex.SettingsStash.stash!(rescue_enabled: false, engine_band_yellow_pct: 60)
+      Pokex.SettingsStash.stash!(
+        rescue_enabled: false,
+        engine_band_yellow_pct: 60,
+        revive_stock: 50
+      )
 
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 
@@ -939,6 +960,28 @@ defmodule PokexWeb.CavebotLiveTest do
       for rows <- [pilha, Enum.take(pilha, 1), []] do
         assert caixa.(rows) =~ "h-[2.125rem]"
       end
+    end
+
+    # …E A CAIXA DIZ QUANTOS ELA NÃO ESTÁ MOSTRANDO. Altura fixa quer dizer
+    # quatro linhas visíveis; com seis na tela, DUAS ficavam escondidas sem
+    # nenhum indício — a barra de rolagem de quatro linhas de 16px não aparece,
+    # e a conta em cima dizia 6. Dois números discordando na mesma peça já
+    # custou uma régua inteira (12/09).
+    test "the box says how many rows it is not showing", %{conn: conn} do
+      caixa = fn n ->
+        see_world(
+          100,
+          100,
+          for(row <- 0..(n - 1), do: %{row: row, name: "Golem", hp_pct: 1.0, shiny?: false})
+        )
+
+        {:ok, view, _html} = live(conn, ~p"/cavebot")
+        view |> element("#cavebot-vision") |> render()
+      end
+
+      assert caixa.(6) =~ "+2 rolando"
+      refute caixa.(4) =~ "rolando"
+      refute caixa.(1) =~ "rolando"
     end
 
     test "tela limpa é dita, não deixada em branco", %{conn: conn} do
@@ -2166,8 +2209,73 @@ defmodule PokexWeb.CavebotLiveTest do
 
       for mode <- ["", "?modo=editar"] do
         {:ok, _view, html} = live(conn, "/cavebot" <> mode)
-        assert html =~ "O minimapa não está calibrado nesta tela"
+        assert html =~ "o minimapa não está calibrado nesta tela"
       end
+    end
+
+    # O PAINEL FIXO, MEDIDO NA MARCAÇÃO E NÃO NA CONTA. A moldura desta tela
+    # era `calc(100dvh - 4.5rem)`, uma soma escrita à mão do `h-12` do header
+    # com o `py-3` do main — e que esquecia o fio de 1px embaixo dele. A página
+    # feita pra NÃO rolar era 1px mais alta que a tela, sempre; e quando uma
+    # tarja episódica subia (shiny, outra VM, tela trocada) a conta ficava
+    # errada pelo tamanho da tarja inteira. Quem sabe o que sobrou é o shell.
+    # O SELO NÃO CARREGA LETRA. Todo texto dentro do desenho é medido em TILES,
+    # então encolher o cartão encolhe a fonte junto: no selo de 9rem o "⇅ 6"
+    # saía a 4,7px — o único texto da página que ninguém consegue ler. O andar
+    # de destino já está escrito no cabeçalho do cartão.
+    test "the map stamp draws no text that could not be read", %{conn: conn} do
+      route_with([{10, 10, 5}, {12, 10, 5}, {12, 12, 6}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      mapa = view |> element("#cavebot-map") |> render()
+
+      assert mapa =~ "andares 5 e 6"
+      refute mapa =~ "<text"
+    end
+
+    test "the frame is measured by the shell, never by a sum written here", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, _view, html} = live(conn, ~p"/cavebot")
+
+      refute html =~ "100dvh-"
+      assert html =~ "lg:h-dvh"
+      assert html =~ "lg:overflow-hidden"
+    end
+
+    # …E O AVISO NÃO COME O PAINEL. Cada tarja empurrava o cockpit pra baixo
+    # pelo que ela mede; três juntas numa noite ruim, e o feed que ele estava
+    # lendo ficava com ZERO linha visível (1440×790). Elas moram numa faixa com
+    # teto que rola dentro de si, e o cockpit abaixo não muda de tamanho.
+    test "every advisory lives inside the band that has a ceiling", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, view, html} = live(conn, ~p"/cavebot")
+
+      assert has_element?(view, "#cavebot-advisories")
+      assert has_element?(view, "#cavebot-advisories #cavebot-minimap-gap")
+
+      [band] =
+        Regex.run(~r/id="cavebot-advisories"[^>]*class="([^"]+)"/, html, capture: :all_but_first)
+
+      assert band =~ "lg:max-h-"
+      assert band =~ "lg:overflow-y-auto"
+
+      refute html =~ ~s(lg:min-h-[10rem])
+    end
+
+    # A tarja diz o FATO e o CAMINHO numa linha; a prosa que explica por que
+    # aquilo importa fica num `<details>`, que ao contrário de um `title=` abre
+    # no teclado. Antes eram dois parágrafos: 84px medidos, por tarja.
+    test "an advisory says the fact and the way out without being opened", %{conn: conn} do
+      route_with([{10, 10, 7}])
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      strip = view |> element("#cavebot-minimap-gap") |> render()
+
+      assert strip =~ "a posição não pode ser lida"
+      assert strip =~ ~s(href="/calibration")
+      assert strip =~ "<details"
+      assert strip =~ "por quê"
+      refute strip =~ "<details open"
     end
 
     # The instruments measure the fight and answer to nobody: they belong under

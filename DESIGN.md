@@ -23,6 +23,9 @@ colors:
   pk-info: "#6cb8f2"
   pk-info-dim: "#0c1f2e"
   pk-info-line: "#2b6086"
+  pk-shiny: "#cba6f7"
+  pk-shiny-dim: "#1e1430"
+  pk-shiny-line: "#6a4b9c"
 typography:
   # A migração fechou em 2026-08-28 e o `fontSize` acendeu junto: zero
   # `text-[Npx]`, zero `text-sm|xs|base|lg|xl|2xl`, zero superfície `base-*` do
@@ -193,6 +196,19 @@ quando há estado. A única saturação alta do sistema é o verde.
   azul está ok, em atenção ou em erro — azul marca uma modalidade, hoje o trecho
   da rota andado mobando. 8.54:1 sobre a superfície.
 
+- **Roxo de Troféu** (`pk-shiny`): a única cor fora das três de estado, e a
+  única que não descreve a máquina — descreve o que ela ACHOU. Existe porque um
+  shiny na tela não é "ok", nem "atenção", nem "erro": é a noite inteira dando
+  certo, e dividir a paleta da vida de um monstro com ele apagaria a diferença.
+  Usada em exatamente três lugares: a tarja do cabeçalho quando o vigia vê um
+  shiny de pé, o quadrado dele no cerco, e a estrela ao lado do nome na lista.
+  Com `pk-shiny-dim` de fundo e `pk-shiny-line` de fio.
+
+  Ela é a única cor do sistema que PISCA (`pk-shiny-blink`, 600ms), e só
+  enquanto o vigia ainda vê o shiny de pé: depois fica acesa parada. A palavra
+  ao lado diz o mesmo pra quem não vê a luz, e quem pediu
+  `prefers-reduced-motion` não recebe a piscada — nem encurtada, nem em estrobo.
+
 ### Neutral
 
 - **Vidro** (`pk-bg`): o fundo de tudo, mais escuro que qualquer card.
@@ -231,6 +247,13 @@ distingue as três matizes ainda precisa saber o que está acontecendo.
 **A Regra do Azul Sem Estado.** Azul não é um quarto estado. Se você quer dizer
 "ok", "atenção" ou "erro", há três cores para isso. `pk-info` marca modalidade —
 outro modo de operação da mesma coisa.
+
+**A Regra do Rosa do Personagem.** `pk-danger` é o que parou, falhou ou é
+destrutivo — e numa tela de caça isso quer dizer ELE, nunca o inimigo. A vida de
+um monstro não é perigo: monstro de pé é o normal da noite (neutro) e monstro
+caindo é o fato que muda a decisão (`pk-warn`). Pintar bicho saudável de vermelho
+transforma uma pilha cheia numa grade de alarme e deixa o único que importa —
+o que cai no próximo golpe — como o mais discreto do desenho.
 
 ## Typography
 

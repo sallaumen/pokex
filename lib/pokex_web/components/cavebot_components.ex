@@ -152,6 +152,21 @@ defmodule PokexWeb.CavebotComponents do
   attr :floor, :any, default: nil
   attr :heading_to, :any, default: nil, doc: "the corner the RUNNING hunt is walking to"
 
+  # O DESENHO COMO SELO NÃO CARREGA LETRA. O quadrado é `aspect-square w-full`
+  # e todo texto dentro dele é medido em TILES, então encolher o cartão encolhe
+  # a fonte junto: no selo de 9rem que a Central usa desde 12/09 o número do
+  # waypoint saía a 4,7px e o "⇅ 6" a 4,4px — um terço do menor tipo deste
+  # sistema, e o único texto da página que ninguém consegue ler.
+  #
+  # Nada se perde: o andar de destino já está escrito no cabeçalho do cartão
+  # ("andares 5 e 6"), o número de cada waypoint está no `<title>` do círculo
+  # (e a rota inteira está numerada no modo editar, onde o desenho é grande), e
+  # o que o selo precisa dizer de relance — a forma da rota e onde ele está
+  # nela — é desenho, não letra.
+  attr :dense?, :boolean,
+    default: false,
+    doc: "drawn small enough that text inside it would not be readable"
+
   @doc """
   The route, drawn in the game's own coordinate space (x east, y south) with
   the character on top of it.
@@ -224,7 +239,7 @@ defmodule PokexWeb.CavebotComponents do
              other, so the one thing that must be written is which floor this
              leg lands on. --%>
         <text
-          :for={leg <- Enum.filter(@legs, & &1.climb_to)}
+          :for={leg <- if(@dense?, do: [], else: Enum.filter(@legs, & &1.climb_to))}
           x={leg.arrow.x}
           y={leg.arrow.y - @view.unit * 0.9}
           text-anchor="middle"
@@ -283,7 +298,7 @@ defmodule PokexWeb.CavebotComponents do
             <title>{"waypoint #{index + 1}: #{wp.x}, #{wp.y}#{job_suffix(wp)}"}</title>
           </circle>
           <text
-            :if={length(@waypoints) <= 24}
+            :if={not @dense? and length(@waypoints) <= 24}
             x={wp.x}
             y={wp.y + @view.unit * 0.55}
             text-anchor="middle"

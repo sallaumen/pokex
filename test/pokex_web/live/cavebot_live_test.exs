@@ -871,13 +871,22 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     # A caixa não pode pular de altura a cada bicho que entra ou sai: o que ele
-    # estava lendo embaixo dela some do lugar.
-    test "a caixa da lista tem altura fixa, com ou sem mobada", %{conn: conn} do
-      see_world(100, 100, [%{row: 0, name: "Magneton", hp_pct: 1.0, shiny?: false}])
+    # estava lendo embaixo dela some do lugar. Ela não crescia com a mobada,
+    # mas SUMIA com a tela limpa — e some e volta a noite inteira. Medido em
+    # 12/09: 76px de pulo na coluna, e o feed indo de 9 linhas pra 14 e
+    # voltando. A caixa é a mesma vazia ou cheia.
+    test "the list box keeps its height with a pile, with one, and with none", %{conn: conn} do
+      caixa = fn rows ->
+        see_world(100, 100, rows)
+        {:ok, view, _html} = live(conn, ~p"/cavebot")
+        view |> element("#cavebot-battle-rows") |> render()
+      end
 
-      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      pilha = for row <- 0..7, do: %{row: row, name: "Golem", hp_pct: 1.0, shiny?: false}
 
-      assert view |> element("#cavebot-battle-rows") |> render() =~ "h-[4.5rem]"
+      for rows <- [pilha, Enum.take(pilha, 1), []] do
+        assert caixa.(rows) =~ "h-[2.125rem]"
+      end
     end
 
     test "tela limpa é dita, não deixada em branco", %{conn: conn} do

@@ -210,7 +210,21 @@ defmodule Pokex.Bots.Engine.Logic do
             # tela. Sem isto a bancada deixava o shiny dormindo pra trás depois
             # do primeiro revive e ia juntar de novo, 10 passos adiante — 0
             # shinies mortos em 3 min em duas sementes de seis.
-            special_opened?: false
+            special_opened?: false,
+            # ESTE CLIENTE MOSTRA A LINHA DELE NA JANELA DE BATALHA?
+            #
+            # Trava em `true` no primeiro tique em que o cérebro ACHA a linha
+            # própria, de qualquer jeito (nome, vida ou palpite). É o que
+            # transforma "não está na lista" numa afirmação: sem a trava,
+            # `:absent` diz só "nunca esteve" — que é o mundo simulado
+            # (`own_row?: false`) e seria um cliente que simplesmente não
+            # lista o próprio pokémon. Com a trava, `:absent` quer dizer que a
+            # linha que ESTAVA lá saiu, e aí o pokémon saiu de campo.
+            #
+            # Medido no jogo dele em 12/09: 97,1% das decisões com lista não
+            # vazia acham a linha do Shiny Golem PELO NOME desenhado, então a
+            # trava fecha no primeiro segundo de caçada.
+            own_row_ever?: false
 
   @type t :: %__MODULE__{}
   @type orders :: Orders.t()
@@ -249,6 +263,7 @@ defmodule Pokex.Bots.Engine.Logic do
       |> track_bar_blind(situation, now)
       |> track_survivors(situation, now)
       |> track_heavy(situation)
+      |> track_own_row(situation)
       |> cover_chain_start(chain_start?, situation, config, now)
 
     siege = siege(logic, situation, config, now)
@@ -296,6 +311,15 @@ defmodule Pokex.Bots.Engine.Logic do
     }
 
   defp track_heavy(logic, _pile_or_blind), do: logic
+
+  # A trava do parágrafo em `own_row_ever?`: qualquer jeito de ACHAR a linha
+  # arma; `:absent`, `false` e `nil` não desarmam, porque a pergunta é sobre o
+  # CLIENTE, não sobre este tique.
+  defp track_own_row(logic, %{own_row_seen?: how})
+       when how in [:by_name, :by_hp, :by_position],
+       do: %{logic | own_row_ever?: true}
+
+  defp track_own_row(logic, _not_found_this_tick), do: logic
 
   defp latch_heavy(logic, %{heavy?: true}), do: %{logic | heavy_area?: true}
   defp latch_heavy(logic, _light_or_unread), do: logic
@@ -701,6 +725,22 @@ defmodule Pokex.Bots.Engine.Logic do
       # narrates "estourando a área" at a pile it cannot touch. That was 93% of
       # a bench run, measured 2026-08-25.
       t.s.own_out? == false -> downed(t)
+      # …E A SEGUNDA PROVA DE CAMPO VAZIO, que é a que realmente dispara.
+      #
+      # `own_out? == false` exige que o suporte tenha PROVADO a queda pela
+      # Pokebar ficando ilegível duas leituras seguidas — e desde 09/09 isso
+      # não acontece mais: cinco dias, ZERO leituras `false`, e a fase `downed`
+      # só existiu em 08/09. A regra dele ("se um Pokémon morrer, instantaneamente
+      # a gente tem que usar o revive") não tinha como rodar.
+      #
+      # A janela de batalha responde a mesma pergunta por outro fio, e responde
+      # bem: 97,1% das decisões de 12/09 acham a linha do pokémon pelo nome
+      # desenhado. Quando essa linha SAI de uma lista que continua legível
+      # (`:absent`), ele saiu de campo — e o revive é o que o traz de volta.
+      # A carência e a cadência são as do `downed/1`, que já esperam
+      # `revive_confirm_ms` antes do primeiro pedido justamente porque o motivo
+      # ordinário de estar fora é um revive em voo.
+      left_the_list?(t) -> downed(t)
       # No hunt to run — but HP still means what it always means, and the floor
       # below is deliberately NOT consulted here. See the moduledoc's "No hunt
       # does not mean no pokémon": while fishing, a fresh `revive: :hold` would
@@ -800,6 +840,14 @@ defmodule Pokex.Bots.Engine.Logic do
 
   # The route keeps walking: standing still would turn a missing configuration
   # into a stopped night. What it will NOT do is pretend to fight.
+  # A linha dele SAIU de uma lista que continua legível — e este cliente já
+  # mostrou que lista a linha dele (`own_row_ever?`). As duas metades importam:
+  # sem a trava isto dispararia em todo mundo simulado (`own_row?: false`, onde
+  # a linha nunca esteve), e sem o `:absent` dispararia com a tela vazia ou com
+  # a Pokebar ilegível, que não provam nada.
+  defp left_the_list?(t),
+    do: t.logic.own_row_ever? and Map.get(t.s, :own_row_seen?) == :absent
+
   defp handless(t) do
     {%{t.logic | state: :handless},
      Orders.walking(

@@ -37,10 +37,16 @@ defmodule Pokex.Bots.Engine.BattleRows do
         }
 
   @typedoc """
-  How his row was found. `false` = he is not in the list at all; `nil` = the
-  rows carry no description, so the question cannot be asked.
+  How his row was found.
+
+  `:absent` = the list IS readable and he is demonstrably not in it — the
+  strongest thing this module can say about a pokémon off the field, and the
+  only shape of "not here" that may cost a revive (`Engine.Logic`, a caçada de
+  12/09). `false` = not found, for a reason that proves nothing: a list with no
+  rows, or a Pokebar that could not be read. `nil` = the rows carry no
+  description, so the question cannot be asked.
   """
-  @type how :: :by_name | :by_hp | :by_position | false | nil
+  @type how :: :by_name | :by_hp | :by_position | :absent | false | nil
 
   @type split :: %{mine: [row], theirs: [row], how: how}
 
@@ -119,7 +125,7 @@ defmodule Pokex.Bots.Engine.BattleRows do
   # in it.
   defp by_absence(rows, own) do
     case Enum.split_with(rows, &(Map.get(&1, :name) == nil)) do
-      {[], _all_legible} -> %{mine: [], theirs: rows, how: false}
+      {[], _all_legible} -> %{mine: [], theirs: rows, how: :absent}
       {unreadable, legible} -> pick(unreadable, legible, own, :by_hp)
     end
   end
@@ -152,7 +158,7 @@ defmodule Pokex.Bots.Engine.BattleRows do
     sobra = others ++ rest
 
     if sobra == [] and contradicted?(candidates, own.hp),
-      do: %{mine: [], theirs: others ++ candidates, how: false},
+      do: %{mine: [], theirs: others ++ candidates, how: :absent},
       else: %{mine: [first], theirs: sobra, how: fell_back(how)}
   end
 

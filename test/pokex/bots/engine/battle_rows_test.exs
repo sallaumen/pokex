@@ -107,7 +107,7 @@ defmodule Pokex.Bots.Engine.BattleRowsTest do
     test "a legible list that does not contain him takes nothing away" do
       split = BattleRows.split([row("Venonat", 1.0), row("Oddish", 1.0)], own())
 
-      assert split.how == false
+      assert split.how == :absent
       assert BattleRows.enemies(split) == 2
     end
   end
@@ -174,7 +174,7 @@ defmodule Pokex.Bots.Engine.BattleRowsTest do
     test "a lone row whose bar contradicts the Pokebar is NOT his" do
       split = BattleRows.split([row(nil, 0.0)], own(%{hp: 98}))
 
-      assert split.how == false
+      assert split.how == :absent
       assert split.mine == []
       assert BattleRows.enemies(split) == 1
     end

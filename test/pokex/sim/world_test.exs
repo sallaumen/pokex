@@ -624,7 +624,12 @@ defmodule Pokex.Sim.WorldTest do
     assert picture.enemies == 3
     assert picture.worth_fighting?
     refute picture.blind?
-    assert picture.own_row_seen? == false
+
+    # `:absent` e não `false`: a lista é legível e ele não está nela. No mundo
+    # simulado isso é o padrão (`own_row?: false`), e é por isso que a regra do
+    # cérebro que paga um revive por `:absent` (`Logic.left_the_list?/1`) exige
+    # que a linha própria TENHA aparecido alguma vez — aqui ela nunca aparece.
+    assert picture.own_row_seen? == :absent
   end
 
   test "own_row? on is discounted by the real Situation instead of inflating the count" do

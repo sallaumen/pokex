@@ -107,12 +107,15 @@ defmodule Pokex.Bots.Engine.SituationTest do
 
       assert picture.rows == 1
       assert picture.enemies == 1
-      assert picture.own_row_seen? == false
+      assert picture.own_row_seen? == :absent
     end
 
+    # `:absent` e não `false`: a lista está LEGÍVEL e ele não está nela. É a
+    # diferença entre "não achei" e "ele saiu de campo" — e é a segunda que
+    # paga um revive (`Logic.left_the_list?/1`).
     test "says so when his pokémon is NOT among the rows" do
       picture = Situation.build(inputs(), @config, 1_000)
-      assert picture.own_row_seen? == false
+      assert picture.own_row_seen? == :absent
     end
 
     # Without a located layout there are no names, so the own row cannot be
@@ -309,7 +312,7 @@ defmodule Pokex.Bots.Engine.SituationTest do
       picture = picture_of(["Meganium", "Meganium", "Tangela"])
 
       assert picture.enemies == 3
-      assert picture.own_row_seen? == false
+      assert picture.own_row_seen? == :absent
     end
 
     test "takes nothing away when his pokemon is not on the field" do

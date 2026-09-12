@@ -157,6 +157,15 @@ defmodule Pokex.Bots.Engine.Narration do
   defp own_row(_previous, %{picture: %{own_row_seen?: :by_name}}, who),
     do: ["#{who} ocupa uma linha da lista — a contagem desconta ele"]
 
+  # A LISTA ESTÁ LEGÍVEL E ELE NÃO ESTÁ NELA. É a prova de campo vazio que
+  # dispara o revive (`Logic.left_the_list?/1`), então a frase diz isso e não
+  # um "não achei".
+  defp own_row(_previous, %{picture: %{own_row_seen?: :absent, rows: rows}}, who),
+    do: [
+      "#{who} SAIU da lista (#{rows} linha(s) legível(is), nenhuma é ele) — " <>
+        "fora de campo: o revive é o que traz ele de volta"
+    ]
+
   defp own_row(_previous, %{picture: %{own_row_seen?: false, rows: rows}}, who),
     do: ["#{who} NÃO aparece na lista (#{rows} linha(s), nenhuma é ele)"]
 

@@ -94,7 +94,7 @@ defmodule Pokex.Bots.Engine.WorkerTest do
     # O ESPECIAL PELA COR chega ao cérebro pelo mesmo quadro-negro: o
     # `ShinyGuard` publica a presença, o quadro a lê. Um bicho só, abaixo da
     # régua de seis — sem a cor ele não vale a luta; com ela, vale, e a postura
-    # inteira liga junto (o shiny É o chefe).
+    # inteira liga junto: um bicho, um conceito.
     test "a cor do especial atravessa o quadro-negro e vira postura", %{worker: worker} do
       see(~w(Electrode))
       WorldState.put(:special, %{especial?: true, vistos: []}, now())

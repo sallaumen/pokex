@@ -44,10 +44,10 @@ defmodule Pokex.Sim.Verdict do
     {:sem_dano, "sem tomar dano", "o pokémon terminou sem levar UMA mordida"},
     {:aguenta, "o tanque segura",
      "a vida nunca caiu abaixo da metade — nenhuma janela cascateou"},
-    {:stun_sempre, "chefe sempre no ciclo",
-     "nenhum chefe passou de uma janela estrutural acordado (3s) — acima disso um ciclo se perdeu"},
-    {:stun_na_luta, "chefe no ciclo com a luta aberta",
-     "nenhum chefe passou de uma janela estrutural acordado (3s) DEPOIS de a luta abrir — " <>
+    {:stun_sempre, "especial sempre no ciclo",
+     "nenhum especial passou de uma janela estrutural acordado (3s) — acima disso um ciclo se perdeu"},
+    {:stun_na_luta, "especial no ciclo com a luta aberta",
+     "nenhum especial passou de uma janela estrutural acordado (3s) DEPOIS de a luta abrir — " <>
        "antes dela o especial junta primeiro (11/09), e chegar mordendo é a escolha dele"},
     {:limpa, "limpa a tela", "terminou sem monstro de pé"},
     {:nao_recua, "não recua", "nunca andou a rota ao contrário com a barra vazia (R7)"},
@@ -164,10 +164,10 @@ defmodule Pokex.Sim.Verdict do
 
   defp check(:anda, _sem_corrida), do: {true, "a corrida não durou o bastante pra dizer"}
 
-  # A régua do combo dele contra chefe (29/08): "ou otimizamos para realmente
+  # A régua do combo dele contra especial (29/08): "ou otimizamos para realmente
   # não termos abertura a falha, ou 1 segundo sem stun no campo quer dizer que
   # eu morri". `sem_dano` é o RESULTADO — nem uma mordida; `stun_sempre` é o
-  # MECANISMO — nenhum chefe acordado por 1s. Cobrar os dois separa "sorte"
+  # MECANISMO — nenhum especial acordado por 1s. Cobrar os dois separa "sorte"
   # de "combo certo": dá pra não tomar dano fugindo, e dá pra manter o stun e
   # morrer de outra coisa.
   defp check(:sem_dano, %{metrics: %{min_hp: 100}}), do: {true, "nem uma mordida"}
@@ -179,33 +179,35 @@ defmodule Pokex.Sim.Verdict do
 
   # A RÉGUA É A FÍSICA DO COMBO DELE (30/08): o stun dura 3s e só sai como
   # prefixo do F4; o ciclo de segurança cabe em 5s ("se tudo não cabe em 5
-  # segundos, tem algo errado"). Isso deixa ~2s de chefe acordado POR CICLO,
+  # segundos, tem algo errado"). Isso deixa ~2s de especial acordado POR CICLO,
   # por construção — inevitável. O que a promessa acusa é o ciclo PERDIDO:
-  # um chefe acordado além de 3s (uma janela estrutural + a folga da rajada)
+  # um especial acordado além de 3s (uma janela estrutural + a folga da rajada)
   # significa que um stun ou um F4 não saiu na vez dele.
-  defp check(:stun_sempre, %{metrics: %{bosses_born: 0}}),
-    do: {false, "nenhum chefe nasceu — a promessa não foi exercida"}
+  defp check(:stun_sempre, %{metrics: %{specials_born: 0}}),
+    do: {false, "nenhum especial nasceu — a promessa não foi exercida"}
 
-  defp check(:stun_sempre, %{metrics: %{boss_awake_max_ms: pior}}) when pior <= 3_000,
+  defp check(:stun_sempre, %{metrics: %{special_awake_max_ms: pior}}) when pior <= 3_000,
     do: {true, "pior trecho acordado: #{pior}ms"}
 
-  defp check(:stun_sempre, %{metrics: %{boss_awake_max_ms: pior}}),
-    do: {false, "um chefe ficou #{pior}ms acordado — um ciclo do combo se perdeu"}
+  defp check(:stun_sempre, %{metrics: %{special_awake_max_ms: pior}}),
+    do: {false, "um especial ficou #{pior}ms acordado — um ciclo do combo se perdeu"}
 
   # A MESMA RÉGUA, A PARTIR DA LUTA ABERTA. "Postura no shiny é juntar
   # primeiro!" (11/09): o especial visto pela cor passa pela juntada como
   # qualquer pilha, e o trecho em que ele chega mordendo enquanto ela fecha é
   # decisão dele — medido na bancada dos shinies empilhados, 4 a 10 s. O ciclo
   # que a promessa cobra é o de dentro da luta.
-  defp check(:stun_na_luta, %{metrics: %{bosses_born: 0}}),
-    do: {false, "nenhum chefe nasceu — a promessa não foi exercida"}
+  defp check(:stun_na_luta, %{metrics: %{specials_born: 0}}),
+    do: {false, "nenhum especial nasceu — a promessa não foi exercida"}
 
-  defp check(:stun_na_luta, %{metrics: %{boss_awake_in_fight_max_ms: pior}}) when pior <= 3_000,
-    do: {true, "pior trecho acordado com a luta aberta: #{pior}ms"}
+  defp check(:stun_na_luta, %{metrics: %{special_awake_in_fight_max_ms: pior}})
+       when pior <= 3_000,
+       do: {true, "pior trecho acordado com a luta aberta: #{pior}ms"}
 
-  defp check(:stun_na_luta, %{metrics: %{boss_awake_in_fight_max_ms: pior}}),
+  defp check(:stun_na_luta, %{metrics: %{special_awake_in_fight_max_ms: pior}}),
     do:
-      {false, "um chefe ficou #{pior}ms acordado com a luta aberta — um ciclo do combo se perdeu"}
+      {false,
+       "um especial ficou #{pior}ms acordado com a luta aberta — um ciclo do combo se perdeu"}
 
   # …e `aguenta` é a outra metade: as janelas estruturais custam mordida, mas
   # nunca podem CASCATEAR — vida abaixo da metade é ciclo perdido virando

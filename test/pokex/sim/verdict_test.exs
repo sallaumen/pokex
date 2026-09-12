@@ -251,10 +251,10 @@ defmodule Pokex.Sim.VerdictTest do
   end
 
   # AS DUAS PROMESSAS DO CHEFE (29/08): `sem_dano` é o resultado (nem uma
-  # mordida), `stun_sempre` é o mecanismo (nenhum chefe 1s acordado adjacente).
+  # mordida), `stun_sempre` é o mecanismo (nenhum especial 1s acordado adjacente).
   # Cobradas juntas porque dá pra não tomar dano fugindo, e dá pra manter o
   # stun e morrer de outra coisa.
-  describe "as promessas do chefe" do
+  describe "as promessas do especial" do
     test "sem_dano: vida intacta cumpre, uma mordida quebra" do
       [ok] = Verdict.judge(report(%{metrics: %{min_hp: 100}}), [:sem_dano])
       assert ok.cumpriu?
@@ -270,15 +270,15 @@ defmodule Pokex.Sim.VerdictTest do
     end
 
     # A régua é a física do combo (30/08): stun de 3s como prefixo + ciclo de
-    # segurança de 5s deixam ~2s de chefe acordado POR CICLO, por construção.
+    # segurança de 5s deixam ~2s de especial acordado POR CICLO, por construção.
     # O que a promessa acusa é o ciclo PERDIDO: acordado além de 3s.
     test "stun_sempre: até uma janela estrutural (3s) cumpre, acima quebra" do
-      base = %{bosses_born: 3, boss_awake_max_ms: 2_400}
+      base = %{specials_born: 3, special_awake_max_ms: 2_400}
       [ok] = Verdict.judge(report(%{metrics: base}), [:stun_sempre])
       assert ok.cumpriu?
 
       [quebrou] =
-        Verdict.judge(report(%{metrics: %{base | boss_awake_max_ms: 3_400}}), [:stun_sempre])
+        Verdict.judge(report(%{metrics: %{base | special_awake_max_ms: 3_400}}), [:stun_sempre])
 
       refute quebrou.cumpriu?
       assert quebrou.porque =~ "um ciclo do combo se perdeu"
@@ -287,13 +287,18 @@ defmodule Pokex.Sim.VerdictTest do
     # The same ruler, counted from the fight opening: the special gathers first
     # (11/09), so the stretch it spends biting while the pile closes is his call.
     test "stun_na_luta judges only the stretch awake with the fight open" do
-      base = %{bosses_born: 3, boss_awake_max_ms: 9_000, boss_awake_in_fight_max_ms: 2_400}
+      base = %{
+        specials_born: 3,
+        special_awake_max_ms: 9_000,
+        special_awake_in_fight_max_ms: 2_400
+      }
+
       [ok] = Verdict.judge(report(%{metrics: base}), [:stun_na_luta])
       assert ok.cumpriu?, "nine seconds awake BEFORE the fight opened are not a lost cycle"
 
       [quebrou] =
         Verdict.judge(
-          report(%{metrics: %{base | boss_awake_in_fight_max_ms: 3_400}}),
+          report(%{metrics: %{base | special_awake_in_fight_max_ms: 3_400}}),
           [:stun_na_luta]
         )
 
@@ -302,7 +307,7 @@ defmodule Pokex.Sim.VerdictTest do
 
       [vazio] =
         Verdict.judge(
-          report(%{metrics: %{bosses_born: 0, boss_awake_in_fight_max_ms: 0}}),
+          report(%{metrics: %{specials_born: 0, special_awake_in_fight_max_ms: 0}}),
           [:stun_na_luta]
         )
 
@@ -318,10 +323,10 @@ defmodule Pokex.Sim.VerdictTest do
       assert espiral.porque =~ "cascatearam"
     end
 
-    test "stun_sempre sem chefe nenhum é promessa não exercida — quebra" do
+    test "stun_sempre with no special born is a promise never exercised — breaks" do
       [vazio] =
         Verdict.judge(
-          report(%{metrics: %{bosses_born: 0, boss_awake_max_ms: 0}}),
+          report(%{metrics: %{specials_born: 0, special_awake_max_ms: 0}}),
           [:stun_sempre]
         )
 

@@ -1393,14 +1393,36 @@ defmodule Pokex.Sim.WorldTest do
 
   # O CHEFE (29/08): nasce de tempos em tempos, vida e mordida multiplicadas, e
   # o placar mede a frase dele — "1 segundo sem stun no campo quer dizer que eu
-  # morri" — como o maior trecho de chefe ACORDADO ADJACENTE.
-  describe "o chefe" do
+  # morri" — como o maior trecho de especial ACORDADO ADJACENTE.
+  # A ORDEM DA CORRENTE É ONDE O SONO COMEÇA, e o mundo estava provando o combo
+  # ANTIGO dele: em 30/08 era "usar todas as skills, finalizar com stun"; em
+  # 12/09, "o stun é a primeira coisa do auto-combo (…) não a última coisa".
+  #
+  # Com o controle no fim o sono nasce quando a corrente acaba e o revive do
+  # ciclo cabe folgado atrás dele. Com o controle na frente o sono nasce na
+  # PRENSA, e a corrente inteira corre DENTRO da janela de sono — que é o que o
+  # cérebro passou a contar em `Combat.Combo.stun_age_ms/2`. Um mundo que
+  # dispara na ordem antiga faria a bancada julgar um bot que acredita noutra.
+  describe "the chain's order" do
+    test "with combo_stun_first the control comes FIRST, and the damage behind it" do
+      hoje = World.new(straight(), loadout: loadout(), knobs: %{combo_stun_first: true})
+      antes = World.new(straight(), loadout: loadout())
+
+      # o loadout tem crowd ["1"], aoe ["3", "4"] e single ["6"]
+      assert World.combo_keys(hoje) == ["1", "3", "4", "6"]
+
+      # …e o combo de 30/08 continua medível: o controle no fim
+      assert World.combo_keys(antes) == ["3", "4", "6", "1"]
+    end
+  end
+
+  describe "o especial" do
     defp mundo_com_chefe(knobs \\ %{}) do
       World.new(
         straight(),
         knobs:
           Map.merge(
-            %{boss_every_ms: 10_000, boss_hp_mult: 5, boss_atk_mult: 5, mob_hp: 100},
+            %{special_every_ms: 10_000, special_hp_mult: 5, special_atk_mult: 5, mob_hp: 100},
             knobs
           )
       )
@@ -1409,27 +1431,27 @@ defmodule Pokex.Sim.WorldTest do
     test "nasce perto do prazo, com a vida multiplicada e marcado" do
       world = Enum.reduce(1..200, mundo_com_chefe(), fn _n, w -> World.step(w, 100) end)
 
-      chefes = Enum.filter(world.mobs, &Map.get(&1, :boss?, false))
+      especiais = Enum.filter(world.mobs, &Map.get(&1, :special?, false))
 
-      assert chefes != [], "20s de mundo e nenhum chefe nasceu (prazo 10s ±25%)"
-      assert hd(chefes).max_hp == 500
-      assert hd(chefes).bite_mult == 5
-      assert world.stats.bosses_born >= 1
+      assert especiais != [], "20s de mundo e nenhum especial nasceu (prazo 10s ±25%)"
+      assert hd(especiais).max_hp == 500
+      assert hd(especiais).bite_mult == 5
+      assert world.stats.specials_born >= 1
     end
 
-    test "sem o knob, nenhum cenário antigo ganha chefe" do
+    test "without the knob, no historical scenario gets a special" do
       world = Enum.reduce(1..200, World.new(straight()), fn _n, w -> World.step(w, 100) end)
 
-      assert world.stats.bosses_born == 0
+      assert world.stats.specials_born == 0
     end
 
-    test "a mordida do chefe pesa o multiplicador" do
+    test "a mordida do especial pesa o multiplicador" do
       world = mundo_com_chefe()
 
-      chefe = %{
+      especial = %{
         id: 999,
-        name: "Chefe",
-        nest: :boss,
+        name: "Especial",
+        nest: :special,
         pos: neighbour(world.own.pos),
         hp: 500,
         max_hp: 500,
@@ -1438,12 +1460,12 @@ defmodule Pokex.Sim.WorldTest do
         walk_debt_ms: 0,
         bite_debt_ms: 0,
         asleep_until: 0,
-        boss?: true,
+        special?: true,
         bite_mult: 5
       }
 
       antes = world.own.hp_pct
-      world = %{world | mobs: [chefe]}
+      world = %{world | mobs: [especial]}
       world = Enum.reduce(1..10, world, fn _n, w -> World.step(w, 100) end)
 
       # 1s adjacente = 1 mordida × bite_dmg 4 × mult 5 = 20
@@ -1453,10 +1475,10 @@ defmodule Pokex.Sim.WorldTest do
     test "o placar mede o pior trecho acordado ADJACENTE — dormindo não conta" do
       world = mundo_com_chefe()
 
-      chefe = %{
+      especial = %{
         id: 999,
-        name: "Chefe",
-        nest: :boss,
+        name: "Especial",
+        nest: :special,
         pos: neighbour(world.own.pos),
         hp: 500,
         max_hp: 500,
@@ -1465,32 +1487,32 @@ defmodule Pokex.Sim.WorldTest do
         walk_debt_ms: 0,
         bite_debt_ms: 0,
         asleep_until: 0,
-        boss?: true,
+        special?: true,
         bite_mult: 5
       }
 
-      world = %{world | mobs: [chefe]}
+      world = %{world | mobs: [especial]}
       world = Enum.reduce(1..15, world, fn _n, w -> World.step(w, 100) end)
-      assert world.stats.boss_awake_max_ms >= 1_400
+      assert world.stats.special_awake_max_ms >= 1_400
 
       # dorme — o streak zera e o máximo fica
-      max_antes = world.stats.boss_awake_max_ms
-      world = put_in(world.mobs, [%{chefe | asleep_until: world.clock + 60_000}])
+      max_antes = world.stats.special_awake_max_ms
+      world = put_in(world.mobs, [%{especial | asleep_until: world.clock + 60_000}])
       world = Enum.reduce(1..10, world, fn _n, w -> World.step(w, 100) end)
 
-      assert world.boss_awake_streak_ms == 0
-      assert world.stats.boss_awake_max_ms == max_antes
+      assert world.special_awake_streak_ms == 0
+      assert world.stats.special_awake_max_ms == max_antes
     end
 
-    test "special_asleep_left_ms e special_tiles respondem pelo chefe mais perto" do
+    test "special_asleep_left_ms e special_tiles respondem pelo especial mais perto" do
       world = mundo_com_chefe()
       assert World.special_asleep_left_ms(world) == nil
       assert World.special_tiles(world) == nil
 
-      chefe = %{
+      especial = %{
         id: 999,
-        name: "Chefe",
-        nest: :boss,
+        name: "Especial",
+        nest: :special,
         pos: neighbour(world.own.pos),
         hp: 500,
         max_hp: 500,
@@ -1499,11 +1521,11 @@ defmodule Pokex.Sim.WorldTest do
         walk_debt_ms: 0,
         bite_debt_ms: 0,
         asleep_until: world.clock + 3_000,
-        boss?: true,
+        special?: true,
         bite_mult: 5
       }
 
-      world = %{world | mobs: [chefe]}
+      world = %{world | mobs: [especial]}
       assert World.special_tiles(world) == 1
       assert World.special_asleep_left_ms(world) == 3_000
     end
@@ -1745,7 +1767,7 @@ defmodule Pokex.Sim.WorldTest do
     end
   end
 
-  # THE SHINY CORPSE (spec 2026-09-09-shiny-na-cacada): a boss killed with the
+  # THE SHINY CORPSE (spec 2026-09-09-shiny-na-cacada): a special killed with the
   # colour taught leaves a corpse the aim can see; it rots after `corpse_ms`
   # with no ball, and a ball takes it.
   describe "the shiny corpse" do
@@ -1755,35 +1777,35 @@ defmodule Pokex.Sim.WorldTest do
       straight()
       |> World.new(
         loadout: %Loadout{name: "Barra", aoe: ["3"], single: [], crowd: []},
-        knobs: Map.merge(%{boss_color: true, corpse_ms: 5_000, ms_per_tile: 100}, knobs)
+        knobs: Map.merge(%{special_color: true, corpse_ms: 5_000, ms_per_tile: 100}, knobs)
       )
     end
 
-    defp kill_boss(world) do
+    defp kill_special(world) do
       world
-      |> World.summon_boss({101, 200, 5}, hp: 1)
+      |> World.summon_special({101, 200, 5}, hp: 1)
       |> World.press({:press, "3"})
     end
 
-    test "a boss dying with the colour taught leaves a corpse where it stood" do
-      world = kill_boss(arena())
+    test "a special dying with the colour taught leaves a corpse where it stood" do
+      world = kill_special(arena())
 
-      assert world.stats.bosses_dead == 1
+      assert world.stats.specials_dead == 1
       assert [%{pos: {101, 200, 5}}] = world.corpses
       assert %{aiming?: true, pending: 1, corpses: [{101, 200, 5}]} = World.capture_input(world)
       assert World.observe(world, :capture).aiming?
     end
 
     test "without the colour rule there is no corpse to aim at" do
-      world = kill_boss(arena(%{boss_color: false}))
+      world = kill_special(arena(%{special_color: false}))
 
-      assert world.stats.bosses_dead == 1
+      assert world.stats.specials_dead == 1
       assert world.corpses == []
       refute World.capture_input(world).aiming?
     end
 
     test "a corpse rots after corpse_ms and counts as a lost ball" do
-      world = arena() |> kill_boss() |> World.step(4_000)
+      world = arena() |> kill_special() |> World.step(4_000)
       assert length(world.corpses) == 1
 
       world = World.step(world, 1_500)
@@ -1792,7 +1814,7 @@ defmodule Pokex.Sim.WorldTest do
     end
 
     test "a ball takes the corpse" do
-      world = arena() |> kill_boss() |> World.throw_ball()
+      world = arena() |> kill_special() |> World.throw_ball()
 
       assert world.corpses == []
       assert world.stats.balls == 1

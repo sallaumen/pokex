@@ -76,7 +76,7 @@ defmodule Pokex.Sim.Scenario do
   @groups %{
     hunt: "A caçada inteira",
     mundo: "O bicho e o bolo",
-    chefe: "O chefe",
+    especial: "O especial",
     cerco: "O cerco e o recolhimento",
     ruler: "A régua e a pilha",
     health: "Vida, revive e morte",
@@ -87,7 +87,7 @@ defmodule Pokex.Sim.Scenario do
   # A ORDEM DA TELA, e ela não é a do mapa (que não tem ordem). Começa pela
   # caçada inteira, passa pelo mundo — as condições que ele nomeou: muito bicho,
   # bicho duro, bicho de papel — e termina nas peças quebradas.
-  @group_order [:hunt, :mundo, :chefe, :cerco, :ruler, :health, :hands, :blind]
+  @group_order [:hunt, :mundo, :especial, :cerco, :ruler, :health, :hands, :blind]
 
   @doc """
   The groups that are controlled EXPERIMENTS — one pile, one question.
@@ -374,7 +374,7 @@ defmodule Pokex.Sim.Scenario do
       },
       %__MODULE__{
         id: "shiny-sem-nome",
-        group: :chefe,
+        group: :especial,
         icon: "🕶️",
         aperto: :aperto,
         mode: :auto_combo,
@@ -384,7 +384,7 @@ defmodule Pokex.Sim.Scenario do
           "\"Quando não consegue matar 1 pokémon com um combo, sobra 1, ele sai correndo " <>
             "tentando mobar — quando tem 1 shiny ali é normal precisar do loop de 3~4 combos de " <>
             "revive até matar; deixar shinies pra trás é MUITO perigoso, eles são absurdamente " <>
-            "fortes\" (02/09). Um chefe 10× que NÃO está marcado: sem nome nas regras e sem cor. " <>
+            "fortes\" (02/09). Um especial 10× que NÃO está marcado: sem nome nas regras e sem cor. " <>
             "Só o que o cérebro vê é um bicho que tomou a corrente inteira e continua de pé — e " <>
             "a régua cobra que ele fique e repita até a tela limpar.",
         route: :hunt_field,
@@ -397,12 +397,12 @@ defmodule Pokex.Sim.Scenario do
           # deixa alcançar quem anda (mordida só encostado)
           respawn_ms: 20_000,
           stray_chance_pct: 0,
-          boss_every_ms: 40_000,
+          special_every_ms: 40_000,
           # 5× a vida (≈ 4 correntes, "o loop de 3~4 combos" dele) e 10× o ataque
-          boss_hp_mult: 5,
-          boss_atk_mult: 10,
-          boss_color: false,
-          boss_name: "Venusaur",
+          special_hp_mult: 5,
+          special_atk_mult: 10,
+          special_color: false,
+          special_name: "Venusaur",
           presses_to_kill: 3,
           bite_dmg: 1,
           bite_every_ms: 1_000,
@@ -412,29 +412,29 @@ defmodule Pokex.Sim.Scenario do
         config: %{reset_revive: true, boss_names: ""}
       },
       %__MODULE__{
-        id: "chefe-brando",
-        group: :chefe,
+        id: "especial-brando",
+        group: :especial,
         icon: "👹",
         aperto: :rotina,
         espera: [:nao_cai, :aguenta, :stun_sempre, :mata],
-        name: "Chefe brando (5×)",
+        name: "Especial brando (5×)",
         why:
-          "O padrão MENOR do level mais alto: um chefe com 5× a vida e 5× o ataque de um " <>
+          "O padrão MENOR do level mais alto: um especial com 5× a vida e 5× o ataque de um " <>
             "bicho comum, nascendo de tempos em tempos numa estrada vazia. O combo dele é a " <>
             "única resposta — todas as skills, stun no fim, revive, e de novo — e a régua é " <>
             "a frase dele: \"ou otimizamos para realmente não termos abertura a falha, ou 1 " <>
             "segundo sem stun no campo quer dizer que eu morri\". As promessas cobram as " <>
-            "duas metades: nem uma mordida, e nenhum chefe 1s acordado por perto.",
+            "duas metades: nem uma mordida, e nenhum especial 1s acordado por perto.",
         route: :hunt_field,
         knobs: %{
           nest_size: 0,
           stray_chance_pct: 0,
-          boss_every_ms: 45_000,
-          boss_hp_mult: 5,
-          boss_atk_mult: 5,
+          special_every_ms: 45_000,
+          special_hp_mult: 5,
+          special_atk_mult: 5,
           # a mordida-base HERDADA da noite medida (0,41%/s por bicho): o
-          # multiplicador do chefe multiplica ISTO — com o default de mesa
-          # (4 por 900ms) o chefe mordia 10× mais forte que a régua real
+          # multiplicador do especial multiplica ISTO — com o default de mesa
+          # (4 por 900ms) o especial mordia 10× mais forte que a régua real
           bite_dmg: 1,
           bite_every_ms: 1_000,
           # o relógio do combo: o sono segura 8s, o F4 volta em 5s — é o que
@@ -452,20 +452,105 @@ defmodule Pokex.Sim.Scenario do
         },
         config: %{
           reset_revive: true,
-          boss_names: "chefe",
+          boss_names: "especial",
           stun_hold_ms: 7_000,
           # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
           # o stun até o F4 que vem atrás caber nele
           rescue_floor_ms: 5_000,
           # sem R11 aqui: o prepare re-baseava o piso do resgate na cara do
-          # chefe seguinte, e o stun ficava 2s esperando o F4 caber. Contra
-          # chefe o primeiro ciclo já chega resetando — preparar é pagar dobrado.
+          # especial seguinte, e o stun ficava 2s esperando o F4 caber. Contra
+          # especial o primeiro ciclo já chega resetando — preparar é pagar dobrado.
+          prepare_revive: false
+        }
+      },
+      # A CAÇADA DELE COMO ELA RODA — e a descoberta de que a bancada nunca a
+      # rodou.
+      #
+      # Os outros cenários de especial correm com `mode: nil`: as mãos apertam
+      # skill por skill. O jogo DELE roda Auto Combo, uma prensa que encadeia a
+      # barra inteira — e desde 12/09 o CONTROLE é a primeira skill da corrente
+      # ("o stun é a primeira coisa do auto-combo (…) não a última coisa").
+      # Este cenário é o `especial-brando` com essas duas coisas ligadas, e mais
+      # uma terceira: `special_witness: false`.
+      #
+      # O QUE ELE MEDE, 8 sementes de 3 minutos, contra o mesmo mundo:
+      #
+      #                        mortos  acordado_max  revive do ciclo
+      #   brando (sem combo)     22       2000ms          114
+      #   brando + auto combo    14       5300ms            0
+      #   ESTE (combo de hoje)   19       2600ms            0
+      #
+      # A coluna da direita é o defeito: com Auto Combo o ciclo do especial
+      # (`Engine.Logic.special_orders/1` — stun, revive atrás do stun, de novo)
+      # não gira UMA vez. A corrente queima a tecla de controle a cada prensa,
+      # então `control_ready?` nunca é verdade, então o cérebro nunca manda um
+      # stun seu, então não há carimbo `:stunned` — e o revive do ciclo exige
+      # esse carimbo. Quem segura a caçada é o revive COMUM (R3b, "combo acabou
+      # com a barra gasta"), que é uma regra de barra e não de sono.
+      #
+      # Vale pros DOIS lados da corrente: o stun no fim (o combo de 30/08) mede
+      # zero igual. Não é a ordem que mata o ciclo — é o Auto Combo.
+      #
+      # `special_witness: false` é a terceira peça, e ela é sobre a bancada, não
+      # sobre o jogo: `special_asleep_left_ms` e `special_tiles` NÃO EXISTEM no
+      # bot (nenhum módulo fora do simulador escreve essas chaves). Cada
+      # pergunta do ciclo tem dois braços, um com a testemunha e outro sem, e a
+      # bancada só exercia o primeiro. Com ela calada aparece o braço do jogo —
+      # e ele tem um buraco próprio: sem carimbo de stun nenhum, o cérebro
+      # responde que o especial está DORMINDO (o `within?/3` de um relógio que
+      # nunca começou é verdadeiro), e nem o F4 de emergência sai.
+      #
+      # `:quebrado` porque um ciclo que nunca gira é uma peça falhando, e a
+      # promessa é só `:anda`. As outras voltam quando o ciclo alcançar o Auto
+      # Combo — e aí este cenário deixa de ser `:quebrado`. Uma tentativa já foi
+      # refutada aqui: unificar o relógio do sono (carimbo do módulo OU prensa
+      # da corrente) devolve o F4 de emergência, mas derruba os mortos de 19
+      # pra 12 e estica o acordado pra 3900ms. O ciclo precisa de um stun, não
+      # de uma crença sobre um.
+      %__MODULE__{
+        id: "especial-combo-de-hoje",
+        group: :especial,
+        mode: :auto_combo,
+        icon: "🔁",
+        aperto: :quebrado,
+        espera: [:anda],
+        name: "O combo de hoje (Auto Combo, stun na frente)",
+        why:
+          "A caçada dele como ela roda de verdade: Auto Combo, com o CONTROLE na frente " <>
+            "da corrente (12/09). Os outros cenários de especial apertam skill por skill, " <>
+            "que é um jogo que ele não joga. Aqui o ciclo do especial — stun, revive " <>
+            "atrás do stun, de novo — não gira uma única vez em 8 sementes: a corrente " <>
+            "queima o controle a cada prensa, o cérebro nunca manda um stun seu, e o " <>
+            "revive do ciclo exige o carimbo desse stun. Quem segura a caçada é o revive " <>
+            "comum. O preço, contra o mesmo mundo sem combo: 14 mortos no lugar de 22, e " <>
+            "o especial 5,3s acordado no lugar de 2,0s.",
+        route: :hunt_field,
+        knobs: %{
+          nest_size: 0,
+          stray_chance_pct: 0,
+          combo_stun_first: true,
+          special_witness: false,
+          special_every_ms: 45_000,
+          special_hp_mult: 5,
+          special_atk_mult: 5,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          stun_ms: 5_000,
+          stun_onset_ms: 2_000,
+          revive_cooldown_ms: 0,
+          presses_to_kill: 3
+        },
+        config: %{
+          reset_revive: true,
+          boss_names: "especial",
+          stun_hold_ms: 7_000,
+          rescue_floor_ms: 5_000,
           prepare_revive: false
         }
       },
       %__MODULE__{
-        id: "chefe-incognito",
-        group: :chefe,
+        id: "especial-incognito",
+        group: :especial,
         icon: "🎭",
         aperto: :rotina,
         # `aguenta` fica FORA por decisão datada (01/09): a detecção incógnita
@@ -473,27 +558,27 @@ defmodule Pokex.Sim.Scenario do
         # mordedor 5× ANTES de existir luta pra medir (o tanque mediu 15-60%
         # nas sementes). Fechar essa janela pede o segundo sinal, a MORDIDA
         # (vida caindo rápido demais pro tamanho da pilha) — follow-up. O
-        # contrato promete o que o caminho entrega: o chefe morre e ninguém cai.
+        # contrato promete o que o caminho entrega: o especial morre e ninguém cai.
         espera: [:nao_cai, :mata],
-        name: "Chefe incógnito (5×, sem nome)",
+        name: "Especial incógnito (5×, sem nome)",
         why:
-          "O chefe DELE de verdade: \"ele tem o mesmo nome que os outros pokémons\" " <>
-            "(31/08). Nenhum nome declara nada — o chefe nasce no meio da caçada comum, o " <>
+          "O especial DELE de verdade: \"ele tem o mesmo nome que os outros pokémons\" " <>
+            "(31/08). Nenhum nome declara nada — o especial nasce no meio da caçada comum, o " <>
             "bolo abre a luta, os comuns caem, e quem NÃO cai depois de engolir a barra " <>
-            "inteira é chefe (o grit). A promessa é a de quem caça sem crachá: o corpo do " <>
-            "chefe no chão e o tanque de pé.",
+            "inteira é especial (o grit). A promessa é a de quem caça sem crachá: o corpo do " <>
+            "especial no chão e o tanque de pé.",
         route: :hunt_field,
         knobs: %{
           # COMUNS EM VOLTA, de propósito: o grit precisa de luta aberta pra
-          # contar entregas — o caminho real da dungeon dele, onde o chefe
-          # aparece DENTRO do bolo (o chefe sozinho na estrada é buraco
+          # contar entregas — o caminho real da dungeon dele, onde o especial
+          # aparece DENTRO do bolo (o especial sozinho na estrada é buraco
           # conhecido: sem nome e sem luta não há o que medir; o gatilho pela
           # MORDIDA fica de fora desta rodada).
           nest_size: 3,
           stray_chance_pct: 0,
-          boss_every_ms: 45_000,
-          boss_hp_mult: 5,
-          boss_atk_mult: 5,
+          special_every_ms: 45_000,
+          special_hp_mult: 5,
+          special_atk_mult: 5,
           bite_dmg: 1,
           bite_every_ms: 1_000,
           stun_ms: 5_000,
@@ -505,7 +590,7 @@ defmodule Pokex.Sim.Scenario do
           reset_revive: true,
           # SEM NOME — o teste é exatamente este: o grit declara sozinho.
           # 6 = 1,5× o máximo que a noite fraca real entregou por pilha (4):
-          # margem de sobra contra falso chefe, e cada tique a menos de
+          # margem de sobra contra falso especial, e cada tique a menos de
           # latência é mordida 5× que o tanque não paga.
           boss_names: "",
           boss_grit: 6,
@@ -516,29 +601,29 @@ defmodule Pokex.Sim.Scenario do
           # pokémon recebe o mordedor 5× ANTES de o grit ter luta pra medir —
           # exatamente a janela que este cenário declara fora (acima). Medido
           # em 3 sementes × 3 min: com o estacionar, 3 quedas (95s, 150s,
-          # 152s) e o chefe morrendo 4×; sem ele, zero quedas e o chefe
+          # 152s) e o especial morrendo 4×; sem ele, zero quedas e o especial
           # sumindo na corda 5× sem luta. O que fecha essa janela é o gatilho
           # pela MORDIDA, não o lugar do pokémon — e é o follow-up de sempre.
           park_on_stop: false
         }
       },
       %__MODULE__{
-        id: "chefe-pela-cor",
-        group: :chefe,
+        id: "especial-pela-cor",
+        group: :especial,
         icon: "🎨",
         aperto: :rotina,
         # MEDIDO no A/B contra o incógnito (6 sementes, 3 min): a cor leva o
         # pior momento de 5% pra 27% e a mediana de 15% pra 34%, com o triplo
-        # de chefes mortos. Ainda assim `aguenta` (≥50) fica FORA, e o motivo
+        # de especiais mortos. Ainda assim `aguenta` (≥50) fica FORA, e o motivo
         # está nos rastros: o tombo que sobra é sempre o PRIMEIRO bolo, aos
-        # ~40s, antes de qualquer chefe aparecer — ninho de comuns com a barra
+        # ~40s, antes de qualquer especial aparecer — ninho de comuns com a barra
         # gasta. Não é falha de detecção, é o preço de mobar; prometer aqui
         # seria cobrar da cor uma dívida que não é dela. O ganho está travado
         # no teste comparativo dos invariantes.
         espera: [:nao_cai, :mata],
-        name: "Chefe pela cor (5×, regra ensinada)",
+        name: "Especial pela cor (5×, regra ensinada)",
         why:
-          "O SHINY — que é o que ele chama de chefe neste jogo — com uma diferença pro " <>
+          "O SHINY — que é o que ele chama de especial neste jogo — com uma diferença pro " <>
             "incógnito: a regra de cor dele foi ensinada e " <>
             "provada na calibração, então o vigia o reconhece assim que ele aparece na tela — " <>
             "antes de qualquer luta. É o buraco que o grit não fecha (a mobada arrasta o " <>
@@ -548,9 +633,9 @@ defmodule Pokex.Sim.Scenario do
         knobs: %{
           nest_size: 3,
           stray_chance_pct: 0,
-          boss_every_ms: 45_000,
-          boss_hp_mult: 5,
-          boss_atk_mult: 5,
+          special_every_ms: 45_000,
+          special_hp_mult: 5,
+          special_atk_mult: 5,
           bite_dmg: 1,
           bite_every_ms: 1_000,
           stun_ms: 5_000,
@@ -558,7 +643,7 @@ defmodule Pokex.Sim.Scenario do
           revive_cooldown_ms: 0,
           presses_to_kill: 3,
           # A DIFERENÇA, e a única: a cor foi ensinada.
-          boss_color: true
+          special_color: true
         },
         config: %{
           reset_revive: true,
@@ -571,7 +656,7 @@ defmodule Pokex.Sim.Scenario do
       },
       %__MODULE__{
         id: "shinies-empilhados",
-        group: :chefe,
+        group: :especial,
         icon: "✨✨",
         aperto: :aperto,
         # `stun_na_luta`, não `stun_sempre`: desde 11/09 o shiny junta primeiro
@@ -591,16 +676,16 @@ defmodule Pokex.Sim.Scenario do
           nest_size: 3,
           stray_chance_pct: 0,
           # curto de propósito: é o que faz dois se sobreporem
-          boss_every_ms: 20_000,
-          boss_hp_mult: 5,
-          boss_atk_mult: 5,
+          special_every_ms: 20_000,
+          special_hp_mult: 5,
+          special_atk_mult: 5,
           bite_dmg: 1,
           bite_every_ms: 1_000,
           stun_ms: 5_000,
           stun_onset_ms: 2_000,
           revive_cooldown_ms: 0,
           presses_to_kill: 3,
-          boss_color: true
+          special_color: true
         },
         config: %{
           reset_revive: true,
@@ -613,7 +698,7 @@ defmodule Pokex.Sim.Scenario do
       },
       %__MODULE__{
         id: "shiny-no-chao",
-        group: :chefe,
+        group: :especial,
         icon: "⚾",
         aperto: :aperto,
         espera: [:nao_morre, :nao_cai, :captura],
@@ -628,16 +713,16 @@ defmodule Pokex.Sim.Scenario do
         knobs: %{
           nest_size: 3,
           stray_chance_pct: 0,
-          boss_every_ms: 40_000,
-          boss_hp_mult: 5,
-          boss_atk_mult: 5,
+          special_every_ms: 40_000,
+          special_hp_mult: 5,
+          special_atk_mult: 5,
           bite_dmg: 1,
           bite_every_ms: 1_000,
           stun_ms: 5_000,
           stun_onset_ms: 2_000,
           revive_cooldown_ms: 0,
           presses_to_kill: 3,
-          boss_color: true,
+          special_color: true,
           # curto de propósito: é o que faz a rota que anda cedo perder o corpo
           corpse_ms: 15_000
         },
@@ -652,12 +737,12 @@ defmodule Pokex.Sim.Scenario do
         }
       },
       %__MODULE__{
-        id: "chefe-cruel",
-        group: :chefe,
+        id: "especial-cruel",
+        group: :especial,
         icon: "🐲",
         aperto: :aperto,
         espera: [:nao_cai, :aguenta, :stun_sempre, :mata],
-        name: "Chefe cruel (10×)",
+        name: "Especial cruel (10×)",
         why:
           "O padrão MAIOR: 10× a vida, 10× o ataque. A física é a mesma do brando — o que " <>
             "muda é o preço do erro: uma mordida deste tira um quinto da vida, então " <>
@@ -670,9 +755,9 @@ defmodule Pokex.Sim.Scenario do
           # mais cedo que o brando de propósito: um 10× leva ~70s de combo pra
           # cair, e a promessa `mata` precisa ver pelo menos um corpo dentro da
           # janela de 3 minutos dos invariantes
-          boss_every_ms: 30_000,
-          boss_hp_mult: 10,
-          boss_atk_mult: 10,
+          special_every_ms: 30_000,
+          special_hp_mult: 10,
+          special_atk_mult: 10,
           bite_dmg: 1,
           bite_every_ms: 1_000,
           # MEDIDO POR ELE (30/08, segunda passada): "o stun dura 5s,
@@ -688,35 +773,35 @@ defmodule Pokex.Sim.Scenario do
         },
         config: %{
           reset_revive: true,
-          boss_names: "chefe",
+          boss_names: "especial",
           stun_hold_ms: 7_000,
           # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
           # o stun até o F4 que vem atrás caber nele
           rescue_floor_ms: 5_000,
           # sem R11 aqui: o prepare re-baseava o piso do resgate na cara do
-          # chefe seguinte, e o stun ficava 2s esperando o F4 caber. Contra
-          # chefe o primeiro ciclo já chega resetando — preparar é pagar dobrado.
+          # especial seguinte, e o stun ficava 2s esperando o F4 caber. Contra
+          # especial o primeiro ciclo já chega resetando — preparar é pagar dobrado.
           prepare_revive: false
         }
       },
       %__MODULE__{
-        id: "estrada-com-chefes",
-        group: :chefe,
+        id: "estrada-com-especiais",
+        group: :especial,
         icon: "🛤️",
         aperto: :aperto,
         # SÓ :mata, e é o diagnóstico DELE virado em contrato (30/08): "ainda
-        # não confio nas de boss, a hunt ainda não tá tão bem organizada — 1
-        # erro é morte na certa". Um chefe 10× no meio de pilha comum vive no
+        # não confio nas de special, a hunt ainda não tá tão bem organizada — 1
+        # erro é morte na certa". Um especial 10× no meio de pilha comum vive no
         # fio (vida mínima 3-20 nas sementes); prometer nao_cai aqui hoje
         # seria flake, não régua. A promessa volta quando a hunt mista fechar.
         espera: [:mata],
-        name: "Estrada com chefes",
+        name: "Estrada com especiais",
         why:
-          "A hunt avançada inteira: os ninhos de sempre E um chefe 10× brotando no meio " <>
+          "A hunt avançada inteira: os ninhos de sempre E um especial 10× brotando no meio " <>
             "dela de tempos em tempos. É o teste de POSTURA — largar a pilha na hora, " <>
-            "rodar o combo, e voltar pra caçada — e de bolso: cada chefe custa uma fila de " <>
+            "rodar o combo, e voltar pra caçada — e de bolso: cada especial custa uma fila de " <>
             "revives. Sem promessa de dano zero nem de andar aqui, de propósito: com bicho " <>
-            "comum na tela mordida faz parte, e o ciclo de chefe é parado por natureza. O " <>
+            "comum na tela mordida faz parte, e o ciclo de especial é parado por natureza. O " <>
             "que não pode é cair nem parar de matar.",
         route: :hunt_field,
         knobs: %{
@@ -725,9 +810,9 @@ defmodule Pokex.Sim.Scenario do
           aggro_tiles: 8,
           leash_tiles: 12,
           respawn_ms: 30_000,
-          boss_every_ms: 90_000,
-          boss_hp_mult: 10,
-          boss_atk_mult: 10,
+          special_every_ms: 90_000,
+          special_hp_mult: 10,
+          special_atk_mult: 10,
           bite_dmg: 1,
           bite_every_ms: 1_000,
           # MEDIDO POR ELE (30/08, segunda passada): "o stun dura 5s,
@@ -743,14 +828,14 @@ defmodule Pokex.Sim.Scenario do
         },
         config: %{
           reset_revive: true,
-          boss_names: "chefe",
+          boss_names: "especial",
           stun_hold_ms: 7_000,
           # o mesmo piso do knob revive_cooldown_ms do mundo: o cérebro segura
           # o stun até o F4 que vem atrás caber nele
           rescue_floor_ms: 5_000,
           # sem R11 aqui: o prepare re-baseava o piso do resgate na cara do
-          # chefe seguinte, e o stun ficava 2s esperando o F4 caber. Contra
-          # chefe o primeiro ciclo já chega resetando — preparar é pagar dobrado.
+          # especial seguinte, e o stun ficava 2s esperando o F4 caber. Contra
+          # especial o primeiro ciclo já chega resetando — preparar é pagar dobrado.
           prepare_revive: false
         }
       },

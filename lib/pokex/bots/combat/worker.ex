@@ -771,8 +771,27 @@ defmodule Pokex.Bots.Combat.Worker do
   # A CORRENTE QUE O JOGO VAI DISPARAR nesta prensa — vazia em toda prensa que
   # não é a do combo. Calculada AQUI, onde o modo e o pokémon em campo existem;
   # a prensa roda num processo que não tem nem um nem outro.
+  #
+  # A PERGUNTA É SE O COMBO ESTÁ NA PRENSA, não se ele está SOZINHO nela. Era
+  # `keys == [Combo.key()]`, igualdade exata com uma lista de um elemento — e a
+  # aura sai no MESMO burst que a corrente (`shift+1` + `r`), então a
+  # comparação falhava e a corrente não era carimbada.
+  #
+  # O preço, medido no diário dele: 183 de 1.144 correntes em 12/09 (16%) e 294
+  # de 1.072 em 11/09 (27%) saíram acompanhadas e sem carimbo. Sem carimbo a
+  # barra segue dizendo "tudo pronto", `spent?` nunca fica verdadeiro, e
+  # `Engine.Logic.combo_reset_due?` — a regra que pede o revive depois do combo
+  # — NUNCA dispara. O bicho sai do sono e o personagem morre.
+  #
+  # A morte de 12/09, 17:55, nos carimbos da barra:
+  #
+  #     -5,32s  prensa ["shift+1", "r"]   a corrente sai junto com a aura
+  #     -5,18s  barra: 4 prontas, gasta=false   nada carimbado
+  #     -3,17s  barra: 4 prontas, gasta=false   revive nunca pedido
+  #     -2,45s  prensa ["r"]              sozinha
+  #     -2,37s  barra: 0 prontas, gasta=true    carimbou em 80 ms
   defp combo_chain(%{mode: :auto_combo, loadout: loadout}, keys) do
-    if keys == [Combo.key()], do: Combo.chain_keys(loadout), else: []
+    if Combo.key() in keys, do: Combo.chain_keys(loadout), else: []
   end
 
   defp combo_chain(_outro_modo, _keys), do: []

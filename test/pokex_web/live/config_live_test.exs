@@ -24,7 +24,9 @@ defmodule PokexWeb.ConfigLiveTest do
       :pokemon_hp_fainted_below_pct,
       :combat_skill_gap_ms,
       :escape_direction,
-      :alarm_muted_categories
+      :alarm_muted_categories,
+      :ball_types,
+      :shiny_ball_key
     ])
 
     :ok
@@ -133,6 +135,28 @@ defmodule PokexWeb.ConfigLiveTest do
       |> render_change(%{"escape_direction" => "left"})
 
       assert Settings.get(:escape_direction) == "left"
+    end
+
+    # A BOLA DO SHINY NÃO É UM ENUM DE CÓDIGO: as opções são o hotbar DELE
+    # (`ball_types`, que ele edita nos Editores) mais "a padrão". Um enum fixo
+    # listaria teclas que ele não tem e esconderia as que tem.
+    test "the shiny ball offers his own hotbar, and saves", %{conn: conn} do
+      Settings.put(:ball_types, [
+        %{"key" => "f1", "name" => "Poké Ball"},
+        %{"key" => "f3", "name" => "Ultra"}
+      ])
+
+      {:ok, view, html} = live(conn, ~p"/config")
+
+      assert html =~ "A bola do shiny"
+      assert html =~ "Ultra (f3)"
+      assert html =~ "a padrão"
+
+      view
+      |> element("#cfg-row-shiny_ball_key form")
+      |> render_change(%{"shiny_ball_key" => "f3"})
+
+      assert Settings.get(:shiny_ball_key) == "f3"
     end
   end
 

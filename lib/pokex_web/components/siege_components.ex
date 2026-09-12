@@ -43,6 +43,10 @@ defmodule PokexWeb.SiegeComponents do
   attr :now_ms, :integer, required: true
   attr :mirror?, :boolean, default: false, doc: "the live screen underneath, refreshing itself"
 
+  attr :fill?, :boolean,
+    default: false,
+    doc: "the card lives in a column of a fixed cockpit: the picture is measured by HEIGHT"
+
   def siege_card(assigns) do
     assigns =
       assigns
@@ -51,12 +55,20 @@ defmodule PokexWeb.SiegeComponents do
       |> assign(:origin, -assigns.radius - 0.5)
 
     ~H"""
-    <section id="siege-card" class="rounded-lg border border-pk-line bg-pk-surface p-3">
+    <section
+      id="siege-card"
+      class={[
+        "rounded-lg border border-pk-line bg-pk-surface p-3",
+        @fill? && "flex min-h-0 flex-1 flex-col"
+      ]}
+    >
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h2 class="shrink-0 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+        <h2 class="mr-auto shrink-0 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
           👁 o cerco
         </h2>
-        <p id="siege-headline" class="min-w-0 flex-1 text-pk-body text-pk-text-2">
+        <%!-- NUMA COLUNA ESTREITA A FRASE DESCE. Ao lado dos dois botões ela
+             ficava com trinta pixels e saía uma palavra por linha. --%>
+        <p :if={not @fill?} id="siege-headline" class="min-w-0 flex-1 text-pk-body text-pk-text-2">
           {headline(@state, @reading, @now_ms)}
         </p>
         <button
@@ -87,83 +99,130 @@ defmodule PokexWeb.SiegeComponents do
         </button>
       </div>
 
-      <div class="relative mt-2 aspect-[4/3] w-full overflow-hidden rounded border border-pk-line bg-pk-bg">
-        <svg
-          viewBox={"#{@origin} #{@origin} #{@span} #{@span}"}
-          class="size-full"
-          role="img"
-          aria-label={headline(@state, @reading, @now_ms)}
-        >
-          <defs>
-            <pattern id="siege-ground" width="1" height="1" patternUnits="userSpaceOnUse">
-              <rect width="1" height="1" fill="var(--color-pk-bg)" />
-              <path
-                d="M 1 0 L 0 0 0 1"
-                fill="none"
-                stroke="var(--color-pk-line)"
-                stroke-width="0.04"
-              />
-            </pattern>
-          </defs>
+      <%!-- DUAS LINHAS, SEMPRE. A frase muda de tamanho com o que o olho viu —
+           e uma frase que cresce empurra o desenho, que empurra o feed. Duas
+           linhas reservadas: o que passar disso fica no `title`. --%>
+      <p
+        :if={@fill?}
+        id="siege-headline"
+        title={headline(@state, @reading, @now_ms)}
+        class="mt-1 line-clamp-2 h-8 text-pk-body leading-tight text-pk-text-2"
+      >
+        {headline(@state, @reading, @now_ms)}
+      </p>
 
-          <%!-- A foto só entra com uma leitura que TEM caixa e âncora: com o
+      <%!-- MEDIDO PELA ALTURA quando a coluna manda (`fill?`), do mesmo jeito
+           que o mapa: numa tela cheia o desenho ficava com 4/3 da LARGURA da
+           página — 1.050px de grade, duas telas abaixo da dobra. --%>
+      <div class={["mt-2", if(@fill?, do: "grid min-h-0 flex-1 place-items-center", else: "")]}>
+        <div class={[
+          "relative aspect-[4/3] overflow-hidden rounded border border-pk-line bg-pk-bg",
+          if(@fill?, do: "h-full max-h-full min-h-[9rem] max-w-full", else: "w-full")
+        ]}>
+          <svg
+            viewBox={"#{@origin} #{@origin} #{@span} #{@span}"}
+            class="size-full"
+            role="img"
+            aria-label={headline(@state, @reading, @now_ms)}
+          >
+            <defs>
+              <pattern id="siege-ground" width="1" height="1" patternUnits="userSpaceOnUse">
+                <rect width="1" height="1" fill="var(--color-pk-bg)" />
+                <path
+                  d="M 1 0 L 0 0 0 1"
+                  fill="none"
+                  stroke="var(--color-pk-line)"
+                  stroke-width="0.04"
+                />
+              </pattern>
+            </defs>
+
+            <%!-- A foto só entra com uma leitura que TEM caixa e âncora: com o
                espelho ligado, uma captura que falha deixa a foto velha no lugar
                e a leitura vira `read?: false` — desenhar aquela foto pedia um
                `box` que não existe e derrubava a página. --%>
-          <image
-            :if={@photo && placeable?(@reading) && (@state == :fresh or @mirror?)}
-            href={@photo}
-            x={photo_x(@reading)}
-            y={photo_y(@reading)}
-            width={photo_w(@reading)}
-            height={photo_h(@reading)}
-            preserveAspectRatio="none"
-            opacity="0.55"
-          />
-          <rect
-            x={@origin}
-            y={@origin}
-            width={@span}
-            height={@span}
-            fill="url(#siege-ground)"
-            fill-opacity={if @photo, do: "0.35", else: "1"}
-          />
-
-          <%= if @state == :fresh do %>
-            <%!-- the bite ring around the pet: the eight tiles a pile can fill --%>
-            <rect
-              :if={@reading.pet}
-              x={@reading.pet.dx - 1.5}
-              y={@reading.pet.dy - 1.5}
-              width="3"
-              height="3"
-              fill="none"
-              stroke="var(--color-pk-ok)"
-              stroke-width="0.08"
-              stroke-dasharray="0.4 0.3"
-              opacity="0.7"
+            <image
+              :if={@photo && placeable?(@reading) && (@state == :fresh or @mirror?)}
+              href={@photo}
+              x={photo_x(@reading)}
+              y={photo_y(@reading)}
+              width={photo_w(@reading)}
+              height={photo_h(@reading)}
+              preserveAspectRatio="none"
+              opacity="0.55"
             />
-            <g :for={h <- @reading.hostiles}>
+            <rect
+              x={@origin}
+              y={@origin}
+              width={@span}
+              height={@span}
+              fill="url(#siege-ground)"
+              fill-opacity={if @photo, do: "0.35", else: "1"}
+            />
+
+            <%= if @state == :fresh do %>
+              <%!-- the bite ring around the pet: the eight tiles a pile can fill --%>
               <rect
-                data-hostile
-                data-dx={h.dx}
-                data-dy={h.dy}
-                data-from-me={h.from_me}
-                data-special={h[:special?] && "1"}
-                x={h.dx - 0.5}
-                y={h.dy - 0.5}
+                :if={@reading.pet}
+                x={@reading.pet.dx - 1.5}
+                y={@reading.pet.dy - 1.5}
+                width="3"
+                height="3"
+                fill="none"
+                stroke="var(--color-pk-ok)"
+                stroke-width="0.08"
+                stroke-dasharray="0.4 0.3"
+                opacity="0.7"
+              />
+              <g :for={h <- @reading.hostiles}>
+                <rect
+                  data-hostile
+                  data-dx={h.dx}
+                  data-dy={h.dy}
+                  data-from-me={h.from_me}
+                  data-special={h[:special?] && "1"}
+                  x={h.dx - 0.5}
+                  y={h.dy - 0.5}
+                  width="1"
+                  height="1"
+                  fill={hostile_fill(h)}
+                  stroke={if h[:special?], do: "var(--color-pk-text)", else: "var(--color-pk-bg)"}
+                  stroke-width={if h[:special?], do: "0.12", else: "0.08"}
+                >
+                  <title>{hostile_title(h)}</title>
+                </rect>
+                <text
+                  data-hostile-label
+                  x={h.dx}
+                  y={h.dy + 0.12}
+                  text-anchor="middle"
+                  font-size="0.34"
+                  font-family="ui-monospace, monospace"
+                  font-weight="700"
+                  fill="var(--color-pk-bg)"
+                  pointer-events="none"
+                >
+                  {hostile_label(h)}
+                </text>
+              </g>
+              <rect
+                :if={@reading.pet}
+                data-pet
+                x={@reading.pet.dx - 0.5}
+                y={@reading.pet.dy - 0.5}
                 width="1"
                 height="1"
-                fill={hostile_fill(h)}
-                stroke={if h[:special?], do: "var(--color-pk-text)", else: "var(--color-pk-bg)"}
-                stroke-width={if h[:special?], do: "0.12", else: "0.08"}
+                fill="var(--color-pk-ok)"
+                stroke="var(--color-pk-bg)"
+                stroke-width="0.12"
               >
-                <title>{hostile_title(h)}</title>
+                <title>{pet_title(@reading.pet)}</title>
               </rect>
               <text
-                data-hostile-label
-                x={h.dx}
-                y={h.dy + 0.12}
+                :if={@reading.pet}
+                data-pet-label
+                x={@reading.pet.dx}
+                y={@reading.pet.dy + 0.12}
                 text-anchor="middle"
                 font-size="0.34"
                 font-family="ui-monospace, monospace"
@@ -171,77 +230,59 @@ defmodule PokexWeb.SiegeComponents do
                 fill="var(--color-pk-bg)"
                 pointer-events="none"
               >
-                {hostile_label(h)}
+                {pet_label(@reading.pet)}
               </text>
-            </g>
+            <% end %>
+
             <rect
-              :if={@reading.pet}
-              data-pet
-              x={@reading.pet.dx - 0.5}
-              y={@reading.pet.dy - 0.5}
+              data-me
+              x="-0.5"
+              y="-0.5"
               width="1"
               height="1"
-              fill="var(--color-pk-ok)"
-              stroke="var(--color-pk-bg)"
-              stroke-width="0.12"
+              fill="var(--color-pk-info)"
+              stroke="var(--color-pk-text)"
+              stroke-width="0.18"
             >
-              <title>{pet_title(@reading.pet)}</title>
+              <title>você</title>
             </rect>
-            <text
-              :if={@reading.pet}
-              data-pet-label
-              x={@reading.pet.dx}
-              y={@reading.pet.dy + 0.12}
-              text-anchor="middle"
-              font-size="0.34"
-              font-family="ui-monospace, monospace"
-              font-weight="700"
-              fill="var(--color-pk-bg)"
-              pointer-events="none"
-            >
-              {pet_label(@reading.pet)}
-            </text>
-          <% end %>
-
-          <rect
-            data-me
-            x="-0.5"
-            y="-0.5"
-            width="1"
-            height="1"
-            fill="var(--color-pk-info)"
-            stroke="var(--color-pk-text)"
-            stroke-width="0.18"
-          >
-            <title>você</title>
-          </rect>
-        </svg>
+          </svg>
+        </div>
       </div>
 
-      <ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-pk-meta text-pk-text-2">
-        <li class="flex items-center gap-1.5">
-          <span class="inline-block size-3 bg-pk-info ring-1 ring-pk-text"></span> você
-        </li>
-        <li class="flex items-center gap-1.5">
-          <span class="inline-block size-3 bg-pk-ok"></span> seu pokémon
-        </li>
-        <li class="flex items-center gap-1.5">
-          <span class="inline-block size-3 border border-dashed border-pk-ok"></span> as oito bocas
-        </li>
-        <li class="flex items-center gap-1.5">
-          <span class="inline-block size-3 bg-pk-danger"></span> monstro (cor = vida)
-        </li>
-        <li class="flex items-center gap-1.5">
-          <span class="inline-block size-3 bg-pk-shiny ring-1 ring-pk-text"></span> shiny (cor
-          ensinada)
-        </li>
-        <li class="flex items-center gap-1.5">
-          <span class="font-mono font-bold text-pk-text-3">42</span> no quadrado: a vida
-        </li>
-        <li class="flex items-center gap-1.5">
-          <span class="font-mono font-bold text-pk-text-3">≈42%</span> o quanto ele acredita
-        </li>
-      </ul>
+      <%!-- A LEGENDA VIRA GAVETA. Sete itens em quatro linhas explicavam sete
+           cores que ele aprendeu na primeira noite, e cobravam esse preço em
+           toda tela desde então — na coluna do cockpit isso é um terço do
+           desenho. Fechada, ela é uma linha; aberta, é a mesma legenda. --%>
+      <details class="mt-2 shrink-0">
+        <summary class="cursor-pointer list-none font-mono text-pk-meta text-pk-text-3 hover:text-pk-text-2">
+          legenda ▸
+        </summary>
+        <ul class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-pk-meta text-pk-text-2">
+          <li class="flex items-center gap-1.5">
+            <span class="inline-block size-3 bg-pk-info ring-1 ring-pk-text"></span> você
+          </li>
+          <li class="flex items-center gap-1.5">
+            <span class="inline-block size-3 bg-pk-ok"></span> seu pokémon
+          </li>
+          <li class="flex items-center gap-1.5">
+            <span class="inline-block size-3 border border-dashed border-pk-ok"></span> as oito bocas
+          </li>
+          <li class="flex items-center gap-1.5">
+            <span class="inline-block size-3 bg-pk-danger"></span> monstro (cor = vida)
+          </li>
+          <li class="flex items-center gap-1.5">
+            <span class="inline-block size-3 bg-pk-shiny ring-1 ring-pk-text"></span> shiny (cor
+            ensinada)
+          </li>
+          <li class="flex items-center gap-1.5">
+            <span class="font-mono font-bold text-pk-text-3">42</span> no quadrado: a vida
+          </li>
+          <li class="flex items-center gap-1.5">
+            <span class="font-mono font-bold text-pk-text-3">≈42%</span> o quanto ele acredita
+          </li>
+        </ul>
+      </details>
     </section>
     """
   end

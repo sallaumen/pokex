@@ -33,7 +33,12 @@ defmodule PokexWeb.CavebotComponents do
            the long notes wrapped to a fourth (2026-08-15). --%>
       <p class="flex items-center gap-1 font-mono text-pk-meta uppercase tracking-[0.1em] text-pk-text-3">
         <.icon name={@icon} class="size-3 shrink-0" />{@label}
-        <span class={["pk-num ml-auto font-bold normal-case", tone_text(@tone)]}>{@value}</span>
+        <span
+          title={@value}
+          class={["pk-num ml-auto truncate font-bold normal-case", tone_text(@tone)]}
+        >
+          {@value}
+        </span>
       </p>
       <p
         :if={@note}

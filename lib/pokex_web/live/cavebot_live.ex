@@ -1853,7 +1853,28 @@ defmodule PokexWeb.CavebotLive do
     do: [%{head | times: head.times + 1, at: Time.utc_now()} | rest]
 
   defp fold(log, level, text),
-    do: Enum.take([%{level: level, text: text, at: Time.utc_now(), times: 1} | log], @log_lines)
+    do: trim([%{level: level, text: text, at: Time.utc_now(), times: 1} | log])
+
+  # O TETO CONTA O QUE ELE VÊ. Ele contava TODA linha, debug incluído — e o
+  # interruptor de debug nasce desligado: numa mobada o cérebro solta várias
+  # linhas de diagnóstico por frase falada, então quarenta linhas de buffer
+  # viravam três ou quatro na tela ("ainda está aparecendo só umas 3 ou 4
+  # mensagens", 12/09). Medido no quadro de 12/09: 70 linhas recebidas, 28
+  # delas faladas, 16 sobrevivendo ao teto. Agora são dois tetos, um por voz:
+  # o diagnóstico não empurra mais o que ele lê.
+  defp trim(log) do
+    log
+    |> Enum.reduce({[], 0, 0}, fn line, {kept, said, debug} ->
+      case line.level do
+        :debug when debug < @log_lines -> {[line | kept], said, debug + 1}
+        :debug -> {kept, said, debug}
+        _said when said < @log_lines -> {[line | kept], said + 1, debug}
+        _full -> {kept, said, debug}
+      end
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+  end
 
   defp visible_log(log, true), do: log
   defp visible_log(log, _hide), do: Enum.reject(log, &(&1.level == :debug))
@@ -2154,23 +2175,28 @@ defmodule PokexWeb.CavebotLive do
           <.mode_tabs mode={@mode} />
         </header>
 
-        <%!-- E O QUE FALTA, POR EXTENSO. O `title` do selo responde ao mouse; o
-             que decide se ele pode dormir não pode depender de alguém passar o
-             mouse por cima. Uma linha, só quando há o que dizer. --%>
-        <section
-          :if={@mode == :watch and @blockers != []}
-          id="cavebot-ready-list"
-          class="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-1.5"
-        >
-          <span
-            :for={blocker <- @blockers}
-            class="flex items-center gap-1.5 text-pk-body text-pk-warn"
+        <%!-- AS DUAS TARJAS DIVIDEM A FILEIRA. Cada uma pedia uma linha inteira
+             da tela, e as duas juntas custavam 76px do que ele quer ver
+             enquanto o bot trabalha. Lado a lado quando cabem, empilhadas
+             quando a janela é estreita. --%>
+        <div :if={@mode == :watch} class="flex flex-wrap items-stretch gap-2">
+          <%!-- E O QUE FALTA, POR EXTENSO. O `title` do selo responde ao mouse; o
+               que decide se ele pode dormir não pode depender de alguém passar o
+               mouse por cima. Uma linha, só quando há o que dizer. --%>
+          <section
+            :if={@blockers != []}
+            id="cavebot-ready-list"
+            class="flex min-w-[18rem] flex-1 flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-1.5"
           >
-            <.icon name="hero-exclamation-triangle" class="size-3.5 shrink-0" />{blocker}
-          </span>
-        </section>
+            <span
+              :for={blocker <- @blockers}
+              class="flex items-center gap-1.5 text-pk-body text-pk-warn"
+            >
+              <.icon name="hero-exclamation-triangle" class="size-3.5 shrink-0" />{blocker}
+            </span>
+          </section>
 
-        <%!-- O CAMINHO DO SHINY, um passo por vez e com a porta ao lado. A
+          <%!-- O CAMINHO DO SHINY, um passo por vez e com a porta ao lado. A
              configuração dele mora em quatro páginas (a cor na calibração, a
              prova do chão ali também, a guarda no painel, a bola nos editores)
              e nada dizia a ORDEM — então cada passo faltando parecia uma noite
@@ -2179,50 +2205,51 @@ defmodule PokexWeb.CavebotLive do
 
              A guarda tem botão AQUI: é o único passo que é um clique, e ele
              está justamente na tela onde ele passa a noite. --%>
-        <section
-          :if={@mode == :watch and (@shiny.gaps != [] or @shiny.notes != [])}
-          id="cavebot-shiny-list"
-          class="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pk-line bg-pk-sunken px-3 py-1.5"
-        >
-          <span
-            :for={step <- @shiny.gaps}
-            class="flex flex-wrap items-center gap-1.5 text-pk-body text-pk-warn"
+          <section
+            :if={@shiny.gaps != [] or @shiny.notes != []}
+            id="cavebot-shiny-list"
+            class="flex min-w-[18rem] flex-1 flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-pk-line bg-pk-sunken px-3 py-1.5"
           >
-            <.icon name="hero-sparkles" class="size-3.5 shrink-0" />{step.text}
-            <button
-              :if={step.key == :guard_off}
-              id="shiny-arm"
-              type="button"
-              phx-click="arm_shiny_guard"
-              class="cursor-pointer rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 font-mono text-pk-meta font-bold text-pk-ok transition-colors hover:bg-pk-ok hover:text-pk-bg"
+            <span
+              :for={step <- @shiny.gaps}
+              class="flex flex-wrap items-center gap-1.5 text-pk-body text-pk-warn"
             >
-              ligar agora
-            </button>
-            <.link
-              :if={step.key != :guard_off}
-              navigate={step.href}
-              class="cursor-pointer font-mono text-pk-meta text-pk-text-2 underline hover:text-pk-text"
-            >
-              {step.link}
-            </.link>
-          </span>
+              <.icon name="hero-sparkles" class="size-3.5 shrink-0" />{step.text}
+              <button
+                :if={step.key == :guard_off}
+                id="shiny-arm"
+                type="button"
+                phx-click="arm_shiny_guard"
+                class="cursor-pointer rounded border border-pk-ok-line bg-pk-ok-dim px-1.5 font-mono text-pk-meta font-bold text-pk-ok transition-colors hover:bg-pk-ok hover:text-pk-bg"
+              >
+                ligar agora
+              </button>
+              <.link
+                :if={step.key != :guard_off}
+                navigate={step.href}
+                class="cursor-pointer font-mono text-pk-meta text-pk-text-2 underline hover:text-pk-text"
+              >
+                {step.link}
+              </.link>
+            </span>
 
-          <%!-- Os dois que não impedem o shiny, só o pioram: a bola errada sai
+            <%!-- Os dois que não impedem o shiny, só o pioram: a bola errada sai
                do mesmo jeito, e sem a parada o corpo some antes da segunda
                foto. Cinza, não âmbar — não são passo, são conselho. --%>
-          <span
-            :for={step <- @shiny.notes}
-            class="flex flex-wrap items-center gap-1.5 text-pk-body text-pk-text-2"
-          >
-            <.icon name="hero-information-circle" class="size-3.5 shrink-0" />{step.text}
-            <.link
-              navigate={step.href}
-              class="cursor-pointer font-mono text-pk-meta text-pk-text-3 underline hover:text-pk-text"
+            <span
+              :for={step <- @shiny.notes}
+              class="flex flex-wrap items-center gap-1.5 text-pk-body text-pk-text-2"
             >
-              {step.link}
-            </.link>
-          </span>
-        </section>
+              <.icon name="hero-information-circle" class="size-3.5 shrink-0" />{step.text}
+              <.link
+                navigate={step.href}
+                class="cursor-pointer font-mono text-pk-meta text-pk-text-3 underline hover:text-pk-text"
+              >
+                {step.link}
+              </.link>
+            </span>
+          </section>
+        </div>
 
         <.hunt_alerts
           minimap_gap?={@minimap_gap?}
@@ -2259,16 +2286,35 @@ defmodule PokexWeb.CavebotLive do
         <div
           :if={@mode == :watch}
           id="cavebot-cockpit"
-          class="grid gap-2 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]"
+          class="grid gap-2 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.58fr)_minmax(0,1.42fr)]"
         >
-          <.route_map_card
-            active_route={@active_route}
-            pos={@pos}
-            selected={@selected}
-            hunt={@hunt}
-            recording?={@recording?}
-            fill?
-          />
+          <%!-- A ESQUERDA É O QUE SE OLHA DE RELANCE: onde ele está na rota, e o
+               que está ao redor dele. Os dois desenhos moram juntos porque
+               respondem à mesma pergunta — "cadê ele" — e porque o cerco
+               estava DUAS TELAS abaixo da dobra: "para eu conseguir ver tudo
+               junto e sempre ter tudo dessa tela visível na minha tela do
+               notebook" (12/09). O mapa é um selo no alto; o cerco toma o
+               resto da coluna e é medido pela altura que sobrar. --%>
+          <div class="flex flex-col gap-2 lg:min-h-0">
+            <.route_map_card
+              active_route={@active_route}
+              pos={@pos}
+              selected={@selected}
+              hunt={@hunt}
+              recording?={@recording?}
+              compact?
+            />
+
+            <PokexWeb.SiegeComponents.siege_card
+              reading={@crowd}
+              photo={@crowd_photo}
+              mirror?={@mirror?}
+              radius={Settings.get(:crowd_scan_radius_tiles)}
+              max_age_ms={Settings.get(:crowd_fact_max_age_ms)}
+              now_ms={System.monotonic_time(:millisecond)}
+              fill?
+            />
+          </div>
 
           <div class="flex flex-col gap-2 lg:min-h-0">
             <%!-- WHO the fight is fighting as. He classifies each pokémon's keys on
@@ -2619,7 +2665,17 @@ defmodule PokexWeb.CavebotLive do
             <%!-- THE WORLD, as the bot sees it. Everything here already existed as
             facts; what was missing was a place to read them together while
             the hunt runs. --%>
-            <section id="cavebot-world" class="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+
+            <%!-- The feed used to live in this tab's assigns: a reload erased
+             the night, and overnight is exactly when things go wrong. It
+             is seeded from the Journal now (which persists :macro and
+             :alarm to ~/.pokex/journal), and the debug switch is the one
+             the panel already has — "logs mais claros (…) talvez com botão
+             de debug também que nem tem no painel" (Lucas, 2026-08-15). --%>
+            <section
+              id="cavebot-world"
+              class="grid shrink-0 grid-cols-2 gap-1.5 sm:grid-cols-3"
+            >
               <.world_tile
                 id="tile-pos"
                 icon="hero-map-pin"
@@ -2682,16 +2738,21 @@ defmodule PokexWeb.CavebotLive do
               />
             </section>
 
-            <%!-- The feed used to live in this tab's assigns: a reload erased
-             the night, and overnight is exactly when things go wrong. It
-             is seeded from the Journal now (which persists :macro and
-             :alarm to ~/.pokex/journal), and the debug switch is the one
-             the panel already has — "logs mais claros (…) talvez com botão
-             de debug também que nem tem no painel" (Lucas, 2026-08-15). --%>
+            <%!-- …E O QUE O CÉREBRO FAZ DE TUDO ISSO, encostado no feed: a linha
+            diz o que ELE FARIA, e as linhas de baixo dizem o que o bot fez
+            com a mesma frase. Estavam a duas telas de distância uma da
+            outra. --%>
+            <.engine_brain
+              situation={@situation}
+              orders={@orders}
+              gather_piles={@gather_piles}
+              reset_revive={@reset_revive}
+            />
+
             <section
               id="cavebot-log"
               phx-hook="CopyToClipboard"
-              class="flex flex-col rounded-lg border border-pk-line bg-pk-surface p-3 lg:min-h-0 lg:flex-1"
+              class="flex flex-col rounded-lg border border-pk-line bg-pk-surface p-3 lg:min-h-[10rem] lg:flex-1"
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -3287,7 +3348,11 @@ defmodule PokexWeb.CavebotLive do
           </div>
         </div>
 
-        <div :if={@mode == :watch} class="lg:shrink-0">
+        <div
+          :if={@mode == :watch}
+          id="cavebot-safety-row"
+          class="flex flex-wrap items-start gap-2 lg:shrink-0"
+        >
           <%!-- The pre-sleep checklist: whether TONIGHT's hunt survives without
             him. The three switches are the support worker's (same settings
             the panel flips); the guard is the cavebot's own. Shown HERE
@@ -3300,7 +3365,7 @@ defmodule PokexWeb.CavebotLive do
             month, and they were costing a third of the fold every day. --%>
           <section
             id="cavebot-safety"
-            class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
+            class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
           >
             <h2 class="flex shrink-0 items-center gap-1.5 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
               <.icon name="hero-shield-check" class="size-3.5" /> Segurança
@@ -3382,6 +3447,172 @@ defmodule PokexWeb.CavebotLive do
               sem leitura de vida — a guarda e o resgate não enxergam o pokémon
             </span>
           </section>
+          <%!-- A GAVETA FECHA A TELA. Ela morava FORA do bloco de uma tela de
+               altura, então a página inteira rolava por causa de uma linha de 35
+               pixels. Dentro dele, fechada, ela é a última fileira do cockpit e o
+               cockpit encolhe o tanto que ela ocupa. --%>
+          <details id="cavebot-instruments" class="rounded-lg border border-pk-line bg-pk-surface">
+            <summary class="cursor-pointer list-none px-3 py-2 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
+              Instrumentos ▸
+            </summary>
+            <div class="space-y-3 px-3 pb-3">
+              <%!-- Where the monsters are moved up to the siege card, beside the
+              brain. What stays here is the calibration of the area's reach. --%>
+              <section
+                id="cavebot-area-reach"
+                class="rounded-pk border border-pk-line bg-pk-surface p-3"
+              >
+                <%!-- QUANTO A ÁREA ALCANÇA. O simulador resolve todo disparo de área
+                com `aoe_radius: 4`, debaixo de um comentário que diz que o
+                número foi inventado — e é ele que faz TODOS os knobs de
+                posicionamento darem chapado na bancada. O outro número
+                inventado daquele arquivo era um cooldown de 8s; o vídeo dele
+                mediu 45s. --%>
+                <div class="mt-3 border-t border-pk-line pt-3">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h4 class="text-pk-body font-semibold text-pk-text">o alcance da área</h4>
+                    <button
+                      type="button"
+                      phx-click="toggle_area_probe"
+                      class={[
+                        "rounded border px-2 py-0.5 text-pk-meta",
+                        if(@area_probe?,
+                          do: "border-pk-ok text-pk-ok",
+                          else: "border-pk-line text-pk-text-2 hover:bg-pk-raised"
+                        )
+                      ]}
+                    >
+                      {if @area_probe?,
+                        do: "medindo — clique pra parar",
+                        else: "medir durante a caçada"}
+                    </button>
+                    <button
+                      :if={@area}
+                      type="button"
+                      phx-click="refresh_area_probe"
+                      class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-raised"
+                    >
+                      atualizar
+                    </button>
+                    <button
+                      :if={@area}
+                      type="button"
+                      phx-click="clear_area_probe"
+                      class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-raised"
+                    >
+                      zerar
+                    </button>
+                  </div>
+
+                  <p :if={@area_probe?} class="mt-1 text-pk-meta text-pk-text-3">
+                    custa uma foto a cada disparo de área — ligue por uma caçada, não deixe ligado
+                  </p>
+
+                  <p :if={@area == nil} class="mt-2 text-pk-meta text-pk-text-3">
+                    nenhum disparo medido ainda
+                  </p>
+
+                  <div :if={@area} class="mt-2">
+                    <p class="text-pk-body text-pk-text">{area_headline(@area)}</p>
+                    <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">{area_spread(@area)}</p>
+                    <%!-- O confundidor, escrito onde ele lê o número: número de dano
+                    não diz QUEM causou. Nos quadros do vídeo dele os disparos de
+                    outros jogadores apareciam como um segundo grupo, de 7 a 17
+                    tiles — só inflam, nunca encolhem. --%>
+                    <p class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
+                      <.icon name="hero-users" class="mt-px size-3.5 shrink-0" />
+                      <span>
+                        o dano de outro jogador na tela conta junto e só ESTICA o alcance — se o topo
+                        estiver muito acima da mediana, é isso
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                <%!-- QUANTO CADA TECLA TIRA, e quanto demora. Ideia dele inteira:
+                "ele e um inimigo de vida cheia, o sistema usa uma skill e
+                calcula a diferença e salva essa diferença associada a essa
+                skill... se ele se identificar aqui com a skill 4 sozinha, ele já
+                mata, não precisa ficar usando 4, 5, 6 sempre". --%>
+                <div class="mt-3 border-t border-pk-line pt-3">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h4 class="text-pk-body font-semibold text-pk-text">o que cada tecla tira</h4>
+                    <button
+                      type="button"
+                      phx-click="toggle_skill_meter"
+                      class={[
+                        "rounded border px-2 py-0.5 text-pk-meta",
+                        if(@meter?,
+                          do: "border-pk-ok text-pk-ok",
+                          else: "border-pk-line text-pk-text-2 hover:bg-pk-raised"
+                        )
+                      ]}
+                    >
+                      {if @meter?, do: "medindo — clique pra parar", else: "medir durante a caçada"}
+                    </button>
+                    <button
+                      :if={@meter != %{}}
+                      type="button"
+                      phx-click="refresh_skill_meter"
+                      class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-raised"
+                    >
+                      atualizar
+                    </button>
+                    <button
+                      :if={@meter != %{}}
+                      type="button"
+                      phx-click="clear_skill_meter"
+                      class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-raised"
+                    >
+                      zerar
+                    </button>
+                  </div>
+
+                  <p :if={@meter?} class="mt-1 text-pk-meta text-pk-text-3">
+                    só mede apertos de UMA tecla — uma rajada de três tira uma queda só e ninguém
+                    sabe de quem foi
+                  </p>
+
+                  <p :if={@meter == %{}} class="mt-2 text-pk-meta text-pk-text-3">
+                    nenhuma tecla medida ainda
+                  </p>
+
+                  <table :if={@meter != %{}} class="mt-2 w-full font-mono text-pk-meta">
+                    <thead class="text-pk-text-3">
+                      <tr>
+                        <th class="text-left font-normal">tecla</th>
+                        <th class="text-right font-normal">tira</th>
+                        <th class="text-right font-normal">demora</th>
+                        <th class="text-right font-normal">pra matar</th>
+                        <th class="text-right font-normal">amostras</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr :for={{key, m} <- Enum.sort_by(@meter, &elem(&1, 0))} class="text-pk-text-2">
+                        <td class="text-left">{key}</td>
+                        <td class="text-right">{m.took_pct}%</td>
+                        <td class="text-right">{m.delay_ms}ms</td>
+                        <td class="text-right">{m.to_kill || "—"}×</td>
+                        <td class={["text-right", if(m.shots < 5, do: "text-pk-warn")]}>{m.shots}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <%!-- As duas coisas que o número NÃO sabe, onde ele lê o número. --%>
+                  <p
+                    :if={@meter != %{}}
+                    class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn"
+                  >
+                    <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
+                    <span>
+                      é MEDIANA: o dano de outro jogador na mesma linha entra na conta. E poucas
+                      amostras (em amarelo) não merecem a mesma fé que muitas.
+                    </span>
+                  </p>
+                </div>
+              </section>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -3389,189 +3620,6 @@ defmodule PokexWeb.CavebotLive do
            three instruments are what he opens when he is deciding a rule, not
            what he watches while the hunt runs. They cost nothing closed and
            they were costing a third of the screen open. --%>
-      <div :if={@mode == :watch} class="mt-3 space-y-3">
-        <%!-- …and what the engine MAKES of all that. The tiles above are facts;
-            this line is the reading of them, which until now only existed
-            inside a process. It says what WOULD happen — nobody obeys it
-            yet — and the feed below carries the same sentence beside what
-            the bot actually did. --%>
-        <.engine_brain
-          situation={@situation}
-          orders={@orders}
-          gather_piles={@gather_piles}
-          reset_revive={@reset_revive}
-        />
-
-        <%!-- THE SIEGE: what the eye sees around him, in tiles. The page
-            re-renders on every engine tick and every reading, so the age in
-            the headline keeps up without a timer of its own. --%>
-        <PokexWeb.SiegeComponents.siege_card
-          reading={@crowd}
-          photo={@crowd_photo}
-          mirror?={@mirror?}
-          radius={Settings.get(:crowd_scan_radius_tiles)}
-          max_age_ms={Settings.get(:crowd_fact_max_age_ms)}
-          now_ms={System.monotonic_time(:millisecond)}
-        />
-
-        <details id="cavebot-instruments" class="rounded-lg border border-pk-line bg-pk-surface">
-          <summary class="cursor-pointer list-none px-3 py-2 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-            Instrumentos ▸
-          </summary>
-          <div class="space-y-3 px-3 pb-3">
-            <%!-- Where the monsters are moved up to the siege card, beside the
-            brain. What stays here is the calibration of the area's reach. --%>
-            <section
-              id="cavebot-area-reach"
-              class="rounded-pk border border-pk-line bg-pk-surface p-3"
-            >
-              <%!-- QUANTO A ÁREA ALCANÇA. O simulador resolve todo disparo de área
-              com `aoe_radius: 4`, debaixo de um comentário que diz que o
-              número foi inventado — e é ele que faz TODOS os knobs de
-              posicionamento darem chapado na bancada. O outro número
-              inventado daquele arquivo era um cooldown de 8s; o vídeo dele
-              mediu 45s. --%>
-              <div class="mt-3 border-t border-pk-line pt-3">
-                <div class="flex flex-wrap items-center gap-2">
-                  <h4 class="text-pk-body font-semibold text-pk-text">o alcance da área</h4>
-                  <button
-                    type="button"
-                    phx-click="toggle_area_probe"
-                    class={[
-                      "rounded border px-2 py-0.5 text-pk-meta",
-                      if(@area_probe?,
-                        do: "border-pk-ok text-pk-ok",
-                        else: "border-pk-line text-pk-text-2 hover:bg-pk-raised"
-                      )
-                    ]}
-                  >
-                    {if @area_probe?, do: "medindo — clique pra parar", else: "medir durante a caçada"}
-                  </button>
-                  <button
-                    :if={@area}
-                    type="button"
-                    phx-click="refresh_area_probe"
-                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-raised"
-                  >
-                    atualizar
-                  </button>
-                  <button
-                    :if={@area}
-                    type="button"
-                    phx-click="clear_area_probe"
-                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-raised"
-                  >
-                    zerar
-                  </button>
-                </div>
-
-                <p :if={@area_probe?} class="mt-1 text-pk-meta text-pk-text-3">
-                  custa uma foto a cada disparo de área — ligue por uma caçada, não deixe ligado
-                </p>
-
-                <p :if={@area == nil} class="mt-2 text-pk-meta text-pk-text-3">
-                  nenhum disparo medido ainda
-                </p>
-
-                <div :if={@area} class="mt-2">
-                  <p class="text-pk-body text-pk-text">{area_headline(@area)}</p>
-                  <p class="mt-0.5 font-mono text-pk-meta text-pk-text-3">{area_spread(@area)}</p>
-                  <%!-- O confundidor, escrito onde ele lê o número: número de dano
-                  não diz QUEM causou. Nos quadros do vídeo dele os disparos de
-                  outros jogadores apareciam como um segundo grupo, de 7 a 17
-                  tiles — só inflam, nunca encolhem. --%>
-                  <p class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
-                    <.icon name="hero-users" class="mt-px size-3.5 shrink-0" />
-                    <span>
-                      o dano de outro jogador na tela conta junto e só ESTICA o alcance — se o topo
-                      estiver muito acima da mediana, é isso
-                    </span>
-                  </p>
-                </div>
-              </div>
-
-              <%!-- QUANTO CADA TECLA TIRA, e quanto demora. Ideia dele inteira:
-              "ele e um inimigo de vida cheia, o sistema usa uma skill e
-              calcula a diferença e salva essa diferença associada a essa
-              skill... se ele se identificar aqui com a skill 4 sozinha, ele já
-              mata, não precisa ficar usando 4, 5, 6 sempre". --%>
-              <div class="mt-3 border-t border-pk-line pt-3">
-                <div class="flex flex-wrap items-center gap-2">
-                  <h4 class="text-pk-body font-semibold text-pk-text">o que cada tecla tira</h4>
-                  <button
-                    type="button"
-                    phx-click="toggle_skill_meter"
-                    class={[
-                      "rounded border px-2 py-0.5 text-pk-meta",
-                      if(@meter?,
-                        do: "border-pk-ok text-pk-ok",
-                        else: "border-pk-line text-pk-text-2 hover:bg-pk-raised"
-                      )
-                    ]}
-                  >
-                    {if @meter?, do: "medindo — clique pra parar", else: "medir durante a caçada"}
-                  </button>
-                  <button
-                    :if={@meter != %{}}
-                    type="button"
-                    phx-click="refresh_skill_meter"
-                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-2 hover:bg-pk-raised"
-                  >
-                    atualizar
-                  </button>
-                  <button
-                    :if={@meter != %{}}
-                    type="button"
-                    phx-click="clear_skill_meter"
-                    class="rounded border border-pk-line px-2 py-0.5 text-pk-meta text-pk-text-3 hover:bg-pk-raised"
-                  >
-                    zerar
-                  </button>
-                </div>
-
-                <p :if={@meter?} class="mt-1 text-pk-meta text-pk-text-3">
-                  só mede apertos de UMA tecla — uma rajada de três tira uma queda só e ninguém
-                  sabe de quem foi
-                </p>
-
-                <p :if={@meter == %{}} class="mt-2 text-pk-meta text-pk-text-3">
-                  nenhuma tecla medida ainda
-                </p>
-
-                <table :if={@meter != %{}} class="mt-2 w-full font-mono text-pk-meta">
-                  <thead class="text-pk-text-3">
-                    <tr>
-                      <th class="text-left font-normal">tecla</th>
-                      <th class="text-right font-normal">tira</th>
-                      <th class="text-right font-normal">demora</th>
-                      <th class="text-right font-normal">pra matar</th>
-                      <th class="text-right font-normal">amostras</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr :for={{key, m} <- Enum.sort_by(@meter, &elem(&1, 0))} class="text-pk-text-2">
-                      <td class="text-left">{key}</td>
-                      <td class="text-right">{m.took_pct}%</td>
-                      <td class="text-right">{m.delay_ms}ms</td>
-                      <td class="text-right">{m.to_kill || "—"}×</td>
-                      <td class={["text-right", if(m.shots < 5, do: "text-pk-warn")]}>{m.shots}</td>
-                    </tr>
-                  </tbody>
-                </table>
-
-                <%!-- As duas coisas que o número NÃO sabe, onde ele lê o número. --%>
-                <p :if={@meter != %{}} class="mt-1 flex items-start gap-1.5 text-pk-meta text-pk-warn">
-                  <.icon name="hero-exclamation-triangle" class="mt-px size-3.5 shrink-0" />
-                  <span>
-                    é MEDIANA: o dano de outro jogador na mesma linha entra na conta. E poucas
-                    amostras (em amarelo) não merecem a mesma fé que muitas.
-                  </span>
-                </p>
-              </div>
-            </section>
-          </div>
-        </details>
-      </div>
     </Layouts.app>
     """
   end
@@ -3842,6 +3890,14 @@ defmodule PokexWeb.CavebotLive do
   attr :recording?, :boolean, required: true
   attr :fill?, :boolean, default: false
 
+  # …E O TERCEIRO TAMANHO, o que ele pediu em 12/09: "reduzir o tamanho desse
+  # mapa, deixar ele bem menorzinho mesmo, para a gente conseguir reaproveitar
+  # melhor". Assistindo, o desenho vale de relance — onde a rota está e onde ele
+  # está nela —, e valia 505px de altura medidos numa tela de 900. O quadrado
+  # passa a ser um selo de 13rem no alto da coluna, e o que ele liberou virou o
+  # cerco embaixo e o feed do lado.
+  attr :compact?, :boolean, default: false
+
   defp route_map_card(assigns) do
     ~H"""
     <section
@@ -3865,10 +3921,11 @@ defmodule PokexWeb.CavebotLive do
 
       <div class={[
         "mt-2",
-        if(@fill?,
-          do: "grid min-h-0 flex-1 place-items-center",
-          else: "mx-auto w-full max-w-[min(100%,40dvh)]"
-        )
+        cond do
+          @fill? -> "grid min-h-0 flex-1 place-items-center"
+          @compact? -> "mx-auto w-full max-w-[9rem]"
+          true -> "mx-auto w-full max-w-[min(100%,40dvh)]"
+        end
       ]}>
         <div class={@fill? && "aspect-square h-full max-w-full"}>
           <.route_map

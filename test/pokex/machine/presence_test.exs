@@ -7,6 +7,8 @@ defmodule Pokex.Machine.PresenceTest do
   """
   use ExUnit.Case, async: true
 
+  import Pokex.TestWait
+
   alias Pokex.Machine.Presence
 
   setup do
@@ -144,16 +146,5 @@ defmodule Pokex.Machine.PresenceTest do
       assert Pokex.Bots.InputGate.state() == before
       assert Pokex.Bots.InputGate.allowed?()
     end
-  end
-
-  defp eventually(fun, tries \\ 40) do
-    Enum.reduce_while(1..tries, false, fn _try, _acc ->
-      if fun.() do
-        {:halt, true}
-      else
-        Process.sleep(25)
-        {:cont, false}
-      end
-    end)
   end
 end

@@ -1,6 +1,8 @@
 defmodule Pokex.Bots.Combat.WorkerTest do
   use ExUnit.Case, async: false
 
+  import Pokex.TestWait
+
   alias Pokex.Bots.Combat.Worker
   alias Pokex.Bots.ReviveLedger
   alias Pokex.Bots.SkillClock
@@ -331,7 +333,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     posture.(:hold_fire, ~w(1 3 4))
     world!(worker, battle_obs(enemies: [0, 1, 2]))
-    refute eventually(fn -> "3" in presses() end, 250)
+    assert never(fn -> "3" in presses() end, 250)
 
     # released: his combo goes out
     posture.(:free_fight, ~w(1 3 4))
@@ -373,7 +375,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     # an enemy shows up mid-game: NO Tab — the worker froze itself
     world!(worker, battle_obs(enemies: [0]))
-    refute eventually(fn -> Settings.get(:tab_key) in presses() end, 400)
+    assert never(fn -> Settings.get(:tab_key) in presses() end, 400)
     assert Worker.status(worker).hold_reason == "mini-game em jogo"
 
     # game over: leave a fresh battle picture for the resume to read, clear the fact —
@@ -395,7 +397,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     assert Worker.status(worker).state == :idle
 
     world!(worker, battle_obs(enemies: [0]))
-    refute eventually(fn -> Worker.status(worker).state == :tabbing end, 300)
+    assert never(fn -> Worker.status(worker).state == :tabbing end, 300)
   end
 
   @tag :tmp_dir
@@ -674,7 +676,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       orders!(%{fire: :hold})
       world!(worker, battle_obs(enemies: [0, 1, 2]))
 
-      refute eventually(fn -> Settings.get(:tab_key) in presses() end, 300)
+      assert never(fn -> Settings.get(:tab_key) in presses() end, 300)
     end
 
     # THE FLOOR OF THE WHOLE DESIGN. Orders carry an age; an engine that dies
@@ -785,7 +787,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       posture!(:hold_fire)
       world!(worker, battle_obs(enemies: [0, 1, 2]))
 
-      refute eventually(fn -> Settings.get(:tab_key) in presses() end, 300)
+      assert never(fn -> Settings.get(:tab_key) in presses() end, 300)
       assert Worker.status(worker).state == :hunting
       assert Worker.status(worker).hold_reason == "segurando o fogo (trecho de mob)"
 
@@ -844,7 +846,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     posture.(:hold_fire, ~w(3 4), ~w(1))
     world!(worker, battle_obs(enemies: [0, 1, 2]))
-    refute eventually(fn -> "4" in presses() end, 250)
+    assert never(fn -> "4" in presses() end, 250)
 
     posture.(:free_fight, ~w(3 4), ~w(1))
     world!(worker, battle_obs(enemies: [0, 1, 2]))
@@ -863,7 +865,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     posture.(:hold_fire)
     world!(worker, battle_obs(enemies: [0, 1, 2]))
-    refute eventually(fn -> "4" in presses() end, 250)
+    assert never(fn -> "4" in presses() end, 250)
 
     posture.(:free_fight)
     world!(worker, battle_obs(enemies: [0, 1, 2]))
@@ -885,7 +887,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
     posture.(:hold_fire)
     world!(worker, battle_obs(enemies: [0, 1, 2]))
-    refute eventually(fn -> "3" in presses() end, 250)
+    assert never(fn -> "3" in presses() end, 250)
 
     posture.(:free_fight)
     world!(worker, battle_obs(enemies: [0, 1, 2]))
@@ -900,7 +902,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
   test "fato sem o campo orders é lido como sem ordem", %{worker: worker} do
     WorldState.put(:posture, %{posture: :hold_fire, combo: ~w(3)}, now_ms())
     world!(worker, battle_obs(enemies: [0, 1, 2]))
-    refute eventually(fn -> "3" in presses() end, 250)
+    assert never(fn -> "3" in presses() end, 250)
 
     WorldState.put(:posture, %{posture: :free_fight, combo: ~w(3)}, now_ms())
     world!(worker, battle_obs(enemies: [0, 1, 2]))
@@ -917,25 +919,6 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       {:combat_log, _level, text} -> String.contains?(text, fragment) or logged?(fragment)
     after
       0 -> false
-    end
-  end
-
-  defp eventually(fun, timeout \\ 1_000) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    poll(fun, deadline)
-  end
-
-  defp poll(fun, deadline) do
-    cond do
-      fun.() ->
-        true
-
-      System.monotonic_time(:millisecond) > deadline ->
-        false
-
-      true ->
-        Process.sleep(20)
-        poll(fun, deadline)
     end
   end
 
@@ -960,7 +943,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     defp abre_o_fogo(worker) do
       posture!(:hold_fire)
       world!(worker, battle_obs(enemies: [0, 1, 2]))
-      refute eventually(fn -> Settings.get(:tab_key) in presses() end, 300)
+      assert never(fn -> Settings.get(:tab_key) in presses() end, 300)
 
       posture!(:free_fight)
       world!(worker, battle_obs(enemies: [0, 1, 2]))
@@ -977,7 +960,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
       abre_o_fogo(worker)
 
-      refute eventually(&skill_saiu?/0, 500),
+      assert never(&skill_saiu?/0, 500),
              "a rajada saiu dentro da janela em que o pokémon não está em campo"
     end
 
@@ -1066,7 +1049,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
         Worker.status(worker)
       end
 
-      refute eventually(fn -> Enum.count(presses(), &(&1 == "r")) > 1 end, 400),
+      assert never(fn -> Enum.count(presses(), &(&1 == "r")) > 1 end, 400),
              "a corrente foi reiniciada dentro da própria janela: #{inspect(presses())}"
     end
 
@@ -1084,7 +1067,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
       assert eventually(fn -> "r" in presses() end),
              "a corrente não saiu: #{inspect(presses())}"
 
-      refute eventually(
+      assert never(
                fn ->
                  world!(worker, battle_obs(enemies: [0, 1, 2]))
                  Enum.count(presses(), &(&1 == "r")) > 1
@@ -1155,7 +1138,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
 
       abre_o_fogo(worker)
 
-      refute eventually(
+      assert never(
                fn ->
                  world!(worker, battle_obs(enemies: [0, 1, 2]))
                  Enum.count(presses(), &(&1 == "r")) > 1
@@ -1298,7 +1281,7 @@ defmodule Pokex.Bots.Combat.WorkerTest do
         Worker.status(worker)
       end
 
-      refute eventually(fn -> potions() > 1 end, 500),
+      assert never(fn -> potions() > 1 end, 500),
              "limpou mais de uma vez na mesma luta: #{inspect(presses())}"
 
       assert potions() == 1, "a abertura não limpou: #{inspect(presses())}"

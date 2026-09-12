@@ -77,6 +77,14 @@ defmodule Pokex.Bots.CrowdWatchTest do
     end
   end
 
+  defp drain_looks do
+    receive do
+      {:looked, _} -> drain_looks()
+    after
+      0 -> :ok
+    end
+  end
+
   defp now, do: System.monotonic_time(:millisecond)
 
   test "in a fight it looks, publishes the whole reading without the picture, and tells the page",
@@ -168,6 +176,16 @@ defmodule Pokex.Bots.CrowdWatchTest do
 
     SettingsStash.stash!(crowd_watch_enabled: false)
     WorldState.forget(:crowd)
+
+    # O QUE A REFUTAÇÃO NEGA É O DEPOIS. O olho tem relógio próprio: `init/1`
+    # agenda a primeira olhada pra @idle_ms (1 s) e dali em diante ela se
+    # reagenda na cadência. Numa máquina em que este teste leve mais de 1 s até
+    # aqui, um tique ANTERIOR ao interruptor já deixou um `{:looked, …}` na
+    # caixa — e o `refute_receive` abaixo, que quer dizer "não olhou DEPOIS de
+    # desligar", pegava essa olhada de antes. Medido: 0 sobras com 600 ms de
+    # atraso, 1 com 1,3 s, e a falha é exatamente essa sobra. A caixa se esvazia
+    # aqui, no instante do interruptor, pra que o que sobrar seja só o depois.
+    drain_looks()
 
     send(watch, {:engine, %{}, %{phase: :engaged, why: "matando", revive: :hold}})
     :sys.get_state(watch)

@@ -168,8 +168,13 @@ defmodule PokexWeb.ConfigLive do
           key: :engine_band_red_pct,
           kind: :pct,
           label: "Vida vermelha abaixo de",
-          hint: "Abaixo disto é emergência: revive agora, no meio da luta.",
-          keywords: "faixa vermelha banda vida emergência"
+          hint:
+            "Abaixo disto é emergência: revive agora, no meio da luta — é a única regra " <>
+              "que não espera a corrente acabar nem a tela limpar. Mínimo #{Settings.red_floor_pct()}%, " <>
+              "e o piso não é gosto: o cérebro olha a vida 1× por segundo e debaixo da mobada " <>
+              "o pokémon perde até 25% nesse intervalo, então uma faixa mais estreita que isso " <>
+              "nunca chega a acender. Um valor menor sobe pro piso ao ler a config.",
+          keywords: "faixa vermelha banda vida emergência piso mínimo"
         },
         %{
           key: :engine_resume_pct,

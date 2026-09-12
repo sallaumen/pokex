@@ -61,6 +61,36 @@ defmodule Pokex.SettingsTest do
              %{"capture_enabled" => false, "heal_skill_enabled" => false}
   end
 
+  # THE RED LINE HAS A FLOOR, and the floor is honoured on READ.
+  #
+  # Measured in his own events of 11-12/09 (56.206 legible health readings): the
+  # brain looks at the pokémon's health ONCE A SECOND (p50, p90 and p99 all at
+  # 1005 ms), and under a pile it loses 6-8%/s at p90 and 15-25%/s at p99. A red
+  # band narrower than one look's damage can never fire — the pokémon goes from
+  # 14% to the ground between two looks. On 12/09 the line sat at 5%: at 09:22:00
+  # the pokémon fell 59% -> 10% in six seconds, the emergency never armed, and the
+  # bot fired three chains instead of one revive.
+  #
+  # Refusing the WRITE is not enough: the dangerous number is already on disk, and
+  # `load/3` never validated ranges.
+  @tag :tmp_dir
+  test "a red band below the floor is refused on write and lifted on read", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "settings.json")
+    File.write!(path, ~s({"engine_band_red_pct": 5}))
+
+    {:ok, server} = Settings.start_link(name: nil, path: path)
+
+    assert Settings.get(:engine_band_red_pct, server) == 20
+    assert Settings.all(server)[:engine_band_red_pct] == 20
+
+    assert {:error, msg} = Settings.put(:engine_band_red_pct, 5, server)
+    assert msg =~ "fora da faixa"
+
+    # ...e a escolha dele acima do piso continua sendo dele.
+    assert :ok = Settings.put(:engine_band_red_pct, 35, server)
+    assert Settings.get(:engine_band_red_pct, server) == 35
+  end
+
   # Values written in Portuguese by an older build must arrive as today's
   # spelling — and the file must be rewritten, so this happens once.
   @tag :tmp_dir

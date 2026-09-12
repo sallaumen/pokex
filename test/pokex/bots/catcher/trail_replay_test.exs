@@ -23,18 +23,16 @@ defmodule Pokex.Bots.Catcher.TrailReplayTest do
   end
 
   # 19:50 of 11/09 — the minimap stood still at (309,1425) for fifteen seconds
-  # while the screen scrolled two tiles each way, and the shiny walked a tile
-  # in its last second. Live (four looks a second) the same shiny became two
-  # tracks two tiles apart and both fell — a ball on the sand each side of the
-  # body; under the film's two-second cadence one track survives and its
-  # anchor lands ONE TILE RIGHT of the body (the shells lay at ~1569,990; the
-  # last sparkle put the name at x 1418 at t=20_192). THIS IS TODAY'S
-  # BEHAVIOUR, pinned: the task that anchors on the freshest evidence in
-  # screen space moves it within a tile of that last sparkle point.
-  test "1950: a frozen minimap under a scrolling screen anchors beside the body (today)" do
+  # while the screen scrolled two tiles each way, and the shiny walked two
+  # tiles left in its last seconds. The eye lost its bar at 1720,918 and never
+  # read it again; the guard kept seeing the STAR, last at 1418,842. The trail
+  # anchored on the stale bar and the ball fell on the sand a tile right of the
+  # body. The star is a sighting: the body is where it last shone.
+  test "1950: the body is where the star last shone, not where the bar was lost" do
     result = TrailReplay.run(fixture("2026-09-11-1950-gemeos.jsonl"))
 
-    assert [%{screen: {1720, 918}}] = result.falls
+    # the last sparkle was at (1418, 842); the body centre is half a tile under
+    assert [%{screen: {1418, 917}}] = result.falls
     assert length(result.anchors) == 1
   end
 end

@@ -148,7 +148,7 @@ defmodule Pokex.Sim.Hands do
   defp park(world, %{route: :hold}, hands, _config), do: {world, hands}
   defp park(world, _walking, hands, _config), do: {world, %{hands | parked?: false}}
 
-  # THE BALL, the Catcher's way (`Catcher.ShinyAim`): two fresh photos of the
+  # THE BALL, the Catcher's way (`Catcher.Worker`): two fresh photos of the
   # corpse confirm it, and a photo is only good with the feet still. So while
   # the road holds and a shiny corpse is on screen, `ball_ms` of standing
   # throws the ball; a step in between starts the two photos over. Standing

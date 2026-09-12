@@ -196,21 +196,17 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_log_eventually("🎯 Corsola reconhecido (87%)")
   end
 
-  # PIXEL NÃO É PORCENTAGEM. A mira por cor não tem semelhança nenhuma pra
-  # contar: tem a contagem de pixels da cor, e ela ia pro mesmo campo do
-  # reconhecimento por foto — 1,2 milhão de pixels viravam "(120000000%)".
   # A BOLA COMUM NÃO É A BOLA DO SHINY. Todo arremesso carimbava "bola" na
-  # prateleira do shiny e zerava a pendência, então uma bola em corpo comum da
-  # varredura fechava a caçada do corpo do shiny antes de alguém tê-lo visto.
+  # prateleira do shiny, uma mentira: nenhuma bola foi nele. Quem responde é a
+  # LEITURA que gerou o arremesso — a varredura comum nunca fala pela âncora.
   @tag :tmp_dir
-  test "an ordinary ball does not close the shiny's entry", %{worker: worker} do
+  test "an ordinary ball does not touch the shiny's shelf", %{worker: worker} do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
-    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {900, 900}}})
 
     world!(worker, corpses_obs([{130, 224}]))
     assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
 
-    assert Worker.status(worker).shiny_pending?, "a caçada do shiny segue aberta"
+    refute_receive {:shiny_ball, _info}, 300
   end
 
   # A ESTRELA É DA LEITURA, não do estado. Com a varredura e a mira abertas ao
@@ -227,20 +223,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     # o prefixo colado prova a ausência da estrela: com ela a linha seria
     # "captura: 🌟 bola em 130,224"
     assert_log_eventually("captura: bola em 130,224")
-  end
-
-  @tag :tmp_dir
-  test "the colour aim logs pixels, not a percentage", %{worker: worker} do
-    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
-
-    obs =
-      corpses_obs([{130, 224}])
-      |> Map.put(:known, %{{130, 224} => %{name: "Charizard preto", px: 1_200_000}})
-
-    world!(worker, obs)
-
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
-    assert_log_eventually("🎯 Charizard preto reconhecido pela cor (1200000 px)")
   end
 
   @tag :tmp_dir
@@ -400,18 +382,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     world!(worker, corpses_obs([{140, 230}]))
     refute_receive {:performed, _, [{:move, _} | _]}, 300
-  end
-
-  @tag :tmp_dir
-  test "every scan becomes a feed line — and the session scoreboard advances", %{worker: worker} do
-    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
-
-    world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:move, _} | _]}, 1_000
-
-    assert %{scans: v, with_target: c} = Worker.status(worker).counters
-    assert v > 0, "a varredura tem que ser contada"
-    assert c > 0, "esta varredura achou alvo"
   end
 
   @tag :tmp_dir
@@ -783,19 +753,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   # The guard saw a shiny; the Catcher looks for its corpse by colour on its own
   # timer, in ANY player_mode, and hands the point to the same Logic.
 
-  defp aim_obs(points) do
-    cands = Enum.map(points, &%{name: "Electrode shiny", px: 80, point: &1, in_frame: &1})
-
-    Pokex.Bots.Catcher.ShinyAim.obs(
-      cands,
-      {0, 0, 300, 300},
-      System.monotonic_time(:millisecond)
-    )
-  end
-
-  defp stage_aim(points),
-    do: WorldState.put(:shiny_aim, aim_obs(points), System.monotonic_time(:millisecond))
-
   defp start_hunt_worker(extra \\ []) do
     Settings.put(:player_mode, "hunt")
     SettingsStash.stash!(special_color_scan_ms: 50)
@@ -818,27 +775,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     :ok = Worker.run(worker)
     worker
-  end
-
-  # A RODADA FECHOU: O CORPO DO SHINY É PROCURADO PELA COR TAMBÉM. Em 11/09 o
-  # vigia não viu o Shiny Golem de pé (pilha de nove, tom apertado) mas viu o
-  # corpo — "1 mancha da cor sem bicho embaixo" — e ninguém pediu a bola.
-  @tag :tmp_dir
-  test "at the capture cue, an armed colour rule looks for the shiny's corpse by colour" do
-    worker = start_hunt_worker(scanner: fn -> nil end)
-    arm_colour_rule("Shiny Golem")
-
-    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
-    list_empty()
-    stage_aim([{116, 116}])
-
-    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
-    send(worker, {:capture_now})
-
-    assert_receive {:performed, :high, [{:move, {116, 116}} | _]}, 3_000
-    assert_log_eventually("🌟 bola em 116,116")
-    # …and the header's banner hears the ball
-    assert_receive {:shiny_ball, %{point: {116, 116}}}, 1_000
   end
 
   # THE IDENTITY TRAVELS WITH THE BAR (plan §3.5, `Catcher.Trail`). 11/09 09:13:
@@ -874,6 +810,30 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_log_eventually("bola na âncora do Shiny Golem em 600,250")
     assert_receive {:performed, :high, [{:move, {600, 250}} | _]}, 3_000
     assert_receive {:shiny_ball, %{point: {600, 250}, name: "Shiny Golem"}}, 1_000
+  end
+
+  # THE FACT SAYS WHAT THE TRAIL KNOWS. The colour aim used to say `aiming?`
+  # for up to 90 s with nothing on the ground (every session of 11/09 closed
+  # with "maior mancha do tom 0 px"), and the brain held the feet on that. Now
+  # it holds them for a body the trail HAS — an anchor — or a ball in flight.
+  @tag :tmp_dir
+  test "the :capture fact carries the trail: hunted while the bar stands, anchors once it fell" do
+    worker = start_hunt_worker(scanner: fn -> nil end)
+    me = {500, 350}
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+    seen = fn hostiles -> %{read?: true, me: me, hostiles: hostiles, pet: nil} end
+
+    send(worker, {:crowd, seen.([Map.merge(%{point: {600, 250}}, shiny)])})
+    _drain = Worker.status(worker)
+    assert {:ok, %{hunted?: true, anchors: 0}} = WorldState.get(:capture, 5_000, now())
+
+    for _ <- 1..3, do: send(worker, {:crowd, seen.([])})
+    assert_log_eventually("Shiny Golem caiu em 600,250")
+    # the log leaves mid-handler: drain the worker before reading what it wrote
+    _drain = Worker.status(worker)
+
+    assert {:ok, %{hunted?: false, anchors: 1} = fact} = WorldState.get(:capture, 5_000, now())
+    refute Map.has_key?(fact, :aiming?)
   end
 
   # MEIO TILE. 17:25:59 of 11/09: the guard's blob (the art's centre, half a
@@ -1038,141 +998,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     refute_receive {:performed, _p, _a}, 300
   end
 
-  @tag :tmp_dir
-  test "at the capture cue with no colour rule armed, no colour session opens" do
-    worker = start_hunt_worker(scanner: fn -> nil end)
-
-    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
-    list_empty()
-    stage_aim([{116, 116}])
-
-    send(worker, {:capture_now})
-
-    refute_receive {:performed, _p, _a}, 500
-    refute Worker.status(worker).hold_reason == "mirando o corpo do shiny pela cor"
-  end
-
-  # THE SESSION SAYS WHAT IT SAW WHEN IT CLOSES. 11/09 09:13: the Shiny Golem's
-  # corpse was on screen with zero pixels of the live tone, and the aim closed
-  # without a word - nothing told that apart from a held look or a vetoed corpse.
-  @tag :tmp_dir
-  test "a colour session that finds nothing says what it saw when it closes" do
-    worker = start_hunt_worker(scanner: fn -> nil end)
-    arm_colour_rule("Shiny Golem")
-
-    WorldState.put(:orders, %{route: :hold}, System.monotonic_time(:millisecond))
-    list_empty()
-
-    diag = %{biggest_px: 12, trigger: 120, above: 0, oversized: 0, refused: 0, bodied: 0}
-
-    WorldState.put(
-      :shiny_aim,
-      Map.put(aim_obs([]), :diag, diag),
-      System.monotonic_time(:millisecond)
-    )
-
-    send(worker, {:capture_now})
-
-    assert_log_eventually(
-      ~r/hora da bola — corpo do shiny pela cor: 3 foto\(s\) em .*maior mancha do tom 12 px \(gatilho 120\) · 0 acima do gatilho · nenhum corpo/
-    )
-  end
-
-  defp arm_colour_rule(name) do
-    :persistent_term.erase({Pokex.Vision.ColorRules, :cache})
-
-    {:ok, %{"slug" => slug}} =
-      Pokex.Vision.ColorRules.add(%{
-        "name" => name,
-        "colors" => [%{"rgb" => [18, 13, 19], "tol" => 2}],
-        "min_px" => 120
-      })
-
-    :ok = Pokex.Vision.ColorRules.mark_proven(slug, 4)
-  end
-
-  @tag :tmp_dir
-  test "in hunt mode a shiny sighting aims by colour and throws at :high" do
-    worker = start_hunt_worker()
-    stage_aim([{116, 116}])
-
-    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
-
-    assert_receive {:performed, :high, [{:move, {116, 116}} | _]}, 3_000
-    assert Worker.status(worker).counters.throws == 1
-    assert_log_eventually("corpo do Electrode shiny")
-    # A ESTRELA NA BOLA: a linha do arremesso é a mesma da varredura, e a tela
-    # do Cave Bot só sabia separar as duas procurando a palavra "bola" —
-    # pescando a caçada inteira pra dentro da história do shiny.
-    assert_log_eventually("🌟 bola em 116,116")
-  end
-
-  @tag :tmp_dir
-  test "the aim ignores the fight gate: a combat still engaged does not hold the shiny ball" do
-    worker = start_hunt_worker()
-    send(worker, {:combat, %{state: :fighting}})
-    stage_aim([{116, 116}])
-
-    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
-
-    assert_receive {:performed, :high, [{:move, {116, 116}} | _]}, 3_000
-  end
-
-  @tag :tmp_dir
-  test "in hunt mode without a sighting nothing flies" do
-    worker = start_hunt_worker()
-    stage_aim([{116, 116}])
-
-    refute_receive {:performed, _, _}, 500
-    assert Worker.status(worker).counters.throws == 0
-  end
-
-  # The brain holds the feet on this fact (`Engine.Logic.hold_for_capture/2`):
-  # "aiming" while the session lives, "not aiming" the moment it closes.
-  @tag :tmp_dir
-  test "the aim session publishes the :capture fact and clears it on close" do
-    Application.put_env(:pokex, :shiny_aim_ttl_ms, 200)
-    on_exit(fn -> Application.delete_env(:pokex, :shiny_aim_ttl_ms) end)
-
-    worker = start_hunt_worker()
-    stage_aim([])
-    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
-
-    assert eventually(
-             fn ->
-               match?(
-                 {:ok, %{aiming?: true}},
-                 WorldState.get(:capture, 5_000, System.monotonic_time(:millisecond))
-               )
-             end,
-             1_000
-           )
-
-    assert eventually(
-             fn ->
-               match?(
-                 {:ok, %{aiming?: false, pending: 0}},
-                 WorldState.get(:capture, 5_000, System.monotonic_time(:millisecond))
-               )
-             end,
-             1_500
-           )
-  end
-
-  @tag :tmp_dir
-  test "the aim session ends when the shiny corpse is not found" do
-    Application.put_env(:pokex, :shiny_aim_ttl_ms, 200)
-    on_exit(fn -> Application.delete_env(:pokex, :shiny_aim_ttl_ms) end)
-
-    worker = start_hunt_worker()
-    stage_aim([])
-    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
-
-    assert eventually(fn -> Worker.status(worker).aim? end, 500)
-    assert_log_eventually("corpo não achado")
-    assert eventually(fn -> not Worker.status(worker).aim? end, 1_000)
-    refute_receive {:performed, _, _}, 100
-  end
+  defp now, do: System.monotonic_time(:millisecond)
 
   defp eventually(fun, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
@@ -1330,30 +1156,18 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     assert %{hold_reason: "andando — a bola sai quando a rota parar"} = Worker.status(worker)
 
-    stage_aim([])
-    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
+    # …e segue sendo isso com um shiny na tela: a barra seguida não tira a rota
+    # do caminho, e o que falta continua sendo ela parar
+    me = {500, 350}
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
 
-    assert eventually(fn -> Worker.status(worker).state == :armed end, 1_000)
-    assert Worker.status(worker).hold_reason == "mirando o corpo do shiny pela cor"
-  end
+    send(
+      worker,
+      {:crowd,
+       %{read?: true, me: me, hostiles: [Map.merge(%{point: {600, 250}}, shiny)], pet: nil}}
+    )
 
-  # SEGURAR NÃO É CEGAR: com bicho de pé a mira recusa a olhada, e isso não pode
-  # aparecer no placar como varredura cega.
-  @tag :tmp_dir
-  test "a held aim does not count as a blind scan" do
-    Settings.put(:player_mode, "hunt")
-    SettingsStash.stash!(special_color_scan_ms: 50)
-    {:ok, body} = FakeBody.start_link(self())
-
-    aimer = fn -> %{scanning?: false, source: :shiny_aim, reason: {:alive_on_screen, 3}} end
-    worker = start_supervised!({Worker, name: nil, body: body, aimer: aimer}, id: :held_worker)
-    :ok = Worker.run(worker)
-
-    send(worker, {:shiny_seen, %{name: "Electrode shiny", px: 80, point: {116, 116}}})
-    assert eventually(fn -> Worker.status(worker).aim? end, 1_000)
-    Process.sleep(200)
-
-    assert Worker.status(worker).counters.blind == 0
-    refute_receive {:performed, _, _}, 100
+    assert %{hunted?: true, hold_reason: "andando — a bola sai quando a rota parar"} =
+             Worker.status(worker)
   end
 end

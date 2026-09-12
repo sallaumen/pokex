@@ -337,7 +337,7 @@ defmodule PokexWeb.ConfigLive do
           kind: :sec,
           label: "Shiny no chão: segurar a rota pra bola por até",
           hint:
-            "Com o capturador mirando o corpo de um shiny, a rota para (só os pés — skills e " <>
+            "Com o corpo de um shiny no chão, a rota para (só os pés — skills e " <>
               "revive seguem) por até este tempo, pra bola sair antes do corpo sair da tela. " <>
               "0 desliga.",
           keywords: "shiny bola corpo captura segurar rota"

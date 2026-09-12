@@ -1238,24 +1238,27 @@ defmodule PokexWeb.CavebotLive do
   defp state_word(:blocked), do: "bloqueada"
   defp state_word(other), do: to_string(other)
 
-  # THE CAPTURE TILE tells the shiny's story when there is one: aiming at the
-  # corpse (the road holds for it), else the queue the road waits on.
-  defp capture_aiming?(catcher), do: is_map(catcher) and Map.get(catcher, :aim?) == true
+  # THE CAPTURE TILE tells the shiny's story when there is one — and a shiny
+  # open is what the TRAIL knows: its bar still standing, or the place where it
+  # fell. It used to be a colour-aim session, which could be lit for ninety
+  # seconds with nothing on the ground.
+  defp capture_open?(catcher),
+    do:
+      is_map(catcher) and
+        (Map.get(catcher, :hunted?) == true or Map.get(catcher, :anchors, 0) > 0)
 
   defp capture_value(catcher, hunt) do
-    if capture_aiming?(catcher),
+    if capture_open?(catcher),
       do: "shiny",
       else: to_string((hunt && hunt[:capture_pending]) || 0)
   end
 
   defp capture_note(catcher) do
-    if capture_aiming?(catcher) do
-      case Map.get(catcher, :pending_corpses, 0) do
-        0 -> "mirando o corpo pela cor"
-        n -> "bola no ar · #{n} na mira"
-      end
-    else
-      "corpos na fila"
+    cond do
+      not capture_open?(catcher) -> "corpos na fila"
+      Map.get(catcher, :pending_corpses, 0) > 0 -> "bola no ar"
+      Map.get(catcher, :anchors, 0) > 0 -> "corpo no chão — bola a caminho"
+      true -> "seguindo a barra do shiny"
     end
   end
 
@@ -2614,7 +2617,7 @@ defmodule PokexWeb.CavebotLive do
                 label="captura"
                 value={capture_value(@catcher, @hunt)}
                 note={capture_note(@catcher)}
-                tone={if capture_aiming?(@catcher), do: :warn, else: :neutral}
+                tone={if capture_open?(@catcher), do: :warn, else: :neutral}
               />
               <.world_tile
                 id="tile-hp"

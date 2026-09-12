@@ -271,6 +271,11 @@ defmodule Pokex.Settings do
     shiny_guard_enabled: false,
     # A shiny ALWAYS deserves a pokéball, even with capture_enabled off.
     shiny_always_ball: true,
+    # APOSENTADA, ainda DECLARADA (o crachá `__keys__`: tirar uma chave faz este
+    # build se declarar mais velho que o settings.json dele e o Settings passa a
+    # LER sem ESCREVER, #506/#507). Era a fila da mira por COR do corpo do
+    # shiny: o corpo não tem a cor do vivo (0 px em toda sessão de 11/09), e
+    # quem sabe onde ele caiu é o rastro da barra (`Catcher.Trail`).
     shiny_aim_max_candidates: 3,
     shiny_needs_creature: true,
     # O BRILHO AO LADO DO NOME (11/09): o cliente tem uma opção que desenha uma

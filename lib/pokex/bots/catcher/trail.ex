@@ -114,6 +114,13 @@ defmodule Pokex.Bots.Catcher.Trail do
     {fallen, alive} =
       if may_fall?, do: Enum.split_with(tracks, &fallen?/1), else: {[], tracks}
 
+    # UM SÓ CORPO POR SHINY. Com o minimapa congelado embaixo de uma tela que
+    # rola, o MESMO shiny virou dois rastros caçados a dois tiles um do outro e
+    # os dois caíram — uma bola na areia de cada lado do corpo (19:50 de
+    # 11/09). Quem caiu com outra barra caçada vista MAIS TARDE é o gêmeo
+    # velho: não há corpo ali.
+    fallen = Enum.filter(fallen, &(&1.seen_at == freshest_hunted(tracks)))
+
     # only a bar seen just before the sparkle left is a body; a hunted bar lost
     # far longer wandered off — no corpse there, and no ball at the stale spot.
     corpses = Enum.filter(fallen, &(now - &1.seen_at <= @corpse_fresh_ms))
@@ -142,7 +149,25 @@ defmodule Pokex.Bots.Catcher.Trail do
 
     case nearest(Map.values(trail.tracks), world) do
       {track, _rest} ->
-        put_track(trail, %{track | hunted?: true, name: name, px: px})
+        # O BRILHO É UM AVISTAMENTO, não uma etiqueta. Ele dizia só "este é o
+        # caçado" e deixava a posição e a hora da BARRA — então um rastro que o
+        # olho tinha perdido oito segundos antes seguia sendo a evidência mais
+        # nova do shiny, e o corpo era cravado onde ele NÃO estava (19:50 de
+        # 11/09: a barra vista pela última vez em 1720,918, o brilho já em
+        # 1418,842, a bola na areia um tile ao lado do corpo). Ver a estrela é
+        # ver o bicho: onde ela está, ele está, agora.
+        put_track(trail, %{
+          track
+          | hunted?: true,
+            name: name,
+            px: px,
+            prev: track.world,
+            world: world,
+            screen: point,
+            seen_at: now,
+            misses: 0,
+            occluded: 0
+        })
 
       nil ->
         track = birth(%{point: point, world: world}, trail.next_id, now)
@@ -261,6 +286,10 @@ defmodule Pokex.Bots.Catcher.Trail do
 
     left = for {hostile, i} <- indexed, not MapSet.member?(used_hostiles, i), do: hostile
     {hits ++ misses, left}
+  end
+
+  defp freshest_hunted(tracks) do
+    tracks |> Enum.filter(& &1.hunted?) |> Enum.map(& &1.seen_at) |> Enum.max(fn -> nil end)
   end
 
   defp nearest(hostiles, {gx, gy}) do

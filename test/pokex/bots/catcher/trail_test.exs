@@ -251,6 +251,85 @@ defmodule Pokex.Bots.Catcher.TrailTest do
     refute Trail.hunted(trail, ref())
   end
 
+  # 19:50 of 11/09: the eye lost the shiny's bar at 1720,918 and never read it
+  # again, while the guard kept seeing its STAR — last at 1418,842, two tiles
+  # left. The trail anchored on the stale bar and the ball fell on the sand a
+  # tile right of the body. Seeing the star IS seeing the creature: where it
+  # shines, the shiny is, now.
+  test "the sparkle moves the hunted track and refreshes it: the body is where it last shone" do
+    shiny = %{special?: true, special_name: "Shiny (brilho)", special_px: 51}
+
+    trail =
+      Trail.new()
+      |> look([at(0, -2, shiny)], 0, sparkle: true)
+      # the bar is gone from the eye's read, but the star keeps showing — two
+      # tiles left of where the bar was last seen
+      |> look([], 250, sparkle: true)
+      |> Trail.hunt_at(at(-2, -2).point, "Shiny (brilho)", 51, ref(), 250)
+      |> look([], 500, sparkle: true)
+      |> Trail.hunt_at(at(-2, -2).point, "Shiny (brilho)", 51, ref(), 500)
+      # the star leaves and the list empties: it fell
+      |> look([], 750, pile: :dead)
+      |> look([], 1_000, pile: :dead)
+      |> look([], 1_250, pile: :dead)
+
+    assert [%{screen: screen}] = Trail.anchors(trail, ref(), 1_250)
+    assert screen == at(-2, -2).point, "the body is at the last star, not at the last bar"
+  end
+
+  test "the sparkle on a track does not resurrect it forever: it still falls" do
+    shiny = %{special?: true, special_name: "Shiny (brilho)", special_px: 51}
+
+    trail =
+      Trail.new()
+      |> look([at(0, -2, shiny)], 0, sparkle: true)
+      |> Trail.hunt_at(at(0, -2).point, "Shiny (brilho)", 51, ref(), 0)
+      |> look([], 250, pile: :dead)
+      |> look([], 500, pile: :dead)
+      |> look([], 750, pile: :dead)
+
+    assert [%{screen: screen}] = Trail.anchors(trail, ref(), 750)
+    assert screen == at(0, -2).point
+  end
+
+  test "once the character walks, the anchor is projected from the world again" do
+    shiny = %{special?: true, special_name: "Shiny (brilho)", special_px: 51}
+
+    trail =
+      Trail.new()
+      |> look([at(0, -2, shiny)], 0, pos: {100, 100, 7})
+      |> look([], 250, pos: {100, 100, 7}, pile: :dead)
+      |> look([], 500, pos: {100, 100, 7}, pile: :dead)
+      |> look([], 750, pos: {100, 100, 7}, pile: :dead)
+
+    assert [%{screen: screen}] = Trail.anchors(trail, ref({101, 100, 7}), 750)
+    assert screen == at(-1, -2).point
+  end
+
+  # Live, the frozen minimap made the same shiny TWO hunted tracks two tiles
+  # apart, and both fell — a ball on the sand each side of the body. A hunted
+  # bar that falls while another hunted bar was seen more recently is the
+  # stale twin: it is dropped, and the fresh one falls where the body is.
+  test "of two hunted tracks the stale one is dropped, the fresh one is the corpse" do
+    shiny = %{special?: true, special_name: "Shiny (brilho)", special_px: 51}
+
+    trail =
+      Trail.new()
+      |> look([at(0, -2, shiny)], 0, sparkle: true)
+      # the twin, two tiles away, hunted by the guard's blob one look later
+      |> look([at(0, -2), at(2, -2)], 250, sparkle: true)
+      |> Trail.hunt_at(at(2, -2).point, "Shiny (brilho)", 51, ref(), 300)
+      # the old track's bar is gone; the twin is still seen
+      |> look([at(2, -2)], 500, sparkle: true)
+      |> look([at(2, -2)], 750, sparkle: true)
+      |> look([], 1_000, pile: :dead)
+      |> look([], 1_250, pile: :dead)
+      |> look([], 1_500, pile: :dead)
+
+    assert [%{screen: screen}] = Trail.anchors(trail, ref(), 1_500)
+    assert screen == at(2, -2).point
+  end
+
   test "an ordinary creature that vanishes is simply forgotten" do
     trail =
       Trail.new()

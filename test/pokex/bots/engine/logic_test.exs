@@ -1562,6 +1562,65 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
   end
 
+  # A SEGUNDA PROVA DE CAMPO VAZIO, e a que realmente dispara.
+  #
+  # `own_out? == false` exige a Pokebar ilegível por duas leituras seguidas, e
+  # desde 09/09 isso não acontece: cinco dias, ZERO leituras `false`, e a fase
+  # `downed` só existiu em 08/09. A janela de batalha responde a mesma pergunta
+  # por outro fio e responde bem — 97,1% das decisões de 12/09 acham a linha do
+  # pokémon dele pelo nome desenhado.
+  describe "a linha dele saiu da janela de batalha" do
+    defp na_lista(overrides \\ %{}) do
+      world(%{
+        situation:
+          situation(Map.merge(%{own_row_seen?: :by_name, rows: 3, enemies: 2}, overrides)),
+        hunt: hunt(%{state: :fighting})
+      })
+    end
+
+    defp sumiu(overrides \\ %{}),
+      do: na_lista(Map.merge(%{own_row_seen?: :absent, rows: 2, enemies: 2}, overrides))
+
+    test "gone from the list with the pokemon standing turns the hunt downed" do
+      {logic, _} = step(na_lista(), 1_000)
+      {_logic, orders} = step(logic, sumiu(), 1_200)
+
+      assert orders.phase == :downed
+      assert orders.why =~ "sem pokémon em campo"
+    end
+
+    test "and the revive goes out when he does not come back" do
+      {logic, _} = step(na_lista(), 1_000)
+      {logic, primeiro} = step(logic, sumiu(), 1_200)
+      {_logic, orders} = step(logic, sumiu(), 1_200 + @config.revive_confirm_ms)
+
+      # a carência do `downed/1` continua valendo: o motivo ordinário de estar
+      # fora é um revive em voo
+      assert primeiro.revive == :hold
+      assert orders.revive == :now
+    end
+
+    # SEM A TRAVA NÃO HÁ AFIRMAÇÃO. Um cliente que nunca listou a linha dele
+    # (o mundo simulado, `own_row?: false`) diria `:absent` a corrida inteira, e
+    # "nunca esteve" não é "saiu de campo".
+    test "but not before this client has shown his row at least once" do
+      {_logic, orders} = step(sumiu(), 1_000)
+
+      refute orders.phase == :downed
+    end
+
+    # A tela vazia e a Pokebar ilegível continuam sem provar nada: as duas
+    # devolvem `false`, não `:absent`.
+    test "and an empty screen is not a pokemon off the field" do
+      {logic, _} = step(na_lista(), 1_000)
+
+      {_logic, orders} =
+        step(logic, na_lista(%{own_row_seen?: false, rows: 0, enemies: 0}), 1_200)
+
+      refute orders.phase == :downed
+    end
+  end
+
   describe "sem pokémon em campo" do
     defp caido(overrides \\ %{}) do
       world(%{

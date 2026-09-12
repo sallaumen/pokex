@@ -326,9 +326,7 @@ defmodule Pokex.Bots.BlackBox do
             :enemies,
             :rows,
             :own_hp,
-            :heavy?,
             :special?,
-            :boss?,
             :worth_fighting?,
             :named
           ]),

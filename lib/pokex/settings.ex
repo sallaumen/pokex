@@ -266,7 +266,7 @@ defmodule Pokex.Settings do
     # toggles the last used mode — from INSIDE the game, without clicking the
     command_corner: true,
     command_corner_dwell_ms: 600,
-    # Shiny guard: watches for the special colours of shinies and bosses
+    # Shiny guard: watches for the special colours of shinies
     # (docs/shiny/plano-shiny-por-cor.md).
     shiny_guard_enabled: false,
     # A shiny ALWAYS deserves a pokéball, even with capture_enabled off.
@@ -709,13 +709,16 @@ defmodule Pokex.Settings do
     # How long his control holds, counted from the PRESS. Measured by him: 2s to land (the
     # same settle the rescue waits for) + 5s of sleep = 7s of cover.
     engine_stun_hold_ms: 7_000,
-    # Boss names, comma-separated.
+    # THE SPECIAL BY NAME, comma-separated. Kept under the old spelling because a key
+    # never leaves Settings (#506/#507); the CONCEPT is one — "essa coisa de chefe não
+    # existe (…) é tudo uma coisa só" (12/09) — and this is one of the three roads that
+    # find the same shiny: the colour, this name, and the grit below.
     engine_boss_names: "",
-    # A boss by time-to-kill: how many damage skills DELIVERED (cooldown moved) with no body
-    # dropping from the pile before the brain declares a boss.
+    # THE SPECIAL BY TIME-TO-KILL: how many damage skills DELIVERED (cooldown moved) with
+    # no body dropping from the pile before the brain declares it special.
     engine_boss_grit: 10,
-    # How many tiles his control reaches, the gate of the boss stun: pressing with the
-    # target beyond it stuns the wind.
+    # How many tiles his control reaches, the gate of the special's stun: pressing with
+    # the target beyond it stuns the wind.
     engine_stun_reach_tiles: 3,
     # QUANTO TEMPO um reset desarmado fica fora do jogo antes de tentar de novo.
     engine_reset_rearm_ms: 600_000,

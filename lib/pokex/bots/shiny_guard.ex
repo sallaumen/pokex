@@ -1,7 +1,9 @@
 defmodule Pokex.Bots.ShinyGuard do
   @moduledoc """
   The watcher for SPECIAL COLOURS: the SHINY trigger in this client, which is the same creature
-  he used to call a boss (a recolour, far more health and attack, and the night's trophy). One
+  he used to call a boss (a recolour, far more health and attack, and the night's trophy) —
+  and "boss" turned out to be the same creature: "essa coisa de chefe não existe (…) é tudo
+  uma coisa só" (12/09). One
   concept, one path.
 
   The old detector waited for the golden star the previous client painted in the battle list;
@@ -199,7 +201,7 @@ defmodule Pokex.Bots.ShinyGuard do
     else
       case snapshot(state) do
         {:ok, frame, region, forbidden} -> judge(state, rules, frame, region, forbidden)
-        # Blind is not "no boss": without a frame the fact is NOT rewritten; it ages
+        # Blind is not "no special": without a frame the fact is NOT rewritten; it ages
         # on its own until the brain stops believing it.
         _blind -> state
       end
@@ -463,7 +465,7 @@ defmodule Pokex.Bots.ShinyGuard do
   end
 
   # The FACT is published on EVERY scan, not every announcement. The trophy has a one-minute
-  # refractory, but the brain needs PRESENCE: while the boss is on screen `heavy?` must stand,
+  # refractory, but the brain needs PRESENCE: while it is on screen `special?` must stand,
   # and fall when it leaves. Different questions, different clocks.
   defp publish_special(vistos, scale) do
     seen = Enum.map(vistos, fn {rule, m} -> %{name: rule.name, px: m.px, point: m.point} end)

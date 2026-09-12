@@ -856,7 +856,7 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  # -- cores especiais: o ensino do shiny/chefe por COR ------------------------
+  # -- cores especiais: o ensino do shiny por COR ------------------------------
   #
   # "Tem 1 shiny, 1 com a base diferente (…) tínhamos que mapear essa cor
   # especial e apitar quando ela aparecer na tela" (Lucas, 01/09). O ensino é
@@ -3793,7 +3793,7 @@ defmodule PokexWeb.CalibrationLive do
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
                   <h2 class="text-pk-title font-bold text-pk-text">
-                    Cores especiais (shiny e chefe)
+                    Cores especiais (shiny)
                   </h2>
                   <p class="mt-0.5 max-w-prose text-pk-body leading-relaxed text-pk-text-2">
                     Aqui não se ensina um recorte, se ensina um TOM. Ele lê

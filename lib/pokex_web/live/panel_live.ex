@@ -2219,7 +2219,7 @@ defmodule PokexWeb.PanelLive do
             <%!-- O NOME ERA "guarda anti-shiny", de quando o shiny era ameaça a
                   evitar. Hoje ele é o alvo: "o que a gente quer encontrar é
                   caçador de shiny" (09/09). E a descrição era três jargões numa
-                  linha só — prova de ruído, postura de chefe, captura
+                  linha só — prova de ruído, postura do especial, captura
                   desligada — que só quem escreveu entendia. Agora é o que ele
                   FAZ, na ordem em que acontece. --%>
             <p class="mt-0.5 text-pk-body leading-tight text-pk-text-2">

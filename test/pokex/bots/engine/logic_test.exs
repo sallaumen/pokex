@@ -30,13 +30,12 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # anda. Um mundo sem coordenada não põe ninguém pra dormir.
   @here {100, 200, 7}
 
-  # `heavy?: true` alone, in this file, has always meant THE BOSS (the named or
-  # measured one, who cuts the gathering queue); the special sets `special?`
-  # and `boss?: false` explicitly.
+  # UM CONCEITO SÓ: `special?` é o shiny, acha-se por cor, por nome ou por grit.
+  # Este arquivo usava `heavy?: true` pra dizer "o especial" e `special?: true` pra
+  # dizer "o shiny da cor" — uma distinção que o jogo não tem (12/09).
   defp situation(overrides \\ %{}) do
     Map.merge(
       %{
-        boss?: Map.get(overrides, :heavy?, false),
         enemies: 4,
         worth_fighting?: true,
         growing?: false,
@@ -773,13 +772,13 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
 
     # O CHEFE NÃO ESPERA: o ciclo dele (stun na emenda, F4 a cada 5s) é mais
-    # curto que o prazo da promessa, e segurá-lo era acordar o chefe com o
+    # curto que o prazo da promessa, e segurá-lo era acordar o especial com o
     # controle na mão.
-    test "com o chefe na tela a promessa não segura nada" do
+    test "with the special on screen the promise holds nothing back" do
       logic = pedido(sem_controle(%{own_hp: 100}))
 
-      chefe = sem_controle(%{own_hp: 100, spent?: true, bar_seen?: true, heavy?: true})
-      {_logic, ordens} = reset_step(logic, chefe, 10_900)
+      especial = sem_controle(%{own_hp: 100, spent?: true, bar_seen?: true, special?: true})
+      {_logic, ordens} = reset_step(logic, especial, 10_900)
 
       refute ordens.phase == :resetting
       assert ordens.fire == :free
@@ -1470,12 +1469,12 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "recuando pelo chão limpo até a barra voltar"
     end
 
-    # A barra volta; o shiny não. E o shiny É o chefe deste jogo, então quem
-    # cala a R7 é o mesmo `heavy?` — uma guarda, não duas.
+    # A barra volta; o shiny não. E o shiny É o especial deste jogo, então quem
+    # cala a R7 é o mesmo `special?` — uma guarda, não duas.
     test "mas do ESPECIAL ela não recua — a barra volta, o shiny não" do
       com_especial =
         world(%{
-          situation: situation(%{enemies: 3, spent?: true, walked_total: 0, heavy?: true}),
+          situation: situation(%{enemies: 3, spent?: true, walked_total: 0, special?: true}),
           hunt: hunt(%{state: :fighting})
         })
 
@@ -2908,18 +2907,24 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # não precisa usar antes" —, o F4 não tem cooldown no jogo (o piso de 5s é
   # segurança nossa), e quem dirige o ciclo é a BARRA GASTA: todas as skills,
   # stun, F4, de novo.
-  describe "a postura de chefe" do
-    @chefe Config.merge(%{
-             reset_revive: true,
-             boss_names: "chefe",
-             stun_hold_ms: 3_000,
-             stun_reach_tiles: 3,
-             rescue_floor_ms: 5_000,
-             bunch_ms: 0,
-             gather_target: 1
-           })
+  describe "a postura do especial" do
+    @especial Config.merge(%{
+                reset_revive: true,
+                boss_names: "especial",
+                stun_hold_ms: 3_000,
+                stun_reach_tiles: 3,
+                rescue_floor_ms: 5_000,
+                bunch_ms: 0,
+                gather_target: 1
+              })
 
-    defp chefe_step(logic, world, now), do: Logic.step(logic, world, @chefe, now)
+    defp chefe_step(logic, world, now), do: Logic.step(logic, world, @especial, now)
+
+    # A LUTA JÁ ABERTA, que é onde o ciclo do especial vive: o stun a cada
+    # emenda é DURANTE a luta. Desde 12/09 ninguém fura a fila da juntada antes
+    # de abrir — "Postura no shiny é juntar primeiro!" vale pros três caminhos
+    # que acham o especial, porque é o mesmo bicho.
+    defp em_luta, do: %{Logic.new() | state: :engaged, special_opened?: true}
 
     defp com_chefe(overrides \\ %{}) do
       world(%{
@@ -2928,10 +2933,10 @@ defmodule Pokex.Bots.Engine.LogicTest do
             Map.merge(
               %{
                 enemies: 1,
-                heavy?: true,
+                special?: true,
                 worth_fighting?: true,
-                boss_tiles: 2,
-                boss_asleep_left_ms: 0,
+                special_tiles: 2,
+                special_asleep_left_ms: 0,
                 spent?: true,
                 ready_keys: ["1"]
               },
@@ -2942,8 +2947,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
       })
     end
 
-    test "chefe na tela fura a régua: briga com UM bicho" do
-      {logic, orders} = chefe_step(Logic.new(), com_chefe(), 1_000)
+    test "a special on screen skips the ruler: it fights with ONE creature" do
+      {logic, orders} = chefe_step(em_luta(), com_chefe(), 1_000)
 
       assert logic.state == :engaged
       assert orders.route == :hold
@@ -2959,7 +2964,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
     test "com o especial ACORDADO o controle fura a banda amarela" do
       ferido = com_chefe(%{own_hp: 45})
 
-      {logic, orders} = chefe_step(Logic.new(), ferido, 1_000)
+      {logic, orders} = chefe_step(em_luta(), ferido, 1_000)
 
       assert orders.band == :yellow, "a vida É amarela — o teste não vale se a banda mudou"
       assert "1" in orders.opening, "a banda engoliu o controle de novo: #{orders.why}"
@@ -2971,48 +2976,48 @@ defmodule Pokex.Bots.Engine.LogicTest do
     # seguinte ("controle primeiro, revive na sequência").
     test "e no tique seguinte a banda volta a mandar — com o bolo já dormindo" do
       ferido = com_chefe(%{own_hp: 45})
-      {logic, _} = chefe_step(Logic.new(), ferido, 1_000)
+      {logic, _} = chefe_step(em_luta(), ferido, 1_000)
 
-      dormindo = com_chefe(%{own_hp: 45, boss_asleep_left_ms: 5_000, ready_keys: []})
+      dormindo = com_chefe(%{own_hp: 45, special_asleep_left_ms: 5_000, ready_keys: []})
       {_logic, orders} = chefe_step(logic, dormindo, 1_200)
 
       assert orders.band == :yellow
       refute orders.why =~ "controle antes do sono acabar"
     end
 
-    test "barra gasta e chefe no alcance: o stun sai como prefixo" do
-      {_logic, orders} = chefe_step(Logic.new(), com_chefe(), 1_000)
+    test "barra gasta e especial no alcance: o stun sai como prefixo" do
+      {_logic, orders} = chefe_step(em_luta(), com_chefe(), 1_000)
 
       assert "1" in orders.opening
       assert orders.why =~ "controle antes do sono acabar"
     end
 
     test "com a barra rendendo e o sono de sobra, nada de stun — só dano" do
-      folgado = com_chefe(%{spent?: false, boss_asleep_left_ms: 5_000})
-      {_logic, orders} = chefe_step(Logic.new(), folgado, 1_000)
+      folgado = com_chefe(%{spent?: false, special_asleep_left_ms: 5_000})
+      {_logic, orders} = chefe_step(em_luta(), folgado, 1_000)
 
       refute "1" in orders.opening
       refute orders.revive == :now
     end
 
-    # chefe ACORDADO é emenda vencida: o stun sai mesmo com a barra rendendo —
+    # especial ACORDADO é emenda vencida: o stun sai mesmo com a barra rendendo —
     # o sono protege o pokémon, a barra espera
-    test "chefe acordado: o stun sai mesmo com a barra rendendo" do
-      {_logic, orders} = chefe_step(Logic.new(), com_chefe(%{spent?: false}), 1_000)
+    test "special awake: the stun goes out even with the bar still paying" do
+      {_logic, orders} = chefe_step(em_luta(), com_chefe(%{spent?: false}), 1_000)
 
       assert "1" in orders.opening
     end
 
-    test "chefe LONGE não ganha stun — dormir o vento é chegar acordado" do
-      {_logic, orders} = chefe_step(Logic.new(), com_chefe(%{boss_tiles: 6}), 1_000)
+    test "a special FAR AWAY gets no stun: sleeping the wind is arriving awake" do
+      {_logic, orders} = chefe_step(em_luta(), com_chefe(%{special_tiles: 6}), 1_000)
 
       refute "1" in orders.opening
     end
 
     test "o F4 vem atrás do stun, com o sono testemunhado" do
-      {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
+      {logic, _stun} = chefe_step(em_luta(), com_chefe(), 1_000)
 
-      dormindo = com_chefe(%{boss_asleep_left_ms: 2_500, ready_keys: []})
+      dormindo = com_chefe(%{special_asleep_left_ms: 2_500, ready_keys: []})
       {_logic, orders} = chefe_step(logic, dormindo, 1_400)
 
       assert orders.revive == :now
@@ -3020,75 +3025,75 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
 
     test "sem sono testemunhado o F4 do ciclo espera — stun no vento não se paga" do
-      {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
+      {logic, _stun} = chefe_step(em_luta(), com_chefe(), 1_000)
 
       # controle pronto, senão a perna de emergência (que é outro teste)
       # responderia por este
-      acordado = com_chefe(%{boss_asleep_left_ms: 0, ready_keys: ["1"]})
+      acordado = com_chefe(%{special_asleep_left_ms: 0, ready_keys: ["1"]})
       {_logic, orders} = chefe_step(logic, acordado, 1_400)
 
       refute orders.revive == :now
     end
 
     test "UM F4 por stun: o segundo pedido da mesma janela é negado" do
-      {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
-      dormindo = com_chefe(%{boss_asleep_left_ms: 2_500, ready_keys: []})
+      {logic, _stun} = chefe_step(em_luta(), com_chefe(), 1_000)
+      dormindo = com_chefe(%{special_asleep_left_ms: 2_500, ready_keys: []})
       {logic, primeiro} = chefe_step(logic, dormindo, 1_400)
       assert primeiro.revive == :now
 
       {_logic, segundo} =
-        chefe_step(logic, com_chefe(%{boss_asleep_left_ms: 2_000, ready_keys: []}), 1_900)
+        chefe_step(logic, com_chefe(%{special_asleep_left_ms: 2_000, ready_keys: []}), 1_900)
 
       refute segundo.revive == :now
     end
 
     # O piso de 5s é do F4, NUNCA do stun: o sono protege o pokémon e não
     # espera relógio de segurança (medido na bancada: esperar custava 2,2s de
-    # chefe mordendo com o controle pronto).
+    # especial mordendo com o controle pronto).
     test "o F4 respeita o piso de 5s — e o stun não espera por ele" do
-      {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
-      dormindo = com_chefe(%{boss_asleep_left_ms: 4_000, ready_keys: []})
+      {logic, _stun} = chefe_step(em_luta(), com_chefe(), 1_000)
+      dormindo = com_chefe(%{special_asleep_left_ms: 4_000, ready_keys: []})
       {logic, primeiro} = chefe_step(logic, dormindo, 1_400)
       assert primeiro.revive == :now
 
-      # o chefe acorda cedo: o STUN sai já, mesmo a menos de 5s do último F4…
+      # o especial acorda cedo: o STUN sai já, mesmo a menos de 5s do último F4…
       {logic, stun2} = chefe_step(logic, com_chefe(), 4_000)
       assert "1" in stun2.opening, "o sono esperou o piso do item"
 
       # …e o F4 desta janela espera o piso vencer
       {logic, cedo} =
-        chefe_step(logic, com_chefe(%{boss_asleep_left_ms: 6_000, ready_keys: []}), 4_400)
+        chefe_step(logic, com_chefe(%{special_asleep_left_ms: 6_000, ready_keys: []}), 4_400)
 
       refute cedo.revive == :now
 
       {_logic, ok} =
-        chefe_step(logic, com_chefe(%{boss_asleep_left_ms: 5_000, ready_keys: []}), 6_600)
+        chefe_step(logic, com_chefe(%{special_asleep_left_ms: 5_000, ready_keys: []}), 6_600)
 
       assert ok.revive == :now
     end
 
-    test "chefe acordado com o controle no chão: o F4 compra o controle de volta" do
-      {logic, _stun} = chefe_step(Logic.new(), com_chefe(), 1_000)
+    test "special awake with the control down: F4 buys the control back" do
+      {logic, _stun} = chefe_step(em_luta(), com_chefe(), 1_000)
 
-      sem_controle = com_chefe(%{boss_asleep_left_ms: 0, ready_keys: ~w(3 4)})
+      sem_controle = com_chefe(%{special_asleep_left_ms: 0, ready_keys: ~w(3 4)})
       {_logic, orders} = chefe_step(logic, sem_controle, 9_000)
 
       assert orders.revive == :now
       assert orders.why =~ "compra o controle"
     end
 
-    test "de chefe não se foge: a barra vazia que kitaria fica e luta" do
-      {logic, _} = chefe_step(Logic.new(), com_chefe(), 1_000)
+    test "you do not run from the special: the empty bar that would kite stays and fights" do
+      {logic, _} = chefe_step(em_luta(), com_chefe(), 1_000)
 
-      gasto = com_chefe(%{boss_asleep_left_ms: 1_000, spent?: true, ready_keys: []})
+      gasto = com_chefe(%{special_asleep_left_ms: 1_000, spent?: true, ready_keys: []})
       {_logic, orders} = chefe_step(logic, gasto, 3_000)
 
       refute orders.why =~ "recuando"
     end
 
-    test "andando a rota, o chefe interrompe: vira luta no mesmo tique" do
+    test "walking the route, the special interrupts: it becomes a fight on the same tick" do
       mundo = %{com_chefe() | hunt: hunt(%{state: :walking, luring?: false})}
-      {logic, _orders} = chefe_step(Logic.new(), mundo, 1_000)
+      {logic, _orders} = chefe_step(em_luta(), mundo, 1_000)
 
       assert logic.state == :engaged
     end
@@ -3548,8 +3553,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
 
     test "with the special on screen the pokemon stays at his side" do
-      boss = seen_pile([creature(4, 1), creature(3, -1)], %{heavy?: true})
-      {_logic, orders} = cerca_step(Logic.new(), boss, 10_000)
+      special = seen_pile([creature(4, 1), creature(3, -1)], %{special?: true})
+      {_logic, orders} = cerca_step(Logic.new(), special, 10_000)
 
       assert orders.route == :hold
       assert orders.park == nil
@@ -3680,8 +3685,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
   # "POSTURA NO SHINY É JUNTAR PRIMEIRO!" (11/09). Em 09:12:54 o vigia viu o
   # Shiny Golem com 3 na tela e o cérebro abriu fogo andando ("matando o que já
-  # abriu"): o especial casava o ramo do chefe, que fura a fila da juntada.
-  describe "the special gathers first; only the boss skips the queue" do
+  # abriu"): o especial casava o ramo do especial, que fura a fila da juntada.
+  describe "the special gathers first, whichever road found it" do
     @his_mode Config.merge(%{
                 gather_piles: false,
                 engage_from: 6,
@@ -3695,9 +3700,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
           situation:
             situation(%{
               enemies: 3,
-              heavy?: true,
               special?: true,
-              boss?: false,
               worth_fighting?: true
             }),
           hunt: hunt(%{state: :walking})
@@ -3709,16 +3712,21 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "✨ especial na tela: juntando primeiro"
     end
 
-    test "the boss by name still cuts the queue" do
-      boss =
+    # E O ACHADO POR NOME OU POR GRIT JUNTA IGUAL: era "só o especial fura a fila",
+    # sobre uma distinção que o jogo não tem — "essa coisa de especial não existe
+    # (…) é tudo uma coisa só" (12/09). Na prática dele já era assim: a lista de
+    # nomes está vazia, e o grit só existe com a luta aberta.
+    test "the one found by name or grit gathers first too" do
+      achado =
         world(%{
-          situation: situation(%{enemies: 3, heavy?: true, boss?: true, worth_fighting?: true}),
+          situation: situation(%{enemies: 3, special?: true, worth_fighting?: true}),
           hunt: hunt(%{state: :walking})
         })
 
-      {_logic, orders} = Logic.step(Logic.new(), boss, @his_mode, 1_000)
+      {_logic, orders} = Logic.step(Logic.new(), achado, @his_mode, 1_000)
 
-      assert orders.phase == :engaged
+      refute orders.phase == :engaged, "furou a fila: #{orders.why}"
+      assert orders.why =~ "✨ especial na tela: juntando primeiro"
     end
 
     # …ONCE THE FIGHT WITH THE SPECIAL HAS OPENED, IT IS THE BOSS until the pile
@@ -3730,9 +3738,7 @@ defmodule Pokex.Bots.Engine.LogicTest do
           situation:
             situation(%{
               enemies: enemies,
-              heavy?: special?,
               special?: special?,
-              boss?: false,
               worth_fighting?: true,
               ready_keys: []
             }),

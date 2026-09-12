@@ -690,7 +690,7 @@ defmodule Pokex.Sim.World do
 
     if Map.get(world.knobs, :trace_boss, false) and awake? and rem(streak, 1000) < dt_ms do
       IO.puts(
-        "AWAKE #{streak}ms t=#{world.clock} dist=#{inspect(boss_tiles(world))} " <>
+        "AWAKE #{streak}ms t=#{world.clock} dist=#{inspect(special_tiles(world))} " <>
           "out=#{world.own.out?} hp=#{world.own.hp_pct} rr=#{world.rescue_ready_at} " <>
           "ctl=#{inspect(Enum.map(world.keys, fn {k, v} -> {k, max(v.ready_at - world.clock, 0)} end))}"
       )
@@ -1268,7 +1268,7 @@ defmodule Pokex.Sim.World do
   # revive needs — the pile is asleep while the field is empty.
   defp damage(world, _key, :crowd) do
     if Map.get(world.knobs, :trace_boss, false),
-      do: IO.puts("STUN t=#{world.clock} dist=#{inspect(boss_tiles(world))}")
+      do: IO.puts("STUN t=#{world.clock} dist=#{inspect(special_tiles(world))}")
 
     %{sleep(world, world.knobs.stun_radius) | stunned_at: world.clock}
   end
@@ -1410,8 +1410,8 @@ defmodule Pokex.Sim.World do
   sai) — nil sem chefe na tela. É o que a bancada entrega ao cérebro no lugar
   do CrowdScan do jogo.
   """
-  @spec boss_tiles(t) :: non_neg_integer | nil
-  def boss_tiles(world) do
+  @spec special_tiles(t) :: non_neg_integer | nil
+  def special_tiles(world) do
     origem = if world.own.out?, do: world.own.pos, else: world.pos
 
     world.mobs
@@ -1429,8 +1429,8 @@ defmodule Pokex.Sim.World do
   quanto tempo ainda?" respondida pelo MUNDO, não pelo carimbo de um aperto
   que pode ter pego o vento.
   """
-  @spec boss_asleep_left_ms(t) :: non_neg_integer | nil
-  def boss_asleep_left_ms(world) do
+  @spec special_asleep_left_ms(t) :: non_neg_integer | nil
+  def special_asleep_left_ms(world) do
     world.mobs
     |> Enum.filter(&Map.get(&1, :boss?, false))
     |> Enum.map(&max(Map.get(&1, :asleep_until, 0) - world.clock, 0))

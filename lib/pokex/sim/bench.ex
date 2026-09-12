@@ -696,12 +696,12 @@ defmodule Pokex.Sim.Bench do
       # no Catcher lives in this world: a closing round never holds the feet
       # to look at the ground here (DÍVIDA: the bench does not model the ball)
       catcher_armed?: Map.get(World.capture_input(world), :armed?) == true,
-      boss_tiles: World.boss_tiles(world),
+      special_tiles: World.special_tiles(world),
       # THE EYE, as the world observes it (`World.observe(world, :crowd)`: the
       # bars it draws, placed by production's `CrowdScan.place/4`). A blind
       # world has no eye, which is nil, never an empty picture.
       crowd: crowd(world, battle),
-      boss_asleep_left_ms: World.boss_asleep_left_ms(world),
+      special_asleep_left_ms: World.special_asleep_left_ms(world),
       prev: previous
     }
   end

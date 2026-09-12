@@ -367,7 +367,7 @@ defmodule Pokex.Bots.Engine.Worker do
       # picture — and `Engine.Siege` says what it would decide with it.
       crowd: crowd(now),
       # O ESPECIAL VISTO PELA COR (`ShinyGuard`) — o shiny, que é o mesmo bicho
-      # que ele chama de chefe. É o único canal que funciona no jogo dele hoje:
+      # que ele chama de especial. É o único canal que funciona no jogo dele hoje:
       # o nome não separa e o grit precisa da luta já aberta. Fato velho não
       # vale — sem varredura recente a resposta é "não sei", que aqui é "não
       # tem".

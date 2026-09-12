@@ -22,7 +22,7 @@ defmodule Pokex.Bots.Combat.Plan do
     * `crowd/2` — the control keys the BRAIN may spend. `[]` means the mode has
       no control key of its own to spend (the game's own combo ends in one).
     * `damage_keys/2` — what `Situation.spent?` measures. This is the pivot the
-      whole revive brain turns on: R3b, the kite, `pile_payable?` and the boss's
+      whole revive brain turns on: R3b, the kite, `pile_payable?` and the special's
       covered revive all ask "is the bar gone?", and the answer is only as true
       as this list. A mode that presses one key and reports six is a mode whose
       revive never fires — silently, which is exactly how the single-target keys

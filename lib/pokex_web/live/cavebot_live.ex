@@ -1845,7 +1845,7 @@ defmodule PokexWeb.CavebotLive do
   defp seed_log do
     [sources: ~w(cavebot game combat engine), limit: @log_lines, min_severity: :macro]
     |> Pokex.Journal.recent()
-    |> Enum.map(&%{level: &1.severity, text: &1.text, at: DateTime.to_time(&1.at)})
+    |> Enum.map(&%{level: &1.severity, text: &1.text, at: to_local(&1.at)})
   catch
     :exit, _journal_down -> []
   end
@@ -1866,10 +1866,24 @@ defmodule PokexWeb.CavebotLive do
   end
 
   defp fold([%{text: same, level: level} = head | rest], level, same),
-    do: [%{head | times: head.times + 1, at: Time.utc_now()} | rest]
+    do: [%{head | times: head.times + 1, at: local_now()} | rest]
 
   defp fold(log, level, text),
-    do: trim([%{level: level, text: text, at: Time.utc_now(), times: 1} | log])
+    do: trim([%{level: level, text: text, at: local_now(), times: 1} | log])
+
+  # O RELÓGIO DO FEED É O DELE. Estas linhas nasciam em `Time.utc_now/0` e eram
+  # desenhadas cruas, então o feed marcava UTC enquanto o resto da página marca
+  # a hora da máquina — `wall_clock/1` no resumo e `clock_label/1` nos
+  # waypoints convertem os dois de propósito, com o comentário dizendo que a
+  # hora dele é "a única que ele pode comparar com a memória da sessão".
+  #
+  # Na foto de 13/09 dava pra ler as duas ao mesmo tempo: "parada às 18:08"
+  # logo acima de "21:08:30". Três horas de distância, o mesmo instante, numa
+  # tela cujo trabalho é contar o que aconteceu de madrugada.
+  defp local_now, do: NaiveDateTime.local_now() |> NaiveDateTime.to_time()
+
+  defp to_local(%DateTime{} = at),
+    do: at |> DateTime.add(local_offset_seconds(), :second) |> DateTime.to_time()
 
   # O TETO CONTA O QUE ELE VÊ. Ele contava TODA linha, debug incluído — e o
   # interruptor de debug nasce desligado: numa mobada o cérebro solta várias
@@ -2415,7 +2429,7 @@ defmodule PokexWeb.CavebotLive do
             obeyed), the CONFIGURATION otherwise, and it says which. --%>
             <section
               id="cavebot-loadout"
-              class="rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5"
+              class="pk-scrollbar rounded-lg border border-pk-line bg-pk-surface px-3 py-1.5 lg:min-h-[6rem] lg:shrink lg:overflow-y-auto"
             >
               <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5">
                 <span class="font-mono text-pk-meta uppercase tracking-[0.12em] text-pk-text-3">
@@ -2853,7 +2867,7 @@ defmodule PokexWeb.CavebotLive do
             <section
               id="cavebot-log"
               phx-hook="CopyToClipboard"
-              class="flex flex-col rounded-lg border border-pk-line bg-pk-surface p-3 lg:min-h-[9rem] lg:flex-1"
+              class="flex flex-col rounded-lg border border-pk-line bg-pk-surface p-3 lg:min-h-[7rem] lg:flex-1"
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -3552,8 +3566,8 @@ defmodule PokexWeb.CavebotLive do
                  pra ler o mouse tem que entrar no navegador, o que tira o foco
                  do jogo, o que dispara a pausa do cabeçalho. Uma linha de 11px
                  custa 14 pixels e responde sem pausar nada. --%>
-            <p id="comeback-note" class="w-full font-mono text-pk-meta text-pk-text-3">
-              a volta automática é só pra tropeço local: mudar de andar ou o combate recusar continua parando de vez. Chegar num waypoint devolve as tentativas, e 0 desliga.
+            <p id="comeback-note" class="min-w-0 font-mono text-pk-meta text-pk-text-3">
+              só tropeço local · chegar num waypoint devolve as tentativas · 0 desliga
             </p>
           </section>
           <%!-- A GAVETA FECHA A TELA. Ela morava FORA do bloco de uma tela de
@@ -3565,11 +3579,15 @@ defmodule PokexWeb.CavebotLive do
                e custa: a sonda de alcance dispara de verdade, o que gasta uma
                captura por tiro. --%>
           <details id="cavebot-instruments" class="rounded-lg border border-pk-line bg-pk-surface">
-            <summary class="flex cursor-pointer list-none flex-wrap items-baseline gap-x-2 px-3 py-2 font-mono text-pk-meta text-pk-text-3">
-              <span class="font-bold uppercase tracking-[0.12em]">Instrumentos ▸</span>
-              <span class="min-w-0">
-                as chaves da caçada e a calibração do alcance da área (a sonda dispara de verdade)
-              </span>
+            <%!-- A LEGENDA NÃO PODE CUSTAR LARGURA. Escrita por extenso, ela
+                 fez a gaveta FECHADA medir 688px — mais que o card da
+                 Segurança ao lado, com 568 — e a Segurança quebrou em três
+                 fileiras, 145px de altura tirados do cockpit por uma linha
+                 que ninguém está lendo (medido a 1280×800, 13/09). Curta e
+                 truncada: diz o que tem dentro sem disputar a fileira. --%>
+            <summary class="flex cursor-pointer list-none items-baseline gap-x-2 px-3 py-2 font-mono text-pk-meta text-pk-text-3">
+              <span class="shrink-0 font-bold uppercase tracking-[0.12em]">Instrumentos ▸</span>
+              <span class="min-w-0 truncate">chaves da caçada · alcance da área</span>
             </summary>
             <div class="space-y-3 px-3 pb-3">
               <%!-- AS CHAVES MORAM AQUI, não na tira de leitura do cérebro: uma

@@ -663,6 +663,54 @@ defmodule PokexWeb.CavebotLiveTest do
     assert feed |> String.split("waypoint 7/40") |> length() == 3
   end
 
+  # UM FATO PELA METADE NÃO PODE DERRUBAR O PAINEL. O `:situation` vive no
+  # WorldState, que é ETS COMPARTILHADO — o fato escrito por um teste alcança o
+  # mount de outro — e `settle_label/1` exigia `enemies`, `growing?` ou
+  # `stable_for_ms`. Um quadro com `%{enemies: 0}` e mais nada levantava
+  # `FunctionClauseError` e derrubava oito testes do cabeçalho, mas só com a
+  # semente certa: verde nesta máquina, vermelho na CI.
+  #
+  # Em produção o mesmo buraco existe: basta um caminho novo publicar um mapa
+  # mais magro pra caçada inteira sumir da tela. "Não sei" é resposta.
+  test "a half-written situation fact does not take the page down", %{conn: conn} do
+    now = System.monotonic_time(:millisecond)
+    WorldState.put(:situation, %{enemies: 0}, now)
+    WorldState.put(:orders, %{band: :green, why: "sem ninguém por perto"}, now)
+    on_exit(fn -> Enum.each([:situation, :orders], &WorldState.forget/1) end)
+
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    assert render(view) =~ "sem contagem"
+  end
+
+  # O RELÓGIO DO FEED É O DELE, não o do servidor. As linhas nasciam em
+  # `Time.utc_now/0` e eram desenhadas cruas, enquanto `wall_clock/1` no resumo
+  # e `clock_label/1` nos waypoints convertem pra hora da máquina de propósito
+  # ("a única que ele pode comparar com a memória da sessão", diz o comentário
+  # de lá). Na foto de 13/09 as duas apareciam juntas: "parada às 18:08" logo
+  # acima de "21:08:30" — três horas de distância pro mesmo instante, numa tela
+  # cujo trabalho é contar o que aconteceu de madrugada.
+  #
+  # Numa máquina em UTC (a CI) este teste passa sozinho; quem ele protege é a
+  # máquina DELE, que roda em UTC-3.
+  test "the feed stamps his clock, not the server's UTC", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    send(view.pid, {:cavebot_log, :macro, "caçada: waypoint 7/40"})
+
+    feed = view |> element("#cavebot-log-lines") |> render()
+    agora = NaiveDateTime.local_now() |> NaiveDateTime.to_time()
+
+    carimbo =
+      ~r/(\d{2}:\d{2}:\d{2})/
+      |> Regex.run(feed, capture: :all_but_first)
+      |> hd()
+      |> Time.from_iso8601!()
+
+    assert abs(Time.diff(agora, carimbo)) <= 2,
+           "o feed marcou #{carimbo} e o relógio dele diz #{agora}"
+  end
+
   # A PERGUNTA DA MADRUGADA. Cada linha deste selo tem uma noite atrás dela: o
   # resgate desligado deixou o cérebro pedir revive 556 vezes sem que uma tecla
   # saísse (27/08), e o estoque acabou às 23:43 e ele moeu 4,9 horas com o

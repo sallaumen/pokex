@@ -60,20 +60,23 @@ defmodule PokexWeb.SiegeComponents do
       |> assign(:origin, -assigns.radius - 0.5)
 
     ~H"""
-    <%!-- INSTRUMENTO VAZIO ENCOLHE ATÉ O RÓTULO. Sem NENHUMA leitura o card
-         não tem desenho nenhum — uma frase e uma grade em branco — e mesmo
-         assim tomava 298px da coluna enquanto o feed vivo do outro lado ficava
-         com 33 (medido a 1280×800, 13/09). Os dois são `flex-1` e nada dizia
-         quem tem prioridade, então o vazio ganhava do que está produzindo.
+    <%!-- O CARD VAZIO NÃO GANHA TETO, e o teto que ele teve por um dia foi um
+         conserto que não consertava nada. A crítica de 13/09 comparou este
+         card vazio (298px) com o feed vivo (33px) e chamou de hierarquia
+         errada — mas os dois moram em COLUNAS DIFERENTES de uma grade de duas
+         colunas. Encolher este aqui não devolve um pixel pro feed: devolve
+         para o nada, e foi isso que apareceu na tela — o card parou nos 224px
+         e sobrou um buraco de 160 embaixo dele, na coluna que ele deveria
+         preencher.
 
-         Só o estado `:none` é tetado: uma foto velha ou uma que não deu pra
-         olhar ainda tem desenho pra mostrar. Quadrado se ganha com leitura. --%>
+         A lição é a que este projeto já pagou antes: meça o mecanismo, não a
+         comparação. Dois números feios lado a lado não provam que um causa o
+         outro. --%>
     <section
       id="siege-card"
       class={[
         "rounded-lg border border-pk-line bg-pk-surface p-3",
-        @fill? && "flex min-h-0 flex-1 flex-col",
-        @fill? && @state == :none && "lg:max-h-[14rem]"
+        @fill? && "flex min-h-0 flex-1 flex-col"
       ]}
     >
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1">

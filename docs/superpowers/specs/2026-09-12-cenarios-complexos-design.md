@@ -15,7 +15,7 @@ ordered by how close each one is to killing the character.
 
 ---
 
-## D1 — The revive order is an EDGE while the shiny is alive (42% are lost)
+## D1 — The revive order is an EDGE while the shiny is alive (42% are lost) — **SHIPPED (#645)**
 
 This is the lethal one and it is the answer to *"ele usa a porra do auto combo e
 depois espera meia hora pra usar a merda do revive"*.
@@ -100,7 +100,7 @@ the bench is real proof here (see `a-bancada-mede-o-cerebro-nao-a-mao`).
 
 ---
 
-## D2 — The step between revives: `downed` walks with the shield down
+## D2 — The step between revives: `downed` walks with the shield down — **SHIPPED (#646), by another route**
 
 ### Measured
 
@@ -135,29 +135,47 @@ dead, the revive is not coming, running beats standing. It is not true for a
 200 ms absence while a revive is landing: there the step costs a tile of
 position, drags the fight into fresh ground, and buys nothing.
 
-### Fix
+### The fix this plan first wrote, and the two fences that refused it
 
-Hold the road for the first `revive_confirm_ms` of a fall, then walk as today:
+The plan said: hold the road for the first `revive_confirm_ms` of a fall. The
+bench refused it, and then refused the next idea too:
 
-```elixir
-# THE FIRST TICKS OF A FALL ARE A REVIVE LANDING, not a pokémon lost. Since
-# #640 the battle window catches the revive's own recall gap, and walking it
-# spends a tile for nothing — 47 downed ticks on 12/09, every one of them a
-# single tick with a monster on screen. Walking is for the fall that PERSISTS.
-defp downed_route(t) when down_for(t) < t.config.revive_confirm_ms, do: :hold
-```
+| tentativa | what refuses it |
+|---|---|
+| **hold** the road during the recall | invariant `:hold_while_down`, **32 scenarios** — "parado com o pokémon na bola é o personagem levando as mordidas por ele" |
+| **retreat** (`route: :back`) | promise `nao_recua` in `barra-que-demora` and `nove-em-cima` (64 to 108 ticks retreating) |
 
-The give-up brake, the stock shortcut and the ask cadence are untouched.
+Both fences are measured and both are right. Three failed attempts at the same
+spot is the signal to question the spot: **the defect was never what `downed`
+orders — it was ENTERING `downed` during a recall we asked for ourselves.**
 
-**Bench**: the sim's `own_row?: false` default makes `left_the_list?` inert on
-purpose, so this needs a scenario that turns the row off for one tick. The
-promise: the road does not move while the body is coming back.
+### What shipped (#646)
+
+`left_the_list?/1` asks first whether the body is coming back: with a revive
+press on record (`rescue_noted_at`, from any hand) inside `revive_confirm_ms`
+AND the row absent for less than that, the absence already has an owner and
+there is no fall to announce.
+
+The two conditions must be two, and the clock of the second is the **absence**
+(`row_gone_at`), not the press: `downed/1`'s cadence re-presses F4, and anchored
+on the press each one would push the deadline forward — a long fall would blind
+the rule forever.
+
+**Bench**: it cannot judge this. `own_row?: false` is the simulated world's
+default and `left_the_list?/1` is inert there on purpose (#640). The proof is
+his journal plus three unit tests. What #646 DID add to the bench is the revive
+ledger itself (`revive_noted_at` in `Sim.World`, `rescue_noted_at` in the
+picture) — without it `unanswered?/1`, the level from #615 and #645, never
+closed in a bench run at all.
 
 ---
 
-## D3 — `sizing` walks with monsters (and with the shiny) on screen
+## D3 — `sizing` walks with monsters on screen — **WITHDRAWN, and here is why**
 
-### Measured, and this is the number that answers his question directly
+The measurement that follows is correct. The CONCLUSION drawn from it was not,
+and #647 replaced the fix with the instrument that will answer it properly.
+
+### The measurement, which stands
 
 For ticks that already have 1+ enemies on screen, does the crowd GROW within
 3 seconds?
@@ -172,67 +190,64 @@ For ticks that already have 1+ enemies on screen, does the crowd GROW within
 
 **Walking with monsters on screen adds 2,24 enemies within three seconds, nine
 times out of ten.** That is his "esse passo acaba fazendo eu atrair mais
-pokémons que estavam fora da minha tela".
+pokémons que estavam fora da minha tela". The step D2 removed was `downed`'s.
 
-It is also, in `sizing`, the design working as intended: the phrase is
-`só N inimigos à vista — seguindo a rota, contando quem vem`, and the road walks
-because the pile has not reached `engage_from` (5). Gathering is the job.
+### Why the proposed fix was withdrawn
 
-The defect is that **it keeps doing it while the shiny is alive**: 55 `sizing`
-ticks with `rota: :go` inside the 13,4 minutes the shiny was on screen. During a
-shiny fight, "gathering" is calling reinforcements into a fight he is already
-paying for with revives.
-
-### And this is why the ball does not fly
-
-`Catcher.Observation.screen_clear/2` is the gate both lenses share: **nobody
-alive on the screen**. In the last 45 minutes `capturing` NEVER happened with an
-enemy on screen (n=133, average 0,0, max 0). So a fresh monster walking in —
-pulled by D3's step — starves the anchor. Ten times in three hours the journal
-says it in his own words:
+**It contradicts his own rule.** The 55 `sizing` ticks that walk while the shiny
+is alive all read `só N inimigos à vista — seguindo a rota, contando quem vem`:
 
 ```
-🌟 a âncora caiu com a estrada andando — a bola fica pra hora da bola
+22  [sizing] inimigos=1     18  [sizing] inimigos=3     11  [sizing] inimigos=5
+18  [sizing] inimigos=2     16  [sizing] inimigos=4
 ```
 
-The ball is not actually broken: 37 balls went out for 40 falls, 16 confirmed.
-What breaks is the *timing* — the road was walking at the moment the shiny fell,
-so the anchor is deferred to a "hora da bola" that a new arrival keeps pushing
-away. Fixing D3 fixes most of these without touching the Catcher.
+That is "postura no shiny é juntar primeiro!" (11/09), already written into
+`cuts_queue?/1` — the special jumps the queue only once its fight is open or it
+is alone (`enemies <= 1`). Pinning the feet in `sizing` would undo it.
 
-### Fix
+**And the evidence for the ball claim did not survive.** This document first
+said 11 of the 13 deferred anchors had `rota=hold` in the brain at that instant.
+That reading is void: `decision` events are DEDUPED (`changed_mind?/2` writes
+only when the mind changes), so the tick "just before" an anchor can be seconds
+old and says nothing about the route at that moment:
 
-`special?` pins the feet, the same way a corpse already does. There is a ready
-mechanism: `hold_for_capture/2` (logic.ex:596) turns a WALKING order into a
-stand for `@held_by_capture` phases. Add the same shape for the special:
-
-```elixir
-# O SHINY NÃO PRECISA DE MOBADA. Juntar é o trabalho de `sizing`, mas com o
-# especial vivo na tela um passo não junta — ele CHAMA: andar com bicho à
-# vista soma +2,24 inimigos em 3 s, 90% das vezes (medido em 12/09). E o
-# passo é o que adia a bola: a âncora nasce com a estrada andando e fica pra
-# próxima. Enquanto o especial está vivo, os pés ficam.
-@held_by_special [:travelling, :gathering, :sizing, :bunching, :skipping]
+```
+15:37:16.401 âncora adiada
+      -4197ms  [bunching] rota=hold
+      -2589ms  [bunching] rota=hold   ← e nada por 2,6 s até a âncora
 ```
 
-Red never holds (a shiny is not worth the character), same as capture.
+### What replaced it
 
-**Bench**: an `auto_combo` scenario with a special alive and a pile below
-`engage_from`. Today the road walks; after the fix it stands. Measure the kill
-count and the time awake — the bench has already refuted one tactical change
-this week, so this one has to earn it too.
+`standing?/0` asks THREE questions — still mode, road held, screen clear — and
+the deferral line blamed the first one every time. #647 makes it name the gate
+that actually refused, with the count when it is the screen:
 
----
+```
+🌟 a âncora caiu com 2 bicho(s) vivo(s) na tela (a estrada estava parada)
+```
+
+No gate changed. **The open question is now instrumented instead of guessed:**
+the next night says by itself whether what defers the shiny's ball is the road
+or the survivor still standing. If it is the survivor, the decision to take to
+him is whether a shiny anchor may fly with a live creature on screen — which is
+`Observation.screen_clear/2`, the gate both lenses share, and a rule he wrote:
+"quando tá vivo temos que matar e quando tá morto temos que capturar".
 
 ## Order of work
 
-1. **D1** — the revive level during the special. One condition, lethal, and the
-   bench measures exactly this module.
-2. **D2** — `downed` holds the road for `revive_confirm_ms`. Small and safe.
-3. **D3** — the special pins the feet. A tactical change: ship it only if the
-   bench says the kills do not fall and the time awake does not rise.
+1. **D1** — the revive level during the special. ✅ #645.
+2. **D2** — the recall gap is not a fall. ✅ #646 — and NOT the way this plan
+   first wrote it: holding the road breaks the `:hold_while_down` invariant in
+   32 scenarios, retreating breaks the `nao_recua` promise in 2. Both fences are
+   measured. The defect was ENTERING `downed` during a recall we asked for, not
+   what the phase orders.
+3. **D3** — withdrawn; #647 instruments the question instead. Open until the
+   next night answers it.
 
-D4 (the ball) needs no code of its own; it is a consequence of D3.
+D4 (the ball) was folded into D3: the ball is not broken (37 balls for 40 falls,
+16 confirmed) — what is unknown is which gate defers the other three.
 
 ## What is NOT wrong, so nobody goes looking
 

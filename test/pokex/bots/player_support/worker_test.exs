@@ -74,6 +74,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Worker
+  alias Pokex.Bots.ReviveLedger
   alias Pokex.Bots.SkillClock
   alias Pokex.Bots.PlayerSupport.WorkerTest.BlockingBody
   alias Pokex.Bots.PlayerSupport.WorkerTest.CrashingBody
@@ -2091,6 +2092,32 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert_receive {:rule_alarm, :mortal, texto}, 2_000
       assert texto =~ "bag sem revive, OU o pokémon não está em campo"
       assert texto =~ "SAINDO do jogo"
+    end
+
+    # …E O CADERNINHO APRENDE. Na noite de 12→13/09 `revive_stock` dizia 2000, o
+    # bolso real acabou no 879º despacho, e a conta seguiu anunciando 1121
+    # restantes: o atalho `:stranded` do cérebro (que para a caçada quando o
+    # bolso zera) nunca teve como disparar. Vale em QUALQUER modo — o número é
+    # uma medida, não um socorro.
+    @tag :tmp_dir
+    test "the screen's verdict zeroes the ledger, whatever was declared", %{tmp: tmp, body: body} do
+      Settings.put(:revive_dry_action, "alarm")
+      Settings.put(:revive_stock, 2_000)
+      ReviveLedger.reset()
+      on_exit(&ReviveLedger.reset/0)
+      assert ReviveLedger.remaining() == 2_000
+
+      low = hp_png(tmp, "bag_seca_caderninho.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+      seca_o_juiz(worker)
+
+      assert_receive {:rule_alarm, :mortal, _texto}, 2_000
+      assert ReviveLedger.remaining() == 0
     end
 
     @tag :tmp_dir

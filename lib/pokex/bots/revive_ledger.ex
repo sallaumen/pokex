@@ -118,14 +118,53 @@ defmodule Pokex.Bots.ReviveLedger do
   end
 
   @doc """
+  A TELA VENCE O CADERNINHO: o bolso acabou, e quem viu foi a barra de vida.
+
+  O número declarado pode estar errado, e na noite de 12→13/09 estava por mais
+  do dobro: `revive_stock` dizia 2000, o bolso real acabou no 879º despacho, e
+  a conta seguiu anunciando 1121 restantes. Toda regra que consulta o orçamento
+  (`affordable?`, o atalho `:stranded`) decidiu com dinheiro que não existia —
+  e o personagem ficou sem escudo 22 segundos depois, a 4% de vida.
+
+  Quem chama é o juiz do EFEITO (`PlayerSupport.ReviveEffect`), e só no grito:
+  três pagamentos seguidos sem a vida subir. Um só é ruído (o pokémon pode estar
+  fora de campo por outro motivo); três é o mesmo grau de certeza que o bot já
+  usa pra sair do jogo.
+
+  Vale até ele contar o bolso de novo — digitar `revive_stock` é o botão de
+  reposição, e um valor novo apaga esta marca junto com a contagem.
+  """
+  @spec dry!() :: :ok
+  def dry! do
+    ensure_table()
+    :ets.insert(@table, {:dry, Settings.get(:revive_stock)})
+    :ok
+  end
+
+  @doc """
   How many are left, or `nil` with the budget off (`revive_stock` at zero, "not counted"). Never
   negative: the count is approximate, and a negative number would look like a measurement.
+
+  Zero também quando a TELA provou que acabou (`dry!/0`), mesmo com o orçamento
+  desligado: ali não é estimativa, é o que a barra mostrou.
   """
   @spec remaining() :: non_neg_integer | nil
   def remaining do
-    case Settings.get(:revive_stock) do
-      stock when is_integer(stock) and stock > 0 -> max(stock - spent(), 0)
-      _off -> nil
+    stock = Settings.get(:revive_stock)
+
+    cond do
+      dry?(stock) -> 0
+      is_integer(stock) and stock > 0 -> max(stock - spent(), 0)
+      true -> nil
+    end
+  end
+
+  # A marca morre junto com a contagem: um `revive_stock` novo é ele dizendo que
+  # contou o bolso de novo.
+  defp dry?(stock) do
+    case :ets.lookup(@table, :dry) do
+      [{:dry, ^stock}] -> true
+      _outro_estoque_ou_vazio -> false
     end
   end
 
@@ -140,6 +179,7 @@ defmodule Pokex.Bots.ReviveLedger do
     :ets.delete(@table, :ledger)
     :ets.delete(@table, :last_note_at)
     :ets.delete(@table, :last_landed_at)
+    :ets.delete(@table, :dry)
     :ok
   end
 

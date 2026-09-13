@@ -9,6 +9,17 @@ defmodule Pokex.Engine.Vitals do
   same tick also files health, how many are on the list, how many damage keys
   are ready, and whether the pokémon is on the field at all.
 
+  ## DUAS vidas, e a que morre é a segunda
+
+  `hp` sempre foi a do POKÉMON, e a do PERSONAGEM não era arquivada em lugar
+  nenhum. Na noite de 12→13/09 isso custou a análise: 21.684 leituras, e a vida
+  dele aparece DUAS vezes na noite inteira — nos dois alarmes do diário (11% às
+  01:56, 4% às 02:21). Como ele foi de 100% a 4% não dá pra reconstruir. A única
+  coisa que morre é a que não estava medida.
+
+  E `revive_left` pela mesma razão: a bag é o limite real da noite (879 revives
+  em 4h40, um a cada 19s) e o número que a dizia não estava em nenhuma linha.
+
   ## The rule: transitions exactly, everything else on a heartbeat
 
   The four measurements the simulator was still guessing at all hang off
@@ -29,6 +40,11 @@ defmodule Pokex.Engine.Vitals do
   # `revive` is watched, not just recorded: the order is the anchor a settle is
   # measured from, and a revive ordered and cleared between two heartbeats would
   # otherwise leave no trace at all.
+  # AS DUAS VIDAS FICAM FORA DAQUI, e pela mesma razão: elas mudam a todo
+  # instante numa luta, e vigiá-las faria de cada ponto de dano uma linha — a
+  # noite inteira em vez da amostra. O batimento de `engine_vitals_ms` (1 s) é o
+  # bastante pra inclinação: a queda de 100% a 1% de 02:21 durou dezenove
+  # segundos e vira dezenove pontos, que é curva de sobra pra ler a mordida.
   @watched [:enemies, :out, :spent, :revive]
 
   @doc "The fields whose change is worth a line of its own."
@@ -50,12 +66,17 @@ defmodule Pokex.Engine.Vitals do
     %{
       enemies: picture.enemies,
       hp: picture.own_hp,
+      # …e a vida DELE, que é a que morre. Ver o moduledoc: numa noite inteira
+      # ela aparecia só nos alarmes do diário.
+      player_hp: Map.get(picture, :player_hp),
       out: picture.own_out?,
       spent: picture.spent?,
       ready: ready && Enum.count(damage_keys, &(&1 in ready)),
       keys: length(damage_keys),
       phase: orders.phase,
-      revive: orders.revive
+      revive: orders.revive,
+      # o bolso: o limite real da noite, e o gatilho do encerramento
+      revive_left: Map.get(picture, :revive_left)
     }
   end
 

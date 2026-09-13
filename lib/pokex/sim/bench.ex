@@ -674,6 +674,12 @@ defmodule Pokex.Sim.Bench do
       # como acontecer numa simulação. `nil` continua sendo o orçamento
       # desligado, que é o mundo de todo cenário que não pediu um.
       revive_left: World.revive_left(world),
+      # …E O RELÓGIO DA ÚLTIMA PRENSA, que é o que fecha o nível do pedido
+      # (`unanswered?/1`) e o que diz se o campo vazio é uma recolhida em curso
+      # (`body_coming_back?/1`). Sem ele o caixa era mudo aqui e as duas regras
+      # nunca eram exercidas — o pedido ficava aberto até o teto de 1,5 s em
+      # TODA corrida, e a queda nunca sabia que o corpo estava voltando.
+      rescue_noted_at: world.revive_noted_at,
       # A CORRENTE DO CLIENTE, do lado do mundo: é ela que segura o revive do
       # ciclo até o combo terminar.
       # O MESMO CONTRATO DO JOGO (`Combat.Combo.left_ms/2`): fora do Auto Combo

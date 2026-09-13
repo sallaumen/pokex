@@ -1640,6 +1640,29 @@ defmodule Pokex.Bots.Engine.LogicTest do
       refute orders.phase == :downed
     end
 
+    # UM RECOLHIMENTO QUE NÓS PEDIMOS NÃO É NOTÍCIA. A linha saiu porque o
+    # revive guardou o pokémon — medido em 12/09: 47 tiques de `downed` em três
+    # horas, em 44 trechos de UM tique cada, TODOS com `rows=1`, `enemies=1` e
+    # `own=absent`. Nenhum era um pokémon perdido, e cada um virava uma ordem de
+    # ANDAR com o escudo fora e um bicho batendo: o passo entre os revives.
+    test "a row taken by a revive we just pressed is not a fall" do
+      {logic, _} = step(na_lista(), 1_000)
+      {_logic, orders} = step(logic, sumiu(%{rescue_noted_at: 1_100}), 1_200)
+
+      refute orders.phase == :downed
+    end
+
+    # …e a queda de VERDADE continua chegando: passado o prazo sem o corpo
+    # voltar, a prensa no caixa não explica mais nada.
+    test "but past the confirmation window the fall is real again" do
+      {logic, _} = step(na_lista(), 1_000)
+      tarde = 1_200 + @config.revive_confirm_ms
+      {logic, _} = step(logic, sumiu(%{rescue_noted_at: 1_100}), 1_200)
+      {_logic, orders} = step(logic, sumiu(%{rescue_noted_at: tarde - 100}), tarde)
+
+      assert orders.phase == :downed
+    end
+
     # A tela vazia e a Pokebar ilegível continuam sem provar nada: as duas
     # devolvem `false`, não `:absent`.
     test "and an empty screen is not a pokemon off the field" do
@@ -1669,6 +1692,13 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "sem pokémon em campo"
     end
 
+    # OS PRIMEIROS TIQUES DE UMA QUEDA SÃO UM REVIVE POUSANDO. Desde o #640 a
+    # janela de batalha também pega o intervalo em que o revive RECOLHE o
+    # pokémon — medido em 12/09: 47 tiques de `downed` em três horas, TODOS com
+    # `rows=1`, `enemies=1` e `own=absent`, em 44 trechos de UM tique cada. Dar
+    # um passo aí é andar com o escudo fora e um bicho batendo, e andar com
+    # bicho à vista soma +2,24 inimigos em 3 s, 90% das vezes: o passo não foge,
+    # ele CHAMA.
     test "segue andando a rota: parar no meio da pilha é pior" do
       {_logic, orders} = step(caido(), 1_000)
 

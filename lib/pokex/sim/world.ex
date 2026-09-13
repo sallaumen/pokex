@@ -458,6 +458,14 @@ defmodule Pokex.Sim.World do
             # dentro. Conta despachos, não consumo, exatamente como o caderninho
             # do bot: um aperto que o jogo recusou já saiu da mão.
             revives_spent: 0,
+            # …E QUANDO O ÚLTIMO SAIU (`ReviveLedger.last_note_at/0`). A bancada
+            # nunca entregou este relógio, e sem ele DUAS regras do cérebro
+            # ficavam inertes aqui: o nível do pedido (`unanswered?/1`, #615 —
+            # ele só fecha quando o caixa anota uma prensa, e um caixa mudo o
+            # deixava aberto até o teto) e a rota parada enquanto o corpo volta
+            # (`body_coming_back?/1`). É o mesmo instante do `revives_spent`:
+            # quem anota é quem aperta.
+            revive_noted_at: nil,
             nests: [],
             next_id: 1,
             rand: nil,
@@ -1073,6 +1081,7 @@ defmodule Pokex.Sim.World do
     # é chamado por quem aperta, não por quem vê o efeito): um item sai do bolso
     # quando a tecla vai, e a conta erra pro lado seguro.
     |> Map.update!(:revives_spent, &(&1 + 1))
+    |> Map.put(:revive_noted_at, world.clock)
   end
 
   # WHICH floor, decided by the state the press was made in — and stamped on

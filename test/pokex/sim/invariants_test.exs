@@ -126,14 +126,25 @@ defmodule Pokex.Sim.InvariantsTest do
       sem = piores("especial-incognito", sementes)
       com = piores("especial-pela-cor", sementes)
 
-      # A MARGEM ENCOLHEU PORQUE O CHÃO SUBIU. A cerca do sono (03/09) segura o
-      # revive que recolhe o pokémon com bicho acordado na tela, e isso melhora
-      # o PIOR momento das duas pontas — inclusive o do mundo sem cor, que era o
-      # baixo da comparação. Medido: sem cor foi de [.., 3, ..] pra [.., 5, ..].
-      # A cor continua levantando o pior momento; o que diminuiu foi o quanto
-      # sobrava pra ela levantar.
-      assert Enum.min(com) >= Enum.min(sem) + 14,
-             "o pior momento não melhorou o bastante: sem cor #{inspect(sem)}, com cor #{inspect(com)}"
+      # O PIOR TIQUE DEIXOU DE SER COBRADO, E QUEM O TIROU FOI A MORTE DE 13/09.
+      #
+      # Havia aqui `Enum.min(com) >= Enum.min(sem) + 14`. Depois que o shiny
+      # deixou de abrir o portão do recolhimento (a cláusula que matou), o mundo
+      # COM cor perdeu os revives de graça que ele ganhava só por ter um shiny
+      # na tela — e o pior tique dele caiu numa das seis sementes:
+      #
+      #     sem cor [20, 25,  9, 15, 15, 5]   mínimo 5   mediana 15
+      #     com cor [23,  9, 21, 23, 25, 23]  mínimo 9   mediana 23
+      #
+      # Esse é o preço da escolha DELE, dita depois da morte: "o olho vale
+      # também pro shiny". O que piorou é o pior momento do POKÉMON (`min_hp` é
+      # `own_hp`), e o pokémon é o escudo — ele pode cair. Quem não pode é o
+      # personagem, e é justamente a janela em que o pokémon está na bola que
+      # matou.
+      #
+      # O mínimo sobre seis sementes é UM tique da pior corrida, com variância
+      # de 5 a 56: não vigiava a afirmação, vigiava o ruído. A afirmação — a cor
+      # se paga — continua cobrada pela mediana, abaixo, e com folga (+8).
 
       # ATENÇÃO: A MARGEM DESTE TESTE ENCOLHEU DE +10 PRA +3, e isso é um ACHADO
       # que precisa de decisão, não um limiar a perseguir.

@@ -60,11 +60,20 @@ defmodule PokexWeb.SiegeComponents do
       |> assign(:origin, -assigns.radius - 0.5)
 
     ~H"""
+    <%!-- INSTRUMENTO VAZIO ENCOLHE ATÉ O RÓTULO. Sem NENHUMA leitura o card
+         não tem desenho nenhum — uma frase e uma grade em branco — e mesmo
+         assim tomava 298px da coluna enquanto o feed vivo do outro lado ficava
+         com 33 (medido a 1280×800, 13/09). Os dois são `flex-1` e nada dizia
+         quem tem prioridade, então o vazio ganhava do que está produzindo.
+
+         Só o estado `:none` é tetado: uma foto velha ou uma que não deu pra
+         olhar ainda tem desenho pra mostrar. Quadrado se ganha com leitura. --%>
     <section
       id="siege-card"
       class={[
         "rounded-lg border border-pk-line bg-pk-surface p-3",
-        @fill? && "flex min-h-0 flex-1 flex-col"
+        @fill? && "flex min-h-0 flex-1 flex-col",
+        @fill? && @state == :none && "lg:max-h-[14rem]"
       ]}
     >
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1">

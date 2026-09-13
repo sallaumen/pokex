@@ -663,6 +663,26 @@ defmodule PokexWeb.CavebotLiveTest do
     assert feed |> String.split("waypoint 7/40") |> length() == 3
   end
 
+  # UM FATO PELA METADE NÃO PODE DERRUBAR O PAINEL. O `:situation` vive no
+  # WorldState, que é ETS COMPARTILHADO — o fato escrito por um teste alcança o
+  # mount de outro — e `settle_label/1` exigia `enemies`, `growing?` ou
+  # `stable_for_ms`. Um quadro com `%{enemies: 0}` e mais nada levantava
+  # `FunctionClauseError` e derrubava oito testes do cabeçalho, mas só com a
+  # semente certa: verde nesta máquina, vermelho na CI.
+  #
+  # Em produção o mesmo buraco existe: basta um caminho novo publicar um mapa
+  # mais magro pra caçada inteira sumir da tela. "Não sei" é resposta.
+  test "a half-written situation fact does not take the page down", %{conn: conn} do
+    now = System.monotonic_time(:millisecond)
+    WorldState.put(:situation, %{enemies: 0}, now)
+    WorldState.put(:orders, %{band: :green, why: "sem ninguém por perto"}, now)
+    on_exit(fn -> Enum.each([:situation, :orders], &WorldState.forget/1) end)
+
+    {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+    assert render(view) =~ "sem contagem"
+  end
+
   # O RELÓGIO DO FEED É O DELE, não o do servidor. As linhas nasciam em
   # `Time.utc_now/0` e eram desenhadas cruas, enquanto `wall_clock/1` no resumo
   # e `clock_label/1` nos waypoints convertem pra hora da máquina de propósito

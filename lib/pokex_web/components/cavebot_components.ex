@@ -959,10 +959,24 @@ defmodule PokexWeb.CavebotComponents do
   # Zero and "I cannot see" are opposite facts wearing the same number.
   defp count_label(%{enemies: nil}), do: "não vejo a lista"
   defp count_label(%{enemies: 1}), do: "1 inimigo"
-  defp count_label(%{enemies: n}), do: "#{n} inimigos"
+  defp count_label(%{enemies: n}) when is_integer(n), do: "#{n} inimigos"
+  defp count_label(_incompleto), do: "não vejo a lista"
 
+  # UM FATO PELA METADE NÃO DERRUBA O PAINEL. Estas três cláusulas exigiam que o
+  # quadro trouxesse `enemies`, `growing?` OU `stable_for_ms` — e quem publica o
+  # `:situation` é um GenServer, então basta um caminho novo publicar um mapa
+  # mais magro pra `FunctionClauseError` levar a página inteira junto. A suíte
+  # provou que dá: um fixture com `%{enemies: 0}` e mais nada derrubou oito
+  # testes do cabeçalho, e só com a semente certa (o `:situation` vive no ETS
+  # compartilhado, então o fato de um teste alcança o mount de outro).
+  #
+  # Numa tela cuja função é continuar servindo quando as coisas dão errado,
+  # "não sei" é resposta; derrubar a caçada inteira não é.
   defp settle_label(%{enemies: nil}), do: "sem contagem"
   defp settle_label(%{growing?: true}), do: "ainda chegando"
 
-  defp settle_label(%{stable_for_ms: ms}), do: "parados há #{Float.round(ms / 1000, 1)}s"
+  defp settle_label(%{stable_for_ms: ms}) when is_number(ms),
+    do: "parados há #{Float.round(ms / 1000, 1)}s"
+
+  defp settle_label(_incompleto), do: "sem contagem"
 end

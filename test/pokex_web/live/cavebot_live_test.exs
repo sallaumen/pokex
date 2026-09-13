@@ -669,7 +669,20 @@ defmodule PokexWeb.CavebotLiveTest do
   # pokémon no chão (28/08). Os fatos já estavam todos na tela, espalhados e em
   # voz baixa; o selo junta e responde UMA coisa.
   describe "pronto pra noite" do
+    # OS TRÊS OLHOS ABERTOS. Sem eles o selo agora é âmbar com razão — este
+    # helper é o que torna "pode dormir" uma afirmação e não um descuido.
+    defp eyes_open! do
+      now = System.monotonic_time(:millisecond)
+      WorldState.put(:player, %{hp_pct: 100, player_hp: 92, readable?: true}, now)
+      WorldState.put(:minimap, %{pos: {1109, 1383, 5}}, now)
+      WorldState.put(:skill_bar, %{ready_keys: ["1", "3"]}, now)
+
+      on_exit(fn -> Enum.each([:player, :minimap, :skill_bar], &WorldState.forget/1) end)
+    end
+
     test "com tudo armado, o selo diz que pode dormir", %{conn: conn} do
+      eyes_open!()
+
       Pokex.SettingsStash.stash!(
         rescue_enabled: true,
         engine_band_yellow_pct: 60,
@@ -682,11 +695,57 @@ defmodule PokexWeb.CavebotLiveTest do
       refute has_element?(view, "#cavebot-ready-list")
     end
 
+    # A CONFIGURAÇÃO INTEIRA ARMADA E O BOT CEGO. Este selo lia CINCO settings e
+    # mais nada: recebia só a fileira de teclas, então estruturalmente não
+    # conseguia perguntar se alguma coisa estava sendo LIDA. Todo bloqueio dele
+    # era coisa que ELE esqueceu de ligar; nenhum era coisa que a MÁQUINA
+    # perdeu — e as mortes do caderno são todas do segundo tipo (a vida dele
+    # nunca chegando ao cérebro em 13/09; a janela coberta apagando os três
+    # leitores no mesmo dia).
+    #
+    # Verde por cima de seis leituras âmbar é pior que selo nenhum: ensina a
+    # parar de ler as seis.
+    test "blindness outranks configuration: nothing read is not 'go to sleep'", %{conn: conn} do
+      Pokex.SettingsStash.stash!(
+        rescue_enabled: true,
+        engine_band_yellow_pct: 60,
+        revive_stock: 50
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+      lista = view |> element("#cavebot-ready-list") |> render()
+
+      refute view |> element("#cavebot-ready") |> render() =~ "pronto pra noite"
+      assert lista =~ "SUA vida não está sendo lida"
+      assert lista =~ "posição não está sendo lida"
+      assert lista =~ "barra do jogo não está sendo lida"
+    end
+
+    # …e a coordenada ILEGÍVEL não entra: é um glifo duvidoso numa leitura, não
+    # um olho apagado. O minimapa está sendo lido — só a coordenada não fechou.
+    # Um selo que fica âmbar a cada leitura torta é um selo que grita lobo.
+    test "an illegible coordinate is not a switched-off eye", %{conn: conn} do
+      eyes_open!()
+      put_pos(nil)
+
+      Pokex.SettingsStash.stash!(
+        rescue_enabled: true,
+        engine_band_yellow_pct: 60,
+        revive_stock: 50
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      assert view |> element("#cavebot-ready") |> render() =~ "pronto pra noite"
+    end
+
     # "NÃO SEI" NÃO É "PODE DORMIR". `revive_stock: 0` desliga a conta, e a
     # pergunta "acabaram?" respondia NÃO — o mesmo não de uma bag cheia. O selo
     # ficava verde sobre a única coisa que já custou uma noite inteira (4,9
     # horas moendo com o pokémon no chão, 28/08, com a bag seca desde 23:43).
     test "an uncounted revive bag is not a promise that the night survives", %{conn: conn} do
+      eyes_open!()
+
       Pokex.SettingsStash.stash!(
         rescue_enabled: true,
         engine_band_yellow_pct: 60,
@@ -700,6 +759,8 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "o resgate desligado é dito por extenso, não escondido num title", %{conn: conn} do
+      eyes_open!()
+
       Pokex.SettingsStash.stash!(
         rescue_enabled: false,
         engine_band_yellow_pct: 60,
@@ -713,6 +774,8 @@ defmodule PokexWeb.CavebotLiveTest do
     end
 
     test "o estoque zerado entra na conta junto", %{conn: conn} do
+      eyes_open!()
+
       Pokex.SettingsStash.stash!(
         rescue_enabled: false,
         engine_band_yellow_pct: 0,
@@ -1864,6 +1927,24 @@ defmodule PokexWeb.CavebotLiveTest do
       assert view |> element("#safety-cure") |> render() =~ "limpeza de status desligada"
     end
 
+    # A PROTEÇÃO ESTAVA INVERTIDA. Apagar um waypoint — reversível, ele
+    # redesenha em dez segundos — pergunta "Apagar o waypoint 3 (462, 1598)?".
+    # DESARMAR o resgate, que é o que mantém o personagem vivo a noite inteira,
+    # era um clique só num botão de 11px. O resgate desligado já custou uma
+    # noite: o cérebro pediu revive 556 vezes sem que uma tecla saísse.
+    #
+    # Armar continua um clique: nunca se põe atrito em deixar mais seguro.
+    test "only DISARMING asks; arming stays one click", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/cavebot")
+
+      refute view |> element("#safety-rescue") |> render() =~ "data-confirm",
+             "o resgate está desligado — ligar não pode pedir confirmação"
+
+      armada = view |> element("#safety-heal") |> render()
+      assert armada =~ "data-confirm"
+      assert armada =~ "Desarmar cura armada?"
+    end
+
     test "arms the rescue from the hunt page", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/cavebot")
 
@@ -2022,7 +2103,7 @@ defmodule PokexWeb.CavebotLiveTest do
       :ok
     end
 
-    test "aparece no card do cérebro e inverte o ajuste", %{conn: conn} do
+    test "lives in the instruments drawer, not the readout strip, and flips it", %{conn: conn} do
       Pokex.Settings.put(:engine_gather_piles, true)
       at = System.monotonic_time(:millisecond)
       WorldState.put(:situation, %{enemies: 2, growing?: true, stable_for_ms: 0}, at)
@@ -2041,7 +2122,11 @@ defmodule PokexWeb.CavebotLiveTest do
   # R3b: a chave que decide se o F4 é resgate ou também reset de cooldown. O
   # simulador mediu +13% de monstros com ela ligada e zero quedas a mais — mas
   # ela gasta tecla numa mecânica do jogo que ninguém conferiu, então nasce
-  # desligada e o card é o único lugar onde ela existe.
+  # desligada e a gaveta Instrumentos é o único lugar onde ela existe.
+  #
+  # Ela morava na tira de leitura do cérebro, no modo que existe pra não ter
+  # "nada que possa ser clicado por acidente" — e o que ela muda é a POLÍTICA
+  # do revive.
   describe "a chave do F4 como reset de cooldown" do
     setup do
       antes = Pokex.Settings.get(:engine_reset_revive)
@@ -2049,7 +2134,7 @@ defmodule PokexWeb.CavebotLiveTest do
       :ok
     end
 
-    test "aparece no card do cérebro, inverte o ajuste e avisa o que conferir", %{conn: conn} do
+    test "lives in the drawer, flips the setting and says what to measure first", %{conn: conn} do
       Pokex.Settings.put(:engine_reset_revive, false)
       at = System.monotonic_time(:millisecond)
       WorldState.put(:situation, %{enemies: 4, growing?: false, stable_for_ms: 2_000}, at)

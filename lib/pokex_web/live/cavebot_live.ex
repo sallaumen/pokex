@@ -1395,10 +1395,18 @@ defmodule PokexWeb.CavebotLive do
   # A BARRA, tecla por tecla, no estado em que ela está AGORA. `ready_skills`
   # responde `nil` quando a leitura não existe ou envelheceu — e não saber é
   # diferente de estar em cooldown, então tem cara própria.
-  # A FILEIRA DA BARRA, com as duas testemunhas. Ver `Pokex.Bots.SkillRack`: a
-  # página não decide nada aqui, e o `state` de cada peça é o mesmo que o
-  # combate vai obedecer.
-  defp skill_rack(combat), do: SkillRack.build(fighting_as(combat), Perception.ready_skills())
+  # A FILEIRA DA BARRA, com as duas testemunhas, é montada no `render/1` —
+  # junto com a leitura da barra que ela e o aviso "barra não lida" precisam
+  # compartilhar. Ver `Pokex.Bots.SkillRack`: a página não decide nada ali, e o
+  # `state` de cada peça é o mesmo que o combate vai obedecer.
+
+  # O VERDE DA TELHA PRONTA É CHÃO ESCURO, então o cinza mais fraco não cabe: o
+  # `pk-text-3` dá 3,87:1 sobre `pk-ok-dim` (contra os 4,5:1 do AA) e o
+  # `pk-text-2` dá 4,97:1 no MESMO verde. É o mesmo número que a linha dele já
+  # tinha custado uma vez ("Cinza sobre o verde escuro da linha DELE dava
+  # 3,87:1", mais abaixo neste arquivo) — a lição virou regra só num lugar.
+  defp tile_label_class(%{state: :ready}), do: "text-pk-text-2"
+  defp tile_label_class(_outro), do: "text-pk-text-3"
 
   defp tile_class(%{state: :ready, job: "controle" <> _}),
     do: "border-pk-warn-line bg-pk-warn/10"
@@ -1956,10 +1964,31 @@ defmodule PokexWeb.CavebotLive do
   # que roda no Iniciar) — todas mudam o que ela vale enquanto ele dorme.
   #
   # Cada linha aqui tem uma noite atrás dela.
-  defp night_blockers(rack) do
+  #
+  # OS OLHOS VÊM ANTES DA CONFIGURAÇÃO, e essa ordem é o conserto de 13/09: o
+  # selo lia CINCO settings e mais nada — recebia só a fileira, então
+  # estruturalmente não conseguia perguntar se alguma coisa estava sendo LIDA.
+  # Cada bloqueio daqui era coisa que ELE esqueceu de ligar; nenhum era coisa
+  # que a MÁQUINA perdeu, e as mortes do caderno são todas do segundo tipo (a vida
+  # dele nunca chegando ao cérebro, a janela coberta apagando os três leitores).
+  # Verde por cima de seis leituras âmbar é pior que selo nenhum: ensina a parar
+  # de ler as seis.
+  #
+  # DUAS CEGUEIRAS FICAM DE FORA DE PROPÓSITO. A vida do POKÉMON some toda vez
+  # que ele cai — um selo que fica âmbar a cada revive é um selo que grita lobo,
+  # e essa falta já tem casa própria (`#safety-no-reading`). E a coordenada
+  # ILEGÍVEL é um glifo duvidoso numa leitura, não um olho apagado: só `:stale`
+  # e `:never`, que são "não estou lendo", entram aqui.
+  defp night_blockers(rack, world, pos, bar_read?) do
     stock = revive_stock()
 
     [
+      {is_nil(world.me.player_hp),
+       "a SUA vida não está sendo lida — nada nesta tela vê você morrer"},
+      {PositionReadout.status(pos, world.pos_age_ms) in [:stale, :never],
+       "a posição não está sendo lida — a caçada anda no escuro"},
+      {not bar_read?,
+       "a barra do jogo não está sendo lida — o revive sai pelo relógio, no chute"},
       {Settings.get(:rescue_enabled) != true,
        "o resgate está desligado — ninguém revive o pokémon"},
       {stock == :out, "os revives acabaram pela conta — repõe e digita o estoque no /config"},
@@ -2015,8 +2044,12 @@ defmodule PokexWeb.CavebotLive do
 
   defp night_title(blockers) do
     case blockers do
-      [] -> "resgate armado, revives contados, cooldowns escritos e guarda de vida ligada"
-      list -> Enum.join(list, " · ")
+      [] ->
+        "os olhos estão lendo, resgate armado, revives contados, cooldowns escritos e " <>
+          "guarda de vida ligada"
+
+      list ->
+        Enum.join(list, " · ")
     end
   end
 
@@ -2057,12 +2090,18 @@ defmodule PokexWeb.CavebotLive do
     # A FILEIRA, montada UMA vez. Ela lê o relógio (ETS) e o fato da barra, e o
     # template pergunta por ela em oito lugares — pedir oito vezes é oito
     # leituras que podem discordar entre si dentro do mesmo desenho.
-    rack = skill_rack(assigns.combat)
+    # …e a LEITURA DA BARRA junto, pelo mesmo motivo: o template perguntava
+    # `Perception.ready_skills()` de novo pra desenhar o "barra não lida", então
+    # a fileira e o aviso em cima dela podiam vir de leituras diferentes. Uma
+    # pergunta, duas respostas no mesmo desenho.
+    bar = Perception.ready_skills()
+    rack = SkillRack.build(fighting_as(assigns.combat), bar)
 
     assigns =
       assigns
       |> assign(:rack, rack)
-      |> assign(:blockers, night_blockers(rack))
+      |> assign(:bar_read?, bar != nil)
+      |> assign(:blockers, night_blockers(rack, assigns.world, assigns.pos, bar != nil))
       |> assign(:shiny, ShinyReadiness.check())
 
     ~H"""
@@ -2352,7 +2391,20 @@ defmodule PokexWeb.CavebotLive do
             />
           </div>
 
-          <div class="flex flex-col gap-2 lg:min-h-0 lg:overflow-hidden">
+          <%!-- A COLUNA ROLA EM VEZ DE CORTAR. Ela era `overflow-hidden` dentro
+               de um bloco de uma tela de altura, com o feed como único
+               `flex-1` — ou seja, o amortecedor silencioso de TODO elemento
+               condicional acima dele (o cérebro aparecendo quando a caçada
+               começa, a linha do rack em conflito, a do caderninho, o aviso de
+               rajada). Ele absorvia até ZERAR e aí as telhas do mundo
+               começavam a ser fatiadas, sem barra de rolagem nenhuma
+               denunciando a perda: medido a 1280×720, `#cavebot-log-lines`
+               tinha altura 0; a 1280×620 as telhas saíam cortadas pela
+               metade (13/09).
+
+               Quanto pior a noite, menos da noite dava pra ler. Com piso no
+               feed e rolagem na coluna, o que não cabe continua alcançável. --%>
+          <div class="pk-scrollbar flex flex-col gap-2 lg:min-h-0 lg:overflow-y-auto">
             <%!-- WHO the fight is fighting as. He classifies each pokémon's keys on
             /time and the hunt page said nothing about it: "sinto falta dele
             falar ali qual pokémon que eu tô usando (…) pra eu saber que os
@@ -2457,7 +2509,7 @@ defmodule PokexWeb.CavebotLive do
                     {SkillRack.ready_count(@rack)}/{length(@rack)} prontas
                   </span>
                   <span
-                    :if={Perception.ready_skills() == nil}
+                    :if={not @bar_read?}
                     class="flex items-center gap-1 rounded border border-pk-warn-line bg-pk-warn-dim px-1.5 py-0.5 text-pk-meta font-bold text-pk-warn"
                     title="a barra do jogo não está sendo lida — quem responde é só o relógio das teclas"
                   >
@@ -2502,7 +2554,9 @@ defmodule PokexWeb.CavebotLive do
                       <span class={["pk-num font-mono text-pk-body font-bold", tile_key_class(tile)]}>
                         {tile.key}
                       </span>
-                      <span class="truncate text-pk-meta text-pk-text-3">{job_short(tile.job)}</span>
+                      <span class={["truncate text-pk-meta", tile_label_class(tile)]}>
+                        {job_short(tile.job)}
+                      </span>
                     </span>
 
                     <%!-- O ESTADO EM UMA PALAVRA, sempre no mesmo lugar: os nove
@@ -2794,17 +2848,12 @@ defmodule PokexWeb.CavebotLive do
             diz o que ELE FARIA, e as linhas de baixo dizem o que o bot fez
             com a mesma frase. Estavam a duas telas de distância uma da
             outra. --%>
-            <.engine_brain
-              situation={@situation}
-              orders={@orders}
-              gather_piles={@gather_piles}
-              reset_revive={@reset_revive}
-            />
+            <.engine_brain situation={@situation} orders={@orders} />
 
             <section
               id="cavebot-log"
               phx-hook="CopyToClipboard"
-              class="flex flex-col rounded-lg border border-pk-line bg-pk-surface p-3 lg:min-h-0 lg:flex-1"
+              class="flex flex-col rounded-lg border border-pk-line bg-pk-surface p-3 lg:min-h-[9rem] lg:flex-1"
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
@@ -3456,8 +3505,7 @@ defmodule PokexWeb.CavebotLive do
             <form
               id="comeback-form"
               phx-submit="comeback_cfg"
-              title="Só pra tropeço local — mudar de andar ou o combate recusar continua parando de vez. Chegar num waypoint devolve as tentativas. 0 desliga a volta automática."
-              class="flex items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
+              class="flex flex-wrap items-center gap-1.5 font-mono text-pk-meta text-pk-text-2"
             >
               <.icon name="hero-arrow-path" class="size-3.5 shrink-0 text-pk-text-3" />
               <span>tropeço:</span>
@@ -3498,21 +3546,42 @@ defmodule PokexWeb.CavebotLive do
             >
               sem leitura de vida — a guarda e o resgate não enxergam o pokémon
             </span>
+
+            <%!-- O QUE A VOLTA AUTOMÁTICA COBRE, VISÍVEL. Isto era o `title` do
+                 formulário inteiro, e um `title` aqui é o pior lugar possível:
+                 pra ler o mouse tem que entrar no navegador, o que tira o foco
+                 do jogo, o que dispara a pausa do cabeçalho. Uma linha de 11px
+                 custa 14 pixels e responde sem pausar nada. --%>
+            <p id="comeback-note" class="w-full font-mono text-pk-meta text-pk-text-3">
+              a volta automática é só pra tropeço local: mudar de andar ou o combate recusar continua parando de vez. Chegar num waypoint devolve as tentativas, e 0 desliga.
+            </p>
           </section>
           <%!-- A GAVETA FECHA A TELA. Ela morava FORA do bloco de uma tela de
                altura, então a página inteira rolava por causa de uma linha de 35
                pixels. Dentro dele, fechada, ela é a última fileira do cockpit e o
                cockpit encolhe o tanto que ela ocupa. --%>
+          <%!-- A GAVETA DIZ O QUE TEM DENTRO. "Instrumentos ▸" sozinho não dá
+               pista nenhuma do conteúdo nem de que abrir custa alguma coisa —
+               e custa: a sonda de alcance dispara de verdade, o que gasta uma
+               captura por tiro. --%>
           <details id="cavebot-instruments" class="rounded-lg border border-pk-line bg-pk-surface">
-            <summary class="cursor-pointer list-none px-3 py-2 font-mono text-pk-meta font-bold uppercase tracking-[0.12em] text-pk-text-3">
-              Instrumentos ▸
+            <summary class="flex cursor-pointer list-none flex-wrap items-baseline gap-x-2 px-3 py-2 font-mono text-pk-meta text-pk-text-3">
+              <span class="font-bold uppercase tracking-[0.12em]">Instrumentos ▸</span>
+              <span class="min-w-0">
+                as chaves da caçada e a calibração do alcance da área (a sonda dispara de verdade)
+              </span>
             </summary>
             <div class="space-y-3 px-3 pb-3">
+              <%!-- AS CHAVES MORAM AQUI, não na tira de leitura do cérebro: uma
+              delas muda a política do revive, e o modo ASSISTIR existe pra não
+              ter nada que se clique sem querer. --%>
+              <.hunt_switches gather_piles={@gather_piles} reset_revive={@reset_revive} />
+
               <%!-- Where the monsters are moved up to the siege card, beside the
               brain. What stays here is the calibration of the area's reach. --%>
               <section
                 id="cavebot-area-reach"
-                class="rounded-pk border border-pk-line bg-pk-surface p-3"
+                class="rounded-lg border border-pk-line bg-pk-surface p-3"
               >
                 <%!-- QUANTO A ÁREA ALCANÇA. O simulador resolve todo disparo de área
                 com `aoe_radius: 4`, debaixo de um comentário que diz que o

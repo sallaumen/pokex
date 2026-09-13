@@ -40,10 +40,25 @@ defmodule PokexWeb.CavebotComponents do
           {@value}
         </span>
       </p>
+      <%!-- DUAS LINHAS RESERVADAS, como na lista de batalha e no cerco. A nota
+           era UMA linha truncada com o resto num `title`, e a frase mais
+           diagnóstica da página saía cortada exatamente na palavra que
+           diagnostica: "estou lendo o minimapa, mas a coordenada saiu ileg…".
+
+           O resto só existia no hover, e hover aqui é uma armadilha própria
+           deste produto: alcançar um `title` exige trazer o navegador pra
+           frente, o que tira o foco do jogo, o que dispara a pausa de
+           segurança do próprio cabeçalho. Informação que só existe num
+           `title=` nesta página é informação que só existe com a máquina
+           parada.
+
+           A altura é fixa nas duas linhas: reservada, a fileira não pula
+           quando a frase muda de tamanho — que é o motivo de o corte existir
+           em primeiro lugar. --%>
       <p
         :if={@note}
         title={@note}
-        class="truncate font-mono text-pk-meta leading-tight text-pk-text-3"
+        class="line-clamp-2 h-[1.7rem] font-mono text-pk-meta leading-tight text-pk-text-3"
       >
         {@note}
       </p>
@@ -123,6 +138,15 @@ defmodule PokexWeb.CavebotComponents do
   @doc """
   One net of the hunt's safety, as a switch: the state IS the label ("resgate
   armado", never a lone green dot), same rule as the tiles above.
+
+  A PERGUNTA SÓ NA VOLTA. A proteção desta página estava invertida: apagar um
+  waypoint — reversível, ele redesenha em dez segundos — pergunta "Apagar o
+  waypoint 3 (462, 1598)?", e DESARMAR o resgate, que é o que mantém o
+  personagem vivo a noite inteira, era um clique só num botão de 11px. O
+  resgate desligado já custou uma noite inteira: o cérebro pediu revive 556
+  vezes sem que uma tecla saísse.
+
+  Armar continua um clique: nunca se põe atrito em deixar mais seguro.
   """
   def safety_toggle(assigns) do
     ~H"""
@@ -130,6 +154,7 @@ defmodule PokexWeb.CavebotComponents do
       id={@id}
       phx-click="toggle_safety"
       phx-value-key={@key}
+      data-confirm={@armed? && "Desarmar #{@on}? A caçada passa a noite inteira sem isso."}
       aria-pressed={to_string(@armed?)}
       class={[
         "flex h-7 cursor-pointer items-center gap-1 rounded border px-2 font-mono",
@@ -816,9 +841,11 @@ defmodule PokexWeb.CavebotComponents do
   While nobody obeys it, this is a SHADOW: it says what WOULD happen, and the
   feed below carries the same sentence beside what actually did.
   """
-  attr :gather_piles, :boolean, default: true
-  attr :reset_revive, :boolean, default: false
-
+  # E SÓ LEITURA. Duas chaves moravam aqui dentro — juntar pilha e o F4 como
+  # reset de cooldown — num componente cujo papel escrito é ler, na tira que o
+  # modo ASSISTIR existe pra não ter "nada que possa ser clicado por acidente".
+  # Uma delas muda a política do revive. As duas foram pra gaveta Instrumentos,
+  # que é onde as chaves da caçada moram.
   def engine_brain(assigns) do
     ~H"""
     <section
@@ -842,46 +869,75 @@ defmodule PokexWeb.CavebotComponents do
         <span aria-hidden="true">·</span>
         <span>{settle_label(@situation)}</span>
       </p>
+    </section>
+    """
+  end
 
+  attr :gather_piles, :boolean, required: true
+  attr :reset_revive, :boolean, required: true
+
+  @doc """
+  As duas chaves da caçada que mudam o que o cérebro decide — fora da tira que
+  ele usa pra LER.
+
+  Cada uma diz, embaixo, o que muda ao virar: uma chave que gasta tecla numa
+  mecânica que ninguém conferiu não pode ser um botão mudo.
+  """
+  def hunt_switches(assigns) do
+    ~H"""
+    <section id="cavebot-hunt-switches" class="space-y-2">
       <%!-- Juntar pilha vale contra bicho que moba; contra o que aparece de um
             em um, a espera só perde luta. --%>
-      <button
-        id="toggle-gather-piles"
-        type="button"
-        phx-click="toggle_gather_piles"
-        aria-pressed={to_string(@gather_piles)}
-        class={[
-          "shrink-0 rounded border px-2 py-0.5 font-mono text-pk-meta",
-          if(@gather_piles,
-            do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
-            else: "border-pk-line-strong text-pk-text-3"
-          )
-        ]}
-      >
-        {if @gather_piles, do: "juntando pilha", else: "sem juntar pilha"}
-      </button>
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <button
+          id="toggle-gather-piles"
+          type="button"
+          phx-click="toggle_gather_piles"
+          aria-pressed={to_string(@gather_piles)}
+          class={[
+            "h-7 shrink-0 cursor-pointer rounded border px-2 font-mono text-pk-meta",
+            if(@gather_piles,
+              do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+              else: "border-pk-line-strong text-pk-text-3"
+            )
+          ]}
+        >
+          {if @gather_piles, do: "juntando pilha", else: "sem juntar pilha"}
+        </button>
+        <p class="min-w-0 flex-1 text-pk-meta text-pk-text-3">
+          espera a pilha fechar antes de bater — vale contra bicho que moba, perde luta contra o que vem de um em um
+        </p>
+      </div>
 
       <%!-- R3b: barra vazia na frente de uma pilha que ainda vale é uma rodada
             que já acabou. O revive aqui é o F4, que no Poké Alliance faz a
             coreografia inteira sozinho — recolhe, usa e devolve o pokémon pro
             campo. Desligado até a medição dizer que ele volta com as skills
             prontas: /sim, "As quatro medições do jogo". --%>
-      <button
-        id="toggle-reset-revive"
-        type="button"
-        phx-click="toggle_reset_revive"
-        aria-pressed={to_string(@reset_revive)}
-        title="Tira e traz o pokémon pra zerar cooldown quando a barra acaba com a pilha de pé"
-        class={[
-          "shrink-0 rounded border px-2 py-0.5 font-mono text-pk-meta",
-          if(@reset_revive,
-            do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
-            else: "border-pk-line-strong text-pk-text-3"
-          )
-        ]}
-      >
-        {if @reset_revive, do: "revive reseta cooldown", else: "revive só no resgate"}
-      </button>
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <button
+          id="toggle-reset-revive"
+          type="button"
+          phx-click="toggle_reset_revive"
+          data-confirm={
+            not @reset_revive &&
+              "Ligar o revive como reset de cooldown? Ele passa a sair no MEIO da luta, e ninguém mediu se o pokémon volta com as skills prontas."
+          }
+          aria-pressed={to_string(@reset_revive)}
+          class={[
+            "h-7 shrink-0 cursor-pointer rounded border px-2 font-mono text-pk-meta",
+            if(@reset_revive,
+              do: "border-pk-ok-line bg-pk-ok-dim text-pk-ok",
+              else: "border-pk-line-strong text-pk-text-3"
+            )
+          ]}
+        >
+          {if @reset_revive, do: "revive reseta cooldown", else: "revive só no resgate"}
+        </button>
+        <p class="min-w-0 flex-1 text-pk-meta text-pk-text-3">
+          tira e traz o pokémon pra zerar cooldown quando a barra acaba com a pilha de pé — meça antes em /sim
+        </p>
+      </div>
     </section>
     """
   end

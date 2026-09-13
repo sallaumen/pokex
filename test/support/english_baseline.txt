@@ -515,8 +515,6 @@ test/pokex_web/live/cavebot_live_test.exs: test "a linha do próprio pokémon é
 test/pokex_web/live/cavebot_live_test.exs: test "a mesma linha repetida vira uma linha com contador"
 test/pokex_web/live/cavebot_live_test.exs: test "a tecla sem tempo escrito é contada e o /time é oferecido"
 test/pokex_web/live/cavebot_live_test.exs: test "a tira é do modo assistir; no editor o placar segue no cabeçalho"
-test/pokex_web/live/cavebot_live_test.exs: test "aparece no card do cérebro e inverte o ajuste"
-test/pokex_web/live/cavebot_live_test.exs: test "aparece no card do cérebro, inverte o ajuste e avisa o que conferir"
 test/pokex_web/live/cavebot_live_test.exs: test "as duas vidas viram barra: a dele e a do pokémon"
 test/pokex_web/live/cavebot_live_test.exs: test "as lutas, as capturas e os revives vêm de quem os conta"
 test/pokex_web/live/cavebot_live_test.exs: test "as paradas são o número e o resto do estrago vai na linha de baixo"

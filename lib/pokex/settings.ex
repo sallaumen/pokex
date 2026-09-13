@@ -541,6 +541,13 @@ defmodule Pokex.Settings do
     # na caçada com a estrada segurada e a lista vazia, não só no modo Parado.
     corpse_match_tolerance_px: 37,
     corpse_max_balls: 2,
+    # O RASTRO INTEIRO VIRA ALVO enquanto a cena é de shiny (30 s do último
+    # brilho). "Bora fazer ele tentar jogar a bola no rastro inteiro, pra
+    # garantir, mesmo que pegue outros pokemons no caminho tb (…) o importante
+    # é não deixar shiny para trás" (13/09). Desligado, só vira corpo a trilha
+    # que a COR apontou — e um shiny que a cor não marcou naquele instante fica
+    # pra trás sem bola nenhuma.
+    capture_whole_trail: true,
     corpse_ignore_ttl_ms: 45_000,
     corpse_confirm_after_ms: 800,
     # N consecutive balls resolved WITHOUT a confirmed capture → :capture

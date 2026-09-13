@@ -12,14 +12,25 @@ defmodule Pokex.Bots.Catcher.TrailReplayTest do
   defp fixture(name), do: Path.join(@fixtures, name)
 
   # 19:43 of 11/09 — the first capture that worked: the Shiny Feraligatr's bar
-  # followed for seven seconds, the list emptied, the bar gone, ONE anchor on
+  # followed for seven seconds, the list emptied, the bar gone, an anchor on
   # the tile where it stood, and the ball went there ("capturado").
-  test "1943: a clean death is one anchor where the bar last stood" do
+  #
+  # A ÂNCORA DO SHINY É UMA SÓ, E É ESTA — o que não é mais verdade é que ela
+  # seja a única na cena. Desde 13/09 o rastro inteiro vira alvo enquanto o
+  # brilho é recente ("o importante é não deixar shiny para trás"), então os
+  # comuns que caíram nos mesmos segundos também ganham a sua. O que este
+  # replay guarda é o que nunca pode mudar: o corpo do shiny, no tile certo,
+  # com o nome certo, uma vez só.
+  test "1943: the shiny's own anchor is one, and it is where the bar last stood" do
     result = TrailReplay.run(fixture("2026-09-11-1943-queda-limpa.jsonl"))
 
-    assert [%{t: t, screen: {1418, 918}}] = result.falls
+    assert [%{name: "Shiny (brilho)"}] = Enum.filter(result.anchors, &(&1.name != "vizinho"))
+
+    assert %{t: t} =
+             Enum.find(result.falls, &match?(%{screen: {1418, 918}}, &1)),
+           "o corpo do shiny sumiu da lista: #{inspect(result.falls)}"
+
     assert t > 6_000 and t < 8_000, "fell at #{t} ms"
-    assert [%{name: "Shiny (brilho)"}] = result.anchors
   end
 
   # 19:50 of 11/09 — the minimap stood still at (309,1425) for fifteen seconds

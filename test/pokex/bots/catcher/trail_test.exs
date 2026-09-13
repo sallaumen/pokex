@@ -1,5 +1,5 @@
 defmodule Pokex.Bots.Catcher.TrailTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Pokex.Bots.Catcher.Trail
 
@@ -341,5 +341,77 @@ defmodule Pokex.Bots.Catcher.TrailTest do
 
     assert trail.tracks == %{}
     assert trail.anchors == []
+  end
+
+  # O RASTRO INTEIRO VIRA ALVO ENQUANTO A CENA É DE SHINY.
+  #
+  # "Bora fazer ele tentar jogar a bola no rastro inteiro, pra garantir, mesmo
+  # que pegue outros pokemons no caminho tb (…) o importante é não deixar shiny
+  # para trás" (13/09). Sem isto só a trilha que a COR apontou vira corpo, e um
+  # shiny que a cor não marcou naquele instante não deixa âncora nenhuma.
+  describe "the whole trail is a target while the scene is a shiny's" do
+    setup do
+      Pokex.SettingsStash.stash_keys!([:capture_whole_trail])
+      :ok
+    end
+
+    test "a common that fell beside the shiny gets an anchor of its own" do
+      shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+
+      trail =
+        Trail.new()
+        |> look([at(0, -1, shiny), at(2, 2)], 0, sparkle: true)
+        |> look([at(0, -1, shiny), at(2, 2)], 250, sparkle: true)
+        |> look([], 500, pile: :dead)
+        |> look([], 750, pile: :dead)
+        |> look([], 1_000, pile: :dead)
+
+      nomes = trail.anchors |> Enum.map(& &1.name) |> Enum.sort()
+      assert nomes == ["Shiny Golem", "vizinho"]
+    end
+
+    # O corpo do vizinho é do VIZINHO: chamá-lo de shiny faria o diário mentir
+    # em cada bola.
+    test "…and the shiny's own anchor is still one, in its own name" do
+      shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+
+      trail =
+        Trail.new()
+        |> look([at(0, -1, shiny), at(2, 2), at(-3, 1)], 0, sparkle: true)
+        |> look([], 500, pile: :dead)
+        |> look([], 750, pile: :dead)
+        |> look([], 1_000, pile: :dead)
+
+      assert Enum.count(trail.anchors, &(&1.name == "Shiny Golem")) == 1
+      assert Enum.count(trail.anchors, &(&1.name == "vizinho")) == 2
+    end
+
+    # A TRAVA. Sem brilho nenhum na cena a caçada é comum, e bola em todo comum
+    # que cai seria a noite inteira gastando bola.
+    test "with no sparkle in the scene, only the coloured track becomes a body" do
+      trail =
+        Trail.new()
+        |> look([at(2, 2), at(-3, 1)], 0)
+        |> look([], 250)
+        |> look([], 500)
+        |> look([], 750)
+        |> look([], 1_000)
+
+      assert trail.anchors == []
+    end
+
+    test "the switch turns it off and the old rule comes back" do
+      Pokex.Settings.put(:capture_whole_trail, false)
+      shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+
+      trail =
+        Trail.new()
+        |> look([at(0, -1, shiny), at(2, 2)], 0, sparkle: true)
+        |> look([], 500, pile: :dead)
+        |> look([], 750, pile: :dead)
+        |> look([], 1_000, pile: :dead)
+
+      assert Enum.map(trail.anchors, & &1.name) == ["Shiny Golem"]
+    end
   end
 end

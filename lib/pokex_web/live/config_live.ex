@@ -629,6 +629,16 @@ defmodule PokexWeb.ConfigLive do
           hint:
             "O interruptor da captura. Qual bola, em quem e quantas vezes se ajusta nos Editores.",
           keywords: "captura bola corpos catcher"
+        },
+        %{
+          key: :capture_whole_trail,
+          kind: :bool,
+          label: "Com shiny na cena, bola no rastro inteiro",
+          hint:
+            "Ligado, todo bicho que sumiu nos 30s depois de um brilho ganha bola — inclusive " <>
+              "os comuns. Gasta bola pra não deixar shiny pra trás quando a cor não marcou " <>
+              "qual dos rastros era o dele. Desligado, só o rastro que a cor apontou.",
+          keywords: "captura bola shiny rastro trilha vizinho brilho"
         }
       ]
     },

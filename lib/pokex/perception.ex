@@ -156,17 +156,28 @@ defmodule Pokex.Perception do
     * `{:stale, age_ms}` — a última leitura PRESTOU e está velha demais pro
       teto (`skill_bar_fact_max_age_ms`). O recorte está certo; o que não está
       dando conta é a captura. Recalibrar não muda nada.
-    * `:unreadable` — veio quadro e o reconhecimento recusou. ESTE é o caso do
-      recorte errado, e o único em que recalibrar é a resposta.
+    * `{:unreadable, rotulados, slots}` — veio quadro e o reconhecimento
+      recusou, com quantos slots tinham o número do atalho desenhado. **Zero é
+      outra coisa**: em 13/09 o recorte caiu em cima do CENÁRIO do jogo porque
+      a janela saiu do lugar (0 de 8 rotulados, 139 cores contra 1549 de um
+      recorte bom). Zero é "não estou olhando pra barra nenhuma"; poucos é uma
+      barra que está ali e não se lê — só o segundo se conserta ensinando.
   """
-  @spec skill_bar_gap(integer) :: :ok | :never | {:stale, non_neg_integer} | :unreadable
+  @spec skill_bar_gap(integer) ::
+          :ok | :never | {:stale, non_neg_integer} | {:unreadable, non_neg_integer, pos_integer}
   def skill_bar_gap(now_ms \\ System.monotonic_time(:millisecond)) do
     case WorldState.get(:skill_bar, Settings.get(:skill_bar_fact_max_age_ms), now_ms) do
       {:ok, %{ready_keys: keys}} when is_list(keys) -> :ok
       {:stale, %{ready_keys: keys}, age} when is_list(keys) -> {:stale, age}
       :missing -> :never
-      _veio_quadro_e_nao_deu_leitura -> :unreadable
+      {:ok, obs} -> unreadable(obs)
+      {:stale, obs, _age} -> unreadable(obs)
     end
+  end
+
+  defp unreadable(obs) do
+    slots = obs[:slots]
+    {:unreadable, obs[:labelled] || 0, if(is_integer(slots) and slots > 0, do: slots, else: 1)}
   end
 
   @doc """

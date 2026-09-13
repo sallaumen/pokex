@@ -382,9 +382,14 @@ defmodule Pokex.Bots.Engine.Worker do
           "de #{Settings.get(:skill_bar_fact_max_age_ms)} ms — quem não está dando conta é a " <>
           "captura, não a calibração; recalibrar não muda nada"
 
-      _recorte_recusado ->
-        "o recorte da barra do #{name} não passa no reconhecimento; recalibre a barra dele " <>
-          "pelo /time"
+      {:unreadable, 0, slots} ->
+        "o recorte não tem barra NENHUMA dentro (0 de #{slots} atalhos desenhados): ele está " <>
+          "caindo noutro pedaço da tela — a janela do jogo saiu do lugar ou a tela mudou. " <>
+          "Ponha a janela onde ela estava; recalibrar aqui só vale até ela andar de novo"
+
+      {:unreadable, rotulados, slots} ->
+        "a barra do #{name} está no recorte e não se lê (#{rotulados} de #{slots} atalhos " <>
+          "desenhados); recalibre a barra dele pelo /time"
     end
   end
 

@@ -151,6 +151,14 @@ defmodule Pokex.Bots.SkillBar do
   def ready_keys(slots),
     do: for({%{state: :ready}, i} <- Enum.with_index(slots), do: key_for_index(i))
 
+  @doc """
+  Quantos slots este recorte tem: a barra do pokémon em campo manda, e o
+  `skill_bar_count` das configurações é o padrão de quem ainda não ensinou a
+  dele.
+  """
+  @spec slot_count(map | keyword) :: pos_integer
+  def slot_count(settings), do: calibrated_count(ActiveBar.current(), settings)
+
   defp calibrated_count(%{count: count}, _settings)
        when is_integer(count) and count in 1..10,
        do: count

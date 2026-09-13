@@ -99,11 +99,23 @@ defmodule Pokex.Perception.Interpret do
   hold's own ceiling).
   """
   def skills(frame, _calib, settings) do
+    # `labelled`/`slots` viajam no fato mesmo quando a leitura DEU certo: quem
+    # investiga a barra cega precisa saber se o recorte tinha uma barra dentro,
+    # e o quadro não existe mais quando o alarme toca.
+    count = SkillBar.slot_count(settings)
+    labelled = Vision.labelled_slot_count(frame, count)
+
     if SkillBar.valid_frame?(frame, settings) do
       slots = SkillBar.slots_from_frame(frame, settings)
-      %{states: SkillBar.states(slots), ready_keys: SkillBar.ready_keys(slots)}
+
+      %{
+        states: SkillBar.states(slots),
+        ready_keys: SkillBar.ready_keys(slots),
+        labelled: labelled,
+        slots: count
+      }
     else
-      %{states: nil, ready_keys: nil}
+      %{states: nil, ready_keys: nil, labelled: labelled, slots: count}
     end
   end
 

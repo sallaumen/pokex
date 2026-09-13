@@ -784,6 +784,37 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert ordens.fire == :free
     end
 
+    # …MAS O PEDIDO DE REVIVE CONTINUA DE PÉ. Ficar de fora do freio não é
+    # ficar de fora do nível: o ciclo do especial que justificava a exclusão
+    # NÃO GIRA no Auto Combo (a corrente queima o controle), e medido na run
+    # dele de 12/09 os 105 pedidos com o especial por perto vieram TODOS do
+    # `combo_reset_due?` — com o shiny vivo, 42% deles morreram sem despacho
+    # nenhum, porque o pedido durava 200 ms e o tique do suporte é 120 ms mais
+    # a foto.
+    test "with the special on screen the revive order is still a level" do
+      logic = pedido(sem_controle(%{own_hp: 100}))
+      especial = sem_controle(%{own_hp: 100, spent?: true, bar_seen?: true, special?: true})
+
+      {logic, again} = reset_step(logic, especial, 10_700)
+      assert again.revive == :now
+      refute again.phase == :resetting
+      assert again.fire == :free
+      assert again.why =~ "o revive pedido continua de pé"
+
+      taken =
+        sem_controle(%{
+          own_hp: 100,
+          spent?: true,
+          bar_seen?: true,
+          special?: true,
+          rescue_noted_at: 10_800
+        })
+
+      {_logic, held} = reset_step(logic, taken, 10_900)
+      assert held.revive == :hold
+      refute held.why =~ "o revive pedido continua de pé"
+    end
+
     # 19:15:51 e 19:12:36 de 11/09: o cérebro pediu o revive por UM tique e o
     # suporte, que lê a ordem no tique dele (120 ms, mais a foto), não a viu —
     # e o cérebro ficou "revive pedido há Ns" esperando um F4 que nunca saiu,

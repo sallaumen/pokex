@@ -628,6 +628,16 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     n = ReviveEffect.streak(state.revive_judge)
     acao = Settings.get(:revive_dry_action)
 
+    # …E O CADERNINHO APRENDE COM A TELA. O grito já sabia que o bolso acabou e
+    # morria aqui: na noite de 12→13/09 `revive_stock` dizia 2000, o bolso real
+    # acabou no 879º despacho, e a conta seguiu anunciando 1121 restantes — o
+    # atalho `:stranded` (que para a caçada quando o bolso zera) nunca teve como
+    # disparar, e o personagem ficou sem escudo 22 s depois, a 4% de vida.
+    # Três pagamentos sem efeito é a mesma certeza com que este bloco já sai do
+    # jogo; agora ela também vira número, e todo mundo que consulta o orçamento
+    # passa a decidir com a verdade.
+    ReviveLedger.dry!()
+
     # :mortal pierces the mute BY CONSTRUCTION: it is not a sector of the closed list
     # (`AlarmCategories`), so it never enters `alarm_muted_categories`.
     Phoenix.PubSub.broadcast(

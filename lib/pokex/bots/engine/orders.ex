@@ -52,6 +52,7 @@ defmodule Pokex.Bots.Engine.Orders do
           | :capturing
           | :unaided
           | :downed
+          | :winding_down
           | :stranded
           | :handless
           | :blind

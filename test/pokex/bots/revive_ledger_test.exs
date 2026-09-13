@@ -54,6 +54,36 @@ defmodule Pokex.Bots.ReviveLedgerTest do
     assert ReviveLedger.remaining() == nil
   end
 
+  # A TELA VENCE O CADERNINHO. Na noite de 12→13/09 o declarado dizia 2000, o
+  # bolso real acabou no 879º despacho, e a conta seguiu anunciando 1121 —
+  # nenhuma regra de orçamento teve como reagir.
+  test "the screen's verdict makes the count zero, however much was declared" do
+    assert ReviveLedger.remaining() == 20
+
+    ReviveLedger.dry!()
+    assert ReviveLedger.remaining() == 0
+  end
+
+  # …mesmo com o orçamento DESLIGADO: ali não é estimativa, é o que a barra
+  # mostrou.
+  test "and it answers zero even with the budget off" do
+    Pokex.Settings.put(:revive_stock, 0)
+    assert ReviveLedger.remaining() == nil
+
+    ReviveLedger.dry!()
+    assert ReviveLedger.remaining() == 0
+  end
+
+  # Digitar o estoque continua sendo o botão de repor: um número novo é ele
+  # dizendo que contou o bolso de novo, e apaga a marca junto com a contagem.
+  test "typing a new stock clears the screen's verdict too" do
+    ReviveLedger.dry!()
+    assert ReviveLedger.remaining() == 0
+
+    Pokex.Settings.put(:revive_stock, 50)
+    assert ReviveLedger.remaining() == 50
+  end
+
   # A testemunha que o HandWatch consulta: o reset do :rescue_done apaga o
   # carimbo do F4 do bot, e um drain atrasado precisa de OUTRA prova de que
   # aquele F4 já tem dono — a hora do último despacho fica no caderninho.

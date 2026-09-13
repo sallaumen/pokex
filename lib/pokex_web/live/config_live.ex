@@ -97,6 +97,22 @@ defmodule PokexWeb.ConfigLive do
           hint:
             "Com a conta neste número, o bot para de gastar revive por conveniência (zerar cooldown, chegar preparado). Emergência e pokémon caído gastam até o fim.",
           keywords: "reserva emergência orçamento"
+        },
+        %{
+          key: :engine_wind_down_at,
+          kind: :int,
+          label: "Encerrar a noite com",
+          hint:
+            "Com a conta neste número a caçada para de COMEÇAR: os pés param, nenhuma mobada nova é juntada, e o que já está na tela é terminado. Com a tela limpa o bot tenta sair do jogo — é só fora de batalha que o jogo aceita. A 19s por revive, 20 dá pouco mais de seis minutos. 0 desliga.",
+          keywords: "encerrar encerramento fim da noite bolso revive logout sair"
+        },
+        %{
+          key: :engine_wind_down_ms,
+          kind: :ms,
+          label: "Insistir pra sair por",
+          hint:
+            "Quanto tempo o encerramento insiste na porta antes de desistir e bloquear a frota (o freio antigo). A espera aqui é a espera por uma tela limpa.",
+          keywords: "encerrar logout insistir sair desistir"
         }
       ]
     },

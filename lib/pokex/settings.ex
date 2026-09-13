@@ -693,6 +693,17 @@ defmodule Pokex.Settings do
     # Revives kept for emergencies: the convenience rules (prepare, reset) stop spending at
     # this count; red and fainted spend to the end.
     engine_revive_reserve: 5,
+    # O ENCERRAMENTO. Com a conta neste número a caçada deixa de COMEÇAR coisa:
+    # os pés param, a corrente de conveniência cala, e o que já está aberto é
+    # terminado. Medido em 12→13/09: entre a bag secar e o personagem ficar a 4%
+    # de vida passaram 22 SEGUNDOS — nenhuma cadência de alarme cabe aí, só
+    # antecedência. A 19s por revive, 20 dá pouco mais de seis minutos.
+    # 0 desliga.
+    engine_wind_down_at: 20,
+    # …e quanto tempo o encerramento insiste antes de virar `:stranded`. O
+    # logout só é aceito FORA de batalha, então a espera aqui é a espera pela
+    # tela limpa (#619).
+    engine_wind_down_ms: 300_000,
     # The CHARACTER's HP (the red bar of the "Pokémon" panel): below this for two readings
     # the support alarms — and ONLY alarms. Leaving the game on his health retired on
     # 2026-09-11: it disarmed the bot mid-fight (every bot stopped, keyboard latched)
@@ -1035,6 +1046,8 @@ defmodule Pokex.Settings do
     engine_prepare_max_enemies: 0..10,
     revive_stock: 0..10_000,
     engine_revive_reserve: 0..1_000,
+    engine_wind_down_at: 0..1_000,
+    engine_wind_down_ms: 0..3_600_000,
     player_hp_floor_pct: 0..99,
     player_hp_logout_pct: 0..99,
     # The ranges the /config page edits directly: the limits the old forms kept client-side

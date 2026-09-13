@@ -44,6 +44,36 @@ defmodule Pokex.Engine.VitalsTest do
       assert reading(%{ready_keys: nil}).ready == nil
     end
 
+    # DUAS VIDAS, e a que morre é a segunda. Na noite de 12→13/09 foram 21.684
+    # leituras e a vida do PERSONAGEM aparece duas vezes na noite inteira — nos
+    # dois alarmes do diário. Como ele foi de 100% a 4% não deu pra reconstruir.
+    test "the CHARACTER's health rides along: it is the one that dies" do
+      r = reading(%{own_hp: 90, player_hp: 11})
+
+      assert r.hp == 90
+      assert r.player_hp == 11
+    end
+
+    # …e o bolso, que é o limite real da noite (879 revives em 4h40, um a cada
+    # 19s) e o gatilho do encerramento.
+    test "and so does the pocket, which is what ends the night" do
+      assert reading(%{revive_left: 18}).revive_left == 18
+      assert reading().revive_left == nil
+    end
+
+    # AS DUAS VIDAS FICAM FORA DA VIGILÂNCIA, e pela mesma razão que `hp` sempre
+    # ficou: elas mudam a todo ponto de dano, e vigiá-las trocaria a amostra pela
+    # noite inteira. O batimento de 1s dá dezenove pontos numa queda de dezenove
+    # segundos — curva de sobra.
+    test "neither health is watched: the heartbeat is what samples them" do
+      refute :player_hp in Vitals.watched()
+      refute :hp in Vitals.watched()
+
+      antes = Map.put(reading(%{player_hp: 90}), :at, 0)
+      refute Vitals.due?(antes, reading(%{player_hp: 60}), 500, 1_000)
+      assert Vitals.due?(antes, reading(%{player_hp: 60}), 1_000, 1_000)
+    end
+
     test "carrega o que as quatro medições precisam" do
       r = reading(%{own_hp: 55, enemies: 4}, %{revive: :now})
 

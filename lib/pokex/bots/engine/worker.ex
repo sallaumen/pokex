@@ -47,6 +47,7 @@ defmodule Pokex.Bots.Engine.Worker do
   alias Pokex.Bots.Engine.Narration
   alias Pokex.Bots.Engine.Situation
   alias Pokex.Bots.HuntMode
+  alias Pokex.Bots.Logout
   alias Pokex.Bots.Catcher.Fact
   alias Pokex.Bots.ShinyGuard
   alias Pokex.Bots.{ReviveLedger, SkillClock}
@@ -87,7 +88,11 @@ defmodule Pokex.Bots.Engine.Worker do
       loadout: nil,
       # the last VITALS line written, so the next one can be written on a change
       # instead of on a clock alone
-      vitals: nil
+      vitals: nil,
+      # O ENCERRAMENTO: quando o último pedido de logout saiu. A porta do jogo
+      # só abre FORA de batalha (#619), então o cérebro segura a fase
+      # `:winding_down` e quem aperta é aqui, uma vez por janela limpa.
+      logout_asked_at: nil
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -201,6 +206,7 @@ defmodule Pokex.Bots.Engine.Worker do
     if orders.capture == :now, do: broadcast({:capture_now})
 
     state
+    |> knock_on_the_door(picture, orders, now)
     |> narrate(picture, orders)
     |> watch_hp_blindness(picture, now)
     |> watch_bar_blindness(picture, now)
@@ -208,6 +214,36 @@ defmodule Pokex.Bots.Engine.Worker do
     |> Map.merge(%{picture: picture, orders: orders, logic: logic})
     |> tap(&broadcast({:engine, &1.picture, &1.orders}))
   end
+
+  # A PORTA DO JOGO SÓ ABRE FORA DE BATALHA. Na noite de 12→13/09 o bot pediu
+  # logout duas vezes com a bag seca e as duas FALHARAM (`ainda_logado`), porque
+  # nas duas ele estava no meio de uma luta — "se você tentar dar logout porque
+  # ficou sem revive mas está no meio de uma batalha, não funciona no jogo"
+  # (13/09). O cérebro agora termina a luta primeiro (fase `:winding_down`) e
+  # marca a janela limpa; bater na porta é daqui, porque é um efeito.
+  #
+  # Uma batida por `@logout_knock_ms`: o `Logout` já tem o ciclo aperta → espera
+  # → confere → repete lá dentro, e chamá-lo por cima dele mesmo a cada tique
+  # seria uma tecla segurada. A desistência tem prazo e é do cérebro
+  # (`wind_down_ms` → `:stranded`).
+  @logout_knock_ms 20_000
+
+  defp knock_on_the_door(state, %{enemies: 0}, %{phase: :winding_down}, now) do
+    if is_nil(state.logout_asked_at) or now - state.logout_asked_at >= @logout_knock_ms do
+      Logout.request("encerrando a noite: o bolso de revives está no fim")
+      %{state | logout_asked_at: now}
+    else
+      state
+    end
+  end
+
+  # Fora da janela limpa o relógio VOLTA A ZERO: a próxima tela limpa merece uma
+  # batida na hora, não o resto de uma espera começada numa luta.
+  defp knock_on_the_door(state, _picture, %{phase: :winding_down}, _now),
+    do: %{state | logout_asked_at: nil}
+
+  defp knock_on_the_door(state, _picture, _outra_fase, _now),
+    do: %{state | logout_asked_at: nil}
 
   # A CEGUEIRA DITA EM VOZ ALTA. A barra do pokémon sem leitura por mais que
   # `hp_blind_after_ms` durante a caçada é o suporte inteiro fora do ar — e o

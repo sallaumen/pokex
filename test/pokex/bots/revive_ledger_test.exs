@@ -74,6 +74,50 @@ defmodule Pokex.Bots.ReviveLedgerTest do
     assert ReviveLedger.remaining() == 0
   end
 
+  # UM REVIVE QUE PEGOU desmente a marca da tela tão bem quanto os três
+  # fracassos a escreveram — e é a ÚNICA saída com o orçamento desligado, onde
+  # digitar `revive_stock` de novo não muda número nenhum: ali a marca ficava
+  # eterna e a noite encerrava pra sempre.
+  test "a revive that works clears the screen's verdict, budget off included" do
+    Pokex.Settings.put(:revive_stock, 0)
+    ReviveLedger.dry!()
+    assert ReviveLedger.remaining() == 0
+
+    ReviveLedger.wet!()
+    assert ReviveLedger.remaining() == nil
+  end
+
+  # A TABELA PRIMEIRO, como em toda função pública deste módulo: `dry?/1` olha o
+  # ETS direto e vem ANTES do `spent/0`, que era quem a garantia por tabela —
+  # sem `ensure_table/0` aqui, uma leitura com a tabela ausente levanta
+  # `ArgumentError` no tique do cérebro em vez de responder.
+  #
+  # E A DONA É A APLICAÇÃO (`Pokex.Bots.Tables`): apagar a tabela aqui a deixaria
+  # órfã ou do processo de teste, que é exatamente o defeito que aquele
+  # GenServer existe pra impedir. Por isso a devolução derruba o dono, e o
+  # supervisor a recria com a posse certa.
+  test "remaining/0 answers even with the table gone" do
+    on_exit(fn ->
+      # a tabela que o teste recriou é DELE; derruba as duas e espera o
+      # supervisor devolver a posse, senão o próximo teste corre contra o
+      # reinício (e `TablesTest` é justamente quem cobra a posse)
+      if :ets.whereis(ReviveLedger.table()) != :undefined,
+        do: :ets.delete(ReviveLedger.table())
+
+      GenServer.stop(Pokex.Bots.Tables)
+
+      assert Pokex.TestWait.eventually(fn ->
+               dona = :ets.info(ReviveLedger.table(), :owner)
+               is_pid(dona) and dona == Process.whereis(Pokex.Bots.Tables)
+             end)
+    end)
+
+    ReviveLedger.reset()
+    :ets.delete(ReviveLedger.table())
+
+    assert ReviveLedger.remaining() == 20
+  end
+
   # Digitar o estoque continua sendo o botão de repor: um número novo é ele
   # dizendo que contou o bolso de novo, e apaga a marca junto com a contagem.
   test "typing a new stock clears the screen's verdict too" do

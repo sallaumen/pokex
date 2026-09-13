@@ -37,6 +37,7 @@ defmodule Pokex.Bots.Engine.Worker do
   """
   use GenServer
 
+  alias Pokex.Bots.Catcher.Fact
   alias Pokex.Bots.Combat
   alias Pokex.Bots.Combat.Combo
   alias Pokex.Bots.Combat.Loadout
@@ -48,12 +49,11 @@ defmodule Pokex.Bots.Engine.Worker do
   alias Pokex.Bots.Engine.Situation
   alias Pokex.Bots.HuntMode
   alias Pokex.Bots.Logout
-  alias Pokex.GameFocus
-  alias Pokex.Bots.Catcher.Fact
-  alias Pokex.Bots.ShinyGuard
   alias Pokex.Bots.{ReviveLedger, SkillClock}
+  alias Pokex.Bots.ShinyGuard
   alias Pokex.Engine.Events
   alias Pokex.Engine.Vitals
+  alias Pokex.GameFocus
   alias Pokex.Perception
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
@@ -98,7 +98,11 @@ defmodule Pokex.Bots.Engine.Worker do
       # e a mão que o traz — injetada como a do `Focus`, pra que a suíte não
       # chame osascript. Ver `rescue_the_window/2`.
       fronted_at: nil,
-      front_fun: Keyword.get(opts, :front_fun, &GameFocus.front_game/0)
+      front_fun: Keyword.get(opts, :front_fun, &GameFocus.front_game/0),
+      # a batida na porta, injetada pelo mesmo motivo que a mão da janela: sem
+      # isto a suíte não tem como cobrar o pedido, e foi essa falta que deixou
+      # passar o `request/2` (que PARA a frota) no lugar do `knock/2`
+      knock_fun: Keyword.get(opts, :knock_fun, &Logout.knock/1)
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -217,6 +221,7 @@ defmodule Pokex.Bots.Engine.Worker do
     |> watch_hp_blindness(picture, now)
     |> watch_bar_blindness(picture, now)
     |> rescue_the_window(now)
+    |> forget_the_window()
     |> sample_vitals(picture, orders, now, config, mode)
     |> Map.merge(%{picture: picture, orders: orders, logic: logic})
     |> tap(&broadcast({:engine, &1.picture, &1.orders}))
@@ -233,11 +238,19 @@ defmodule Pokex.Bots.Engine.Worker do
   # → confere → repete lá dentro, e chamá-lo por cima dele mesmo a cada tique
   # seria uma tecla segurada. A desistência tem prazo e é do cérebro
   # (`wind_down_ms` → `:stranded`).
+  #
+  # E É `knock/2`, NÃO `request/2`. O `request/2` trava o portão e para a frota
+  # ANTES de apertar — e o `Engine.Worker` está no `@default_fleet`, então a
+  # primeira batida mataria o processo que bateria de novo: a insistência que
+  # ele pediu ("fica tentando dar logout por alguns minutinhos") seria uma
+  # batida só, o prazo de desistência nunca venceria, e uma porta que não abre
+  # deixaria a frota parada com o personagem de pé — que é exatamente o que
+  # aconteceu duas vezes em 12→13/09. O `knock/2` desarma só DEPOIS de sair.
   @logout_knock_ms 20_000
 
   defp knock_on_the_door(state, %{enemies: 0}, %{phase: :winding_down}, now) do
     if is_nil(state.logout_asked_at) or now - state.logout_asked_at >= @logout_knock_ms do
-      Logout.request("encerrando a noite: o bolso de revives está no fim")
+      state.knock_fun.("encerrando a noite: o bolso de revives está no fim")
       %{state | logout_asked_at: now}
     else
       state
@@ -277,12 +290,17 @@ defmodule Pokex.Bots.Engine.Worker do
   #
   # SÓ COM A CAÇADA RODANDO, que é a diferença entre resgatar e brigar com ele
   # pelo teclado: quando ele mesmo põe uma janela na frente, a caçada está
-  # parada e nada aqui roda.
+  # parada e nada aqui roda. Quem garante isso é a CLÁUSULA DO TIQUE
+  # (`handle_info(:tick, %{running?: false})`), que devolve sem olhar a tela —
+  # `observe/1` só é alcançado com a caçada de pé. Repetir a pergunta aqui foi
+  # tentado e é pior do que não ter: a condição não tem como ser falsa, nenhum
+  # teste consegue exercê-la, e ela lê como uma tranca que não é. Quem
+  # acrescentar um segundo chamador de `observe/1` tem que ler isto.
   defp rescue_the_window(state, now) do
     cego_desde = state.hp_blind_since || state.bar_blind_since
     prazo = Settings.get(:focus_recover_after_ms)
 
-    if state.running? and prazo > 0 and is_integer(cego_desde) and now - cego_desde >= prazo and
+    if prazo > 0 and is_integer(cego_desde) and now - cego_desde >= prazo and
          due_to_front?(state, now) do
       state.front_fun.()
 
@@ -297,6 +315,15 @@ defmodule Pokex.Bots.Engine.Worker do
       state
     end
   end
+
+  # A VISTA VOLTOU: o acelerador é POR TRECHO de cegueira, não pela noite. Sem
+  # zerar aqui, uma segunda janela cobrindo o jogo 3 s depois da primeira seria
+  # pulada pelo teto de 5 s e teria que sobreviver sozinha aos 8 s do
+  # `hp_blind_stop` — que é a parada que tudo isto existe pra evitar.
+  defp forget_the_window(%{hp_blind_since: nil, bar_blind_since: nil} = state),
+    do: %{state | fronted_at: nil}
+
+  defp forget_the_window(state), do: state
 
   # Uma tentativa por `@front_again_ms`: `front_game/0` custa dois round trips de
   # osascript e a janela leva um instante pra subir. Insistir a cada tique seria

@@ -39,9 +39,13 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       Worker.status(worker)
     end
 
-    defp worker_que_conta(pai) do
-      {:ok, w} =
-        Worker.start_link(name: nil, active: false, front_fun: fn -> send(pai, :fronted) end)
+    defp worker_que_conta(pai, opts \\ []) do
+      maos = [
+        front_fun: fn -> send(pai, :fronted) end,
+        knock_fun: fn motivo -> send(pai, {:knocked, motivo}) end
+      ]
+
+      {:ok, w} = Worker.start_link([name: nil, active: false] ++ maos ++ opts)
 
       on_exit(fn -> if Process.alive?(w), do: GenServer.stop(w) end)
       :ok = Worker.run(w)
@@ -70,7 +74,12 @@ defmodule Pokex.Bots.Engine.WorkerTest do
     # SÓ COM A CAÇADA RODANDO: quando ele mesmo põe uma janela na frente, a
     # caçada está parada e nada aqui roda — resgatar não é brigar com ele pelo
     # teclado.
-    test "with the hunt stopped it never touches the window" do
+    #
+    # E A TRANCA É A CLÁUSULA DO TIQUE, uma só: `observe/1` só é alcançado com a
+    # caçada de pé, então repetir a pergunta dentro de `rescue_the_window/2`
+    # seria uma condição que nenhum teste consegue tornar falsa — uma tranca que
+    # lê como tranca e não é. Este teste cobra a que existe.
+    test "with the hunt stopped the tick returns without looking at the screen" do
       w = worker_que_conta(self())
 
       :sys.replace_state(w, fn state ->
@@ -83,12 +92,119 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       refute_receive :fronted, 800
     end
 
+    # O ACELERADOR É POR TRECHO: a vista voltando esquece a última subida, senão
+    # uma segunda janela 3 s depois seria pulada pelo teto de 5 s e teria que
+    # sobreviver sozinha aos 8 s que param a caçada.
+    test "vision coming back forgets the last front" do
+      w = worker_que_conta(self())
+      cego_por(w, 5_000)
+      assert_receive :fronted, 2_000
+
+      # A VISTA VOLTANDO DE VERDADE, e ela são DOIS leitores: o acelerador só
+      # esquece a subida quando os dois enxergam de novo (`hp_blind_since` E
+      # `bar_blind_since`), porque uma janela que ainda cobre metade da tela
+      # continua sendo a janela que a gente quer subir.
+      WorldState.put(:pokemon, %{hp_pct: 100}, now())
+      WorldState.put(:skill_bar, %{ready_keys: ["3", "4"]}, now())
+      send(w, :tick)
+      Worker.status(w)
+
+      assert %{hp_blind_since: nil, fronted_at: nil} = :sys.get_state(w)
+    end
+
     test "the knob at zero turns it off" do
       Pokex.SettingsStash.stash!(focus_recover_after_ms: 0)
       w = worker_que_conta(self())
       cego_por(w, 5_000)
 
       refute_receive :fronted, 800
+    end
+  end
+
+  # A PORTA DO JOGO SÓ ABRE FORA DE BATALHA, e a batida não tinha teste nenhum —
+  # foi essa falta que deixou passar o `Logout.request/2` (que PARA a frota,
+  # incluindo ESTE worker) no lugar do `knock/2`.
+  describe "a batida na porta do encerramento" do
+    defp worker_que_bate(pai) do
+      {:ok, w} =
+        Worker.start_link(
+          name: nil,
+          active: false,
+          knock_fun: fn motivo -> send(pai, {:knocked, motivo}) end
+        )
+
+      on_exit(fn -> if Process.alive?(w), do: GenServer.stop(w) end)
+      :ok = Worker.run(w)
+      w
+    end
+
+    # o bolso no fim é o que arma o encerramento, e ele vem do caderninho
+    defp bolso_no_fim do
+      Pokex.SettingsStash.stash!(revive_stock: 5, engine_wind_down_at: 20)
+      Pokex.Bots.ReviveLedger.reset()
+      on_exit(&Pokex.Bots.ReviveLedger.reset/0)
+    end
+
+    defp cacando(enemies) do
+      WorldState.put(:hunt, %{state: :hunting}, now())
+      see(Enum.map(1..enemies//1, fn n -> "Bicho#{n}" end))
+    end
+
+    test "with the screen clear it knocks on the door" do
+      bolso_no_fim()
+      w = worker_que_bate(self())
+      cacando(0)
+
+      send(w, :tick)
+      settle(w)
+
+      assert_receive {:knocked, motivo}, 2_000
+      assert motivo =~ "encerrando a noite"
+    end
+
+    # …E COM BICHO NA TELA NÃO BATE: o jogo recusa o Ctrl+Q em batalha, e a fase
+    # está justamente terminando quem sobrou pra chegar na porta.
+    test "but not with a creature still on screen" do
+      bolso_no_fim()
+      w = worker_que_bate(self())
+      cacando(2)
+
+      send(w, :tick)
+      settle(w)
+
+      refute_received {:knocked, _}
+    end
+
+    # Uma batida por janela: o `Logout` tem o ciclo aperta → espera → confere →
+    # repete lá dentro, e chamá-lo por cima dele a cada tique seria tecla
+    # segurada.
+    test "and it knocks once, not every tick" do
+      bolso_no_fim()
+      w = worker_que_bate(self())
+      cacando(0)
+
+      send(w, :tick)
+      settle(w)
+      assert_receive {:knocked, _}, 2_000
+
+      send(w, :tick)
+      settle(w)
+      refute_received {:knocked, _}
+    end
+
+    # Com o bolso cheio não há encerramento nenhum, e a porta não é assunto.
+    test "with the pocket full nobody touches the door" do
+      Pokex.SettingsStash.stash!(revive_stock: 500, engine_wind_down_at: 20)
+      Pokex.Bots.ReviveLedger.reset()
+      on_exit(&Pokex.Bots.ReviveLedger.reset/0)
+
+      w = worker_que_bate(self())
+      cacando(0)
+
+      send(w, :tick)
+      settle(w)
+
+      refute_received {:knocked, _}
     end
   end
 

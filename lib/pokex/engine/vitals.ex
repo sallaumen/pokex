@@ -68,7 +68,7 @@ defmodule Pokex.Engine.Vitals do
       hp: picture.own_hp,
       # …e a vida DELE, que é a que morre. Ver o moduledoc: numa noite inteira
       # ela aparecia só nos alarmes do diário.
-      player_hp: Map.get(picture, :player_hp),
+      player_hp: picture.player_hp,
       out: picture.own_out?,
       spent: picture.spent?,
       ready: ready && Enum.count(damage_keys, &(&1 in ready)),
@@ -76,7 +76,7 @@ defmodule Pokex.Engine.Vitals do
       phase: orders.phase,
       revive: orders.revive,
       # o bolso: o limite real da noite, e o gatilho do encerramento
-      revive_left: Map.get(picture, :revive_left)
+      revive_left: picture.revive_left
     }
   end
 

@@ -76,6 +76,9 @@ defmodule Pokex.Bots.Logout do
       read_gap_ms: Keyword.get(opts, :read_gap_ms, @read_gap_ms),
       logic: nil,
       finished_at: nil,
+      # este pedido já travou o portão e parou a frota? `request/2` desarma
+      # antes de apertar; `knock/2` só desarma se a porta abrir
+      disarmed?: false,
       duplicates: 0
     }
 
@@ -92,6 +95,28 @@ defmodule Pokex.Bots.Logout do
   """
   @spec request(String.t(), GenServer.server()) :: :ok
   def request(reason, server \\ __MODULE__), do: GenServer.cast(server, {:request, reason})
+
+  @doc """
+  Pede o logout SEM desarmar antes — só desarma se a porta abrir.
+
+  `request/2` trava o portão e para a frota ANTES de apertar, porque sair do
+  jogo encerra a sessão e nenhum worker pode continuar digitando. Certo pro caso
+  normal, e fatal pro caso em que a porta NÃO abre: o jogo recusa o Ctrl+Q em
+  batalha (#619), e em 12→13/09 os dois pedidos falharam com `ainda_logado` e
+  deixaram a frota parada com o personagem de pé dentro do jogo — 3h07 e 3h27.
+
+  O encerramento da noite (`Engine.Logic`, fase `:winding_down`) precisa
+  EXATAMENTE do contrário: ele já deixou a tela segura por conta própria (pés
+  parados, fogo em silêncio, tela limpa) e precisa CONTINUAR VIVO pra insistir
+  na porta a cada 20 s até o prazo dele vencer. Desarmar antes de tentar mata o
+  cérebro que bateria de novo — o `Engine.Worker` está no `@default_fleet`.
+
+  Então aqui o desarme é a CONSEQUÊNCIA de ter saído, não o preço de tentar:
+  `{:finish, :out}` trava o portão e para a frota; `{:finish, {:failed, _}}` não
+  toca em nada e quem pediu continua de pé.
+  """
+  @spec knock(String.t(), GenServer.server()) :: :ok
+  def knock(reason, server \\ __MODULE__), do: GenServer.cast(server, {:knock, reason})
 
   @doc "The snapshot the panel draws."
   @spec status(GenServer.server()) :: map()
@@ -135,14 +160,14 @@ defmodule Pokex.Bots.Logout do
   def handle_call(:status, _from, state), do: {:reply, snapshot(state), state}
 
   @impl true
-  def handle_cast({:request, _reason}, %{active?: false} = state), do: {:noreply, state}
+  def handle_cast({_pedido, _reason}, %{active?: false} = state), do: {:noreply, state}
 
-  def handle_cast({:request, reason}, state) do
+  def handle_cast({pedido, reason}, state) when pedido in [:request, :knock] do
     if state.logic != nil and in_flight?(state.logic) do
       Logger.info("Logout: pedido '#{reason}' ignorado — já tem um em voo")
       {:noreply, %{state | duplicates: state.duplicates + 1}}
     else
-      begin(state, reason)
+      begin(state, reason, pedido == :request)
     end
   end
 
@@ -165,7 +190,7 @@ defmodule Pokex.Bots.Logout do
   # LATCH FIRST, stop second: the latch forbids every auto-resume path (Focus's
   # refocus resume) from re-arming workers over this order. It STAYS set after
   # a successful logout — only Iniciar bot clears it.
-  defp begin(state, reason) do
+  defp begin(state, reason, disarm_first?) do
     # The WITNESS, read before touching anything: if the character's bar isn't
     # readable NOW, it won't be later either, and a "vanished" would prove
     # nothing. A region that is not marked, or a window already over the
@@ -181,12 +206,17 @@ defmodule Pokex.Bots.Logout do
       )
     end
 
-    InputGate.set_panic_latch(true)
-    state.stop_fun.()
+    if disarm_first?, do: disarm(state)
 
     reason
     |> Logic.start(%{attempts: attempts(state)}, baseline)
-    |> advance(%{state | finished_at: nil})
+    |> advance(%{state | finished_at: nil, disarmed?: disarm_first?})
+  end
+
+  defp disarm(state) do
+    InputGate.set_panic_latch(true)
+    state.stop_fun.()
+    :ok
   end
 
   defp advance({logic, action}, state), do: do_action(action, %{state | logic: logic})
@@ -212,9 +242,12 @@ defmodule Pokex.Bots.Logout do
     {:noreply, state}
   end
 
+  # A PORTA ABRIU: quem não desarmou antes desarma agora. Sem isto um `knock/2`
+  # bem-sucedido deixaria a frota digitando na tela de personagens.
   defp do_action({:finish, :out}, state) do
     Logger.info("Logout: deslogado — #{state.logic.reason}")
-    {:noreply, finish(state)}
+    unless state.disarmed?, do: disarm(state)
+    {:noreply, finish(%{state | disarmed?: true})}
   end
 
   defp do_action({:finish, {:failed, reason}}, state) do

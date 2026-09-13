@@ -277,6 +277,10 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   # ONLY the floor holds the route now: there is nothing on the field, so walking on would drag
   # the character alone into the next pile.
+  defp track_hp(%__MODULE__{} = logic, world) do
+    %{logic | last_hp: Map.get(world, :hp_pct), recovering?: Map.get(world, :fainted?, false)}
+  end
+
   # O motivo viaja junto quando o cérebro deu um: são quatro causas diferentes
   # com quatro consertos diferentes, e a frase única mandava procurar no lugar
   # errado em três delas.
@@ -284,10 +288,6 @@ defmodule Pokex.Bots.Cavebot.Logic do
     do: {:revive_dead, why}
 
   defp stranded(_sem_frase), do: :revive_dead
-
-  defp track_hp(%__MODULE__{} = logic, world) do
-    %{logic | last_hp: Map.get(world, :hp_pct), recovering?: Map.get(world, :fainted?, false)}
-  end
 
   @doc """
   How many ms the machine has gone without knowing where the character is —

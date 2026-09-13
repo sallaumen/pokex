@@ -17,6 +17,11 @@ defmodule Pokex.Engine.VitalsTest do
       %{
         enemies: 3,
         own_hp: 90,
+        # a vida DELE e o bolso: o `Situation` sempre carrega as duas, e a
+        # leitura as cobra por ponto pra que uma mudança de forma caia no
+        # primeiro tique em vez de virar `null` a noite inteira
+        player_hp: 100,
+        revive_left: nil,
         own_out?: true,
         spent?: false,
         ready_keys: ["3", "4", "1"]

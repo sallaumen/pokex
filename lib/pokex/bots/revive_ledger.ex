@@ -142,6 +142,26 @@ defmodule Pokex.Bots.ReviveLedger do
   end
 
   @doc """
+  UM REVIVE PEGOU: a marca da tela morre, porque a tela também a desmente.
+
+  Digitar `revive_stock` apaga a marca junto com a contagem — menos quando o
+  número digitado é o MESMO, e o caso em que isso sempre acontece é o orçamento
+  desligado (`0`, "não contei"). Ali `dry!/0` guardava `{:dry, 0}` e `dry?/0`
+  casava com `0` pra sempre: repor a bag não mudava número nenhum, e o cérebro
+  encerrava a noite e estrandeava todas as noites seguintes.
+
+  Quem chama é o mesmo juiz que marcou (`PlayerSupport.ReviveEffect`), na borda
+  em que a sequência de fracassos zera: a vida subiu depois de um pagamento, e
+  isso é a prova física de que existe revive no bolso.
+  """
+  @spec wet!() :: :ok
+  def wet! do
+    ensure_table()
+    :ets.delete(@table, :dry)
+    :ok
+  end
+
+  @doc """
   How many are left, or `nil` with the budget off (`revive_stock` at zero, "not counted"). Never
   negative: the count is approximate, and a negative number would look like a measurement.
 
@@ -150,6 +170,12 @@ defmodule Pokex.Bots.ReviveLedger do
   """
   @spec remaining() :: non_neg_integer | nil
   def remaining do
+    # A TABELA PRIMEIRO, como em toda função pública deste módulo. `dry?/1` olha
+    # o ETS direto e vem ANTES do `spent/0`, que era quem garantia a tabela por
+    # tabela — sem isto uma leitura com a tabela ausente (o `Tables` reiniciando,
+    # um teste sem a árvore da aplicação) levanta `ArgumentError` no tique do
+    # cérebro em vez de responder.
+    ensure_table()
     stock = Settings.get(:revive_stock)
 
     cond do

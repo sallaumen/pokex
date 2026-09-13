@@ -664,16 +664,25 @@ defmodule Pokex.Bots.Engine.Logic do
   # própria.
   @held_by_reset [:travelling, :gathering, :sizing, :bunching, :engaged, :skipping]
 
+  # …E AS FASES QUE GUARDAM O PRÓPRIO TEMPO: o freio não as toca, mas o NÍVEL do
+  # pedido de revive vale nelas igual. O encerramento (`:winding_down`) entra
+  # aqui porque é onde o bolso está no fim — um pedido perdido ali é o último
+  # que havia — e porque congelá-lo em `:resetting` pararia justamente a luta
+  # que ele precisa terminar pra chegar na porta. O especial entra pelo mesmo
+  # motivo, e por um a mais: o ciclo dele não gira no Auto Combo (#645).
+  @level_only [:winding_down]
+
   # O tique que PEDE o revive passa inteiro — a ordem diz por que reviveu, e
   # o suporte a lê no tique seguinte. A espera começa daí.
   defp hold_until_reset_seen({logic, orders}, t) do
     pending? = Map.has_key?(logic.since, :reset_pending)
 
     cond do
-      not (pending? and orders.revive == :hold and orders.phase in @held_by_reset) ->
+      not (pending? and orders.revive == :hold and
+               (orders.phase in @held_by_reset or orders.phase in @level_only)) ->
         {logic, orders}
 
-      special?(t) ->
+      special?(t) or orders.phase in @level_only ->
         {logic, keep_asking(orders, t)}
 
       true ->
@@ -1067,6 +1076,21 @@ defmodule Pokex.Bots.Engine.Logic do
            t.band,
            "#{div(wound_for(t), 60_000)}min tentando encerrar sem conseguir sair do jogo — " <>
              "parando a caçada com #{t.s.revive_left} revive(s) no bolso"
+         )}
+
+      # SEM LEITURA NÃO É TELA LIMPA. `enemies` é `non_neg_integer | nil`, e em
+      # Elixir `nil > 0` é VERDADE (átomo ordena acima de número): a lista
+      # ilegível caía no ramo de luta, atirava no escuro e nunca chegava à
+      # janela da porta — com a frase dizendo "terminando os  que já estão na
+      # tela", o nil virando string vazia. Não sei quem está lá é mão parada e
+      # porta fechada; o prazo de desistência resolve.
+      not is_integer(t.s.enemies) ->
+        {logic,
+         Orders.standing(
+           :winding_down,
+           t.band,
+           "#{t.s.revive_left} revive(s) no bolso e a lista de batalha ilegível — " <>
+             "encerrando: parado até dar pra ver a tela"
          )}
 
       # Ainda tem bicho aberto: TERMINA. Os pés já estão parados; o fogo segue

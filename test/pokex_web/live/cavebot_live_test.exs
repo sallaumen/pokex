@@ -705,7 +705,7 @@ defmodule PokexWeb.CavebotLiveTest do
     #
     # Verde por cima de seis leituras âmbar é pior que selo nenhum: ensina a
     # parar de ler as seis.
-    test "a cegueira vence a configuração: nada lido não é 'pode dormir'", %{conn: conn} do
+    test "blindness outranks configuration: nothing read is not 'go to sleep'", %{conn: conn} do
       Pokex.SettingsStash.stash!(
         rescue_enabled: true,
         engine_band_yellow_pct: 60,
@@ -724,7 +724,7 @@ defmodule PokexWeb.CavebotLiveTest do
     # …e a coordenada ILEGÍVEL não entra: é um glifo duvidoso numa leitura, não
     # um olho apagado. O minimapa está sendo lido — só a coordenada não fechou.
     # Um selo que fica âmbar a cada leitura torta é um selo que grita lobo.
-    test "coordenada ilegível não é olho apagado", %{conn: conn} do
+    test "an illegible coordinate is not a switched-off eye", %{conn: conn} do
       eyes_open!()
       put_pos(nil)
 
@@ -2103,7 +2103,7 @@ defmodule PokexWeb.CavebotLiveTest do
       :ok
     end
 
-    test "mora na gaveta Instrumentos, fora da tira de leitura, e inverte o ajuste", %{conn: conn} do
+    test "lives in the instruments drawer, not the readout strip, and flips it", %{conn: conn} do
       Pokex.Settings.put(:engine_gather_piles, true)
       at = System.monotonic_time(:millisecond)
       WorldState.put(:situation, %{enemies: 2, growing?: true, stable_for_ms: 0}, at)
@@ -2134,7 +2134,7 @@ defmodule PokexWeb.CavebotLiveTest do
       :ok
     end
 
-    test "mora na gaveta, inverte o ajuste e avisa o que conferir", %{conn: conn} do
+    test "lives in the drawer, flips the setting and says what to measure first", %{conn: conn} do
       Pokex.Settings.put(:engine_reset_revive, false)
       at = System.monotonic_time(:millisecond)
       WorldState.put(:situation, %{enemies: 4, growing?: false, stable_for_ms: 2_000}, at)

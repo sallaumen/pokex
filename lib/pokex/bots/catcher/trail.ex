@@ -33,6 +33,8 @@ defmodule Pokex.Bots.Catcher.Trail do
   @lost_after 4
   # …and before a HUNTED bar gone is a corpse: two looks (half a second in a
   # fight) is a bar hidden by an animation frame, not a death — three is a death
+  alias Pokex.Settings
+
   @fall_after 3
   # the pet on top of the hunted track: it is covered, not dead — but not forever
   @occluded_max 12
@@ -52,6 +54,11 @@ defmodule Pokex.Bots.Catcher.Trail do
   # bar lost far longer than this wandered off (or the guard hallucinated a
   # sparkle elsewhere): there is no body at that stale spot — drop it, no ball.
   @corpse_fresh_ms 6_000
+  # …E QUANTO TEMPO UMA CENA CONTINUA SENDO "A CENA DO SHINY". Passado isto sem
+  # nenhum brilho, a caçada é uma caçada comum de novo e o rastro volta a só
+  # marcar corpo do bicho que a cor apontou. É a trava do modo largo: sem ela
+  # cada comum morto viraria bola, a noite inteira.
+  @shiny_scene_ms 30_000
 
   defstruct tracks: %{}, next_id: 1, anchors: [], pos: nil, sparkle_at: nil
 
@@ -111,15 +118,33 @@ defmodule Pokex.Bots.Catcher.Trail do
       |> Enum.with_index(trail.next_id)
       |> Enum.map(fn {hostile, id} -> birth(hostile, id, now) end)
 
+    # O RASTRO INTEIRO VIRA ALVO ENQUANTO A CENA É DE SHINY.
+    #
+    # "Bora fazer ele tentar jogar a bola no rastro inteiro, pra garantir, mesmo
+    # que pegue outros pokemons no caminho tb (…) o importante é não deixar
+    # shiny para trás" (Lucas, 13/09).
+    #
+    # Fora do modo largo só vira corpo a trilha que a COR apontou (`hunted?`) —
+    # e um shiny que a cor não marcou naquele instante não deixa âncora, não
+    # ganha bola, e fica pra trás. No modo largo, com o brilho tendo aparecido
+    # nesta cena, toda trilha que sumiu vira alvo: é ele trocando bola por
+    # certeza, de olhos abertos.
+    wide? = wide?(trail, now)
+
     {fallen, alive} =
-      if may_fall?, do: Enum.split_with(tracks, &fallen?/1), else: {[], tracks}
+      if may_fall?, do: Enum.split_with(tracks, &fallen?(&1, wide?)), else: {[], tracks}
 
     # UM SÓ CORPO POR SHINY. Com o minimapa congelado embaixo de uma tela que
     # rola, o MESMO shiny virou dois rastros caçados a dois tiles um do outro e
     # os dois caíram — uma bola na areia de cada lado do corpo (19:50 de
     # 11/09). Quem caiu com outra barra caçada vista MAIS TARDE é o gêmeo
     # velho: não há corpo ali.
-    fallen = Enum.filter(fallen, &(&1.seen_at == freshest_hunted(tracks)))
+    #
+    # …E ELA FICA DE PÉ NO MODO LARGO. O gêmeo velho não é um alvo a mais: é o
+    # MESMO shiny contado duas vezes, e a segunda bola cai na areia. O que o
+    # modo largo abre é trilha de OUTRO bicho; fantasma continua fora.
+    fresco = freshest_hunted(tracks)
+    fallen = Enum.filter(fallen, &(not &1.hunted? or &1.seen_at == fresco))
 
     # only a bar seen just before the sparkle left is a body; a hunted bar lost
     # far longer wandered off — no corpse there, and no ball at the stale spot.
@@ -344,14 +369,30 @@ defmodule Pokex.Bots.Catcher.Trail do
     }
   end
 
-  defp fallen?(%{hunted?: true, misses: misses}), do: misses >= @fall_after
-  defp fallen?(_track), do: false
+  defp fallen?(%{hunted?: true, misses: misses}, _wide?), do: misses >= @fall_after
+  defp fallen?(%{misses: misses}, true), do: misses >= @fall_after
+  defp fallen?(_track, false), do: false
+
+  # A CENA AINDA É DE SHINY? O modo largo só vale enquanto o brilho desta cena
+  # for recente: sem esta pergunta, uma caçada sem shiny nenhum jogaria bola em
+  # cada comum que cai, a noite inteira. `sparkle_at` nil é "nunca vi brilho",
+  # que aqui é NÃO — o contrário do que ele significa no `may_fall?`, onde a
+  # ausência de brilho é o que libera o corpo.
+  defp wide?(%{sparkle_at: at}, now) when is_integer(at),
+    do: now - at <= @shiny_scene_ms and Settings.get(:capture_whole_trail) == true
+
+  defp wide?(_nunca_viu_brilho, _now), do: false
 
   defp lost?(%{hunted?: true}), do: false
   defp lost?(%{misses: misses}), do: misses >= @lost_after
 
-  defp fall(track, now),
+  # O NOME DIZ DE QUEM É O CORPO. A âncora do modo largo é de um bicho que a cor
+  # NÃO apontou — chamá-la de "shiny" faria o diário mentir em cada bola.
+  defp fall(%{hunted?: true} = track, now),
     do: %{world: track.world, name: track.name || "shiny", px: track.px, fallen_at: now}
+
+  defp fall(track, now),
+    do: %{world: track.world, name: "vizinho", px: track.px, fallen_at: now}
 
   defp put_track(trail, track), do: %{trail | tracks: Map.put(trail.tracks, track.id, track)}
 end

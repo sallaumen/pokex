@@ -135,6 +135,39 @@ defmodule Pokex.Bots.Catcher.NarrationTest do
     end
   end
 
+  # A frase era UMA — "a âncora caiu com a estrada andando" — e `standing?/0` faz
+  # TRÊS perguntas. Dos dez adiamentos de 12/09 o diário não dizia de qual se
+  # tratava, e o cenário que ele descreveu (o shiny caindo com sobrevivente em
+  # pé) é o portão da tela. O portão que recusou é o que precisa mudar.
+  describe "anchor_hold/1" do
+    test "the road still walking says so" do
+      linha = Narration.anchor_hold(%{road_held?: false, screen_clear?: true})
+
+      assert linha =~ "estrada andando"
+      refute linha =~ "vivo"
+    end
+
+    test "a living creature on screen is named, with how many" do
+      linha = Narration.anchor_hold(%{road_held?: true, screen_clear?: false, enemies: 2})
+
+      assert linha =~ "2 bicho(s) vivo(s) na tela"
+      assert linha =~ "a estrada estava parada"
+    end
+
+    test "no reading of the screen is not a creature count" do
+      linha = Narration.anchor_hold(%{road_held?: true, screen_clear?: false})
+
+      assert linha =~ "sem leitura da tela"
+    end
+
+    test "both gates closed name both" do
+      linha = Narration.anchor_hold(%{road_held?: false, screen_clear?: false, enemies: 3})
+
+      assert linha =~ "estrada andando"
+      assert linha =~ "bicho vivo na tela"
+    end
+  end
+
   describe "recognized/1" do
     # Dois caminhos, duas contas: a foto sabe semelhança, a cor sabe pixels.
     test "the photo's likeness" do

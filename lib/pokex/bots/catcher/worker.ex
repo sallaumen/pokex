@@ -939,12 +939,32 @@ defmodule Pokex.Bots.Catcher.Worker do
     if standing?() do
       throw_at_anchors(state)
     else
-      log(:macro, "🌟 a âncora caiu com a estrada andando — a bola fica pra hora da bola")
+      log(:macro, Narration.anchor_hold(gates()))
       state
     end
   end
 
   defp ball_the_fall(state), do: state
+
+  # OS TRÊS PORTÕES DE `standing?/0`, lidos UMA vez pra dizer qual deles
+  # recusou. A frase antiga acusava sempre a estrada, e são três perguntas — em
+  # 12/09 os dez adiamentos de três horas não diziam de qual se tratava, e o
+  # cenário que ele descreveu (o shiny caindo com sobrevivente em pé) é o portão
+  # da TELA. A tela é lida UMA vez: a mesma resposta que abre o portão já traz
+  # quantos estão de pé (`Observation.screen_clear/2`), e uma segunda conta da
+  # mesma verdade diverge.
+  defp gates do
+    case Observation.screen_clear(:ask, now()) do
+      :ok ->
+        %{road_held?: road_held?(), screen_clear?: true}
+
+      {:blocked, {:alive_on_screen, n}} ->
+        %{road_held?: road_held?(), screen_clear?: false, enemies: n}
+
+      {:blocked, _sem_quadro} ->
+        %{road_held?: road_held?(), screen_clear?: false}
+    end
+  end
 
   # A BOLA NA ÂNCORA. Dentro da tela, longe de bicho de pé e fresca (as cercas e
   # o TTL são do `Hunt`); a leitura se diz `source: :anchor`

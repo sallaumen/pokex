@@ -224,7 +224,12 @@ defmodule Pokex.Bots.Engine.Logic do
             # Medido no jogo dele em 12/09: 97,1% das decisões com lista não
             # vazia acham a linha do Shiny Golem PELO NOME desenhado, então a
             # trava fecha no primeiro segundo de caçada.
-            own_row_ever?: false
+            own_row_ever?: false,
+            # …E DESDE QUANDO ela não está lá. É o relógio da AUSÊNCIA, e ele
+            # não pode ser o da prensa do revive: a cadência do `downed/1`
+            # reaperta, e cada F4 empurraria o prazo pra frente numa queda
+            # longa, cegando a regra pra sempre.
+            row_gone_at: nil
 
   @type t :: %__MODULE__{}
   @type orders :: Orders.t()
@@ -263,7 +268,7 @@ defmodule Pokex.Bots.Engine.Logic do
       |> track_bar_blind(situation, now)
       |> track_survivors(situation, now)
       |> track_heavy(situation)
-      |> track_own_row(situation)
+      |> track_own_row(situation, now)
       |> cover_chain_start(chain_start?, situation, config, now)
 
     siege = siege(logic, situation, config, now)
@@ -315,11 +320,18 @@ defmodule Pokex.Bots.Engine.Logic do
   # A trava do parágrafo em `own_row_ever?`: qualquer jeito de ACHAR a linha
   # arma; `:absent`, `false` e `nil` não desarmam, porque a pergunta é sobre o
   # CLIENTE, não sobre este tique.
-  defp track_own_row(logic, %{own_row_seen?: how})
+  defp track_own_row(logic, %{own_row_seen?: how}, _now)
        when how in [:by_name, :by_hp, :by_position],
-       do: %{logic | own_row_ever?: true}
+       do: %{logic | own_row_ever?: true, row_gone_at: nil}
 
-  defp track_own_row(logic, _not_found_this_tick), do: logic
+  # DESDE QUANDO ela sumiu, e esse relógio não pode ser o do pedido: a espera
+  # que `body_coming_back?/1` cobra é a da ausência, e a prensa do revive se
+  # renova sozinha na cadência do `downed/1`. Ancorada na prensa, uma queda
+  # longa cegaria a regra pra sempre — cada F4 empurraria o prazo pra frente.
+  defp track_own_row(%{row_gone_at: nil} = logic, %{own_row_seen?: :absent}, now),
+    do: %{logic | row_gone_at: now}
+
+  defp track_own_row(logic, _not_found_this_tick, _now), do: logic
 
   defp latch_heavy(logic, %{heavy?: true}), do: %{logic | heavy_area?: true}
   defp latch_heavy(logic, _light_or_unread), do: logic
@@ -884,7 +896,34 @@ defmodule Pokex.Bots.Engine.Logic do
   # a linha nunca esteve), e sem o `:absent` dispararia com a tela vazia ou com
   # a Pokebar ilegível, que não provam nada.
   defp left_the_list?(t),
-    do: t.logic.own_row_ever? and Map.get(t.s, :own_row_seen?) == :absent
+    do:
+      t.logic.own_row_ever? and Map.get(t.s, :own_row_seen?) == :absent and
+        not body_coming_back?(t)
+
+  # …E UM RECOLHIMENTO QUE NÓS PEDIMOS NÃO É NOTÍCIA. A linha sai da lista
+  # porque o revive guardou o pokémon — é o efeito da tecla, não a queda que
+  # esta regra foi escrita pra pegar. O caixa (`rescue_noted_at`) diz quando a
+  # última prensa saiu, de qualquer mão; dentro do prazo de confirmação, a
+  # ausência já tem dono.
+  #
+  # MEDIDO na run dele de 12/09: 47 tiques de `downed` em três horas, em 44
+  # trechos de UM tique cada, TODOS com `rows=1`, `enemies=1` e `own=absent`.
+  # Nenhum era um pokémon perdido; eram os intervalos do próprio revive. E cada
+  # um virava uma ordem de ANDAR com o escudo fora e um bicho batendo — o passo
+  # que ele descreveu em 12/09, o que puxa pra tela quem estava fora dela (+2,24
+  # inimigos em 3 s, 90% das vezes). 31 deles com o shiny por perto.
+  #
+  # A queda de VERDADE continua chegando aqui: sem prensa no caixa, ou passado o
+  # prazo sem o corpo voltar, a regra dispara como o #640 a escreveu. As duas
+  # condições precisam ser duas — só o caixa cegaria a regra pra sempre numa
+  # queda longa (o pedido reaperta na cadência e cada prensa renovaria a
+  # resposta); só o relógio cegaria por um revive que ninguém pediu.
+  defp body_coming_back?(t) do
+    noted_at = Map.get(t.s, :rescue_noted_at)
+
+    is_integer(noted_at) and t.now - noted_at < t.config.revive_confirm_ms and
+      t.now - (t.logic.row_gone_at || t.now) < t.config.revive_confirm_ms
+  end
 
   defp handless(t) do
     {%{t.logic | state: :handless},

@@ -2,6 +2,7 @@ defmodule Pokex.Bots.Catcher.BallTest do
   use ExUnit.Case, async: false
 
   alias Pokex.Bots.Catcher.Ball
+  alias Pokex.Calibration
   alias Pokex.SettingsStash
 
   setup do
@@ -48,6 +49,48 @@ defmodule Pokex.Bots.Catcher.BallTest do
     Pokex.Settings.put(:capture_hold_ms, 250)
 
     assert List.last(Ball.sequence({1, 1})) == {:wait, 250}
+  end
+
+  # A MIRA DESCE PRO CORPO — e sem isto a bola errava mais do que acertava.
+  #
+  # Cada ponto que o bot tem de um bicho é o centro da BARRA de vida, que flutua
+  # acima da cabeça: medido em 33 marcas das caixas-pretas de 13/09, 70 px acima
+  # e 25 px à direita no ultrawide dele. Pra decidir tile isso some no
+  # arredondamento; pra apontar o mouse, não — num tile de 151 a bola saía na
+  # fronteira entre o tile do corpo e o de cima.
+  describe "the aim leaves the bar and lands on the body" do
+    @tag :tmp_dir
+    test "on the measured ultrawide the cursor drops 70 and moves 25 left", %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(&Pokex.TestHome.restore/0)
+      Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
+
+      assert [{:move, {1393, 838}} | _] = Ball.sequence({1418, 768})
+    end
+
+    @tag :tmp_dir
+    test "and the click lands on the SAME point as the cursor", %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(&Pokex.TestHome.restore/0)
+      Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
+      Pokex.Settings.put(:ball_needs_click, true)
+
+      actions = Ball.sequence({1418, 768})
+
+      assert {:move, {1393, 838}} = List.first(actions)
+      assert {:click, :left, {1393, 838}} in actions
+    end
+
+    # Palpite aqui erraria a bola de um jeito NOVO. O que não foi medido não
+    # entra: numa tela desconhecida a mira continua onde sempre esteve.
+    @tag :tmp_dir
+    test "on a screen nobody measured the point goes through untouched", %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(&Pokex.TestHome.restore/0)
+      Calibration.save(%Calibration{scale: 1.0, screen_w: 1234, screen_h: 567})
+
+      assert [{:move, {1418, 768}} | _] = Ball.sequence({1418, 768})
+    end
   end
 
   test "the settle wait is adjustable" do

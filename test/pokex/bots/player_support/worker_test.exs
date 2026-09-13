@@ -231,6 +231,43 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       refute_receive {:rule_alarm, :hp, _}, 2_500
     end
 
+    # O NOME DO CAMPO CUSTOU UMA MORTE (13/09, 13:26).
+    #
+    # Este teste existia e fixava `hp_pct` — o nome que em todo o resto do
+    # sistema quer dizer a vida do POKÉMON. Em 03/09 os três leitores foram
+    # corrigidos pra ler `player_hp` e o escritor não; o teste do escritor
+    # continuou verde fixando o contrato ERRADO, e por isso ninguém viu.
+    #
+    # Consequência medida: `Engine.Logic.bleeding?/1` ("VOCÊ está apanhando,
+    # revive agora custe o que custar", piso de 20%) exige `is_integer(hp)` e
+    # deu ZERO disparos em três dias de diário. Na morte, a única coisa que
+    # falou foi o grito do suporte a 4%, sete segundos antes do fim.
+    @tag :tmp_dir
+    test "the fact never carries HIS health under the pokemon's field name", %{
+      body: body,
+      red: red
+    } do
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(18)}]})
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert eventually(
+               fn ->
+                 match?(
+                   {:ok, %{player_hp: pct}} when is_integer(pct),
+                   WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
+                 )
+               end,
+               1_200
+             )
+
+      {:ok, fato} = WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
+
+      refute Map.has_key?(fato, :hp_pct),
+             "o fato :player voltou a carregar `hp_pct`: #{inspect(fato)}"
+    end
+
     @tag :tmp_dir
     test "a leitura vira o fato :player", %{body: body, red: red} do
       {:ok, _} = Fake.start_link(%{capture: [{:ok, red.(18)}]})
@@ -241,7 +278,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert eventually(
                fn ->
                  match?(
-                   {:ok, %{hp_pct: pct, readable?: true}} when pct >= 85,
+                   {:ok, %{player_hp: pct, readable?: true}} when pct >= 85,
                    WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
                  )
                end,
@@ -336,7 +373,7 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert eventually(
                fn ->
                  match?(
-                   {:ok, %{hp_pct: pct, readable?: true}} when pct >= 85,
+                   {:ok, %{player_hp: pct, readable?: true}} when pct >= 85,
                    WorldState.get(:player, 5_000, System.monotonic_time(:millisecond))
                  )
                end,

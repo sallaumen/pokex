@@ -518,13 +518,35 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
     end
   end
 
+  # O CAMPO É `player_hp`, E ISTO CUSTOU UMA MORTE (13/09, 13:26).
+  #
+  # `read_player_hp/1` lê a `player_hp_region` — a barra vermelha DELE, não a
+  # Pokebar. Este fato saía com essa leitura debaixo do nome `hp_pct`, que no
+  # resto inteiro do sistema quer dizer a vida do POKÉMON. Em 03/09 os três
+  # leitores foram corrigidos pra ler `player_hp`… e o escritor não. Desde
+  # então o fato nunca teve o campo, e quem o lia recebia `nil` pra sempre:
+  #
+  #   * `Engine.Logic.bleeding?/1` — "VOCÊ está apanhando, revive agora custe o
+  #     que custar", o piso dele é 20% — exige `is_integer(hp)`. **Zero disparos
+  #     em três dias de diário**, incluindo o dia da morte.
+  #   * `CrowdScan.over_his_head?/4` — o que separa a barra DELE da de um
+  #     monstro — devolve `false` sem a vida dele, e o olho conta a própria
+  #     barra como bicho.
+  #   * o cartão do /world, que mostrava vazio.
+  #
+  # Na morte de 13/09 a única coisa que falou foi o grito do suporte a 4%, sete
+  # segundos antes do fim. O quadro do cérebro dizia vida 93% o tempo todo — a
+  # do pokémon, que estava inteiro.
+  #
+  # `hp_pct` sai do fato: ele não é a vida do pokémon (quem a publica é o fato
+  # `:pokemon`) e manter o nome errado é manter a armadilha de pé.
   defp player_read(state, hp) do
-    WorldState.put(:player, %{hp_pct: hp, readable?: true}, now())
+    WorldState.put(:player, %{player_hp: hp, readable?: true}, now())
     guard_player(%{state | player_hp: hp})
   end
 
   defp player_unread(state) do
-    WorldState.put(:player, %{hp_pct: nil, readable?: false}, now())
+    WorldState.put(:player, %{player_hp: nil, readable?: false}, now())
     %{state | player_hp: nil, player_low_since: nil}
   end
 

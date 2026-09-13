@@ -53,10 +53,23 @@ defmodule Pokex.Vision do
   """
   @spec skill_bar_frame?(Frame.t(), pos_integer) :: boolean
   def skill_bar_frame?(%Frame{} = frame, count) when is_integer(count) and count > 0 do
-    labelled = SkillDigits.labelled_slots(frame, count)
-
-    MapSet.size(labelled) * 3 >= count * 2
+    labelled_slot_count(frame, count) * 3 >= count * 2
   end
+
+  @doc """
+  Quantos slots do recorte têm o número do atalho desenhado — a prova de que
+  isto é uma barra e não outro pedaço da tela.
+
+  ZERO E POUCOS SÃO DIAGNÓSTICOS DIFERENTES. Em 13/09 o recorte da barra caiu
+  em cima do CENÁRIO do jogo (a janela tinha saído do lugar): 0 de 8 rotulados,
+  139 cores distintas contra 1549 de um recorte bom. "Poucos" é uma barra que
+  está ali e não se lê — aí sim é caso de recalibrar. "Zero" é não estar
+  olhando pra barra nenhuma, e recalibrar só resolve até a janela andar de
+  novo.
+  """
+  @spec labelled_slot_count(Frame.t(), pos_integer) :: non_neg_integer
+  def labelled_slot_count(%Frame{} = frame, count) when is_integer(count) and count > 0,
+    do: MapSet.size(SkillDigits.labelled_slots(frame, count))
 
   @doc """
   Locates the hostile creature inside the given frame by clustering pure-red

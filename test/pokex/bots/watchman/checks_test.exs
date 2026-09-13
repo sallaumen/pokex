@@ -108,10 +108,19 @@ defmodule Pokex.Bots.Watchman.ChecksTest do
     test "the bar's alarm names the fix that matches the cause" do
       old = %{@all_good | skill_bar: @now - 20_000}
 
-      # veio quadro e o reconhecimento recusou
-      WorldState.put(:skill_bar, %{ready_keys: nil}, @now)
-      assert text(:skill_bar, old) =~ "não passa no reconhecimento"
+      # a barra está no recorte e não se lê: recalibrar É a resposta
+      WorldState.put(:skill_bar, %{ready_keys: nil, labelled: 3, slots: 8}, @now)
+      assert text(:skill_bar, old) =~ "não se lê (3 de 8 atalhos)"
       assert text(:skill_bar, old) =~ "recalibre a dele em /calibration"
+
+      # ZERO atalhos é outra coisa: o recorte caiu noutro pedaço da tela, e
+      # recalibrar só vale até a janela andar de novo (medido em 13/09 — o
+      # recorte fotografou o CENÁRIO do jogo)
+      WorldState.put(:skill_bar, %{ready_keys: nil, labelled: 0, slots: 8}, @now)
+      texto_sem_barra = text(:skill_bar, old)
+      assert texto_sem_barra =~ "não tem barra nenhuma dentro (0 de 8 atalhos"
+      assert texto_sem_barra =~ "a janela do jogo saiu do lugar"
+      refute texto_sem_barra =~ "recalibre"
 
       # a leitura prestou e envelheceu: o recorte está certo
       ceiling = Pokex.Settings.get(:skill_bar_fact_max_age_ms)

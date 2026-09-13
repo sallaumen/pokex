@@ -242,9 +242,13 @@ defmodule Pokex.Bots.Watchman.Checks do
           "#{Settings.get(:skill_bar_fact_max_age_ms)} ms: o problema é a captura, não a " <>
           "calibração"
 
-      _recorte_recusado ->
-        "o recorte da barra do #{name} não passa no reconhecimento; recalibre a dele em " <>
-          "/calibration"
+      {:unreadable, 0, slots} ->
+        "o recorte não tem barra nenhuma dentro (0 de #{slots} atalhos desenhados): a janela " <>
+          "do jogo saiu do lugar"
+
+      {:unreadable, rotulados, slots} ->
+        "a barra do #{name} está no recorte e não se lê (#{rotulados} de #{slots} atalhos); " <>
+          "recalibre a dele em /calibration"
     end
   end
 

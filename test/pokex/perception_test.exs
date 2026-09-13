@@ -106,9 +106,14 @@ defmodule Pokex.PerceptionTest do
     WorldState.put(:skill_bar, %{states: [:ready], ready_keys: ["1"]}, 10_000)
     assert Perception.skill_bar_gap(10_100) == :ok
 
-    # veio quadro e o reconhecimento recusou: recalibrar É a resposta
-    WorldState.put(:skill_bar, %{states: nil, ready_keys: nil}, 10_200)
-    assert Perception.skill_bar_gap(10_300) == :unreadable
+    # veio quadro e o reconhecimento recusou, e ele diz quantos atalhos achou:
+    # ZERO é "não estou olhando pra barra nenhuma" (a janela saiu do lugar),
+    # poucos é uma barra que está ali e não se lê.
+    WorldState.put(:skill_bar, %{states: nil, ready_keys: nil, labelled: 0, slots: 8}, 10_200)
+    assert Perception.skill_bar_gap(10_300) == {:unreadable, 0, 8}
+
+    WorldState.put(:skill_bar, %{states: nil, ready_keys: nil, labelled: 3, slots: 8}, 10_200)
+    assert Perception.skill_bar_gap(10_300) == {:unreadable, 3, 8}
 
     # a leitura PRESTOU e envelheceu: o recorte está certo, a captura é que não
     # está dando conta — e aqui recalibrar não muda nada
@@ -118,7 +123,7 @@ defmodule Pokex.PerceptionTest do
 
     # uma leitura VELHA E RECUSADA continua sendo caso de recalibrar: o que
     # envelheceu não foi uma leitura boa.
-    WorldState.put(:skill_bar, %{states: nil, ready_keys: nil}, 10_000)
-    assert Perception.skill_bar_gap(10_000 + ceiling + 40) == :unreadable
+    WorldState.put(:skill_bar, %{states: nil, ready_keys: nil, labelled: 2, slots: 8}, 10_000)
+    assert Perception.skill_bar_gap(10_000 + ceiling + 40) == {:unreadable, 2, 8}
   end
 end

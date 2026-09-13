@@ -67,7 +67,7 @@ defmodule Pokex.Perception.InterpretTest do
       Pokex.TeamFixtures.ready!("Bulbasaur", count: 2)
 
       assert Interpret.skills(frame, calib(), settings()) ==
-               %{states: [:ready, :cooldown], ready_keys: ["1"]}
+               %{states: [:ready, :cooldown], ready_keys: ["1"], labelled: 2, slots: 2}
     end
 
     test "a frame that no longer looks like the bar is UNKNOWN — nils, never a guess" do
@@ -75,8 +75,17 @@ defmodule Pokex.Perception.InterpretTest do
       rgba = :binary.copy(<<120, 120, 120, 255>>, 800)
       frame = %Frame{width: 100, height: 8, rgba: rgba}
 
-      assert Interpret.skills(frame, %{calib() | skill_bar_count: 2}, settings()) ==
-               %{states: nil, ready_keys: nil}
+      # …e o fato diz QUANTOS atalhos ele conseguiu achar mesmo quando recusa:
+      # ZERO é "isto não é uma barra" (a janela saiu do lugar), que é um
+      # diagnóstico diferente de "a barra está aí e não se lê".
+      #
+      # `slots` aqui é o padrão das configurações (não há barra ensinada nesta
+      # fixture) e vale o que a máquina disser: casar o número exato seria
+      # medir o ambiente, não o código.
+      assert %{states: nil, ready_keys: nil, labelled: 0, slots: slots} =
+               Interpret.skills(frame, %{calib() | skill_bar_count: 2}, settings())
+
+      assert is_integer(slots) and slots > 0
     end
   end
 end

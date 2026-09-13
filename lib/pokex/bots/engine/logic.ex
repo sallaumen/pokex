@@ -634,10 +634,11 @@ defmodule Pokex.Bots.Engine.Logic do
   # ele viu às 23:04 — o relógio zerado dizia "barra cheia" 3s depois do F4.
   #
   # Uma SOBREPOSIÇÃO, não um ramo da fila: as regras continuam decidindo, e só
-  # o que sai muda. O especial fica de fora — o ciclo dele (stun a cada emenda,
-  # F4 a cada 5s) tem física medida em oito PRs e é mais curto que o prazo da
-  # promessa; segurá-lo era acordar o especial com o controle na mão. E as fases
-  # de emergência ficam de fora porque já seguram a rota por conta própria.
+  # o que sai muda. O especial fica de fora do FREIO — o ciclo dele (stun a cada
+  # emenda, F4 a cada 5s) tem física medida em oito PRs e é mais curto que o
+  # prazo da promessa; segurá-lo era acordar o especial com o controle na mão. E
+  # as fases de emergência ficam de fora porque já seguram a rota por conta
+  # própria.
   @held_by_reset [:travelling, :gathering, :sizing, :bunching, :engaged, :skipping]
 
   # O tique que PEDE o revive passa inteiro — a ordem diz por que reviveu, e
@@ -645,23 +646,60 @@ defmodule Pokex.Bots.Engine.Logic do
   defp hold_until_reset_seen({logic, orders}, t) do
     pending? = Map.has_key?(logic.since, :reset_pending)
 
-    if pending? and orders.revive == :hold and orders.phase in @held_by_reset and
-         not special?(t) do
-      revive = if unanswered?(t), do: :now, else: :hold
+    cond do
+      not (pending? and orders.revive == :hold and orders.phase in @held_by_reset) ->
+        {logic, orders}
 
-      {logic,
-       %{
-         orders
-         | phase: :resetting,
-           route: :hold,
-           fire: :hold,
-           revive: revive,
-           why: awaiting_why(t)
-       }}
-    else
-      {logic, orders}
+      special?(t) ->
+        {logic, keep_asking(orders, t)}
+
+      true ->
+        {logic,
+         %{
+           orders
+           | phase: :resetting,
+             route: :hold,
+             fire: :hold,
+             revive: if(unanswered?(t), do: :now, else: :hold),
+             why: awaiting_why(t)
+         }}
     end
   end
+
+  # O ESPECIAL FICA DE FORA DO FREIO, NÃO DO NÍVEL — e essa diferença é a morte
+  # dele. A exclusão acima existe pra proteger o TEMPO do especial: os pés e a
+  # mão dele não param. Mas ela levava junto a única coisa que faz o pedido de
+  # revive sobreviver ao tique do suporte, e o comentário que a justificava
+  # apostava num ciclo que NÃO GIRA no Auto Combo — `special_orders/1` precisa
+  # do carimbo `:stunned`, o carimbo precisa de `control_ready?`, e a corrente
+  # queima o controle (ver `o-ciclo-do-especial-e-do-combo-antigo`).
+  #
+  # MEDIDO na run dele de 12/09, três horas: dos 105 pedidos de revive com o
+  # especial por perto, ZERO vieram do ciclo do especial — todos os 105 dizem
+  # "combo acabou com a barra gasta". E com o shiny VIVO na tela 42% dos pedidos
+  # (35 de 84) morreram sem despacho nenhum, contra 13% sem shiny; o pedido
+  # nunca passou de 603 ms de largura, e o tique do suporte é 120 ms mais a foto
+  # da vida. Às 19:15:05 foram três pedidos nascendo e morrendo em 200 ms cada,
+  # duas correntes extras saindo no meio, e o F4 só 12,4 SEGUNDOS depois do
+  # primeiro pedido — com o corpo do shiny no chão e um sobrevivente batendo
+  # nele.
+  #
+  # O PEDIDO DO PRÓPRIO CICLO FICA DE FORA (`:special_ask`, ver
+  # `stamp_special_ask/3`): ele reavalia a cada tique e tem economia medida.
+  # `unanswered?/1` fecha o nível no instante em que o caixa (`ReviveLedger`)
+  # anota uma prensa de qualquer mão, então isto não vira tecla segurada.
+  defp keep_asking(orders, t) do
+    if not special_cycle_ask?(t.logic) and unanswered?(t),
+      do: %{orders | revive: :now, why: orders.why <> " · o revive pedido continua de pé"},
+      else: orders
+  end
+
+  # A marca vale PRA ESTE pedido, não pro anterior: as duas nascem no mesmo
+  # tique quando é o ciclo que pede, e um `:special_ask` sobrando de um caso já
+  # fechado não casa com o `:reset_pending` de agora. (Aqui `:reset_pending`
+  # existe sempre — `keep_asking/2` só roda com o caso aberto.)
+  defp special_cycle_ask?(%{since: since}),
+    do: Map.get(since, :special_ask) == Map.get(since, :reset_pending)
 
   # A ORDEM É UM NÍVEL ATÉ ALGUÉM A TOMAR. O pedido saía por UM tique (200 ms)
   # e o suporte a lê no tique DELE (120 ms, mais a foto da vida) — em
@@ -1341,7 +1379,20 @@ defmodule Pokex.Bots.Engine.Logic do
   # pra repetir esse combo, deixando o special sempre stunado". O relógio é o
   # SONO, não a barra — e sem especial na tela ela devolve nil e a luta comum
   # decide como sempre decidiu.
-  defp engaged(t), do: special_orders(t) || engaged_regular(t)
+  defp engaged(t) do
+    case special_orders(t) do
+      nil -> engaged_regular(t)
+      {logic, orders} -> {stamp_special_ask(logic, orders, t.now), orders}
+    end
+  end
+
+  # DE QUEM É ESTE PEDIDO DE REVIVE. O ciclo do especial reavalia a cada tique e
+  # tem economia própria — um F4 por sono, com piso de 5s medido em oito PRs —,
+  # então as ordens DELE continuam sendo bordas. Todo pedido de qualquer outra
+  # regra vira nível debaixo do especial (`keep_asking/2`): é o pedido da
+  # corrente que morria em 200 ms, 42% das vezes com o shiny vivo.
+  defp stamp_special_ask(logic, %{revive: :now}, now), do: mark(logic, :special_ask, now)
+  defp stamp_special_ask(logic, _no_revive_asked, _now), do: logic
 
   defp special_orders(t) do
     cond do
@@ -2406,7 +2457,9 @@ defmodule Pokex.Bots.Engine.Logic do
     %{close_reset(t.logic) | reset_broken_at: broken_at, reset_strikes: strikes}
   end
 
-  defp close_reset(logic), do: %{logic | since: Map.delete(logic.since, :reset_pending)}
+  defp close_reset(logic),
+    do: %{logic | since: logic.since |> Map.delete(:reset_pending) |> Map.delete(:special_ask)}
+
   defp arm_kite(%{logic: %{kite_from: from} = logic}) when is_integer(from), do: logic
 
   defp arm_kite(t),

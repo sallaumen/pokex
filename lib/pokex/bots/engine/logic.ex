@@ -2701,13 +2701,29 @@ defmodule Pokex.Bots.Engine.Logic do
   #
   # Tela ILEGÍVEL não é tela limpa: sem saber quem está lá, o sono é a única
   # licença.
-  # O CHEFE TEM CERCA PRÓPRIA, e ela é mais exigente que esta: o ciclo dele
-  # (stun a cada emenda, revive DENTRO do sono medido — `special_covered_revive_due?`
-  # cobra `special_asleep_left_ms` de sobra) tem física medida em oito PRs. Pôr
-  # esta cerca por cima atrasava o revive que compra o controle de volta: a
-  # bancada mediu um especial 5,5s ACORDADO no cenário dos shinies empilhados, e
-  # "1 segundo sem stun no campo quer dizer que eu morri" (29/08).
-  defp recall_safe?(t), do: special?(t) or screen_clear?(t) or fresh_stun?(t)
+  # O SHINY SAIU DESTA LISTA, E O QUE O TIROU FOI A MORTE DE 13/09 (13:26:41).
+  #
+  # `special?` abria o portão INTEIRO: bastava um shiny na tela pra recolher o
+  # pokémon virar seguro por definição, sem tela limpa e sem sono. No minuto da
+  # morte o olho disse "segurando" duas vezes — "1 solto a 3 tiles", às 13:26:21
+  # e 13:26:25 — e o revive saiu nas duas. Foram quatro revives em 19 s; a
+  # caixa-preta mostra o pokémon FORA (`pet: null`) às 13:26:32,8 e 34,0, e o
+  # grito de 4% às 34,7. Ele morreu com o shiny a 16% de vida colado.
+  #
+  # A cerca tinha sido escrita depois da morte de 03/09, que é a MESMA forma —
+  # e o escape a contornava.
+  #
+  # A justificativa do escape era o ciclo estrito do especial
+  # (`special_covered_revive_due?`, que cobra `special_asleep_left_ms` de sobra):
+  # atrasar o revive que compra o controle de volta mediu um especial 5,5s
+  # ACORDADO na bancada, e "1 segundo sem stun no campo quer dizer que eu morri"
+  # (29/08). Só que esse ciclo NÃO RODA no Auto Combo dele (#633): a corrente
+  # queima o controle a cada prensa, o carimbo do stun nunca sai, e
+  # `special_asleep_left_ms` só existe no simulador. O que sobrou em campo foi o
+  # escape solto, sem o ciclo que o pagava.
+  #
+  # A regra dele, escolhida depois desta morte: "o olho vale também pro shiny".
+  defp recall_safe?(t), do: screen_clear?(t) or fresh_stun?(t)
 
   # O CARIMBO DO SONO, e só quando há sono a carimbar: o controle tem que estar
   # na reserva E pronto. Uma tecla fria carimbada seria uma licença falsa pro

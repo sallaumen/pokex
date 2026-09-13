@@ -1392,6 +1392,25 @@ defmodule Pokex.Bots.Engine.LogicTest do
       assert orders.why =~ "sem cooldown"
     end
 
+    # O SHINY NÃO ABRE MAIS O PORTÃO DO RECOLHIMENTO — e quem o fechou foi a
+    # morte de 13/09, às 13:26:41.
+    #
+    # `recall_safe?` era `special?(t) or screen_clear?(t) or fresh_stun?(t)`:
+    # bastava um shiny na tela pra recolher o pokémon virar seguro por
+    # definição. No minuto da morte o olho disse "segurando" duas vezes ("1
+    # solto a 3 tiles") e o revive saiu nas duas; foram quatro revives em 19 s,
+    # e ele morreu numa das janelas em que o pokémon estava na bola.
+    #
+    # A cláusula não tinha UM teste. Estes são os dois sentidos dela.
+    test "a shiny on screen no longer opens the recall gate on its own" do
+      # `sem_controle` porque com o controle na mão quem decide é "controle
+      # primeiro", e aí o portão do recolhimento nem chega a ser perguntado.
+      acordado = sem_controle(%{special?: true, combo_stun_age_ms: nil, own_hp: 100})
+
+      assert lutando(acordado).revive == :hold,
+             "o shiny voltou a abrir o portão: #{lutando(acordado).why}"
+    end
+
     test "não com o pokémon já na bola — a ordem bateria numa porta fechada" do
       logic = engaged(&reset_step/3)
 

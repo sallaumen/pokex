@@ -696,6 +696,78 @@ defmodule Pokex.Sim.Scenario do
           prepare_revive: false
         }
       },
+      # A MORTE DE 13/09, ÀS 13:26:41 — o cenário é a reconstituição dela.
+      #
+      # Ele estava ASSISTINDO e não interferiu de propósito. Um Shiny (brilho)
+      # sobreviveu à corrente INTEIRA cinco vezes seguidas ("sobrevivente da
+      # corrente 1 de 6" até "5 de 6") e o bot deu quatro revives em 19
+      # segundos. Cada revive RECOLHE o pokémon, e é só nessa janela que ele
+      # apanha: a caixa-preta mostra o pokémon fora (`pet: null`) às 13:26:32,8
+      # e 34,0, e o grito de 4% de vida às 34,7. Morreu às 41,3 com o shiny a
+      # 16% colado.
+      #
+      # O portão que devia ter segurado era `recall_safe?`, e `special?` o abria
+      # inteiro: bastava um shiny na tela. O olho disse "segurando" DUAS vezes
+      # ("1 solto a 3 tiles", 13:26:21 e 13:26:25) e o revive saiu nas duas.
+      #
+      # A física aqui é a dele: um bicho que não morre com uma corrente
+      # (`special_hp_mult`/`presses_to_kill`), colado, enquanto a barra pede
+      # reset a cada rodada. `player_bite_dmg` alto porque o que mata é a soma
+      # de janelas curtas, não uma mordida longa.
+      %__MODULE__{
+        id: "a-morte-de-1309",
+        group: :especial,
+        mode: :auto_combo,
+        icon: "⚰️",
+        # QUEBRADO, e de propósito: as duas promessas FALHAM hoje. Oito sementes
+        # de 4 min dão 18 a 32 recolhimentos inseguros por corrida e uma morte
+        # (semente 4). É a forma da morte dele virada régua vermelha.
+        aperto: :quebrado,
+        # SEM PROMESSA, de propósito: promessa aqui é contrato que a suíte cobra,
+        # e as duas que este cenário mereceria (`nao_morre`, `recolhe_seguro`)
+        # FALHAM hoje — oito sementes de 4 min dão 18 a 32 recolhimentos
+        # inseguros por corrida e uma morte. Este é um cenário de OBSERVAR até
+        # elas fecharem; o que ele mede está no `why`.
+        espera: [],
+        name: "A morte de 13/09 (shiny que não cai, revive que recolhe)",
+        why:
+          "A reconstituição da morte dele (13/09, 13:26:41). Um shiny sobreviveu à corrente " <>
+            "cinco vezes seguidas, o bot deu quatro revives em 19 s e ele morreu numa das " <>
+            "janelas em que o pokémon estava na bola — com o olho dizendo \"segurando\" duas " <>
+            "vezes e sendo atropelado, porque `special?` abria o portão do recolhimento " <>
+            "inteiro. As duas promessas são a régua: ele não morre, e não se recolhe o " <>
+            "pokémon com alguém acordado por perto. O QUE ESTE CENÁRIO AINDA NÃO PROVA: o " <>
+            "especial não entra em luta nenhuma aqui — `special_awake_in_fight_ms` sai ZERO " <>
+            "nele e em todos os cenários de especial que já existiam. A cláusula que matou " <>
+            "(`special?` no `recall_safe?`) está cercada no `logic_test`, não aqui.",
+        route: :hunt_field,
+        knobs: %{
+          nest_size: 1,
+          stray_chance_pct: 0,
+          combo_stun_first: true,
+          special_witness: false,
+          special_every_ms: 25_000,
+          # o shiny da morte aguentou cinco correntes inteiras
+          special_hp_mult: 12,
+          special_atk_mult: 5,
+          bite_dmg: 1,
+          bite_every_ms: 1_000,
+          # o que mata é a SOMA das janelas de recolhimento, não uma mordida só
+          player_bite_dmg: 25,
+          stun_ms: 5_000,
+          stun_onset_ms: 2_000,
+          revive_cooldown_ms: 0,
+          presses_to_kill: 3,
+          special_color: true
+        },
+        config: %{
+          reset_revive: true,
+          boss_names: "",
+          stun_hold_ms: 7_000,
+          rescue_floor_ms: 5_000,
+          prepare_revive: false
+        }
+      },
       %__MODULE__{
         id: "shiny-no-chao",
         group: :especial,

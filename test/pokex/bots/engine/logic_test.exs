@@ -23,7 +23,12 @@ defmodule Pokex.Bots.Engine.LogicTest do
   # …e `gather_target: 1` junto, pelo mesmo motivo: desde 27/08 a janela só
   # fecha quando o bolo chega no alvo (seis), e a maior parte deste arquivo
   # pergunta OUTRA coisa sobre pilhas de dois a quatro. O alvo tem o bloco dele.
-  @config Config.merge(%{bunch_ms: 0, gather_target: 1})
+  # O ENCERRAMENTO DESLIGADO NO PADRÃO DESTE ARQUIVO. Ele nasce em 20, e as
+  # travas de orçamento deste arquivo se medem com 0, 5 e 6 revives na conta —
+  # faixa que o encerramento cobre inteira. Desligá-lo aqui mantém cada teste
+  # medindo a trava que ele foi escrito pra medir; quem cobra a precedência do
+  # encerramento é o describe próprio dele.
+  @config Config.merge(%{bunch_ms: 0, gather_target: 1, wind_down_at: 0})
 
   # O TILE EM QUE ELE ESTÁ. Não é enfeite: é o quadro em que a cobertura do stun
   # é comparada (`Siege.covered?/3`), porque o olho mede a partir DELE e ele
@@ -588,7 +593,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
              engage_from: 3,
              crowd_from: 99,
              bunch_ms: 0,
-             gather_target: 1
+             gather_target: 1,
+             wind_down_at: 0
            })
 
     defp reset_step(logic, world, now), do: Logic.step(logic, world, @reset, now)
@@ -1675,6 +1681,132 @@ defmodule Pokex.Bots.Engine.LogicTest do
     end
   end
 
+  # O ENCERRAMENTO DA NOITE. Medido em 12→13/09: 879 revives em 4h40, um a cada
+  # 19 SEGUNDOS, e entre a bag secar e o personagem ficar a 4% de vida passaram
+  # VINTE E DOIS SEGUNDOS. Nenhuma cadência de alarme cabe nessa janela; só
+  # antecedência cabe. Então o fim da noite vira uma manobra: para de COMEÇAR,
+  # termina o que está aberto, e sai pela porta — que só abre fora de batalha.
+  describe "o encerramento quando o bolso está no fim" do
+    @encerra Config.merge(%{
+               wind_down_at: 20,
+               wind_down_ms: 300_000,
+               bunch_ms: 0,
+               gather_target: 1
+             })
+
+    defp encerra_step(logic, world, now), do: Logic.step(logic, world, @encerra, now)
+
+    defp acabando(overrides \\ %{}) do
+      world(%{
+        situation: situation(Map.merge(%{revive_left: 8, own_hp: 100, enemies: 0}, overrides)),
+        hunt: hunt(%{state: :hunting})
+      })
+    end
+
+    test "the feet stop: the hunt stops STARTING things" do
+      {logic, orders} = encerra_step(Logic.new(), acabando(), 1_000)
+
+      assert logic.state == :winding_down
+      assert orders.route == :hold
+      assert orders.why =~ "8 revive(s) no bolso"
+    end
+
+    # "A batalha não tenta começar, só mata o que está lá ainda" (13/09) — e o
+    # fogo livre não é teimosia: matar quem está na tela É o caminho pra porta,
+    # porque o jogo só aceita o logout fora de batalha.
+    test "what is already on screen still gets finished" do
+      {_logic, orders} = encerra_step(Logic.new(), acabando(%{enemies: 3}), 1_000)
+
+      assert orders.phase == :winding_down
+      assert orders.route == :hold
+      assert orders.fire == :free
+      assert orders.why =~ "terminando os 3 que já estão na tela"
+    end
+
+    test "with the screen clear the hands go down and the door is the plan" do
+      {_logic, orders} = encerra_step(Logic.new(), acabando(), 1_000)
+
+      assert orders.fire == :hold
+      assert orders.why =~ "a tela limpa"
+      assert orders.why =~ "tentando sair do jogo"
+    end
+
+    # NÃO É UMA TRAVA. "Se a gente perder a edição disso durante a noite por
+    # conta de algum glitch, não queria que a gente travasse tudo" (13/09): com
+    # a conta acima do limiar nada muda, e a caçada segue como sempre.
+    test "above the threshold nothing changes at all" do
+      {logic, orders} = encerra_step(Logic.new(), acabando(%{revive_left: 21}), 1_000)
+
+      refute logic.state == :winding_down
+      refute orders.why =~ "encerrando"
+    end
+
+    # …e sem conta nenhuma (orçamento desligado) também não: o encerramento
+    # precisa de um número, e `nil` não é um.
+    test "and with no count at all it never arms" do
+      {logic, _orders} = encerra_step(Logic.new(), acabando(%{revive_left: nil}), 1_000)
+
+      refute logic.state == :winding_down
+    end
+
+    test "the knob at zero turns it off" do
+      desligado = Config.merge(%{wind_down_at: 0, bunch_ms: 0, gather_target: 1})
+      {logic, _orders} = Logic.step(Logic.new(), acabando(%{revive_left: 1}), desligado, 1_000)
+
+      refute logic.state == :winding_down
+    end
+
+    # A PORTA PODE NÃO ABRIR. Em 12→13/09 o logout falhou duas vezes
+    # (`ainda_logado`). Passada a insistência, o freio antigo assume: a frota
+    # bloqueia e o conserto é de gente.
+    test "past the insisting it gives up to the old brake" do
+      {logic, _} = encerra_step(Logic.new(), acabando(), 1_000)
+      {logic, orders} = encerra_step(logic, acabando(), 1_000 + 300_000 + 200)
+
+      assert logic.state == :stranded
+      assert orders.phase == :stranded
+      assert orders.why =~ "sem conseguir sair do jogo"
+    end
+
+    # O RELÓGIO DA DESISTÊNCIA É PEGAJOSO. A fase sai e volta a cada luta que a
+    # caçada termina; ancorado na borda, o prazo reiniciaria a cada bicho e o
+    # encerramento nunca chegaria ao freio.
+    test "the giving-up clock survives the fights in between" do
+      {logic, _} = encerra_step(Logic.new(), acabando(), 1_000)
+      # a corrente saindo TIRA a fase (vira `:engaged`), que é a borda em que o
+      # relógio reiniciava
+      {logic, meio} = encerra_step(logic, acabando(%{enemies: 4, combo_left_ms: 2_500}), 150_000)
+      assert meio.phase == :engaged
+      assert logic.state == :engaged
+
+      {logic, fim} = encerra_step(logic, acabando(), 1_000 + 300_000 + 200)
+      assert logic.state == :stranded
+      assert fim.why =~ "sem conseguir sair do jogo"
+    end
+
+    # …e ELE REPÔS: com o bolso de volta acima do limiar o relógio morre, e a
+    # noite seguinte não herda o prazo da anterior.
+    test "a restock clears the clock instead of carrying it into the next night" do
+      {logic, _} = encerra_step(Logic.new(), acabando(), 1_000)
+      {logic, voltou} = encerra_step(logic, acabando(%{revive_left: 200}), 2_000)
+      refute voltou.phase == :winding_down
+
+      {logic, depois} = encerra_step(logic, acabando(), 1_000 + 300_000 + 200)
+      assert logic.state == :winding_down
+      refute depois.phase == :stranded
+    end
+
+    # O QUE LUTA FICA ACIMA. A emergência gasta o que sobrou no bolso — o
+    # encerramento entra no lugar da CAÇADA, não no lugar da defesa.
+    test "red still spends the last revives: the wind-down replaces the HUNT only" do
+      vermelho = acabando(%{enemies: 2, own_hp: 5, revive_left: 3})
+      {_logic, orders} = encerra_step(Logic.new(), vermelho, 1_000)
+
+      assert orders.revive == :now
+      refute orders.phase == :winding_down
+    end
+  end
+
   describe "sem pokémon em campo" do
     defp caido(overrides \\ %{}) do
       world(%{
@@ -2594,7 +2726,8 @@ defmodule Pokex.Bots.Engine.LogicTest do
                prepare_revive: true,
                reset_revive_cooldown_ms: 3_000,
                gather_target: 1,
-               bunch_ms: 0
+               bunch_ms: 0,
+               wind_down_at: 0
              })
 
     defp limpo(overrides \\ %{}) do

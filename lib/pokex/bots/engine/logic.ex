@@ -269,6 +269,7 @@ defmodule Pokex.Bots.Engine.Logic do
       |> track_survivors(situation, now)
       |> track_heavy(situation)
       |> track_own_row(situation, now)
+      |> track_restock(situation, config)
       |> cover_chain_start(chain_start?, situation, config, now)
 
     siege = siege(logic, situation, config, now)
@@ -332,6 +333,16 @@ defmodule Pokex.Bots.Engine.Logic do
     do: %{logic | row_gone_at: now}
 
   defp track_own_row(logic, _not_found_this_tick, _now), do: logic
+
+  # ELE REPÔS: o bolso voltou a ter estoque acima do limiar, e o relógio da
+  # desistência morre junto com o encerramento. Sem isto, uma noite que encerrou
+  # e foi reposta herdaria o prazo da anterior e iria direto pro freio.
+  defp track_restock(%{since: since} = logic, %{revive_left: left}, %{wind_down_at: at})
+       when is_integer(left) and left > at do
+    %{logic | since: Map.delete(since, :wind_down_from)}
+  end
+
+  defp track_restock(logic, _abaixo_do_limiar_ou_sem_conta, _config), do: logic
 
   defp latch_heavy(logic, %{heavy?: true}), do: %{logic | heavy_area?: true}
   defp latch_heavy(logic, _light_or_unread), do: logic
@@ -864,6 +875,11 @@ defmodule Pokex.Bots.Engine.Logic do
       # classified, and wrong when there is no pokémon configured at all. This
       # branch is the second case, said out loud instead of narrated as a fight.
       opening(t) == [] -> handless(t)
+      # O ENCERRAMENTO ENTRA NO LUGAR DA CAÇADA, e só dela. Tudo que luta fica
+      # acima: a corrente termina, o reset do combo compra a barra de volta, o
+      # amarelo gasta os cooldowns, a emergência gasta o que sobrou. O que para
+      # é COMEÇAR — juntar mobada, andar a rota, abrir pilha nova.
+      winding_down?(t) -> winding_down(t)
       true -> normal(t)
     end
   end
@@ -1009,6 +1025,91 @@ defmodule Pokex.Bots.Engine.Logic do
          Orders.walking(:downed, t.band, "sem pokémon em campo — nada a atacar até ele voltar")}
     end
   end
+
+  # O ENCERRAMENTO DA NOITE, quando o bolso está acabando.
+  #
+  # MEDIDO na noite de 12→13/09: 879 revives em 4h40, UM A CADA 19 SEGUNDOS (o
+  # ciclo do Auto Combo: uma corrente, um revive). A bag é o limite real da
+  # noite, e entre ela secar (02:20:42, o último revive que levantou a vida) e o
+  # personagem ficar a 4% de vida passaram VINTE E DOIS SEGUNDOS. Nenhuma
+  # cadência de alarme cabe nessa janela; só antecedência cabe.
+  #
+  # Então o fim da noite deixa de ser um freio e passa a ser uma MANOBRA, e ela
+  # é a que ele descreveu: "a batalha não tenta começar, só mata o que está lá
+  # ainda; a parte de andar para de andar; e assim que estiver sem batalha ele
+  # fica tentando dar logout por alguns minutos, porque o logout não funciona
+  # enquanto eu estiver em batalha".
+  #
+  # NÃO É UMA TRAVA, e é por isso que ela não é `:stranded`. "Se a gente perder
+  # a edição disso durante a noite por conta de algum glitch, não queria que a
+  # gente travasse tudo" (13/09): um número errado aqui custa o fim da caçada,
+  # não a noite parada no meio do mapa — a luta aberta termina, a bola ainda
+  # sai, e o que sobra no bolso continua disponível pra emergência (a fila
+  # acima).
+  defp winding_down?(t) do
+    t.config.wind_down_at > 0 and
+      is_integer(Map.get(t.s, :revive_left)) and
+      t.s.revive_left <= t.config.wind_down_at
+  end
+
+  defp winding_down(t) do
+    logic = t.logic |> mark_wind_down(t.now) |> enter(:winding_down, t.now)
+    t = %{t | logic: logic}
+
+    cond do
+      # Passou da insistência sem conseguir sair: o jogo não aceitou o logout em
+      # nenhuma janela limpa. Aí o freio antigo assume, a frota bloqueia, e o
+      # conserto é de gente.
+      gave_up_winding_down?(t) ->
+        {%{logic | state: :stranded},
+         Orders.standing(
+           :stranded,
+           t.band,
+           "#{div(wound_for(t), 60_000)}min tentando encerrar sem conseguir sair do jogo — " <>
+             "parando a caçada com #{t.s.revive_left} revive(s) no bolso"
+         )}
+
+      # Ainda tem bicho aberto: TERMINA. Os pés já estão parados; o fogo segue
+      # livre porque o logout só é aceito fora de batalha — matar o que está na
+      # tela É o caminho pra porta.
+      t.s.enemies > 0 ->
+        {logic,
+         Orders.standing_and_firing(
+           :winding_down,
+           t.band,
+           opening(t),
+           "#{t.s.revive_left} revive(s) no bolso — encerrando: " <>
+             "terminando os #{t.s.enemies} que já estão na tela, sem chamar mais ninguém"
+         )}
+
+      # Tela limpa: é ESTA a janela em que o jogo aceita sair. Quem aperta é o
+      # worker, que lê esta fase.
+      true ->
+        {logic,
+         Orders.standing(
+           :winding_down,
+           t.band,
+           "#{t.s.revive_left} revive(s) no bolso e a tela limpa — " <>
+             "encerrando a noite: tentando sair do jogo"
+         )}
+    end
+  end
+
+  # O RELÓGIO DA DESISTÊNCIA É PEGAJOSO, e precisa ser: a fase sai e volta a
+  # cada luta que a caçada termina, e ancorado em `enter/3` (que remarca na
+  # borda) o prazo reiniciaria a cada bicho — o encerramento nunca chegaria ao
+  # freio antigo. Ele conta desde a PRIMEIRA vez que o bolso cruzou o limiar, e
+  # só zera quando o bolso volta a ter estoque (ele repôs).
+  defp mark_wind_down(%{since: since} = logic, now) do
+    if Map.has_key?(since, :wind_down_from),
+      do: logic,
+      else: mark(logic, :wind_down_from, now)
+  end
+
+  defp wound_for(t), do: t.now - Map.get(t.logic.since, :wind_down_from, t.now)
+
+  defp gave_up_winding_down?(t),
+    do: t.config.wind_down_ms > 0 and wound_for(t) >= t.config.wind_down_ms
 
   # After `recover_timeout_ms` on the floor the asking SLOWS DOWN instead of
   # stopping: a handful of presses that changed nothing are enough to say the

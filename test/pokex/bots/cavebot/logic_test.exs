@@ -129,6 +129,33 @@ defmodule Pokex.Bots.Cavebot.LogicTest do
              Logic.step(lutando, Map.put(world({10, 10, 7}, 5), :stranded?, true), 0)
   end
 
+  # …E O PORQUÊ VIAJA JUNTO. `:stranded` tem QUATRO causas — o bolso vazio, o
+  # revive que não devolve, a tela ilegível e o encerramento que não conseguiu
+  # sair do jogo — e o bloqueio acusava o revive em todas. Em 13/09 às 07:21 a
+  # causa foi uma janela por cima do jogo e a mensagem mandou ele contar
+  # revives; a caçada ficou 3h27 parada com o diagnóstico apontando pro lugar
+  # errado.
+  test "the brain's own reason rides along with the block" do
+    andando = Logic.new(route(), @cfg)
+
+    mundo =
+      world({10, 10, 7})
+      |> Map.put(:stranded?, true)
+      |> Map.put(:stranded_why, "sem leitura da vida do pokémon há 8s — parando a caçada")
+
+    assert {%{state: :blocked}, {:block, {:revive_dead, motivo}}} = Logic.step(andando, mundo, 0)
+    assert motivo =~ "sem leitura da vida do pokémon"
+  end
+
+  # Sem frase, o bloqueio continua o de sempre: um cliente antigo do fato de
+  # ordens não carrega `why`, e um bloqueio mudo seria pior que o genérico.
+  test "and with no reason given it stays the plain block" do
+    andando = Logic.new(route(), @cfg)
+
+    assert {%{state: :blocked}, {:block, :revive_dead}} =
+             Logic.step(andando, Map.put(world({10, 10, 7}), :stranded?, true), 0)
+  end
+
   # O CÉREBRO SUMIU. Pior que desistir: caçar sem ele é caçar sem revive, sem
   # segurar a estrada na mobada e sem o freio do chão. Em 03/09 o cérebro parou
   # às 14:17:01 e a caçada seguiu oito minutos sozinha até o personagem morrer.

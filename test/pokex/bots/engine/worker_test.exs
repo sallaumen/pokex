@@ -24,6 +24,74 @@ defmodule Pokex.Bots.Engine.WorkerTest do
     %{worker: worker}
   end
 
+  # O JOGO VOLTA PRA FRENTE SOZINHO. Em 13/09 às 07:21 outro programa abriu uma
+  # janela por cima do jogo: os TRÊS leitores apagaram juntos, a leitura piscou
+  # sete vezes em 30 s, e oito segundos depois a caçada parou — e ficou parada
+  # 3h27. O `Focus` não viu nada, porque a janela cobriu o jogo sem roubar o
+  # foco. Subir a janela do jogo conserta os dois casos com uma ação só.
+  describe "o resgate da janela" do
+    defp cego_por(worker, ms) do
+      :sys.replace_state(worker, fn state ->
+        %{state | running?: true, hp_blind_since: System.monotonic_time(:millisecond) - ms}
+      end)
+
+      send(worker, :tick)
+      Worker.status(worker)
+    end
+
+    defp worker_que_conta(pai) do
+      {:ok, w} =
+        Worker.start_link(name: nil, active: false, front_fun: fn -> send(pai, :fronted) end)
+
+      on_exit(fn -> if Process.alive?(w), do: GenServer.stop(w) end)
+      :ok = Worker.run(w)
+      w
+    end
+
+    test "blind for longer than the deadline, it brings the game window to the front" do
+      w = worker_que_conta(self())
+      cego_por(w, 5_000)
+
+      assert_receive :fronted, 2_000
+      assert_receive {:engine_log, :macro, "quadro: 🪟" <> texto}, 2_000
+      assert texto =~ "trazendo a janela do jogo pra frente"
+    end
+
+    # Uma tentativa por vez: `front_game/0` custa dois round trips de osascript e
+    # a janela leva um instante pra subir.
+    test "and it does not fight itself: one attempt per window" do
+      w = worker_que_conta(self())
+      cego_por(w, 5_000)
+      assert_receive :fronted, 2_000
+
+      refute_receive :fronted, 800
+    end
+
+    # SÓ COM A CAÇADA RODANDO: quando ele mesmo põe uma janela na frente, a
+    # caçada está parada e nada aqui roda — resgatar não é brigar com ele pelo
+    # teclado.
+    test "with the hunt stopped it never touches the window" do
+      w = worker_que_conta(self())
+
+      :sys.replace_state(w, fn state ->
+        %{state | running?: false, hp_blind_since: System.monotonic_time(:millisecond) - 5_000}
+      end)
+
+      send(w, :tick)
+      Worker.status(w)
+
+      refute_receive :fronted, 800
+    end
+
+    test "the knob at zero turns it off" do
+      Pokex.SettingsStash.stash!(focus_recover_after_ms: 0)
+      w = worker_que_conta(self())
+      cego_por(w, 5_000)
+
+      refute_receive :fronted, 800
+    end
+  end
+
   defp see(names) do
     detail =
       names

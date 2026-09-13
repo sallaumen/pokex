@@ -99,6 +99,14 @@ defmodule PokexWeb.ConfigLive do
           keywords: "reserva emergência orçamento"
         },
         %{
+          key: :focus_recover_after_ms,
+          kind: :ms,
+          label: "Resgatar a janela depois de",
+          hint:
+            "Cego por mais que isto durante a caçada, o bot traz a janela do jogo pra FRENTE em vez de só reclamar — outro programa pode ter aberto algo por cima. Só com a caçada rodando: quando VOCÊ põe uma janela na frente, a caçada está parada e nada acontece. 0 desliga.",
+          keywords: "foco janela frente resgate cego por cima outro programa"
+        },
+        %{
           key: :engine_wind_down_at,
           kind: :int,
           label: "Encerrar a noite com",

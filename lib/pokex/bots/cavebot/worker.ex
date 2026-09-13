@@ -446,6 +446,14 @@ defmodule Pokex.Bots.Cavebot.Worker do
         # the night. Logic turns it into a DANGEROUS block that stops the fleet and does
         # not come back on its own; see `Engine.Logic`, the floor brake.
         stranded?: Map.get(orders, :phase) == :stranded,
+        # …E O PORQUÊ, na voz do cérebro. O bloqueio dizia SEMPRE "o revive não
+        # devolve o pokémon — estoque no fim?", e `:stranded` tem quatro causas:
+        # o bolso vazio, o revive que não devolve, a TELA ilegível e o
+        # encerramento que não conseguiu sair do jogo. Em 13/09 às 07:21 a causa
+        # foi uma janela por cima do jogo e a mensagem mandou ele contar
+        # revives — a caçada ficou 3h27 parada e o diagnóstico apontava pro
+        # lugar errado.
+        stranded_why: Map.get(orders, :why),
         # Waiting for cooldown is not a stall: with the bar spent the screen stays
         # identical for tens of seconds, and the stalemate clock must not count that as
         # a stalled fight; see `Logic.stall_or_wait/5`.
@@ -753,6 +761,12 @@ defmodule Pokex.Bots.Cavebot.Worker do
   end
 
   defp block_text(:floor_changed), do: "BLOQUEADO: mudou de andar"
+
+  # A FRASE DO CÉREBRO, quando ele deu uma: `:stranded` tem quatro causas (o
+  # bolso vazio, o revive que não devolve, a tela ilegível, o encerramento que
+  # não conseguiu sair) e a frase fixa acusava o revive em todas.
+  defp block_text({:revive_dead, why}) when is_binary(why),
+    do: "BLOQUEADO: " <> why <> " — conserte e solte a caçada de novo"
 
   defp block_text(:revive_dead),
     do:

@@ -515,6 +515,12 @@ defmodule Pokex.Settings do
     pause_when_unfocused: true,
     # How often the Focus poller checks the frontmost app.
     focus_poll_ms: 250,
+    # O RESGATE DA JANELA. Cego durante a caçada por mais que isto, o bot traz o
+    # jogo pra FRENTE em vez de só reclamar: outro programa abriu uma janela por
+    # cima e os três leitores (minimapa, painel do pokémon, barra de skills)
+    # apagam juntos. Medido em 13/09 às 07:21 — a leitura piscou 7 vezes em 30 s
+    # e a caçada parou pra sempre 8 s depois, perdendo 3h27. 0 desliga.
+    focus_recover_after_ms: 3_000,
     # Calibration on ONE monitor: "Capturar tela" fronts the GAME, waits this long for it to
     # render (fullscreen games need a beat after the focus switch),
     calibration_front_delay_ms: 700,
@@ -1014,6 +1020,7 @@ defmodule Pokex.Settings do
     watchman_grace_ms: 0..120_000,
     watchman_stale_ms: 1_000..600_000,
     watchman_sample_ms: 100..60_000,
+    focus_recover_after_ms: 0..600_000,
     focus_settle_ms: 0..60_000,
     engine_crowd_from: 1..20,
     engine_spent_keys_left: 0..9,

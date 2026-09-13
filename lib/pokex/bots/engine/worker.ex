@@ -48,6 +48,7 @@ defmodule Pokex.Bots.Engine.Worker do
   alias Pokex.Bots.Engine.Situation
   alias Pokex.Bots.HuntMode
   alias Pokex.Bots.Logout
+  alias Pokex.GameFocus
   alias Pokex.Bots.Catcher.Fact
   alias Pokex.Bots.ShinyGuard
   alias Pokex.Bots.{ReviveLedger, SkillClock}
@@ -92,7 +93,12 @@ defmodule Pokex.Bots.Engine.Worker do
       # O ENCERRAMENTO: quando o último pedido de logout saiu. A porta do jogo
       # só abre FORA de batalha (#619), então o cérebro segura a fase
       # `:winding_down` e quem aperta é aqui, uma vez por janela limpa.
-      logout_asked_at: nil
+      logout_asked_at: nil,
+      # O RESGATE DA JANELA: quando o jogo foi trazido pra frente da última vez,
+      # e a mão que o traz — injetada como a do `Focus`, pra que a suíte não
+      # chame osascript. Ver `rescue_the_window/2`.
+      fronted_at: nil,
+      front_fun: Keyword.get(opts, :front_fun, &GameFocus.front_game/0)
     }
 
     case Keyword.get(opts, :name, __MODULE__) do
@@ -210,6 +216,7 @@ defmodule Pokex.Bots.Engine.Worker do
     |> narrate(picture, orders)
     |> watch_hp_blindness(picture, now)
     |> watch_bar_blindness(picture, now)
+    |> rescue_the_window(now)
     |> sample_vitals(picture, orders, now, config, mode)
     |> Map.merge(%{picture: picture, orders: orders, logic: logic})
     |> tap(&broadcast({:engine, &1.picture, &1.orders}))
@@ -244,6 +251,60 @@ defmodule Pokex.Bots.Engine.Worker do
 
   defp knock_on_the_door(state, _picture, _outra_fase, _now),
     do: %{state | logout_asked_at: nil}
+
+  # O JOGO VOLTA PRA FRENTE SOZINHO.
+  #
+  # Em 13/09 às 07:21 outro programa abriu uma janela por cima do jogo. Os TRÊS
+  # leitores apagaram juntos e o diário disse, com todas as letras, o que estava
+  # acontecendo: "não há número nenhum na faixa do minimapa: alguma janela está
+  # POR CIMA dele". A leitura piscou SETE VEZES em 30 segundos, e oito segundos
+  # depois `hp_blind_stop` parou a caçada — que ficou parada 3h27, até ele
+  # acordar.
+  #
+  # O `Focus` não viu nada: ele compara o app FRONTMOST, e a janela cobriu o jogo
+  # sem roubar o foco (nenhuma linha de foco no diário nessa hora). E ele não
+  # traria o jogo de volta nem se tivesse visto — o modelo dele é à prova de
+  # falha por projeto ("unfocused means DON'T ACT, no attempt to force focus
+  # back"), escrito depois da noite em que o bot digitou centenas de teclas em
+  # janelas aleatórias.
+  #
+  # Essa política continua valendo pro `Focus`. O que muda é AQUI, e só aqui: o
+  # cérebro cego no meio de uma caçada não está tentando adivinhar se tem foco —
+  # ele SABE que precisa agir e SABE que não está enxergando. Trazer o jogo pra
+  # frente conserta os dois casos com uma ação só: se o foco foi roubado, volta;
+  # se a janela só cobria, subir o jogo a descobre. E não aperta tecla nenhuma —
+  # quem libera a prensa continua sendo o portão do `Focus`, na leitura dele.
+  #
+  # SÓ COM A CAÇADA RODANDO, que é a diferença entre resgatar e brigar com ele
+  # pelo teclado: quando ele mesmo põe uma janela na frente, a caçada está
+  # parada e nada aqui roda.
+  defp rescue_the_window(state, now) do
+    cego_desde = state.hp_blind_since || state.bar_blind_since
+    prazo = Settings.get(:focus_recover_after_ms)
+
+    if state.running? and prazo > 0 and is_integer(cego_desde) and now - cego_desde >= prazo and
+         due_to_front?(state, now) do
+      state.front_fun.()
+
+      log(
+        :macro,
+        "🪟 #{div(now - cego_desde, 1_000)}s sem enxergar a tela do jogo — trazendo a janela " <>
+          "do jogo pra frente (outro programa pode ter aberto algo por cima)"
+      )
+
+      %{state | fronted_at: now}
+    else
+      state
+    end
+  end
+
+  # Uma tentativa por `@front_again_ms`: `front_game/0` custa dois round trips de
+  # osascript e a janela leva um instante pra subir. Insistir a cada tique seria
+  # o bot brigando consigo mesmo.
+  @front_again_ms 5_000
+
+  defp due_to_front?(%{fronted_at: nil}, _now), do: true
+  defp due_to_front?(%{fronted_at: at}, now), do: now - at >= @front_again_ms
 
   # A CEGUEIRA DITA EM VOZ ALTA. A barra do pokémon sem leitura por mais que
   # `hp_blind_after_ms` durante a caçada é o suporte inteiro fora do ar — e o

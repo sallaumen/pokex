@@ -207,7 +207,7 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   # The brain gave up on the revive.
   def step(%__MODULE__{} = logic, %{stranded?: true} = world, _now),
-    do: {%{track_hp(logic, world) | state: :blocked}, {:block, :revive_dead}}
+    do: {%{track_hp(logic, world) | state: :blocked}, {:block, stranded(world)}}
 
   # The brain vanished: worse than giving up, because nobody is left to say so. Hunting
   # without it is hunting without revive, without the road hold in the mob and without the
@@ -277,6 +277,14 @@ defmodule Pokex.Bots.Cavebot.Logic do
 
   # ONLY the floor holds the route now: there is nothing on the field, so walking on would drag
   # the character alone into the next pile.
+  # O motivo viaja junto quando o cérebro deu um: são quatro causas diferentes
+  # com quatro consertos diferentes, e a frase única mandava procurar no lugar
+  # errado em três delas.
+  defp stranded(%{stranded_why: why}) when is_binary(why) and why != "",
+    do: {:revive_dead, why}
+
+  defp stranded(_sem_frase), do: :revive_dead
+
   defp track_hp(%__MODULE__{} = logic, world) do
     %{logic | last_hp: Map.get(world, :hp_pct), recovering?: Map.get(world, :fainted?, false)}
   end

@@ -161,6 +161,40 @@ defmodule Pokex.Bots.Catcher.Narration do
   def hunt_hold(_livre), do: nil
 
   @doc """
+  Por que a bola da ÂNCORA não saiu na queda — e qual dos portões a recusou.
+
+  A linha era uma só, "a âncora caiu com a estrada andando", e ela mentia na
+  maioria das vezes: `standing?/0` são TRÊS perguntas e a frase acusava sempre a
+  primeira. Em 12/09 ele descreveu o sintoma ("ele não está nem tentando lançar
+  a Pokébola nesses cenários") justamente no cenário em que o shiny cai com
+  sobrevivente em pé — que é o portão da TELA, não o da estrada. Dez adiamentos
+  em três horas, e o diário não sabia dizer de qual se tratava.
+
+  A mesma trinca do `hunt_hold/1`, dita na hora da queda: o portão que recusou é
+  o que precisa mudar pra bola sair.
+  """
+  @spec anchor_hold(map) :: String.t()
+  def anchor_hold(%{road_held?: false, screen_clear?: false}),
+    do:
+      "🌟 a âncora caiu com a estrada andando E bicho vivo na tela — " <>
+        "a bola fica pra hora da bola"
+
+  def anchor_hold(%{road_held?: false}),
+    do: "🌟 a âncora caiu com a estrada andando — a bola fica pra hora da bola"
+
+  def anchor_hold(%{screen_clear?: false, enemies: n}) when is_integer(n),
+    do:
+      "🌟 a âncora caiu com #{n} bicho(s) vivo(s) na tela (a estrada estava parada) — " <>
+        "a bola fica pra hora da bola"
+
+  def anchor_hold(%{screen_clear?: false}),
+    do:
+      "🌟 a âncora caiu sem leitura da tela (a estrada estava parada) — " <>
+        "a bola fica pra hora da bola"
+
+  def anchor_hold(_outro), do: "🌟 a âncora caiu e a bola não pôde sair — fica pra hora da bola"
+
+  @doc """
   O acervo É a mira — começar com o acervo vazio é mirar em NADA a sessão
   inteira, o que merece sirene, não silêncio.
   """

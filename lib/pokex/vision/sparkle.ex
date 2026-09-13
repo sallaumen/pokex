@@ -156,7 +156,16 @@ defmodule Pokex.Vision.Sparkle do
   # letter a pixel or two away, and each wears the font's black outline over
   # a ground that is not black. The star has neither.
   defp star?(component, blobs, frame, scale) do
-    {x_min, y_min, x_max, y_max} = bbox(component)
+    box = bbox(component)
+
+    glyph_sized?(component, box, scale) and
+      cross?(component, box) and
+      hollow_corners?(component, box) and
+      alone?(box, component, blobs, scale) and
+      not outlined?(component, frame)
+  end
+
+  defp glyph_sized?(component, {x_min, y_min, x_max, y_max}, scale) do
     w = x_max - x_min + 1
     h = y_max - y_min + 1
     px = MapSet.size(component)
@@ -165,10 +174,7 @@ defmodule Pokex.Vision.Sparkle do
     side_max = @side_max * scale
 
     w >= side_min and w <= side_max and h >= side_min and h <= side_max and
-      px >= @px_min * scale * scale and px >= @fill_min * w * h and
-      cross?(component, {x_min, y_min, x_max, y_max}) and
-      alone?({x_min, y_min, x_max, y_max}, component, blobs, scale) and
-      not outlined?(component, frame)
+      px >= @px_min * scale * scale and px >= @fill_min * w * h
   end
 
   # A 4-POINT STAR IS A CROSS: its middle column runs the whole height and its
@@ -195,6 +201,46 @@ defmodule Pokex.Vision.Sparkle do
 
     column >= @cross_column_min * (y_max - y_min + 1) and
       row >= @cross_row_min * (x_max - x_min + 1)
+  end
+
+  # A 4-POINT STAR IS EMPTY AT ITS CORNERS — and a SOLID BLOCK is not.
+  #
+  # "Uns 50% dos shinies que alertam na vdd sao pokemons normais" (13/09). The
+  # yellow of an attack effect drawn over a common creature, clipped by the
+  # window above into a block of 9-10 × 19-20 px, passed every other test here:
+  # it is big (139-173 px), it stands alone (the rest of the effect falls
+  # outside the window), the ground behind it is not black, and `cross?` asks
+  # whether the middle column and the middle row are filled — which a block
+  # answers yes to. After 17:00 of 13/09 that was 52 of 73 sightings (71 %),
+  # against 34 of 372 before it.
+  #
+  # Measured on the three raw stars of 11/09 and on the live star of 13/09
+  # (51 px in a 13×15 box): 0 % of the four corner thirds. On the blocks of
+  # 13/09: 67-75 %, and 29 % for the burst of an explosion.
+  @corner_max 0.15
+
+  defp hollow_corners?(component, {x_min, y_min, x_max, y_max}) do
+    cw = max(div(x_max - x_min + 1, 3), 1)
+    ch = max(div(y_max - y_min + 1, 3), 1)
+
+    corners = [
+      {x_min, y_min},
+      {x_max - cw + 1, y_min},
+      {x_min, y_max - ch + 1},
+      {x_max - cw + 1, y_max - ch + 1}
+    ]
+
+    filled =
+      Enum.sum(
+        for {cx, cy} <- corners do
+          Enum.count(
+            for(x <- cx..(cx + cw - 1), y <- cy..(cy + ch - 1), do: {x, y}),
+            &MapSet.member?(component, &1)
+          )
+        end
+      )
+
+    filled <= @corner_max * 4 * cw * ch
   end
 
   # letters sit a pixel or two apart on one baseline; a star has no such neighbour

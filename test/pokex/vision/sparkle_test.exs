@@ -113,6 +113,31 @@ defmodule Pokex.Vision.SparkleTest do
     end
   end
 
+  # 13/09, THE FALSE ALARMS: "to sentindo também muito falsos alertas de shiny
+  # (…) uns 50% dos shinies que alertam na vdd sao pokemons normais". The yellow
+  # of an attack effect drawn over a common creature, clipped by the search
+  # window into a block of 9-10 × 19-20 px, passed every test this detector had:
+  # it is big (139-173 px), it is alone in the window (the rest of the effect is
+  # outside it), the ground behind it is not black — and `cross?` asks whether
+  # the middle column and the middle row are filled, which a SOLID BLOCK answers
+  # yes to. After 17:00 of 13/09 that was 52 of 73 sightings (71 %), against 34
+  # of 372 before it.
+  #
+  # What a block cannot do is leave its four corners empty. Measured: the three
+  # raw stars of 11/09 and the live star of 13/09 fill 0 % of their corners; the
+  # blocks below fill 67-75 %, and the burst of the explosion 29 %.
+  for n <- 1..3 do
+    test "a block of an attack's yellow beside a common name is not a star (#{n})" do
+      frame = frame!("attack_glow_#{unquote(n)}.png")
+      assert Sparkle.find(frame, [%{point: {140, 40}}]) == []
+    end
+  end
+
+  test "the burst of an explosion beside a common name is not a star" do
+    frame = frame!("attack_burst.png")
+    assert Sparkle.find(frame, [%{point: {140, 40}}]) == []
+  end
+
   test "a mark near the frame's edge is looked at without crashing" do
     frame = frame!("feraligatr_common.png")
     assert Sparkle.find(frame, [%{point: {2, 2}}, %{point: {279, 139}}]) == []

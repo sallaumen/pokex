@@ -603,7 +603,16 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   # The revive EFFECT judge, charged on every HP reading.
   defp judge_revive_effect(state) do
+    antes = ReviveEffect.streak(state.revive_judge)
     {judge, veredito} = ReviveEffect.tick(state.revive_judge, state.hp_pct, now())
+
+    # A BORDA EM QUE A SEQUÊNCIA ZERA é um revive que PEGOU, e isso desmente a
+    # marca da tela tão bem quanto os três fracassos a escreveram. Sem ela a
+    # marca era eterna com o orçamento desligado (`revive_stock: 0`), onde
+    # digitar o número de novo não muda número nenhum: a noite encerrava e
+    # estrandeava, e repor a bag não consertava.
+    if antes > 0 and ReviveEffect.streak(judge) == 0, do: ReviveLedger.wet!()
+
     scream_if_dead(%{state | revive_judge: judge}, veredito)
   end
 

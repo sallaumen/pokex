@@ -100,6 +100,57 @@ defmodule Pokex.Bots.LogoutTest do
     assert_receive {:logout, %{state: :out}}, 1_000
   end
 
+  # A BATIDA QUE NÃO DESARMA ANTES DE TENTAR.
+  #
+  # `request/2` trava o portão e para a frota ANTES de apertar, porque sair do
+  # jogo encerra a sessão. Certo pro caso normal e FATAL pro encerramento da
+  # noite: o `Engine.Worker` está no `@default_fleet`, então a primeira batida
+  # mataria o cérebro que bateria de novo — a insistência vira uma batida só, o
+  # prazo de desistência nunca vence, e uma porta que não abre (o jogo recusa o
+  # Ctrl+Q em batalha, #619) deixa a frota parada com o personagem de pé. Foi
+  # isso duas vezes em 12→13/09, 3h07 e 3h27 paradas.
+  describe "knock/2: o desarme é consequência de sair, não preço de tentar" do
+    @tag :capture_log
+    test "a knock that FAILS leaves the fleet alone", ctx do
+      InputGate.set_panic_latch(false)
+      pid = start_logout(ctx, read_fun: leitor(:present), attempts_override: 2)
+
+      Logout.knock("encerrando a noite", pid)
+
+      snap = await_state(pid, :failed)
+      assert snap.error == :still_logged_in
+
+      refute_received :stopped
+      refute InputGate.panic_latched?()
+    end
+
+    test "and a knock that WORKS disarms, because the session is over", ctx do
+      InputGate.set_panic_latch(false)
+      pid = start_logout(ctx, read_fun: leitor(:gone))
+
+      Logout.knock("encerrando a noite", pid)
+
+      assert %{state: :out} = await_state(pid, :out)
+      assert_received :stopped
+      assert InputGate.panic_latched?()
+    end
+
+    # …e `request/2` continua desarmando ANTES, que é o caminho de segurança de
+    # sempre: ali quem pede é a emergência, e esperar a porta abrir pra calar os
+    # workers é tarde demais.
+    @tag :capture_log
+    test "request/2 still disarms up front, failure or not", ctx do
+      InputGate.set_panic_latch(false)
+      pid = start_logout(ctx, read_fun: leitor(:present), attempts_override: 2)
+
+      Logout.request("bag seca", pid)
+
+      await_state(pid, :failed)
+      assert_received :stopped
+      assert InputGate.panic_latched?()
+    end
+  end
+
   @tag :capture_log
   test "a HUD that stays readable becomes a loud failure after the attempts", ctx do
     pid = start_logout(ctx, read_fun: leitor(:present), attempts_override: 2)

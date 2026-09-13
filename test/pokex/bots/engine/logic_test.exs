@@ -1796,6 +1796,43 @@ defmodule Pokex.Bots.Engine.LogicTest do
       refute depois.phase == :stranded
     end
 
+    # SEM LEITURA NÃO É TELA LIMPA. `enemies` é `non_neg_integer | nil`, e em
+    # Elixir `nil > 0` é VERDADE (átomo ordena acima de número): a lista
+    # ilegível caía no ramo de luta, atirava no escuro e nunca chegava à janela
+    # da porta — com a frase dizendo "terminando os  que já estão na tela".
+    test "an unreadable battle list is not a clear screen" do
+      {_logic, orders} = encerra_step(Logic.new(), acabando(%{enemies: nil}), 1_000)
+
+      assert orders.phase == :winding_down
+      assert orders.fire == :hold
+      assert orders.why =~ "ilegível"
+      refute orders.why =~ "terminando os"
+    end
+
+    # O NÍVEL DO PEDIDO DE REVIVE VALE AQUI TAMBÉM. `:winding_down` ficava fora
+    # do `@held_by_reset`, então o pedido morria em UM tique — o #645 de novo, e
+    # justo onde o bolso está no fim e o revive perdido é o último que havia.
+    test "the revive order is still a level while winding down" do
+      # a corrente acabou com a barra gasta e o sono fresco: é o pedido que o
+      # `combo_reset_due?` faz, e ele fica ACIMA do encerramento na fila
+      mundo =
+        acabando(%{
+          enemies: 2,
+          spent?: true,
+          combo_left_ms: 0,
+          combo_stun_age_ms: 500,
+          own_hp: 100
+        })
+
+      {logic, pedido} = encerra_step(Logic.new(), mundo, 10_000)
+      assert pedido.revive == :now
+
+      {_logic, depois} = encerra_step(logic, mundo, 10_200)
+      assert depois.revive == :now
+      assert depois.phase == :winding_down
+      assert depois.why =~ "o revive pedido continua de pé"
+    end
+
     # O QUE LUTA FICA ACIMA. A emergência gasta o que sobrou no bolso — o
     # encerramento entra no lugar da CAÇADA, não no lugar da defesa.
     test "red still spends the last revives: the wind-down replaces the HUNT only" do

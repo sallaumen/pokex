@@ -1,53 +1,59 @@
 defmodule Pokex.Screen.BarOffset do
   @moduledoc """
-  Onde está o CORPO, dado o ponto da BARRA.
+  Onde está o CORPO, dado o ponto que o olho PUBLICA de uma criatura.
 
-  Tudo que este bot sabe sobre onde um bicho está vem da barra de vida dele: o
-  `point` de um hostil é o centro da barra (`Pokex.Bots.CrowdScan`), e a barra
-  flutua acima da cabeça. Pra decidir tile — "a três de você" — isso não importa,
-  porque `offset/3` divide por tile e ARREDONDA, e meio tile some no
-  arredondamento. Foi por isso que ninguém viu.
+  Tudo que este bot sabe sobre onde um bicho está vem da barra de vida dele. O
+  `point` de um hostil (`Pokex.Bots.CrowdScan`) não é a barra crua: `place/4`
+  soma UM TILE à marca antes de publicar, porque "o corpo fica um tile abaixo da
+  barra" (`Pokex.Vision.CreatureMarks`). Pra decidir tile isso some no
+  arredondamento de `offset/3`. Pra APONTAR O MOUSE não some, e é o único lugar
+  onde importa.
 
-  Pra APONTAR O MOUSE importa, e é o único lugar onde importa.
+  ## Medido no quadro dele (14/09, caixa-preta `20260914T025428Z-shiny`)
 
-  ## Medido no rastro dele (13/09)
+  A régua é o próprio personagem, que é o único ponto marcado à mão e portanto o
+  único que não se discute:
 
-  33 marcas das caixas-pretas de incidente, cada uma comparando o `point` da
-  barra com o corpo que o próprio `{dx, dy}` da marca aponta
-  (`me + {dx, dy} * tile`):
+      player_point (1695, 686) ....... no corpo dele, altura da cintura
+      a linha do NOME dele ........... y 617, na cabeça  → 69 px acima
 
-      vertical    -70 px  ·  16 marcas
-                  -69 px  ·  15 marcas
-                  outros ·   2 marcas
+  E os Golem colados nele, uma casa abaixo:
 
-      horizontal  +25 px  ·  22 marcas
-                  outros ·  11 marcas
+      marca crua da barra ............ y 767
+      corpo do Golem ................. y ~836   → 69 px abaixo da barra
+      ponto PUBLICADO (marca + tile) . y 918    → 82 px ABAIXO do corpo
 
-  Ou seja: a barra fica **70 px acima e 25 px à direita** do corpo. Num tile de
-  151 px isso é quase meia casa pra cima — a bola era mirada na fronteira entre
-  o tile do corpo e o de cima, e caía num ou noutro conforme o arredondamento do
-  jogo. "Mais erra do que acerta hoje em dia" (Lucas, 13/09), com ele jogando as
-  bolas na mão pra compensar.
+  Ou seja: a barra flutua **69 px** sobre o corpo, não os 151 que o `+ tile`
+  assume. O tile a mais joga o ponto 82 px abaixo do bicho — meia casa — e é por
+  isso que a bola caía no chão entre duas fileiras.
+
+  **Correção de rota (14/09):** a primeira versão desta tabela trazia
+  `{-25, 70}` e empurrava a bola 70 px pra BAIXO, dobrando o erro em vez de
+  desfazê-lo. Os `-70` de então saíram de comparar o ponto publicado com
+  `me + {dx, dy} * tile` — o que mede a sobra do ARREDONDAMENTO, não a distância
+  da barra ao corpo — e os `+25`, de `player_point` estar marcado 25 px à
+  esquerda da coluna da grade. "Ele jogou pra baixo, tem que ser mais pra cima"
+  (Lucas, 14/09).
 
   ## Por que uma tabela por tela, e não uma conta
 
-  Não escala com o tile: no ultrawide a barra flutua 70 px sobre um tile de 151
-  (0,46 casa) e no notebook ~36 px sobre um tile de 36 (uma casa inteira). São
-  duas geometrias do cliente, não uma proporção — do mesmo jeito que
-  `Pokex.Screen.Tile` é tabela e não fórmula.
+  Não escala com o tile: no ultrawide a barra flutua 69 px sobre um tile de 151
+  (0,46 casa) e no notebook a proporção é outra. São duas geometrias do cliente,
+  não uma proporção — do mesmo jeito que `Pokex.Screen.Tile` é tabela e não
+  fórmula.
 
-  Tela não medida devolve `:unknown`, e quem pergunta continua mirando na barra
-  como sempre mirou: um palpite aqui erraria a bola de um jeito novo, e o que
-  não foi medido não entra.
+  Tela não medida devolve `:unknown`, e quem pergunta continua mirando no ponto
+  publicado como sempre mirou: um palpite aqui erraria a bola de um jeito novo, e
+  o que não foi medido não entra.
   """
 
   @measured %{
-    # o ultrawide dele: 31 de 33 marcas em -69/-70 vertical, 22 de 33 em +25
-    {3440, 1440} => {-25, 70}
+    # o ultrawide dele: 151 (o tile somado) menos 69 (a barra sobre o corpo)
+    {3440, 1440} => {0, -82}
   }
 
   @doc """
-  O vetor que leva do ponto da BARRA ao CORPO, nesta tela: `{dx, dy}` em pontos
+  O vetor que leva do ponto PUBLICADO ao CORPO, nesta tela: `{dx, dy}` em pontos
   de tela, pra somar. `:unknown` numa tela que ninguém mediu.
   """
   @spec for_screen({term, term}) :: {:ok, {integer, integer}} | :unknown
@@ -61,7 +67,7 @@ defmodule Pokex.Screen.BarOffset do
   def for_screen(_no_screen), do: :unknown
 
   @doc """
-  O ponto da barra levado até o corpo, na tela salva na calibração.
+  O ponto publicado levado até o corpo, na tela salva na calibração.
 
   Sem calibração ou numa tela não medida devolve o ponto como veio — nunca um
   palpite.

@@ -499,6 +499,22 @@ defmodule Pokex.Settings do
     # que a COR apontou — e um shiny que a cor não marcou naquele instante fica
     # pra trás sem bola nenhuma.
     capture_whole_trail: true,
+    # QUANTO TEMPO UMA BARRA CAÇADA PODE ESTAR VELHA E AINDA VIRAR CORPO.
+    #
+    # O corpo fica onde a barra estava JUSTO antes do brilho sair; uma barra
+    # perdida há muito mais que isto ANDOU, e a bola cairia em chão vazio.
+    #
+    # Nasceu 6 s e era curto pra briga longa: numa de 5-6 revives a barra do
+    # shiny fica coberta pelo pet e pela névoa da corrente bem mais que isso, e
+    # quando a pilha zera a última leitura já é velha — um terço das brigas com
+    # brilho na tela não produzia a linha `caiu em` (medido em 14/09).
+    #
+    # ELE PEDIU 15 s EM 14/09, E O REPLAY DE 19:50 DE 11/09 DIZ O PREÇO: as 12
+    # quedas daquele episódio viram 1 corpo de shiny e 11 barras velhas, SEIS
+    # delas dentro da tela — seis bolas em chão vazio pra uma captura. Por isso
+    # o padrão fica em 6 s e o número virou DIAL: dá pra subir no /config, sem
+    # deploy, e medir a noite com o alarme de bolas secas.
+    corpse_fresh_ms: 6_000,
     corpse_ignore_ttl_ms: 45_000,
     corpse_confirm_after_ms: 800,
     # N consecutive balls resolved WITHOUT a confirmed capture → :capture

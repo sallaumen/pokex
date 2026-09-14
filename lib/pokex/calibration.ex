@@ -16,14 +16,9 @@ defmodule Pokex.Calibration do
     :battle_region,
     :neutral_point,
     # The character's screen position: the anchor EVERYTHING about the world
-    # hangs off — the corpse search square, the mini-game box, the reposition.
+    # hangs off — the corpse search square, the reposition.
     # Unmarked, the centre of the screen.
     :player_point,
-    # Optional: a DEDICATED strip where the mini-game bar appears (marked from
-    # the fishing spot the player always uses). When set, the mini-game worker
-    # watches ONLY this region and searches all of it. Without it, the box is
-    # DERIVED from the character and the skill bar — see mini_game_region/1.
-    :mini_game_region,
     # HAND-MARKED position & minimap (2026-07-30): the map rectangle, the character's FIXED
     # cross (the map slides under it) and the textual coordinate strip.
     :minimap_region,
@@ -79,45 +74,9 @@ defmodule Pokex.Calibration do
   end
 
   @doc """
-  Where the fishing mini-game bar is, resolved.
-
-  The HAND wins. The auto-layout "fixed" strip was an ABSOLUTE screen
-  coordinate ({3067, 800, ...}, glued to the battle list) — proven stable when
-  the game's PANELS moved, but the proof assumed the WINDOW never moved. On
-  2026-07-30 it did (same root as the minimap at y=-132): the strip pointed at
-  the wrong place and still silently VETOED the manual calibration. Inverted:
-  the hand-marked value always wins; without it, the strip is DERIVED from the
-  CHARACTER, which is where the game draws the bar — one anchor, already
-  calibrated, moving with the HUD, so a resolution change re-derives by itself.
-  """
-  # The hand mark always wins; otherwise the strip is DERIVED from the CHARACTER — the one
-  # anchor the game itself draws the bar over.
-  def mini_game_region(%__MODULE__{mini_game_region: region}) when is_tuple(region), do: region
-  def mini_game_region(%__MODULE__{} = calib), do: derived_mini_game_region(calib)
-
-  @doc """
-  The strip the anchors SUGGEST, ignoring any hand mark — what the calibration
-  page draws on the screenshot so he can accept it with one click instead of
-  clicking two corners (his ask, 2026-08-10: "quando for pra calibrar ele ter
-  essa sugestão, mostrando como ficaria na tela").
-  """
-  def derived_mini_game_region(%__MODULE__{player_point: {px, py}}) do
-    width = max(Pokex.Settings.get(:mini_game_bar_width_px), 1)
-    centre = px + Pokex.Settings.get(:mini_game_bar_offset_px)
-    top = max(py - Pokex.Settings.get(:mini_game_above_px), 0)
-    height = max(Pokex.Settings.get(:mini_game_strip_height_px), 1)
-
-    {centre - div(width, 2), top, width, height}
-  end
-
-  # The MARKED character, never `player_point/1`'s screen-centre fallback: a strip hung off a
-  # guessed anchor is guess number three, and the first two both failed
-  def derived_mini_game_region(%__MODULE__{}), do: nil
-
-  @doc """
-  Where the MINIMAP is, resolved — the HAND wins, auto-layout is the fallback
-  (same inversion as the mini-game): layout regions are anchored on
-  `battle_header` and die when the game window moves — exactly the drift class
+  Where the MINIMAP is, resolved — the HAND wins, auto-layout is the fallback:
+  layout regions are anchored on `battle_header` and die when the game window
+  moves — exactly the drift class
   that blinded the cavebot (2026-07-30).
   """
   def minimap_region(%__MODULE__{minimap_region: region}) when is_tuple(region), do: region
@@ -214,7 +173,6 @@ defmodule Pokex.Calibration do
       "battle_region" => to_list(calib.battle_region),
       "neutral_point" => to_list(calib.neutral_point),
       "player_point" => to_list(calib.player_point),
-      "mini_game_region" => to_list(calib.mini_game_region),
       "minimap_region" => to_list(calib.minimap_region),
       "minimap_player_point" => to_list(calib.minimap_player_point),
       "minimap_coord_region" => to_list(calib.minimap_coord_region),
@@ -257,7 +215,6 @@ defmodule Pokex.Calibration do
       battle_region: to_tuple(map["battle_region"]),
       neutral_point: to_tuple(map["neutral_point"]),
       player_point: to_tuple(map["player_point"]),
-      mini_game_region: to_tuple(map["mini_game_region"]),
       minimap_region: to_tuple(map["minimap_region"]),
       minimap_player_point: to_tuple(map["minimap_player_point"]),
       minimap_coord_region: to_tuple(map["minimap_coord_region"]),
@@ -611,7 +568,7 @@ defmodule Pokex.Calibration do
   defp same_shape?({w, h}, {cw, ch}), do: abs(round(h * cw / w) - ch) <= 1
 
   @geometry ~w(water_point glow_region battle_region neutral_point player_point
-               mini_game_region minimap_region minimap_player_point minimap_coord_region
+               minimap_region minimap_player_point minimap_coord_region
                pokemon_spot_point escape_point skill_bar_region pokemon_hp_region
                pokemon_photo_point player_hp_region)a
 

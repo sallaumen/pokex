@@ -32,7 +32,7 @@ defmodule Pokex.Modes do
 
   @bundles %{
     "still" => %{
-      workers: [:fishing, :combat, :catcher, :mini_game, :player_support, :timers],
+      workers: [:fishing, :combat, :catcher, :player_support, :timers],
       settings: %{capture_enabled: true, reposition_enabled: true}
     },
     "moving" => %{
@@ -76,17 +76,6 @@ defmodule Pokex.Modes do
 
   @doc "The workers `mode` runs."
   def workers(mode), do: bundle(mode).workers
-
-  @doc """
-  Does `mode` watch for the fishing mini-game?
-
-  The capsule only ever appears over a rod, so the whole mini-game apparatus (the watcher, the
-  fact, and every peer that holds itself on it) belongs to the fishing mode and nowhere else.
-  Asking the MODE, instead of trusting that the watcher happens not to be up, is what makes
-  "there is no mini-game outside fishing" a property of the bot rather than a coincidence of
-  which workers were started.
-  """
-  def watches_mini_game?(mode \\ current()), do: :mini_game in workers(mode)
 
   @doc """
   Switches to `mode` and writes its whole bundle.

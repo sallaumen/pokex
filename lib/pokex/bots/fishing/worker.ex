@@ -21,7 +21,6 @@ defmodule Pokex.Bots.Fishing.Worker do
   alias Pokex.Bots.Fishing.Logic
   alias Pokex.Bots.InputGate
   alias Pokex.Calibration
-  alias Pokex.Perception
   alias Pokex.Preflight
   alias Pokex.Settings
 
@@ -45,7 +44,7 @@ defmodule Pokex.Bots.Fishing.Worker do
 
   @impl true
   def init(body),
-    do: {:ok, %{logic: nil, calib: nil, body: body, timer: nil, held?: false, gated?: false}}
+    do: {:ok, %{logic: nil, calib: nil, body: body, timer: nil, gated?: false}}
 
   @impl true
   def handle_call(:run, _from, state) do
@@ -55,7 +54,7 @@ defmodule Pokex.Bots.Fishing.Worker do
       {logic, actions} = Logic.start(Logic.new(config), now())
       submit(state.body, actions, humanize_max_for(logic))
       broadcast(logic)
-      {:reply, :ok, %{state | logic: logic, calib: calib, held?: false} |> reschedule(0)}
+      {:reply, :ok, %{state | logic: logic, calib: calib} |> reschedule(0)}
     else
       {:error, messages} when is_list(messages) -> {:reply, {:error, messages}, state}
       {:error, other} -> {:reply, {:error, ["calibração ilegível: #{inspect(other)}"]}, state}
@@ -67,7 +66,7 @@ defmodule Pokex.Bots.Fishing.Worker do
   def handle_call(:halt, _from, state) do
     {logic, _actions} = Logic.stop(state.logic)
     broadcast(logic)
-    {:reply, :ok, %{cancel_timer(state) | logic: logic, held?: false}}
+    {:reply, :ok, %{cancel_timer(state) | logic: logic}}
   end
 
   def handle_call(:status, _from, state), do: {:reply, snapshot(state.logic), state}
@@ -82,24 +81,10 @@ defmodule Pokex.Bots.Fishing.Worker do
     previous = state.logic
 
     cond do
-      # The mini-game is being played: freeze this cycle (no sensing, no
-      # actions) and keep polling the fact. Nobody halts us from outside.
-      # The freeze EDGE broadcasts once so the panel shows WHY fishing stopped;
-      # the repeated polls stay silent.
-      Perception.mini_game_playing?() ->
-        if not state.held?, do: broadcast_held(previous)
-        {:noreply, reschedule(%{state | held?: true}, Logic.tick_interval(previous))}
-
-      # Resume edge: the fight for the rod is over. The frozen mid-cycle state
-      # (a glow watched 30s ago, a cast mid-settle) is garbage — restart the
-      # cast cycle fresh, exactly what the old external halt+run pair produced.
-      state.held? ->
-        {:noreply, resume_from_hold(state)}
-
       # Input gate closed: every key would be SWALLOWED with :ok and the Logic
       # would believe it — counting a cast that never hit the water (how the
       # cavebot "walked" without walking). Freeze the WHOLE cycle, sensor
-      # included, like the mini-game freeze; warn ONCE on the edge and keep
+      # included; warn ONCE on the edge and keep
       # polling until it reopens.
       not InputGate.allowed?() ->
         if not state.gated? do
@@ -140,14 +125,6 @@ defmodule Pokex.Bots.Fishing.Worker do
   # que um vizinho assinou por ele.
   @impl true
   def handle_info(_msg, state), do: {:noreply, state}
-
-  defp resume_from_hold(state) do
-    config = Config.build(state.calib, Settings.all())
-    {logic, actions} = Logic.start(Logic.new(config), now())
-    submit(state.body, actions, humanize_max_for(logic))
-    broadcast(logic)
-    %{state | logic: logic, held?: false} |> reschedule(0)
-  end
 
   # The fishing→support HP gate, fed by the :pokemon blackboard fact PlayerSupport
   # publishes. Computed here (not in Logic) so the panel toggle and threshold apply
@@ -335,11 +312,6 @@ defmodule Pokex.Bots.Fishing.Worker do
 
   defp broadcast(logic),
     do: Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fishing, snapshot(logic)})
-
-  defp broadcast_held(logic) do
-    snapshot = %{snapshot(logic) | hold_reason: "mini-game em jogo"}
-    Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:fishing, snapshot})
-  end
 
   defp broadcast_activity(logic, obs, actions, level) do
     case describe_activity(logic, obs, actions) do

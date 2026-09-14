@@ -23,7 +23,7 @@ defmodule PokexWeb.FishingLabLive do
               </div>
               <h1 class="text-pk-title font-bold tracking-tight">Laboratorio do peixe</h1>
               <p class="mt-2 max-w-2xl text-pk-body leading-6 text-pk-text-2">
-                Um minigame isolado para calibrar a fisica da barra, testar deteccao por
+                Um simulador isolado para calibrar a fisica da barra, testar deteccao por
                 diferenca de fundo e medir um piloto automatico com limites de atuacao.
                 Nada aqui envia tecla para fora da pagina.
               </p>
@@ -57,7 +57,7 @@ defmodule PokexWeb.FishingLabLive do
                   width="420"
                   height="680"
                   tabindex="0"
-                  aria-label="Simulador local do minigame de pesca"
+                  aria-label="Simulador local da barra de pesca"
                   class="block aspect-[420/680] w-full cursor-crosshair outline-none"
                 ></canvas>
                 <div class="pointer-events-none absolute left-3 top-3 rounded-lg bg-black/55 px-2.5 py-1.5 text-pk-meta font-semibold text-white backdrop-blur">

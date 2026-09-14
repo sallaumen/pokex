@@ -227,15 +227,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       else: {:noreply, state}
   end
 
-  # While the fishing mini-game is being played, the Body is gated — this worker cannot revive
-  # anyway — so its HP capture every 120ms is pure waste that
-  def handle_info(:tick, state) do
-    if Pokex.Perception.mini_game_playing?() do
-      handle_mini_game_tick(state)
-    else
-      run_tick(state)
-    end
-  end
+  def handle_info(:tick, state), do: run_tick(state)
 
   # The catcher's pending-corpse count rides its snapshots (see init/1). The
   # busy clock starts on the FIRST busy snapshot of an episode and never
@@ -306,16 +298,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   # The catcher topic also carries {:catcher_log, ...} chatter — not ours.
   def handle_info(_msg, state), do: {:noreply, state}
-
-  # Nothing here can act (Body gated) and nothing reads our fact (peers frozen),
-  # so we do NOT capture — that only starves the game's strip captures. Announce
-  # once on the entering edge, then stay silent until the overlay clears.
-  defp handle_mini_game_tick(state) do
-    entered? = state.gate != :mini_game
-    state = %{state | gate: :mini_game}
-    if entered?, do: broadcast(state)
-    {:noreply, reschedule(state, Settings.get(:support_tick_ms))}
-  end
 
   # A sentinel tick: reads the character's bar (floor alarm + logout live in
   # `guard_player/1`), publishes the fact, nothing else. Costs one small capture every
@@ -1191,7 +1173,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   defp direction_label("down"), do: "baixo"
 
   # through the Body like every mouse action (serialization, cursor restore,
-  # mini-game gate); :normal priority — positioning never preempts anything
+  # gate); :normal priority — positioning never preempts anything
   defp do_reposition(state, point, at) do
     case Body.perform([{:click, :middle, point}], :normal, state.body) do
       :ok ->
@@ -1558,7 +1540,6 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   defp gate_text(:unfocused), do: "jogo fora de foco — nada é digitado até você voltar pra ele"
   defp gate_text(:panic_corner), do: "parado pelo canto de pânico"
-  defp gate_text(:mini_game), do: "minigame em jogo — retoma quando o overlay sair"
   defp gate_text(_none), do: nil
 
   # The capture wait only shows while something is actually due (a bare pending

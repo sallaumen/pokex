@@ -198,7 +198,7 @@ defmodule Pokex.Bots.Watchman do
 
   defp default_active? do
     status = BotSupervisor.status()
-    BotSupervisor.any_active?([status.fishing, status.combat, status.cavebot, status.mini_game])
+    BotSupervisor.any_active?([status.fishing, status.combat, status.cavebot])
   end
 
   # Settled, not merely focused: the seconds after the game comes back in front

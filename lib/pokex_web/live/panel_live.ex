@@ -32,7 +32,6 @@ defmodule PokexWeb.PanelLive do
   @fishing_topic "fishing"
   @combat_topic "combat"
   @catcher_topic "catcher"
-  @mini_game_topic "mini_game"
   @game_topic "game"
   @body_topic "body"
   @cooldown_poll_ms 1000
@@ -80,7 +79,6 @@ defmodule PokexWeb.PanelLive do
       Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @catcher_topic)
-      Phoenix.PubSub.subscribe(Pokex.PubSub, @mini_game_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @game_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, @body_topic)
       Phoenix.PubSub.subscribe(Pokex.PubSub, Cavebot.Worker.topic())
@@ -109,7 +107,6 @@ defmodule PokexWeb.PanelLive do
        fishing: seen(status.fishing),
        combat: seen(status.combat),
        catcher: seen(status.catcher),
-       mini_game: seen(status.mini_game),
        game: seen(status.player_support),
        cavebot: seen(status.cavebot),
        minimap_reads: 0,
@@ -123,7 +120,6 @@ defmodule PokexWeb.PanelLive do
        world: Pokex.World.snapshot(),
        now_ms: now_ms(),
        threshold: Settings.get(:glow_threshold),
-       mini_game_sound: Settings.get(:mini_game_sound),
        alarm_last: %{},
        session_started_at: session_started_at(),
        stop_after_minutes: Settings.get(:stop_after_minutes),
@@ -222,7 +218,6 @@ defmodule PokexWeb.PanelLive do
           fishing: seen(status.fishing),
           combat: seen(status.combat),
           catcher: seen(status.catcher),
-          mini_game: seen(status.mini_game),
           game: seen(status.player_support),
           cavebot: seen(status.cavebot)
         )
@@ -370,29 +365,6 @@ defmodule PokexWeb.PanelLive do
   # event: the button asks and never waits.
   def handle_info({:sweep_result, text}, socket), do: {:noreply, assign(socket, sweep_msg: text)}
 
-  def handle_info({:mini_game, snapshot}, socket) do
-    socket = socket |> alarm_on_error(:mini_game, snapshot) |> assign(mini_game: seen(snapshot))
-
-    socket =
-      case Map.get(snapshot, :transition) do
-        # Muted = no event at all, so the mute silences every open panel tab.
-        transition when transition in [:entered, :left] ->
-          if Settings.get(:mini_game_sound) do
-            push_event(socket, "mini-game-transition", %{
-              transition: transition,
-              state: snapshot.state
-            })
-          else
-            socket
-          end
-
-        _ ->
-          socket
-      end
-
-    {:noreply, socket}
-  end
-
   # Live cooldown poll: re-read the skill bar WHILE the fishing gate is on, so the display
   # tracks the reading the gate uses every tick (never stale). Off → skip the capture but keep
   # the timer alive so it resumes the moment the gate is turned on. Always reschedule.
@@ -415,18 +387,6 @@ defmodule PokexWeb.PanelLive do
        now_ms: now_ms(),
        session_started_at: session_started_at()
      )}
-  end
-
-  # A game is sitting there waiting for a HUMAN, and every worker is held while
-  # it does — so this repeats until the overlay is gone. Muting silences it, the
-  # same switch that mutes the enter/leave chirp.
-  def handle_info({:mini_game_alert, %{text: text}}, socket) do
-    socket =
-      if Settings.get(:mini_game_sound),
-        do: push_event(socket, "mini-game-transition", %{transition: :entered, state: :playing}),
-        else: socket
-
-    {:noreply, append_log(socket, %{level: :macro, source: "🎮", text: text})}
   end
 
   # --- the hunt (cavebot) -----------------------------------------------------
@@ -627,7 +587,6 @@ defmodule PokexWeb.PanelLive do
   defp journal_emoji(:fishing), do: "🎣"
   defp journal_emoji(:combat), do: "⚔️"
   defp journal_emoji(:catcher), do: "🎯"
-  defp journal_emoji(:mini_game), do: "🎮"
   defp journal_emoji(:suporte), do: "🚑"
   defp journal_emoji(:body), do: "🧤"
   defp journal_emoji(:cavebot), do: @cavebot_source
@@ -668,16 +627,9 @@ defmodule PokexWeb.PanelLive do
        fishing: seen(status.fishing),
        combat: seen(status.combat),
        catcher: seen(status.catcher),
-       mini_game: seen(status.mini_game),
        game: seen(status.player_support),
        cavebot: seen(status.cavebot)
      )}
-  end
-
-  def handle_event("toggle_mini_game_sound", _params, socket) do
-    next = not Settings.get(:mini_game_sound)
-    Settings.put(:mini_game_sound, next)
-    {:noreply, assign(socket, mini_game_sound: next)}
   end
 
   def handle_event("save_stop_conditions", params, socket) do
@@ -1554,14 +1506,6 @@ defmodule PokexWeb.PanelLive do
   defp support_label(:idle), do: "parado"
   defp support_label(other), do: state_word(other)
 
-  # 🎮 Mini game: off / watching the arena / playing (the other workers hold
-  # themselves by reading the :mini_game blackboard fact).
-  defp mini_game_label(:off), do: "parado"
-  defp mini_game_label(:watching), do: "observando"
-  defp mini_game_label(:playing), do: "em jogo"
-  defp mini_game_label(:error), do: "erro"
-  defp mini_game_label(other), do: state_word(other)
-
   # 🧭 Hunt (cavebot): walks the route and yields to combat when an enemy
   # shows up. The three STOP states have distinct names on purpose — "not
   # walking" has different causes, each with a different fix.
@@ -1974,7 +1918,6 @@ defmodule PokexWeb.PanelLive do
   defp worker_job(:fishing), do: "pesca"
   defp worker_job(:combat), do: "luta"
   defp worker_job(:catcher), do: "saque e captura"
-  defp worker_job(:mini_game), do: "mini game"
   defp worker_job(:player_support), do: "revive e limpeza"
   defp worker_job(:cavebot), do: "anda a rota e luta"
   defp worker_job(:timers), do: "ações no relógio"
@@ -1984,7 +1927,6 @@ defmodule PokexWeb.PanelLive do
   defp worker_name(:fishing), do: "pesca"
   defp worker_name(:combat), do: "batalha"
   defp worker_name(:catcher), do: "captura"
-  defp worker_name(:mini_game), do: "mini game"
   defp worker_name(:game), do: "suporte"
 
   # One line summarizing what a preset would change — the two skill lists are
@@ -2400,7 +2342,7 @@ defmodule PokexWeb.PanelLive do
         <form
           id="stagnation-form"
           phx-change="save_stagnation"
-          title="Anti-estagnação: sessão rodando mas sem NENHUM kill nem peixe (minigame vencido) pela janela toda = bot travado. Fisgada não conta enquanto o vigia do minigame está ligado: com o minigame travado a vara fisga a noite toda sem pegar nada. Alarme re-toca a cada janela; Parar usa a trava do Stop; Deslogar encerra a conta — o único que economiza estamina."
+          title="Anti-estagnação: sessão rodando mas sem NENHUM kill nem fisgada pela janela toda = bot travado. Alarme re-toca a cada janela; Parar usa a trava do Stop; Deslogar encerra a conta — o único que economiza estamina."
           class="mt-1 flex items-center gap-1 px-0.5 font-mono text-pk-meta text-pk-text-3"
         >
           <span>😴 sem atividade por</span>
@@ -2759,48 +2701,6 @@ defmodule PokexWeb.PanelLive do
                 now_ms={@now_ms}
               />
               <.worker_row
-                testid="mini-game-pill"
-                name="Mini game"
-                state={@mini_game.state}
-                active?={@mini_game.state == :playing}
-                tone="bg-pk-warn"
-                label={mini_game_label(@mini_game.state)}
-                counters={@mini_game[:mode_label]}
-                title={"confiança #{round((@mini_game.confidence || 0) * 100)}%"}
-                snapshot={@mini_game}
-                now_ms={@now_ms}
-              >
-                <:aside>
-                  <button
-                    type="button"
-                    phx-click="toggle_mini_game_sound"
-                    aria-pressed={to_string(@mini_game_sound)}
-                    aria-label={
-                      if @mini_game_sound,
-                        do: "Silenciar o alerta do mini-game",
-                        else: "Reativar o alerta do mini-game"
-                    }
-                    title={
-                      if @mini_game_sound,
-                        do: "Alerta sonoro ligado — clique para silenciar",
-                        else: "Alerta sonoro MUDO — clique para reativar"
-                    }
-                    class={[
-                      "flex shrink-0 cursor-pointer",
-                      if(@mini_game_sound,
-                        do: "text-pk-text-3 hover:text-pk-text",
-                        else: "text-pk-warn hover:text-pk-warn"
-                      )
-                    ]}
-                  >
-                    <.icon
-                      name={if @mini_game_sound, do: "hero-speaker-wave", else: "hero-speaker-x-mark"}
-                      class="size-3.5"
-                    />
-                  </button>
-                </:aside>
-              </.worker_row>
-              <.worker_row
                 testid="support-pill"
                 name="Suporte"
                 state={@game.state}
@@ -2830,19 +2730,6 @@ defmodule PokexWeb.PanelLive do
             </div>
 
             <div class="space-y-1">
-              <div
-                :if={@mini_game[:awaiting_manual?]}
-                data-testid="mini-game-manual-banner"
-                role="status"
-                class="rounded-lg border border-pk-warn-line bg-pk-warn-dim px-3 py-2 text-pk-body text-pk-warn"
-              >
-                <p class="font-semibold">🎮 {@mini_game[:manual_text]}</p>
-                <p class="mt-0.5 text-pk-text-2">
-                  Resolva na janela do jogo — pesca, batalha e captura voltam sozinhas
-                  quando o overlay sumir.
-                  <.link navigate={~p"/mini-game"} class="underline">ver diagnóstico</.link>
-                </p>
-              </div>
               <p
                 :if={@fishing.error}
                 class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
@@ -2854,12 +2741,6 @@ defmodule PokexWeb.PanelLive do
                 class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
               >
                 {@combat.error}
-              </p>
-              <p
-                :if={@mini_game.error}
-                class="rounded-lg border border-pk-danger-line bg-pk-danger-dim px-3 py-2 text-pk-body text-pk-danger"
-              >
-                {@mini_game.error}
               </p>
               <p
                 :if={@catcher.error}

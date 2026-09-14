@@ -8,7 +8,7 @@ defmodule PokexWeb.CalibrationSteps do
   also carries a rule that has bitten before: `marking?/1` must list EVERY step
   that expects a click on the screenshot, including the standalone quick-fix
   flows. A step missing from it renders its instruction with NO picture under
-  it — a black page (2026-07-20: the mini-game quick-fix steps were absent).
+  it — a black page (2026-07-20: two quick-fix steps were absent).
   Listing them here, next to the instructions, makes the omission visible.
   """
 
@@ -24,7 +24,7 @@ defmodule PokexWeb.CalibrationSteps do
     neutral: "Clique num PONTO NEUTRO seguro (sugestão: o tile do seu próprio personagem).",
     player:
       "Clique bem no CENTRO do seu PERSONAGEM — é nele que o bot ancora o mundo: " <>
-        "o quadrado onde procura corpos, o reposicionamento e (na pesca) a faixa do minigame.",
+        "o quadrado onde procura corpos e o reposicionamento.",
     skill_a:
       "Canto SUPERIOR-ESQUERDO da barra de skills (bem no início do slot 1). IMPORTANTE: " <>
         "deixe TODAS as skills PRONTAS (sem cooldown) — a foto de cada ícone vira a " <>
@@ -44,12 +44,6 @@ defmodule PokexWeb.CalibrationSteps do
         "ela que o guardião passa a vigiar.",
     player_hp_b:
       "Canto INFERIOR-DIREITO da MESMA barra vermelha (só ela — a barra azul de baixo fica de fora).",
-    mini_game_a:
-      "Canto SUPERIOR-ESQUERDO da FAIXA onde a barra do minigame aparece quando você pesca " <>
-        "deste lugar (deixe uma folga de 1-2 tiles pra cada lado da barra).",
-    mini_game_b:
-      "Canto INFERIOR-DIREITO da mesma faixa — cubra a altura TODA da barra, sem pegar os " <>
-        "painéis escuros da lateral (Battle/bolsa).",
     pokemon_spot:
       "Clique no TILE onde o seu Pokémon deve FICAR (a posição estratégica de ataque). " <>
         "Depois das lutas, o suporte manda ele de volta pra cá com um clique do meio.",
@@ -110,8 +104,6 @@ defmodule PokexWeb.CalibrationSteps do
         :hp_a,
         :hp_b,
         :photo,
-        :mini_game_a,
-        :mini_game_b,
         :minimap_a,
         :minimap_b,
         :minimap_cross,
@@ -123,8 +115,8 @@ defmodule PokexWeb.CalibrationSteps do
         :player_hp_b
       ]
 
-  # The numbered run is what a HUNT needs, and nothing else. Água (and the
-  # mini-game strip behind it) left it on 2026-08-25: they are fishing gear, and
+  # The numbered run is what a HUNT needs, and nothing else. Água left it on
+  # 2026-08-25: it is fishing gear, and
   # asking for a fishing spot before he can calibrate a hunt is a step he cannot
   # answer standing where he plays. They keep their own buttons in the fishing
   # strip, and a run that never asks now PRESERVES whatever was marked there.

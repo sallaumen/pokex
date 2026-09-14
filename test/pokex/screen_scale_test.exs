@@ -82,7 +82,7 @@ defmodule Pokex.ScreenScaleTest do
   describe "proposals/2" do
     # `get:` is passed in EVERY case on purpose: this suite is async, and
     # reading the global Settings here would race with any test that writes
-    # them (the calibration page applies all 18 in one click).
+    # them (the calibration page applies them all in one click).
     defp seeded, do: [get: &Map.fetch!(Settings.defaults(), &1)]
 
     # A length scales with the ruler; a pixel COUNT is an area and scales with

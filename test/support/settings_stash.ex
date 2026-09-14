@@ -8,9 +8,9 @@ defmodule Pokex.SettingsStash do
   source of the suite's order-dependent flakiness).
 
       setup do
-        SettingsStash.stash!(mini_game_tick_ms: 20, mini_game_enter_streak: 1)
+        SettingsStash.stash!(combat_skill_gap_ms: 20, combat_skill_tap_count: 1)
         # keys the TEST BODY may put later, so they restore too:
-        SettingsStash.stash_keys!([:mini_game_anchor_tolerance])
+        SettingsStash.stash_keys!([:corpse_max_balls])
       end
   """
 

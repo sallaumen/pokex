@@ -161,52 +161,6 @@ defmodule Pokex.Bots.Fishing.WorkerTest do
   end
 
   @tag :tmp_dir
-  test "holds itself while the :mini_game fact says playing, recasting fresh when it clears", %{
-    worker: worker
-  } do
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
-
-    assert :ok = Worker.run(worker)
-    assert_receive {:fishing, %{state: :casting, counters: %{hooked: 1}}}, 5_000
-
-    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
-    on_exit(fn -> WorldState.forget(:mini_game) end)
-
-    assert_receive {:fishing, %{hold_reason: "mini-game em jogo"}}, 5_000
-
-    # A frozen cycle is quiet ALL the way down: no action, and no sensing either
-    # (the cursor restore that follows a mouse sequence is the only cursor read
-    # here, and it belongs to the casts that ran BEFORE the freeze).
-    Process.sleep(150)
-    frozen = length(Pokex.Rig.Fake.calls())
-    Process.sleep(300)
-    assert length(Pokex.Rig.Fake.calls()) == frozen
-
-    focus_clicks = fn ->
-      Enum.count(Pokex.Rig.Fake.calls(), &(&1 == {:click, :left, {420, 350}}))
-    end
-
-    Agent.update(Sensors.Fake, &Map.merge(&1, %{glow: [50, 50, 900]}))
-
-    before = focus_clicks.()
-    WorldState.forget(:mini_game)
-    assert hold_eventually(fn -> focus_clicks.() > before end)
-  end
-
-  defp now_ms, do: System.monotonic_time(:millisecond)
-
-  defp hold_eventually(fun, timeout \\ 2_000),
-    do: hold_poll(fun, System.monotonic_time(:millisecond) + timeout)
-
-  defp hold_poll(fun, deadline) do
-    cond do
-      fun.() -> true
-      System.monotonic_time(:millisecond) > deadline -> false
-      true -> Process.sleep(20) && hold_poll(fun, deadline)
-    end
-  end
-
-  @tag :tmp_dir
   test "a raw glow count over the threshold becomes a bite that hooks (rod press)", %{
     worker: worker
   } do

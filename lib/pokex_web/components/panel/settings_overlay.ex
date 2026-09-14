@@ -507,7 +507,7 @@ defmodule PokexWeb.Panel.SettingsOverlay do
               id="automation-sweep"
               title="Varrer os tiles ao redor"
               description={"a cada #{@sweep_cfg.interval_s}s, #{sweep_tiles(@sweep_cfg)} bola(s) — #{sweep_side_label(@sweep_cfg.side)}"}
-              detail="Independente do botão Captura: não olha corpo, não olha acervo, não pontua nada. Segura durante luta, mini-game e com o jogo fora de foco."
+              detail="Independente do botão Captura: não olha corpo, não olha acervo, não pontua nada. Segura durante luta e com o jogo fora de foco."
               active={@sweep_cfg.enabled}
               event="toggle_sweep_enabled"
             />

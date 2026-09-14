@@ -118,50 +118,10 @@ defmodule Pokex.Bots.BodyTest.SlowMouseRig do
   end
 end
 
-defmodule Pokex.Bots.BodyTest.GameOpeningRig do
-  alias Pokex.Perception.WorldState
-
-  # Test-local Rig double: press("open") publishes a playing :mini_game fact
-  # before returning — simulating the overlay appearing exactly as an input
-  # lands. The Body's after-input gate must stop the rest of the sequence.
-  use Pokex.RigDouble
-
-  def start_link, do: Agent.start_link(fn -> [] end, name: __MODULE__)
-
-  def log, do: __MODULE__ |> Agent.get(& &1) |> Enum.reverse()
-
-  @impl true
-  def press(combo) do
-    Agent.update(__MODULE__, &[combo | &1])
-
-    if combo == "open" do
-      WorldState.put(
-        :mini_game,
-        %{playing?: true, confidence: 1.0},
-        System.monotonic_time(:millisecond)
-      )
-    end
-
-    :ok
-  end
-
-  @impl true
-  def press_many(combos, opts) do
-    tap_count = opts |> Keyword.get(:tap_count, 1) |> max(1)
-
-    Enum.each(combos, fn combo ->
-      Enum.each(1..tap_count, fn _tap -> press(combo) end)
-    end)
-
-    :ok
-  end
-end
-
 defmodule Pokex.Bots.BodyTest do
   use ExUnit.Case, async: false
   alias Pokex.Bots.Body
   alias Pokex.Bots.InputGate
-  alias Pokex.Bots.BodyTest.GameOpeningRig
   alias Pokex.Bots.BodyTest.RaisingRig
   alias Pokex.Bots.BodyTest.SlowMouseRig
   alias Pokex.Bots.BodyTest.SlowRig
@@ -232,30 +192,6 @@ defmodule Pokex.Bots.BodyTest do
     assert {:press, "f1"} in Fake.calls()
   end
 
-  # UMA SEQUÊNCIA CORTADA NO MEIO NÃO É UMA QUE NÃO ACONTECEU.
-  #
-  # O `:ok` da sequência suprimida vale pro corte ANTES do primeiro passo:
-  # nada saiu, ninguém precisa saber. Cortada no MEIO, o que já saiu saiu — na
-  # hora da bola o ponteiro já está em cima do corpo, e o `Catcher` recebia
-  # `:ok`, anotava "bola em X,Y" e dava a âncora por gasta.
-  test "the mini-game cutting a sequence in the middle is an error, not a silence",
-       %{body: body} do
-    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
-    on_exit(fn -> WorldState.forget(:mini_game) end)
-
-    assert {:error, :cut_by_mini_game} =
-             Body.perform([{:move_checked, {500, 500}}, {:press, "f1"}], :normal, body)
-  end
-
-  # …e uma sequência que NÃO pediu conferência segue no silêncio de sempre: o
-  # mini-game é estado normal do jogo, não defeito.
-  test "a sequence that did not ask to be checked keeps the old silence", %{body: body} do
-    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
-    on_exit(fn -> WorldState.forget(:mini_game) end)
-
-    assert :ok = Body.perform([{:move, {500, 500}}, {:press, "f1"}], :normal, body)
-  end
-
   test "a KEY-ONLY sequence never reads or moves the cursor (no restore overhead)", %{body: body} do
     assert :ok = Body.perform([{:press, "a"}, {:press, "b"}], :normal, body)
 
@@ -306,32 +242,6 @@ defmodule Pokex.Bots.BodyTest do
     assert elapsed >= 40_000
     calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
     assert calls == [{:press, "a"}, {:press, "b"}]
-  end
-
-  test "the mini game fact stops the rest of a sequence the moment it appears mid-run" do
-    previous_rig = Application.get_env(:pokex, :rig)
-    Application.put_env(:pokex, :rig, GameOpeningRig)
-
-    on_exit(fn ->
-      Application.put_env(:pokex, :rig, previous_rig)
-      WorldState.forget(:mini_game)
-    end)
-
-    start_supervised!(%{id: GameOpeningRig, start: {GameOpeningRig, :start_link, []}})
-    body = start_body(:body_test_mini_game_gate_body, name: :body_mini_game_gate_test)
-
-    assert :ok = Body.perform([{:press, "open"}, {:press, "must_not_run"}], :normal, body)
-    assert GameOpeningRig.log() == ["open"]
-  end
-
-  test "a sequence never starts while the mini game fact says playing", %{body: body} do
-    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
-    on_exit(fn -> WorldState.forget(:mini_game) end)
-
-    assert :ok = Body.perform([{:press, "a"}, {:press, "b"}], :normal, body)
-
-    calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
-    assert calls == []
   end
 
   @tag timeout: 2_000
@@ -443,22 +353,6 @@ defmodule Pokex.Bots.BodyTest do
     assert_receive :crit_done, 500
     assert SlowRig.log() == ["occupy", "crit", "high"]
   end
-
-  test "a :critical sequence bypasses the mini-game gate (revive beats the overlay)", %{
-    body: body
-  } do
-    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
-    on_exit(fn -> WorldState.forget(:mini_game) end)
-
-    # the gate halts a :normal sequence before its first input; a :critical one runs whole
-    assert :ok =
-             Body.perform([{:press, "q"}, {:press, "shift+q"}, {:press, "q"}], :critical, body)
-
-    calls = Enum.reject(Fake.calls(), &match?({:cursor_position}, &1))
-    assert calls == [{:press, "q"}, {:press, "shift+q"}, {:press, "q"}]
-  end
-
-  defp now_ms, do: System.monotonic_time(:millisecond)
 
   # DUAS PISTAS, UMA POR ATUADOR. O corpo tinha uma vaga só, e uma poção — que
   # não toca no mouse — esperava atrás de um arremesso de bola ou de um passo

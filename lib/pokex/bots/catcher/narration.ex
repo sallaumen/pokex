@@ -27,7 +27,7 @@ defmodule Pokex.Bots.Catcher.Narration do
   """
   @spec cue(map | nil) :: {:macro | :debug, String.t()} | nil
   def cue(nil),
-    do: {:debug, "🎯 hora da bola — mas a varredura está fechada agora (luta, modo ou mini-game)"}
+    do: {:debug, "🎯 hora da bola — mas a varredura está fechada agora (luta ou modo)"}
 
   def cue(%{corpses: []}),
     do: {:debug, "🎯 hora da bola — varri e não achei corpo nenhum no chão"}
@@ -133,7 +133,6 @@ defmodule Pokex.Bots.Catcher.Narration do
   @spec hold_reason(map) :: String.t() | nil
   def hold_reason(facts) do
     cond do
-      facts.mini_game? -> "mini-game em jogo"
       reason = hunt_hold(facts) -> reason
       facts.fight? -> "esperando fim da luta"
       # O portão que ficou fechado um dia inteiro sem dizer o nome (30/07:

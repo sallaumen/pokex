@@ -32,7 +32,7 @@ defmodule PokexWeb.DesignDriftTest do
     "#b8933d",
     "#c94f4f",
     "#1d9e75",
-    # as séries do gráfico do mini-game (traços de SVG, não texto)
+    # séries de gráfico (traços de SVG, não texto)
     "#22d3ee",
     "#94a3b8",
     "#f97316",

@@ -373,29 +373,6 @@ defmodule Pokex.Bots.Combat.WorkerTest do
     assert Worker.status(worker).counters.fights == 1
   end
 
-  @tag :tmp_dir
-  test "holds itself while the :mini_game fact says playing, restarts fresh when it clears", %{
-    worker: worker
-  } do
-    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
-    on_exit(fn -> WorldState.forget(:mini_game) end)
-
-    # an enemy shows up mid-game: NO Tab — the worker froze itself
-    world!(worker, battle_obs(enemies: [0]))
-    assert never(fn -> Settings.get(:tab_key) in presses() end, 400)
-    assert Worker.status(worker).hold_reason == "mini-game em jogo"
-
-    # game over: leave a fresh battle picture for the resume to read, clear the fact —
-    # the worker's own held :wake poll must resume it with NO further :world events
-    at = now_ms()
-    WorldState.put(:battle, battle_obs(enemies: [0]) |> Map.put(:captured_at, at), at)
-    WorldState.forget(:mini_game)
-
-    assert eventually(fn -> Settings.get(:tab_key) in presses() end)
-    assert Worker.status(worker).state == :tabbing
-    assert Worker.status(worker).hold_reason == nil
-  end
-
   defp now_ms, do: System.monotonic_time(:millisecond)
 
   @tag :tmp_dir

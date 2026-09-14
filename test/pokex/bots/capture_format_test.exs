@@ -23,11 +23,9 @@ defmodule Pokex.Bots.CaptureFormatTest do
   # The pictures that must stay PNG, each for a stated reason. A browser cannot
   # open raw pixels, and a raw file has no PNG header to measure.
   @allowed_png [
-    # The mini-game keeps evidence frames and refreshes a live preview by
+    # A diagnostics bundle keeps evidence frames and refreshes a preview by
     # COPYING the file it just read, so the image he looks at is byte-for-byte
     # the image the code judged.
-    "mini_game_strip.png",
-    "mini_game_preview.png",
     # Drawn back to him in an <img> on the calibration page: these ARE the crops
     # he is being asked to approve.
     "pokemon_teach.png",

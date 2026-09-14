@@ -28,7 +28,6 @@ defmodule Pokex.Bots.BotSupervisor do
   alias Pokex.Bots.Fishing
   alias Pokex.Bots.Guardian
   alias Pokex.Bots.InputGate
-  alias Pokex.Bots.MiniGame
   alias Pokex.Bots.PlayerSupport
   alias Pokex.Bots.Session
   alias Pokex.Bots.Timers
@@ -40,7 +39,6 @@ defmodule Pokex.Bots.BotSupervisor do
     fishing = Keyword.get(opts, :fishing, Fishing.Worker)
     combat = Keyword.get(opts, :combat, Combat.Worker)
     catcher = Keyword.get(opts, :catcher, Catcher.Worker)
-    mini_game = Keyword.get(opts, :mini_game, MiniGame.Worker)
     player_support = Keyword.get(opts, :player_support, PlayerSupport.Worker)
     cavebot = Keyword.get(opts, :cavebot, Cavebot.Worker)
     timers = Keyword.get(opts, :timers, Timers.Worker)
@@ -52,7 +50,6 @@ defmodule Pokex.Bots.BotSupervisor do
       fishing: fishing,
       combat: combat,
       catcher: catcher,
-      mini_game: mini_game,
       player_support: player_support,
       cavebot: cavebot,
       timers: timers,
@@ -72,14 +69,12 @@ defmodule Pokex.Bots.BotSupervisor do
         fishing: fishing,
         combat: combat,
         catcher: catcher,
-        mini_game: mini_game,
         player_support: player_support,
         cavebot: cavebot,
         timers: timers,
         engine: engine
       }) do
-    # The panic corner halts EVERY automated worker — including the mini-game watcher (its
-    # halt clears the :mini_game fact, so nobody stays self-held) and the PlayerSupport
+    # The panic corner halts EVERY automated worker — including the PlayerSupport
     # (Lucas: a support gone wrong, e.g. a minimized window misread burning revives, must be
     # killable by mouse-to-corner like everything else; it re-arms on boot, Iniciar bot, or a
     # support toggle).
@@ -88,7 +83,6 @@ defmodule Pokex.Bots.BotSupervisor do
         fishing: fishing,
         combat: combat,
         catcher: catcher,
-        mini_game: mini_game,
         player_support: player_support,
         cavebot: cavebot,
         timers: timers,
@@ -104,7 +98,6 @@ defmodule Pokex.Bots.BotSupervisor do
       Supervisor.child_spec({Fishing.Worker, name: fishing, body: body}, id: fishing),
       Supervisor.child_spec({Combat.Worker, name: combat}, id: combat),
       Supervisor.child_spec({Catcher.Worker, name: catcher, body: body}, id: catcher),
-      Supervisor.child_spec({MiniGame.Worker, name: mini_game}, id: mini_game),
       Supervisor.child_spec({PlayerSupport.Worker, name: player_support, body: body},
         id: player_support
       ),
@@ -130,29 +123,15 @@ defmodule Pokex.Bots.BotSupervisor do
   failed `start_all/0` never leaves a partial set running. Catcher is event-driven (armed in
   `parado` mode, idle waiting on the corpse feed), so its `run` just readies it.
   """
-  # The order a run must follow: the mini-game watcher first (it owns Space, so a
-  # loot press before it is watching would drive the capsule), then fishing →
-  # combat → catcher, and the cavebot LAST — it starts walking (and arming the
-  # Combat it drives) only once everything it leans on is already up.
-  @run_order [:mini_game, :fishing, :combat, :catcher, :cavebot, :timers]
+  # The order a run must follow: fishing → combat → catcher, and the cavebot
+  # LAST — it starts walking (and arming the Combat it drives) only once
+  # everything it leans on is already up.
+  @run_order [:fishing, :combat, :catcher, :cavebot, :timers]
 
   @spec start_all(GenServer.server(), GenServer.server(), GenServer.server()) ::
           :ok | {:error, [String.t()]}
   def start_all(fishing, combat, catcher) do
     run_chain(%{fishing: fishing, combat: combat, catcher: catcher}, [:fishing, :combat, :catcher])
-  end
-
-  @spec start_all(
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server()
-        ) :: :ok | {:error, [String.t()]}
-  def start_all(fishing, combat, catcher, mini_game) do
-    run_chain(
-      %{fishing: fishing, combat: combat, catcher: catcher, mini_game: mini_game},
-      @run_order
-    )
   end
 
   # Runs exactly the workers `wanted` names, in @run_order, skipping the rest.
@@ -177,7 +156,6 @@ defmodule Pokex.Bots.BotSupervisor do
     end
   end
 
-  defp run_worker(:mini_game, %{mini_game: server}), do: MiniGame.Worker.run(server)
   defp run_worker(:fishing, %{fishing: server}), do: Fishing.Worker.run(server)
   defp run_worker(:combat, %{combat: server}), do: Combat.Worker.run(server)
   defp run_worker(:catcher, %{catcher: server}), do: Catcher.Worker.run(server)
@@ -195,7 +173,6 @@ defmodule Pokex.Bots.BotSupervisor do
     end)
   end
 
-  defp halt_worker(:mini_game, server), do: MiniGame.Worker.halt(server)
   defp halt_worker(:fishing, server), do: Fishing.Worker.halt(server)
   defp halt_worker(:combat, server), do: Combat.Worker.halt(server)
   defp halt_worker(:catcher, server), do: Catcher.Worker.halt(server)
@@ -209,14 +186,12 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server(),
           GenServer.server(),
-          GenServer.server(),
           GenServer.server()
         ) :: :ok | {:error, [String.t()]}
   def start_all(
         fishing,
         combat,
         catcher,
-        mini_game,
         player_support,
         cavebot \\ Cavebot.Worker,
         # Named like every other worker rather than reached for by module: an
@@ -250,16 +225,15 @@ defmodule Pokex.Bots.BotSupervisor do
     if Application.get_env(:pokex, :engine_active, true),
       do: :ok = Engine.Worker.run(engine)
 
-    # The MODE decides which workers this is: standing on a spot runs the rod and
-    # the mini-game watcher; walking runs neither. Reading it here rather than at
-    # the button means the focus guard's auto-resume obeys it too.
+    # The MODE decides which workers this is: standing on a spot runs the rod;
+    # walking does not. Reading it here rather than at the button means the focus
+    # guard's auto-resume obeys it too.
     wanted = Pokex.Modes.workers(Pokex.Modes.current())
 
     servers = %{
       fishing: fishing,
       combat: combat,
       catcher: catcher,
-      mini_game: mini_game,
       cavebot: cavebot,
       timers: timers
     }
@@ -321,7 +295,6 @@ defmodule Pokex.Bots.BotSupervisor do
         Fishing.Worker,
         Combat.Worker,
         Catcher.Worker,
-        MiniGame.Worker,
         PlayerSupport.Worker,
         Cavebot.Worker
       )
@@ -336,8 +309,8 @@ defmodule Pokex.Bots.BotSupervisor do
   inside `Body.perform/3` (which waits `:infinity`) — and while it is parked
   nothing else in its mailbox is read, this `:halt` included. The default 5s
   call then EXITS the caller, and the caller is usually the Guardian's panic
-  corner: on 2026-08-11 it died on the catcher, so the mini game, the player
-  support, the timers still pressing keys and both `forget`s below them in
+  corner: on 2026-08-11 it died on the catcher, so the player support, the
+  timers still pressing keys and both `forget`s below them in
   `halt_fleet` never ran at all, and the corner stopped being watched.
 
   Waiting longer would buy nothing: a timed-out call is still DELIVERED, and the
@@ -372,7 +345,6 @@ defmodule Pokex.Bots.BotSupervisor do
     fishing: Fishing.Worker,
     combat: Combat.Worker,
     catcher: Catcher.Worker,
-    mini_game: MiniGame.Worker,
     player_support: PlayerSupport.Worker,
     cavebot: Cavebot.Worker,
     timers: Timers.Worker,
@@ -392,19 +364,6 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server(),
           GenServer.server(),
-          GenServer.server()
-        ) :: :ok
-  def stop_all(fishing, combat, catcher, mini_game) do
-    stop_all(fishing, combat, catcher)
-    safe_halt(mini_game)
-    :ok
-  end
-
-  @spec stop_all(
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server(),
           GenServer.server(),
           GenServer.server()
         ) :: :ok
@@ -412,7 +371,6 @@ defmodule Pokex.Bots.BotSupervisor do
         fishing,
         combat,
         catcher,
-        mini_game,
         player_support,
         cavebot \\ Cavebot.Worker,
         timers \\ Timers.Worker
@@ -422,7 +380,6 @@ defmodule Pokex.Bots.BotSupervisor do
       | fishing: fishing,
         combat: combat,
         catcher: catcher,
-        mini_game: mini_game,
         player_support: player_support,
         cavebot: cavebot,
         timers: timers
@@ -457,7 +414,6 @@ defmodule Pokex.Bots.BotSupervisor do
          fishing: fishing,
          combat: combat,
          catcher: catcher,
-         mini_game: mini_game,
          player_support: player_support,
          cavebot: cavebot,
          timers: timers,
@@ -469,7 +425,7 @@ defmodule Pokex.Bots.BotSupervisor do
     # stop_all/0 from INSIDE the cavebot's own process — a halt call back into
     # itself would deadlock, and it has already stopped itself at that point.
     unless GenServer.whereis(cavebot) == self(), do: safe_halt(cavebot)
-    stop_all(fishing, combat, catcher, mini_game)
+    stop_all(fishing, combat, catcher)
     safe_halt(player_support)
     # A stop that leaves the clocks running would keep pressing keys after the
     # panic corner, the Stop button and the logout — the one thing a stop means.
@@ -588,43 +544,18 @@ defmodule Pokex.Bots.BotSupervisor do
           GenServer.server(),
           GenServer.server(),
           GenServer.server(),
-          GenServer.server()
-        ) :: %{fishing: map, combat: map, catcher: map, mini_game: map}
-  def status(fishing, combat, catcher, mini_game) do
-    fishing
-    |> status(combat, catcher)
-    # confidence included because the panel template reads @mini_game.confidence STRICTLY —
-    # a placeholder without it would crash the very render this fallback exists to protect.
-    |> Map.put(
-      :mini_game,
-      safe_status(mini_game, %{
-        in_game?: false,
-        confidence: 0.0,
-        mode: MiniGame.Mode.default(),
-        mode_label: MiniGame.Mode.label(MiniGame.Mode.default()),
-        awaiting_manual?: false
-      })
-    )
-  end
-
-  @spec status(
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server(),
-          GenServer.server(),
           GenServer.server(),
           GenServer.server()
         ) :: %{
           fishing: map,
           combat: map,
           catcher: map,
-          mini_game: map,
           player_support: map,
           cavebot: map
         }
-  def status(fishing, combat, catcher, mini_game, player_support, cavebot \\ Cavebot.Worker) do
+  def status(fishing, combat, catcher, player_support, cavebot \\ Cavebot.Worker) do
     fishing
-    |> status(combat, catcher, mini_game)
+    |> status(combat, catcher)
     |> Map.put(:player_support, safe_status(player_support, %{hp_pct: nil}))
     # The cavebot's FULL snapshot shape (route/waypoints/pos/hold_reason/counters)
     # rides on the busy placeholder — the panel and Focus read those fields
@@ -641,7 +572,6 @@ defmodule Pokex.Bots.BotSupervisor do
       Fishing.Worker,
       Combat.Worker,
       Catcher.Worker,
-      MiniGame.Worker,
       PlayerSupport.Worker,
       Cavebot.Worker
     )

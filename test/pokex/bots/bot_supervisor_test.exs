@@ -60,7 +60,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
   alias Pokex.Bots.BotSupervisor
   alias Pokex.Bots.BotSupervisorTest.{EchoWorker, MuteWorker, ParkedWorker}
   alias Pokex.Bots.Fisher.Sensors
-  alias Pokex.Bots.MiniGame.Worker
   alias Pokex.Bots.Session
   alias Pokex.{Calibration, Settings}
   alias Pokex.Perception.WorldState
@@ -142,7 +141,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     fishing = :"#{tag}_fishing"
     combat = :"#{tag}_combat"
     catcher = :"#{tag}_catcher"
-    mini_game = :"#{tag}_mini_game"
     player_support = :"#{tag}_player_support"
     cavebot = :"#{tag}_cavebot"
     timers = :"#{tag}_timers"
@@ -156,7 +154,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
        fishing: fishing,
        combat: combat,
        catcher: catcher,
-       mini_game: mini_game,
        player_support: player_support,
        cavebot: cavebot,
        timers: timers,
@@ -167,7 +164,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
       fishing: fishing,
       combat: combat,
       catcher: catcher,
-      mini_game: mini_game,
       player_support: player_support,
       cavebot: cavebot,
       timers: timers,
@@ -206,7 +202,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
                servers.fishing,
                servers.combat,
                servers.catcher,
-               servers.mini_game,
                servers.player_support,
                servers.cavebot,
                servers.timers
@@ -218,7 +213,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
       servers.fishing,
       servers.combat,
       servers.catcher,
-      servers.mini_game,
       servers.player_support,
       servers.cavebot,
       servers.timers
@@ -279,7 +273,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     alias Pokex.Perception.WorldState
 
     {fishing, combat, catcher} = start_isolated_trio(:stamp_test)
-    mini_game = :stamp_test_mini_game
     player_support = :stamp_test_player_support
 
     on_exit(fn ->
@@ -287,7 +280,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
       WorldState.forget(:session)
     end)
 
-    assert :ok = BotSupervisor.start_all(fishing, combat, catcher, mini_game, player_support)
+    assert :ok = BotSupervisor.start_all(fishing, combat, catcher, player_support)
 
     now = System.monotonic_time(:millisecond)
     assert {:ok, %{loaded_mtime: loaded}} = WorldState.get(:calibration, 4_000_000_000, now)
@@ -296,18 +289,18 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert {:ok, %{started_at: started_at}} = WorldState.get(:session, 4_000_000_000, now)
     assert is_integer(started_at)
 
-    assert :ok = BotSupervisor.stop_all(fishing, combat, catcher, mini_game, player_support)
+    assert :ok = BotSupervisor.stop_all(fishing, combat, catcher, player_support)
     assert WorldState.get(:calibration, 4_000_000_000, now) == :missing
     assert WorldState.get(:session, 4_000_000_000, now) == :missing
   end
 
-  # The mode is what "Iniciar" means. Walking around, the rod and the mini-game
+  # The mode is what "Iniciar" means. Walking around, the rod
   # watcher have nothing to do — starting them would cast a line at whatever
   # water he happens to be passing.
   # SettingsStash, not Settings.put: a player_mode left in the GLOBAL test settings file
   # poisons every later run of the suite.
   @tag :tmp_dir
-  test "start_all/5 in movimento mode starts combat but not fishing or the mini game" do
+  test "start_all/5 in movimento mode starts combat but not fishing" do
     servers = start_isolated_supervisor(:moving_test)
     Pokex.SettingsStash.stash!(player_mode: "moving")
 
@@ -316,7 +309,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
                servers.fishing,
                servers.combat,
                servers.catcher,
-               servers.mini_game,
                servers.player_support,
                servers.cavebot,
                servers.timers
@@ -324,7 +316,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
 
     status = BotSupervisor.status(servers.fishing, servers.combat, servers.catcher)
     assert status.fishing.state == :idle
-    assert Worker.status(servers.mini_game).state == :off
 
     assert status.combat.state != :idle
     assert status.catcher.state != :idle
@@ -348,7 +339,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
                servers.fishing,
                servers.combat,
                servers.catcher,
-               servers.mini_game,
                servers.player_support,
                servers.cavebot,
                servers.timers
@@ -359,7 +349,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
         servers.fishing,
         servers.combat,
         servers.catcher,
-        servers.mini_game,
         servers.player_support,
         servers.cavebot
       )
@@ -368,14 +357,12 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert status.cavebot.route == "rota de teste"
     assert status.combat.state == :idle
     assert status.fishing.state == :idle
-    assert Worker.status(servers.mini_game).state == :off
 
     assert :ok =
              BotSupervisor.stop_all(
                servers.fishing,
                servers.combat,
                servers.catcher,
-               servers.mini_game,
                servers.player_support,
                servers.cavebot
              )
@@ -385,7 +372,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
         servers.fishing,
         servers.combat,
         servers.catcher,
-        servers.mini_game,
         servers.player_support,
         servers.cavebot
       )
@@ -439,62 +425,10 @@ defmodule Pokex.Bots.BotSupervisorTest do
   end
 
   # The single most safety-critical invariant of the whole bot: the Guardian's
-  # panic corner runs stop_all/5, and that MUST release a Space the mini-game
-  # player is holding — a stuck Space keeps acting in the game after the human
-  # asked everything to stop.
-  @tag :tmp_dir
-  test "panic stop_all releases a Space held by the mini-game player", %{tmp_dir: tmp} do
-    {fishing, combat, catcher} = start_isolated_trio(:panic_release_test)
-    mini_game = :panic_release_test_mini_game
-    player_support = :panic_release_test_player_support
-
-    Enum.each(
-      %{
-        mini_game_tick_ms: 20,
-        mini_game_enter_streak: 1,
-        mini_game_exit_streak: 1,
-        mini_game_min_confidence: 0.6,
-        mini_game_min_dark_ratio: 0.34,
-        mini_game_play_tick_ms: 20,
-        mini_game_min_toggle_ms: 0,
-        mini_game_mode: "auto"
-      },
-      fn {k, v} -> Settings.put(k, v) end
-    )
-
-    Pokex.TeamFixtures.ready!()
-
-    Calibration.save(%Calibration{
-      scale: 1.0,
-      screen_w: 220,
-      screen_h: 220,
-      water_point: {100, 100},
-      glow_region: {0, 0, 20, 20},
-      battle_region: {0, 0, 20, 20},
-      # a faixa é MARCADA: desde 2026-08-05 o vigia não adivinha região nenhuma
-      # (o palpite lia cenário como minigame), então sem marca ele fica cego —
-      # e um vigia cego nunca chega a segurar Espaço pra este teste soltar
-      mini_game_region: {0, 0, 220, 220},
-      neutral_point: {100, 100}
-    })
-
-    game = Pokex.PngFixtures.mini_game_scene!(tmp, "hold.png", fish: 40..54, capsule: 100..114)
-    Agent.stop(Pokex.Rig.Fake)
-    {:ok, _} = Pokex.Rig.Fake.start_link(%{capture: [{:ok, game}]})
-
-    assert :ok = Worker.run(mini_game)
-    wait_for(fn -> {:key_down, "space"} in Pokex.Rig.Fake.calls() end)
-
-    assert :ok = BotSupervisor.stop_all(fishing, combat, catcher, mini_game, player_support)
-
-    assert {:key_up, "space"} in Pokex.Rig.Fake.calls()
-    assert Worker.status(mini_game).state == :off
-  end
-
   # A fleet stop is the one thing that must work when everything else is wedged.
   # It was built out of plain GenServer.calls, so the first worker that did not
   # answer within the default 5s EXITED the caller: on 2026-08-11 that caller
-  # was the Guardian's panic corner, it died on the catcher, and the mini game,
+  # was the Guardian's panic corner, it died on the catcher, and
   # the player support and both `forget`s that come after it never ran.
   @tag :tmp_dir
   @tag :capture_log
@@ -505,7 +439,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     cavebot = start_supervised!({EchoWorker, self()}, id: :cavebot)
     fishing = start_supervised!({EchoWorker, self()}, id: :fishing)
     combat = start_supervised!({EchoWorker, self()}, id: :combat)
-    mini_game = start_supervised!({EchoWorker, self()}, id: :mini_game)
     player_support = start_supervised!({EchoWorker, self()}, id: :player_support)
 
     # the catcher slot is the parked one — the two workers below it in
@@ -515,7 +448,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
                fishing,
                combat,
                parked,
-               mini_game,
                player_support,
                cavebot
              )
@@ -523,7 +455,6 @@ defmodule Pokex.Bots.BotSupervisorTest do
     assert_receive {:halted, ^cavebot}
     assert_receive {:halted, ^fishing}
     assert_receive {:halted, ^combat}
-    assert_receive {:halted, ^mini_game}
     assert_receive {:halted, ^player_support}
   end
 
@@ -629,7 +560,7 @@ defmodule Pokex.Bots.BotSupervisorTest do
     :exit, _not_running -> true
   end
 
-  defp wait_for(fun, tries \\ 100) do
+  defp wait_for(fun, tries) do
     cond do
       fun.() ->
         :ok

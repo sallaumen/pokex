@@ -1730,34 +1730,9 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     WorldState.put(:battle, obs, at)
   end
 
-  # During the minigame the Body is locked anyway, and the 120ms HP reads only queued
+  # (histórico) com o Body travado, as leituras de vida a cada 120ms só enfileiravam
   # ahead of the game's strip capture (measured: 80ms cadence degraded to ~250ms).
   @tag :tmp_dir
-  test "does not read HP while a minigame is in play — frees the broker for the strip", %{
-    tmp: tmp,
-    body: body
-  } do
-    Settings.put(:rescue_enabled, true)
-
-    low = hp_png(tmp, "low.png", 6)
-    {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
-
-    WorldState.put(
-      :mini_game,
-      %{playing?: true, confidence: 0.9},
-      System.monotonic_time(:millisecond)
-    )
-
-    on_exit(fn -> WorldState.forget(:mini_game) end)
-
-    worker = start_worker(body)
-    assert :ok = Worker.run(worker)
-
-    refute_receive {:performed, _priority, _actions}, 250
-    assert Worker.status(worker).counters.reads == 0
-    assert Worker.status(worker).hold_reason =~ "minigame"
-  end
-
   @tag :tmp_dir
   test "after a battle clears for the window, the Pokémon is sent back to its spot", %{
     tmp: tmp,

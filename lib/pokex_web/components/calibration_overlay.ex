@@ -71,7 +71,6 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :pokemon_hp_region, :any, default: nil
   attr :player_hp_region, :any, default: nil
   attr :pokemon_photo_point, :any, default: nil
-  attr :mini_game_region, :any, default: nil
   attr :minimap_region, :any, default: nil
   attr :minimap_coord_region, :any, default: nil
   attr :minimap_player_point, :any, default: nil
@@ -115,22 +114,6 @@ defmodule PokexWeb.CalibrationOverlay do
           class="overlay-label absolute -top-4 left-0 rounded bg-info px-1 text-pk-meta font-bold text-info-content"
         >
           brilho
-        </span>
-      </div>
-      <div
-        :if={@mini_game_region}
-        id="mini-game-region"
-        class={[
-          "absolute rounded",
-          box(@quiet, "border-2 border-primary bg-primary/10", "border border-primary/70")
-        ]}
-        style={region_style(@mini_game_region, @screen)}
-      >
-        <span
-          :if={!@quiet}
-          class="overlay-label absolute -top-4 left-0 rounded bg-primary px-1 text-pk-meta font-bold text-primary-content"
-        >
-          mini game
         </span>
       </div>
       <div
@@ -323,9 +306,7 @@ defmodule PokexWeb.CalibrationOverlay do
         <span class="size-2.5 rounded-full bg-info" /> água + brilho
       </span>
       <span class="flex items-center gap-1"></span>
-      <span class="flex items-center gap-1">
-        <span class="size-2.5 rounded-sm border-2 border-primary" /> faixa do mini game
-      </span>
+      <span class="flex items-center gap-1"></span>
       <span class="flex items-center gap-1">
         <span class="size-2.5 rounded-sm border-2 border-secondary" /> barra de skills
       </span>
@@ -532,8 +513,6 @@ defmodule PokexWeb.CalibrationOverlay do
        Pokex.Calibration.minimap_coord_region(calib)},
       {:minimap_player_point, "cruz do personagem", :point,
        point_window(Pokex.Calibration.minimap_player_point(calib))},
-      {:mini_game_region, "faixa do mini game", :region,
-       Pokex.Calibration.mini_game_region(calib)},
       {:water_point, "água", :point, point_window(calib.water_point)},
       {:neutral_point, "ponto neutro", :point, point_window(calib.neutral_point)},
       {:player_point, "personagem", :point, point_window(Pokex.Calibration.player_point(calib))},

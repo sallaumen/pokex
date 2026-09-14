@@ -18,7 +18,7 @@ defmodule PokexWeb.Router do
     pipe_through :browser
 
     get "/captures/:name", CapturesController, :show
-    # a wildcard so a mini-game evidence BUNDLE (a directory) is browsable too
+    # a wildcard so an evidence BUNDLE (a directory) is browsable too
     get "/exports/*path", ExportsController, :show
 
     # The header is the same on every page, so its state is mounted once
@@ -32,7 +32,6 @@ defmodule PokexWeb.Router do
       # with their own state do not fit the /config schema
       live "/config/editores", PanelLive, :config
       live "/diagnostics", DiagnosticsLive
-      live "/mini-game", MiniGameLive
       live "/calibration", CalibrationLive
       live "/fishing-lab", FishingLabLive
       live "/world", WorldLive

@@ -13,17 +13,7 @@ defmodule Pokex.ModesTest do
   describe "the bundles" do
     test "parado runs the rod; movimento does not" do
       assert :fishing in Modes.bundle("still").workers
-      assert :mini_game in Modes.bundle("still").workers
-
       refute :fishing in Modes.bundle("moving").workers
-      refute :mini_game in Modes.bundle("moving").workers
-    end
-
-    test "only the fishing mode watches the mini game — the capsule needs a rod" do
-      assert Modes.watches_mini_game?("still")
-
-      refute Modes.watches_mini_game?("moving")
-      refute Modes.watches_mini_game?("hunt")
     end
 
     test "every mode watches the kills and keeps the pokémon alive" do

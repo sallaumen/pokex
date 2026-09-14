@@ -809,6 +809,55 @@ defmodule Pokex.SettingsTest do
              "a build nova não gravou"
     end
 
+    # A REMOÇÃO PURA, que é o caso que a cerca acima NÃO cobre.
+    #
+    # Lá a build nova conhecia uma chave que o arquivo não tinha, e é isso que a
+    # inocenta ("sou mais nova em alguma coisa"). Uma limpeza que só TIRA chaves
+    # não tem esse álibi: o arquivo declara tudo que a build tem, mais as mortas,
+    # e as duas condições de `older_build?/1` fecham — a build se acha velha e
+    # passa a LER sem ESCREVER, em silêncio. Foi assim que o #506/#507 comeu dois
+    # dias de /config dele, e é o risco de toda faxina daqui pra frente.
+    #
+    # `@retired_keys` é o álibi que falta: o crachá reconhece o nome morto.
+    @tag :tmp_dir
+    test "a PURE removal does not accuse either — the retired names still answer the badge", %{
+      tmp_dir: tmp
+    } do
+      path = Path.join(tmp, "settings.json")
+      conhecidas = Enum.map(Map.keys(Settings.defaults()), &Atom.to_string/1)
+      alfabeto_de_antes = conhecidas ++ Settings.retired_keys()
+
+      # o crachá do arquivo DELE: tudo que esta build tem, mais as aposentadas
+      File.write!(
+        path,
+        JSON.encode!(%{"alarm_min_gap_ms" => 48, "__keys__" => alfabeto_de_antes})
+      )
+
+      refute Settings.older_build?(path)
+
+      {:ok, server} = Settings.start_link(name: nil, path: path)
+      refute Settings.read_only?(server)
+      :ok = Settings.put(:alarm_min_gap_ms, 64, server)
+
+      assert (path |> File.read!() |> JSON.decode!())["alarm_min_gap_ms"] == 64,
+             "a build que aposentou chaves parou de gravar"
+    end
+
+    # E o valor da chave aposentada não some do arquivo: quem grava não sabe o
+    # que é lixo (`foreign_keys/1`), então ele viaja intacto.
+    @tag :tmp_dir
+    test "a retired key's value survives the write untouched", %{tmp_dir: tmp} do
+      path = Path.join(tmp, "settings.json")
+      [aposentada | _] = Settings.retired_keys()
+
+      File.write!(path, JSON.encode!(%{aposentada => 1234, "alarm_min_gap_ms" => 48}))
+
+      {:ok, server} = Settings.start_link(name: nil, path: path)
+      :ok = Settings.put(:alarm_min_gap_ms, 64, server)
+
+      assert (path |> File.read!() |> JSON.decode!())[aposentada] == 1234
+    end
+
     @tag :tmp_dir
     test "without a badge nobody is old: missing proof does not accuse", %{tmp_dir: tmp} do
       path = Path.join(tmp, "settings.json")

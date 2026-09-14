@@ -15,7 +15,6 @@ defmodule PokexWeb.AppHeaderTest do
     {"/calibration", :calibration},
     {"/diagnostics", :diagnostics},
     {"/fishing-lab", :fishing_lab},
-    {"/mini-game", :mini_game},
     {"/world", :world},
     {"/cavebot", :cavebot},
     {"/pokedex", :pokedex},
@@ -24,7 +23,7 @@ defmodule PokexWeb.AppHeaderTest do
 
   @nav_ids ~w(
     app-nav-panel app-nav-config app-nav-calibration app-nav-diagnostics
-    app-nav-fishing-lab app-nav-mini-game app-nav-world app-nav-cavebot
+    app-nav-fishing-lab app-nav-world app-nav-cavebot
     app-nav-timers app-nav-pokedex app-nav-team app-nav-sim
   )
 

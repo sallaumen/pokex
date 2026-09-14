@@ -502,43 +502,15 @@ defmodule Pokex.Bots.GuardianTest do
       assert_receive :panicked, 1_000
     end
 
-    test "a cleared minigame resets the stagnation clock", %{on_panic: on_panic} do
+    test "a hook resets the stagnation clock", %{on_panic: on_panic} do
       active_session!(61_000)
       Pokex.Settings.put(:stagnation_minutes, 1)
       Pokex.Settings.put(:stagnation_action, "stop")
 
       guardian = start_guardian_with_logout!(on_panic, fn _reason -> :ok end)
-      send(guardian, {:mini_game, %{state: :watching, counters: %{clears: 1}}})
-
-      refute_receive :panicked, 400
-    end
-
-    test "with the minigame watcher stopped, a hook resets the clock", %{on_panic: on_panic} do
-      active_session!(61_000)
-      Pokex.Settings.put(:stagnation_minutes, 1)
-      Pokex.Settings.put(:stagnation_action, "stop")
-
-      guardian = start_guardian_with_logout!(on_panic, fn _reason -> :ok end)
-      send(guardian, {:mini_game, %{state: :off, counters: %{clears: 0}}})
       send(guardian, {:fishing, %{counters: %{hooked: 1}}})
 
       refute_receive :panicked, 400
-    end
-
-    # The lost-overnight incident: the rod hooking while the minigame never clears is NOT
-    # a life sign — the rule must fire anyway.
-    test "with the minigame watcher running, a hook does NOT reset the clock", %{
-      on_panic: on_panic
-    } do
-      active_session!(61_000)
-      Pokex.Settings.put(:stagnation_minutes, 1)
-      Pokex.Settings.put(:stagnation_action, "stop")
-
-      guardian = start_guardian_with_logout!(on_panic, fn _reason -> :ok end)
-      send(guardian, {:mini_game, %{state: :watching, counters: %{clears: 0}}})
-      send(guardian, {:fishing, %{counters: %{hooked: 1}}})
-
-      assert_receive :panicked, 1_000
     end
   end
 

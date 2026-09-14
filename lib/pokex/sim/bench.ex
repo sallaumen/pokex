@@ -29,7 +29,7 @@ defmodule Pokex.Sim.Bench do
 
   ## What it deliberately does NOT model
 
-  The Body, the receipts, the key latency, and the mini-game gate. Those live
+  The Body, the receipts and the key latency. Those live
   between the decision and the hand, and they are exactly what the live
   simulator on `/sim` exists to exercise. This bench answers "was the DECISION
   right", never "did the key land".

@@ -245,7 +245,7 @@ defmodule Pokex.Bots.Capture do
   @doc """
   `frame/3` plus the PATH of the PNG it decoded — `{:ok, frame, path}`.
 
-  The file on disk IS the frame that was analysed. The mini-game diagnostics
+  The file on disk IS the frame that was analysed. The diagnostics
   keep evidence frames and refresh the live preview by COPYING that file, so
   the picture Lucas looks at is exactly the picture the code read: no second
   capture (which would show a DIFFERENT moment) and no re-encoding.
@@ -260,7 +260,7 @@ defmodule Pokex.Bots.Capture do
   @doc """
   `frame_with_path/3` without the cache: the frame is ALWAYS new.
 
-  The mini-game's play loop needs this: it stamps the time BEFORE the capture so the pilot can
+  A play loop needs this: it stamps the time BEFORE the capture so the caller can
   extrapolate the real latency, and a frame served from the cache makes that stamp lie.
   Measured: with a ~80ms tick and a 75ms TTL, half the ticks came from the cache (cap_ms 0), so
   the pilot saw 6 new frames a second while believing it saw 12.

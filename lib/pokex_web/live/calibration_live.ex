@@ -156,7 +156,6 @@ defmodule PokexWeb.CalibrationLive do
        adjust_target: nil,
        adjust_step: 5,
        tool: nil,
-       suggested_mini_game: nil,
        coord_probe: nil,
        special_shot: nil,
        special_bodies: nil,
@@ -238,7 +237,7 @@ defmodule PokexWeb.CalibrationLive do
         skill_bar_count: socket.assigns.skill_count
       })
 
-  # Standalone correction: re-mark only the character (the mini-game bar anchor)
+  # Standalone correction: re-mark only the character
   # on an existing calibration, without redoing the whole wizard.
   def handle_event("calibrate_player", _params, socket),
     do: start_quick_fix(socket, :player, :player_only)
@@ -301,25 +300,6 @@ defmodule PokexWeb.CalibrationLive do
 
       _not_found ->
         {:noreply, socket}
-    end
-  end
-
-  # Standalone correction: mark only the strip where the mini-game bar shows up
-  # (2 corners) on an existing calibration. From then on the mini-game worker
-  # watches THAT region instead of hunting the bar inside the arena.
-  def handle_event("calibrate_mini_game", _params, socket),
-    do: start_quick_fix(socket, :mini_game_a, :mini_game_only)
-
-  # The suggestion is DRAWN on the screenshot before he clicks anything, so
-  # accepting it is one button instead of two corners — and he can still mark by
-  # hand right there if the box is off (the hand always wins).
-  def handle_event("use_suggested_mini_game", _params, socket) do
-    case socket.assigns.suggested_mini_game do
-      {_x, _y, _w, _h} = region ->
-        {:noreply, save_mini_game_region(socket, region)}
-
-      nil ->
-        {:noreply, assign(socket, error: "sem personagem marcado — não dá pra sugerir a faixa")}
     end
   end
 
@@ -1209,8 +1189,7 @@ defmodule PokexWeb.CalibrationLive do
       pokemon_photo_point: calib.pokemon_photo_point,
       minimap_region: calib.minimap_region,
       minimap_player_point: calib.minimap_player_point,
-      minimap_coord_region: calib.minimap_coord_region,
-      mini_game_region: calib.mini_game_region
+      minimap_coord_region: calib.minimap_coord_region
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
@@ -1997,7 +1976,6 @@ defmodule PokexWeb.CalibrationLive do
     "skill_bar_region" => {:skill_bar_region, :region},
     "pokemon_hp_region" => {:pokemon_hp_region, :region},
     "player_hp_region" => {:player_hp_region, :region},
-    "mini_game_region" => {:mini_game_region, :region},
     "minimap_region" => {:minimap_region, :region},
     "minimap_coord_region" => {:minimap_coord_region, :region}
   }
@@ -2012,7 +1990,6 @@ defmodule PokexWeb.CalibrationLive do
   # The CURRENT value the pad starts from — resolved (manual > layout >
   # derived), so nudging an automatic area starts from where it actually is.
   defp adjust_value(calib, :player_point), do: Calibration.player_point(calib)
-  defp adjust_value(calib, :mini_game_region), do: Calibration.mini_game_region(calib)
   defp adjust_value(calib, :minimap_region), do: Calibration.minimap_region(calib)
   defp adjust_value(calib, :minimap_coord_region), do: Calibration.minimap_coord_region(calib)
   defp adjust_value(calib, :minimap_player_point), do: Calibration.minimap_player_point(calib)
@@ -2112,20 +2089,6 @@ defmodule PokexWeb.CalibrationLive do
   # usar a última calibração daquele monitor" — Lucas, 2026-08-07).
   # Straight from the anchors, ignoring whatever is marked: this is the OFFER,
   # and offering him back the mark he already has would say nothing.
-  # Only on the mini-game steps: the same box drawn during, say, the water mark
-  # would be an area he is not being asked about.
-  defp marking_suggestion(step, suggestion) when step in [:mini_game_a, :mini_game_b],
-    do: suggestion
-
-  defp marking_suggestion(_step, _suggestion), do: nil
-
-  defp suggested_mini_game do
-    case Calibration.load() do
-      {:ok, calib} -> Calibration.derived_mini_game_region(calib)
-      _no_calibration -> nil
-    end
-  end
-
   defp start_quick_fix(socket, first_step, mode, draft \\ %{}) do
     case grab_screen() do
       {:ok, screen} ->
@@ -2140,8 +2103,7 @@ defmodule PokexWeb.CalibrationLive do
            review: nil,
            error: nil,
            skillbar_msg: nil,
-           zoom_at: nil,
-           suggested_mini_game: suggested_mini_game()
+           zoom_at: nil
          )}
 
       error ->
@@ -2685,14 +2647,6 @@ defmodule PokexWeb.CalibrationLive do
     )
   end
 
-  defp record_step(:mini_game_a, socket, point, draft) do
-    assign(socket, draft: Map.put(draft, :mini_game_a, point), step: :mini_game_b)
-  end
-
-  defp record_step(:mini_game_b, socket, point, draft) do
-    save_mini_game_region(socket, region_from(draft.mini_game_a, point))
-  end
-
   defp record_step(:minimap_a, socket, point, draft) do
     assign(socket, draft: Map.put(draft, :minimap_a, point), step: :minimap_b)
   end
@@ -2913,32 +2867,8 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
-  defp save_mini_game_region(socket, region) do
-    case Calibration.load() do
-      {:ok, calib} ->
-        Calibration.save(%{on_this_screen(calib, socket) | mini_game_region: region})
-
-        assign(socket,
-          draft: %{},
-          step: nil,
-          screen: nil,
-          calibrated?: true,
-          skillbar_msg:
-            "Faixa do minigame salva em #{inspect(region)} — o bot agora observa SÓ ela. " <>
-              "Reinicie o worker (Parar/Iniciar) pra valer."
-        )
-
-      {:error, reason} ->
-        assign(socket,
-          step: nil,
-          screen: nil,
-          error: "não deu pra salvar a faixa do minigame: #{inspect(reason)}"
-        )
-    end
-  end
-
   # A quick-fix card: title + one-line hint, so each button says WHAT it re-marks
-  # (the old bare-label row made "Só o minigame" vs "Só o personagem" a guessing game).
+  # (the old bare-label row made each button a guessing game).
   attr :event, :string, required: true
   attr :icon, :string, required: true
   attr :title, :string, required: true
@@ -3105,7 +3035,7 @@ defmodule PokexWeb.CalibrationLive do
 
   defp save_player_point(socket, point) do
     save_mark(socket, %{player_point: point}, %{
-      ok: "Personagem marcado em #{inspect(point)} — o minigame procura a barra a partir daí.",
+      ok: "Personagem marcado em #{inspect(point)}.",
       error: "não deu pra salvar o personagem"
     })
   end
@@ -3185,7 +3115,7 @@ defmodule PokexWeb.CalibrationLive do
   # Any step where the user clicks the screenshot to mark a point/region (the numbered wizard
   # steps AND the standalone quick-fix flows). A step missing here renders the
   # instruction with NO screenshot below it — a black page (2026-07-20 bug: the
-  # mini_game quick-fix steps were absent).
+  # two quick-fix steps were absent).
   defp step_pill_class(n, step) do
     case CalibrationSteps.index(step) do
       nil -> "border border-pk-line text-pk-text-3"
@@ -3455,12 +3385,6 @@ defmodule PokexWeb.CalibrationLive do
                     icon="hero-beaker"
                     title="Ponto da água"
                     hint="onde o bot arremessa (1 clique) — o brilho da isca acompanha sozinho"
-                  />
-                  <.quick_fix
-                    event="calibrate_mini_game"
-                    icon="hero-flag"
-                    title="Faixa do minigame"
-                    hint="onde a barra do minigame aparece (2 cliques) — a cápsula só existe pescando"
                   />
                 </div>
               </div>
@@ -4294,27 +4218,6 @@ defmodule PokexWeb.CalibrationLive do
             </p>
           </div>
 
-          <div
-            :if={@step == :mini_game_a and @suggested_mini_game}
-            id="mini-game-suggestion"
-            class="flex flex-wrap items-center gap-2 rounded-lg border border-pk-line bg-pk-raised px-3 py-2 text-pk-body"
-          >
-            <span class="flex-1 text-pk-text-2">
-              A faixa <b class="text-pk-text">verde</b>
-              desenhada na foto é a sugestão pro seu personagem
-              <span class="pk-num font-mono text-pk-meta">{inspect(@suggested_mini_game)}</span>
-              — se ela já está em cima da barra, aceite e pronto.
-            </span>
-            <button
-              type="button"
-              id="use-suggested-mini-game"
-              phx-click="use_suggested_mini_game"
-              class="rounded-lg border border-pk-ok/60 bg-pk-ok/15 px-2.5 py-1 text-pk-meta font-bold text-pk-ok hover:bg-pk-ok/25"
-            >
-              Usar esta faixa
-            </button>
-          </div>
-
           <p :if={CalibrationSteps.marking?(@step)} class="text-pk-body">
             <span :if={is_nil(@zoom_at)} class="text-pk-text-2">
               Dê um clique APROXIMADO no alvo — a imagem amplia pra você mirar com precisão.
@@ -4367,9 +4270,6 @@ defmodule PokexWeb.CalibrationLive do
                 player_point={draft_player(@draft)}
                 pokemon_hp_region={@draft[:pokemon_hp_region]}
                 pokemon_photo_point={@draft[:pokemon_photo_point]}
-                mini_game_region={
-                  @draft[:mini_game_region] || marking_suggestion(@step, @suggested_mini_game)
-                }
                 minimap_region={@draft[:minimap_region]}
                 minimap_coord_region={@draft[:minimap_coord_region]}
                 minimap_player_point={@draft[:minimap_player_point]}

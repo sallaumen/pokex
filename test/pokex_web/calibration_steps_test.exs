@@ -3,7 +3,7 @@ defmodule PokexWeb.CalibrationStepsTest do
 
   alias PokexWeb.CalibrationSteps
 
-  # THE 2026-07-20 BUG: the mini-game quick-fix steps had instructions but were
+  # THE 2026-07-20 BUG: two quick-fix steps had instructions but were
   # missing from `marking?/1`, so the page showed the instruction over NO
   # screenshot — a black page you cannot click. The two lists have to agree,
   # and now a new step that forgets one side fails here instead of in his face.
@@ -33,7 +33,7 @@ defmodule PokexWeb.CalibrationStepsTest do
 
   test "quick-fix steps are unnumbered but still mark" do
     # they belong to no numbered run, yet each must draw the screenshot
-    for step <- [:mini_game_a, :mini_game_b, :minimap_cross, :pokemon_spot, :escape_point] do
+    for step <- [:minimap_cross, :pokemon_spot, :escape_point] do
       assert CalibrationSteps.index(step) == nil
       assert CalibrationSteps.marking?(step)
       assert CalibrationSteps.instruction(step)

@@ -16,7 +16,6 @@ defmodule Pokex.Bots.AlarmCategories do
     {:command, "Canto de comando"},
     {:capture, "Captura (acervo, fila, região)"},
     {:fishing, "Arremesso seco (pesca)"},
-    {:mini_game, "Mini-game (faixa curta)"},
     {:stock, "Estoque baixo"},
     {:logout, "Logout automático"}
   ]

@@ -88,9 +88,13 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
 
   @doc """
   The filmed display's full area as a screen-points region, from the helper's
-  ready metadata. This names the GAME's display (the helper films the main
-  display, `CGMainDisplayID`) — full-screen captures must use it, because the
-  CLI's `screencapture -m` can film the wrong monitor on a 2-display setup.
+  ready metadata — LOCAL to that display, so its top-left is `{0, 0}`.
+
+  Local because every region in this house is: the helper crops inside the
+  filmed display's own frame, and the one translation to desktop coordinates
+  happens at the edge, in `Pokex.Rig.Mac`. A global rectangle handed to the crop
+  would fall outside the frame; handed to the CLI it would cross the border
+  twice. `display_origin/1` is where the display actually sits.
   """
   def display_region(%__MODULE__{
         metadata: %{"display_width" => pw, "display_height" => ph, "scale" => scale}
@@ -99,6 +103,20 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
       do: {:ok, {0, 0, round(pw / scale), round(ph / scale)}}
 
   def display_region(_backend), do: :unknown
+
+  @doc """
+  The filmed display's top-left in GLOBAL screen points — `{:ok, {x, y}}`, or
+  `:unknown` when the helper did not say (an older binary, or no helper at all).
+
+  This is the vector between what the eye reads and what the mouse moves; see
+  `Pokex.Screen.Display`.
+  """
+  def display_origin(%__MODULE__{metadata: %{"display_x" => x, "display_y" => y}})
+      when is_number(x) and is_number(y),
+      do: {:ok, {round(x), round(y)}}
+
+  def display_origin(%__MODULE__{}), do: :unknown
+  def display_origin(_backend), do: :unknown
 
   defp enabled? do
     case Application.get_env(:pokex, :capture_backend, :auto) do
@@ -221,17 +239,29 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
     e in ErlangError -> {:error, {:compile_failed, e.original}}
   end
 
+  # The helper films the display holding a window of THIS app. Passed as an
+  # argument rather than read on the other side because the name is a setting of
+  # his, and a helper that reads no configuration stays a pure camera.
   defp open_helper(executable) do
     port =
       Port.open({:spawn_executable, executable}, [
         :binary,
         :exit_status,
-        {:line, 65_536}
+        {:line, 65_536},
+        {:args, [game_window_owner()]}
       ])
 
     {:ok, port}
   rescue
     e in ErlangError -> {:error, {:open_failed, e.original}}
+  end
+
+  # Settings may be down (a bare unit test, a boot race): no name means the main
+  # display, which is what the house did before there was a name at all.
+  defp game_window_owner do
+    Pokex.Settings.get(:game_window_owner) || ""
+  catch
+    :exit, _no_settings -> ""
   end
 
   defp wait_ready(port, timeout_ms) do

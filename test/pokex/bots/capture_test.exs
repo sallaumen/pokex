@@ -121,6 +121,43 @@ defmodule Pokex.Bots.CaptureTest do
     assert ScreenCaptureKit.display_region(%ScreenCaptureKit{}) == :unknown
   end
 
+  # The region stays LOCAL even when the display is somewhere else: it feeds the
+  # crop, which lives inside the filmed display's own frame. A global rectangle
+  # here would fall outside that frame, and on the CLI route it would cross the
+  # border twice (`Pokex.Rig.Mac` translates once, at the edge).
+  test "SCK display_region stays local while display_origin says where the display is" do
+    alias Pokex.Bots.Capture.ScreenCaptureKit
+
+    backend = %ScreenCaptureKit{
+      metadata: %{
+        "display_width" => 3024,
+        "display_height" => 1964,
+        "scale" => 2.0,
+        "display_x" => 3440,
+        "display_y" => 1007
+      }
+    }
+
+    assert ScreenCaptureKit.display_region(backend) == {:ok, {0, 0, 1512, 982}}
+    assert ScreenCaptureKit.display_origin(backend) == {:ok, {3440, 1007}}
+
+    # An older helper binary says nothing about the origin, and no answer must
+    # never read as "the main display": it reads as no proof.
+    assert ScreenCaptureKit.display_origin(%ScreenCaptureKit{
+             metadata: %{"display_width" => 3440}
+           }) == :unknown
+  end
+
+  test "the filmed display pairs the local SIZE with the global PLACE" do
+    assert Capture.filmed_display({:ok, {0, 0, 1512, 982}}, {:ok, {3440, 1007}}) ==
+             {3440, 1007, 1512, 982}
+
+    # Half an answer is not an answer: an origin with no size, or a size with no
+    # origin, must not publish a display nobody measured.
+    assert Capture.filmed_display({:ok, {0, 0, 1512, 982}}, :unknown) == :unknown
+    assert Capture.filmed_display(:unknown, {:ok, {3440, 1007}}) == :unknown
+  end
+
   test "screen falls back to the CLI capture_screen without SCK display metadata" do
     {:ok, pid} = Capture.start_link(name: :cap_screen_cli)
 

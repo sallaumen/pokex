@@ -329,6 +329,9 @@ defmodule Pokex.Settings.Locked do
     pokemon_hp_frozen_ms:
       {"Pokémon (vida)",
        "barra pregada no mesmo número baixo por este tempo deixa de contar como leitura"},
+    pokemon_hp_frozen_blind_ms:
+      {"Pokémon (vida)",
+       "…e com o olho do cerco sem achar o pokémon na tela, este prazo mais curto basta"},
     pokemon_hp_min_brightness:
       {"Vida do pokémon (visão)", "coluna cheia = pixel colorido: brilho mínimo"},
     pokemon_hp_min_saturation: {"Vida do pokémon (visão)", "…e saturação mínima"},

@@ -472,11 +472,35 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
 
   defp frozen_hp?(%{hp_same_value: hp, hp_same_since: since})
        when is_integer(hp) and hp <= @frozen_hp_max and is_integer(since) do
-    limite = Settings.get(:pokemon_hp_frozen_ms)
-    is_integer(limite) and limite > 0 and now() - since >= limite
+    stuck_for = now() - since
+
+    past?(stuck_for, Settings.get(:pokemon_hp_frozen_ms)) or
+      (eye_without_pet?() and past?(stuck_for, Settings.get(:pokemon_hp_frozen_blind_ms)))
   end
 
   defp frozen_hp?(_moving_or_healthy), do: false
+
+  defp past?(stuck_for, limit), do: is_integer(limit) and limit > 0 and stuck_for >= limit
+
+  # THE EYE AS THE SECOND WITNESS, and only in the NEGATIVE direction.
+  #
+  # The frozen bar is a lie that only the clock could catch, and the clock costs
+  # six seconds. The siege scan answers the same question through another
+  # channel — it looks for the pokémon's own health bar among the creatures on
+  # screen — and on the death of 13/09 it had the answer in the SAME frame as
+  # the fall: no pet from 22:58:44.8 to 22:58:48.1, while the Pokebar held a
+  # perfectly readable 1% and the brain walked the route without a shield.
+  #
+  # Only the negative direction. "The eye SEES a pet" is not proof he is back:
+  # in that same incident the scan named a creature six tiles away at 100% the
+  # pet for twelve seconds, by the number box, while the pokémon was on the
+  # ground. Absence is the cheap, honest half of this witness.
+  defp eye_without_pet? do
+    case WorldState.get(:crowd, Settings.get(:crowd_fact_max_age_ms), now()) do
+      {:ok, %{read?: true, pet: nil}} -> true
+      _no_scan_or_pet_on_screen -> false
+    end
+  end
 
   # O caminho de "não sei": o número sai de cena, a trilha da morte anda, e o
   # painel diz POR QUE. Vale pro recorte que não parece uma barra e pro número

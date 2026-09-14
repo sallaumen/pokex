@@ -1161,6 +1161,28 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
     assert await_log("revive despachado") =~ "revive despachado"
   end
 
+  # Toda frase que chegar dentro do prazo — pra provar que uma delas NAO chega.
+  # `refute_receive` nao serve aqui: o suporte fala o tempo todo, e a primeira
+  # frase qualquer derrubaria a prova.
+  defp logs_for(window_ms) do
+    deadline = System.monotonic_time(:millisecond) + window_ms
+    collect_logs(deadline, [])
+  end
+
+  defp collect_logs(deadline, acc) do
+    left = deadline - System.monotonic_time(:millisecond)
+
+    if left <= 0 do
+      acc
+    else
+      receive do
+        {:game_log, _level, text} -> collect_logs(deadline, [text | acc])
+      after
+        left -> acc
+      end
+    end
+  end
+
   defp await_log(matching) do
     assert_receive {:game_log, _level, text}, 1_000
     if text =~ matching, do: text, else: await_log(matching)
@@ -1427,6 +1449,63 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
       assert :ok = Worker.run(worker)
 
       assert await_log("PREGADA") =~ "não está no campo"
+    end
+
+    # A MORTE DE 13/09, e o que o olho ja sabia. A barra pregou em 1% as
+    # 22:58:44 e o detector do relogio so falou as 22:58:50 — no meio desses 6 s
+    # o cerebro andou a rota com o pokemon no chao ("1% e o revive so volta em
+    # 4s"). A varredura do cerco, no MESMO quadro da queda, ja nao achava
+    # pokemon nenhum em campo, e ficou assim por quatro segundos.
+    @tag :tmp_dir
+    test "the eye seeing no pet on screen cuts the pinned bar's wait",
+         %{tmp: tmp, body: body} do
+      SettingsStash.stash!(pokemon_hp_frozen_ms: 60_000, pokemon_hp_frozen_blind_ms: 100)
+
+      WorldState.put(
+        :crowd,
+        %{read?: true, me: {1695, 686}, pet: nil, hostiles: [], passive: 0, passive_points: []},
+        System.monotonic_time(:millisecond)
+      )
+
+      pregada = hp_png(tmp, "pinned_blind.png", 2)
+      {:ok, _} = Fake.start_link(%{capture: List.duplicate({:ok, pregada}, 60)})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert await_log("PREGADA") =~ "não está no campo"
+    end
+
+    # …E A CERCA TEM DENTE: com o olho ACHANDO o pokemon na tela, o atalho nao
+    # existe e a barra pregada volta a esperar o prazo cheio. O olho perde o
+    # bicho de vez em quando (6,3% dos tiques de 13/09, mediana 0 ms) e e' so
+    # a AUSENCIA dele que este atalho escuta.
+    @tag :tmp_dir
+    test "the eye finding the pet leaves the full wait standing", %{tmp: tmp, body: body} do
+      SettingsStash.stash!(pokemon_hp_frozen_ms: 60_000, pokemon_hp_frozen_blind_ms: 100)
+
+      WorldState.put(
+        :crowd,
+        %{
+          read?: true,
+          me: {1695, 686},
+          pet: %{point: {2022, 768}, hp_pct: 2, tiles: 2, dx: 2, dy: 1, score: nil, by: :hp},
+          hostiles: [],
+          passive: 0,
+          passive_points: []
+        },
+        System.monotonic_time(:millisecond)
+      )
+
+      pregada = hp_png(tmp, "pinned_seen.png", 2)
+      {:ok, _} = Fake.start_link(%{capture: List.duplicate({:ok, pregada}, 60)})
+      Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      refute Enum.any?(logs_for(600), &(&1 =~ "PREGADA"))
     end
 
     @tag :tmp_dir

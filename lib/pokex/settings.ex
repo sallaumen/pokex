@@ -375,6 +375,15 @@ defmodule Pokex.Settings do
     # 1.500 revives — não faltava item, faltava pokémon em campo. Abaixo de 10%
     # uma barra viva muda a cada segundo. 0 desliga a checagem.
     pokemon_hp_frozen_ms: 6_000,
+    # …E COM O OLHO DE TESTEMUNHA, o mesmo veredito sai em um segundo e meio.
+    # Medido na morte de 13/09: a barra pregou em 1% às 22:58:44 e o detector só
+    # falou às 22:58:50 — no meio desses 6 s o cérebro andou com o pokémon no
+    # chão ("1% e o revive só volta em 4s"). A varredura do cerco, no MESMO
+    # quadro da queda, já não achava o pokémon em campo. Este prazo só vale com
+    # esse segundo testemunho: o olho perde o bicho de vez em quando (6,3% dos
+    # tiques em 13/09), mas quase sempre por um quadro só — mediana 0 ms, p90
+    # 402 ms. 0 desliga o atalho e tudo volta a esperar o prazo cheio.
+    pokemon_hp_frozen_blind_ms: 1_500,
     # Seat belt after reviving a fainted pokémon.
     fainted_revive_cooldown_ms: 3_000,
     # Stun BEFORE reviving (2026-07-30): hunting strong mobs, the pokémon's own area-control
@@ -997,6 +1006,7 @@ defmodule Pokex.Settings do
     rescue_blackout_ms: 0..10_000,
     pokemon_hp_fainted_below_pct: 0..100,
     pokemon_hp_frozen_ms: 0..600_000,
+    pokemon_hp_frozen_blind_ms: 0..600_000,
     fainted_revive_cooldown_ms: 0..600_000,
     combat_confirm_ms: 0..10_000,
     cavebot_precise_tiles: 0..10,

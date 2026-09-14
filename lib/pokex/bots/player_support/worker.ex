@@ -30,7 +30,10 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.PlayerSupport.Logic
   alias Pokex.Calibration
+  alias Pokex.Bots.CrowdScan
+  alias Pokex.Bots.ShinyGuard
   alias Pokex.Perception.WorldState
+  alias Pokex.Screen.BarOffset
   alias Pokex.Settings
   alias Pokex.Vision
 
@@ -258,6 +261,7 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
           # whole settle, and a window counted from there aimed at the wrong place.
           ReviveLedger.landed()
           broadcast_log(:macro, "🚑 revive despachado — as teclas saíram")
+          walk_to_enemy(state)
           %{state | last_action: %{text: "revive despachado", at: now()}}
 
         {:error, reason} ->
@@ -1095,6 +1099,70 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
       now: now()
     }
   end
+
+  # DEPOIS DO REVIVE, O POKÉMON ANDA ATÉ O INIMIGO.
+  #
+  # "Toda vez que ele usa um revive, o meu pokémon anda para uma localização
+  # aleatória — às vezes pro lado oposto do shiny. Aí, quando ele usa o auto
+  # combo, a skill de controle acaba não acertando, o que abre uma janela de
+  # perigo" (Lucas, 14/09).
+  #
+  # Os ataques dele são de ÁREA: estar PERTO do inimigo é o que garante que a
+  # corrente pega. O clique do meio é o "anda até aqui" do jogo — o mesmo que o
+  # cavebot usa pra estacionar (`park_click`) e que a reposição pós-luta usa pro
+  # tile calibrado. Aqui muda o DESTINO (o inimigo) e a HORA (agora, dentro da
+  # janela que o combo já espera), e o pokémon vai andando enquanto o relógio do
+  # combo corre.
+  #
+  # A reposição pós-luta que já existia não cobre nada disto: ela exige
+  # `player_mode == "still"` (o dele é `hunt`) e só roda com a batalha LIMPA.
+  #
+  # Best effort de propósito: sem leitura da multidão, sem inimigo ou com o
+  # portão fechado, o revive segue exatamente como antes.
+  defp walk_to_enemy(state) do
+    with true <- Settings.get(:revive_walk_to_enemy),
+         {:ok, point} <- enemy_to_walk_to(),
+         true <- InputGate.allowed?() do
+      # fora do processo de propósito: o caminho do revive não pode ficar preso
+      # esperando o Body, que serializa com todo mundo
+      body = state.body
+      alvo = BarOffset.body(point)
+      spawn(fn -> Body.perform([{:click, :middle, alvo}], :normal, body) end)
+
+      broadcast_log(
+        :debug,
+        "🐾 pokémon mandado pro inimigo em #{elem(point, 0)},#{elem(point, 1)}"
+      )
+    else
+      _sem_alvo_ou_desligado -> :ok
+    end
+  end
+
+  # O SHINY É A PREFERÊNCIA, e qualquer inimigo serve na falta dele ("se for
+  # shiny, sempre é o shiny; se tiver algum inimigo aleatório, pode ser o
+  # inimigo aleatório mesmo" — 14/09). Sem shiny, o mais PERTO: é o que a
+  # corrente de área pega junto com o resto.
+  defp enemy_to_walk_to do
+    case WorldState.get(:crowd, Settings.get(:crowd_fact_max_age_ms), now()) do
+      {:ok, %{read?: true, hostiles: [_ | _]} = reading} ->
+        # o fato PUBLICADO não traz `special?`: quem junta o brilho do vigia com
+        # a barra do olho é esta função, a mesma que o Catcher usa
+        %{hostiles: hostiles} =
+          CrowdScan.mark_special(reading, ShinyGuard.seen(), Calibration.tile_px())
+
+        especiais = Enum.filter(hostiles, & &1[:special?])
+        alvo = Enum.min_by(especiais, &distance/1, fn -> Enum.min_by(hostiles, &distance/1) end)
+        {:ok, alvo.point}
+
+      _sem_leitura_ou_sem_bicho ->
+        :none
+    end
+  end
+
+  defp distance(%{dx: dx, dy: dy}) when is_integer(dx) and is_integer(dy),
+    do: abs(dx) + abs(dy)
+
+  defp distance(_sem_medida), do: 999
 
   # After every battle, send the Pokémon back to its calibrated strategic tile with a MIDDLE
   # click (the game's "step here" command) — battles drag it off the spot where it hits several

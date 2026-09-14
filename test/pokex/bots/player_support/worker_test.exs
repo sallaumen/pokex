@@ -1196,6 +1196,72 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # question. Fresh orders decide WHEN in both directions; stale or missing
   # ones simply hold (PR 7 retired the threshold-only ladder underneath —
   # there is nothing left to fall back to, by design).
+  # DEPOIS DO REVIVE, O POKÉMON ANDA ATÉ O INIMIGO.
+  #
+  # "Toda vez que ele usa um revive, o meu pokémon anda para uma localização
+  # aleatória — às vezes pro lado oposto do shiny. Aí, quando ele usa o auto
+  # combo, a skill de controle acaba não acertando, o que abre uma janela de
+  # perigo" (Lucas, 14/09). Os ataques são de ÁREA: estar perto é o que garante
+  # que a corrente pega.
+  describe "walking to the enemy after the revive" do
+    defp crowd!(hostiles) do
+      WorldState.put(
+        :crowd,
+        %{read?: true, hostiles: hostiles, pet: nil, me: {1695, 686}},
+        System.monotonic_time(:millisecond)
+      )
+    end
+
+    @tag :tmp_dir
+    test "the middle click goes to the nearest enemy", %{tmp: tmp, body: body} do
+      low = hp_png(tmp, "walk_near.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+
+      crowd!([
+        %{point: {1000, 300}, dx: -5, dy: -2},
+        %{point: {1544, 837}, dx: -1, dy: 1}
+      ])
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      # o revive primeiro, o passo depois — nesta ordem
+      assert_receive {:performed, :critical, _}, 2_000
+      assert_receive {:performed, :normal, [{:click, :middle, _}]}, 2_000
+    end
+
+    @tag :tmp_dir
+    test "the switch off keeps the revive exactly as it was", %{tmp: tmp, body: body} do
+      Pokex.Settings.put(:revive_walk_to_enemy, false)
+      low = hp_png(tmp, "walk_off.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+      crowd!([%{point: {1544, 837}, dx: -1, dy: 1}])
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :critical, _}, 2_000
+      refute_receive {:performed, :normal, [{:click, :middle, _}]}, 700
+    end
+
+    # sem bicho na tela o revive segue exatamente como antes
+    @tag :tmp_dir
+    test "with nothing on screen the revive is untouched", %{tmp: tmp, body: body} do
+      low = hp_png(tmp, "walk_none.png", 6)
+      {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
+      orders!(:now)
+      crowd!([])
+
+      worker = start_worker(body)
+      assert :ok = Worker.run(worker)
+
+      assert_receive {:performed, :critical, _}, 2_000
+      refute_receive {:performed, :normal, [{:click, :middle, _}]}, 700
+    end
+  end
+
   describe "obeying the engine" do
     defp orders!(revive) do
       WorldState.put(:orders, %{revive: revive}, System.monotonic_time(:millisecond))

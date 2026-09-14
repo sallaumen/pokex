@@ -723,6 +723,7 @@ defmodule PokexWeb.ConfigLive do
         :stock_alert_e,
         :stock_alert_s_q,
         :reposition_enabled,
+        :revive_walk_to_enemy,
         :support_waits_capture
       ]
     },

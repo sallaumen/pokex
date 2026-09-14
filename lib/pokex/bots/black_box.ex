@@ -25,12 +25,14 @@ defmodule Pokex.Bots.BlackBox do
 
   use GenServer
 
+  alias Pokex.Bots.Body
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Engine
   alias Pokex.Bots.ShinyGuard
   alias Pokex.Calibration
   alias Pokex.Home
+  alias Pokex.Screen.BarOffset
   alias Pokex.Perception.WorldState
   alias Pokex.Vision.{ColorRules, Frame}
 
@@ -40,6 +42,9 @@ defmodule Pokex.Bots.BlackBox do
   @max_film 60
   @max_key 10
   @quiet_to_close_ms 6_000
+  # o tempo que o cliente leva pra desenhar a bola — medido a olho, é o que ele
+  # vê quando joga na mão
+  @after_ball_ms 700
   @max_episode_ms 150_000
   @catcher_topic "catcher"
   @shiny_topic "shiny"
@@ -107,12 +112,23 @@ defmodule Pokex.Bots.BlackBox do
       # says "hora da bola" and was earning a whole frame)
       (String.contains?(text, "bola em") or String.contains?(text, "bola na âncora")) and
           state.episode != nil ->
+        Process.send_after(self(), {:after_ball, aim_in(text)}, @after_ball_ms)
         {:noreply, key_frame(state, "bola", now())}
 
       true ->
         {:noreply, state}
     end
   end
+
+  # O QUADRO DEPOIS DA BOLA — o único testemunho de que ela saiu.
+  #
+  # "Ele move o mouse mas acho que ta errando o corpo" (13/09), e nenhum
+  # artefato sabia responder: o quadro da borda é tirado NO arremesso, antes de
+  # o cliente desenhar coisa alguma. Este sai #{@after_ball_ms} ms depois, com a
+  # mira que a linha anunciou e o CURSOR onde ele realmente está — que é o que
+  # separa "o mouse não chegou" de "chegou e o jogo ignorou".
+  def handle_info({:after_ball, aim}, state),
+    do: {:noreply, key_frame(state, "depois-da-bola", now(), nil, nil, aim(aim))}
 
   # A REVIVE THAT DID NOTHING (12:39:49 of 11/09: three of them, then the
   # logout): the bag, the key or the pokémon — the frame is the only witness.
@@ -245,25 +261,62 @@ defmodule Pokex.Bots.BlackBox do
 
   # --- the frames ----------------------------------------------------------------
 
-  defp key_frame(state, tag, now, picture \\ nil, orders \\ nil)
-  defp key_frame(%{episode: nil} = state, _tag, _now, _p, _o), do: state
+  defp key_frame(state, tag, now, picture \\ nil, orders \\ nil, ball \\ nil)
+  defp key_frame(%{episode: nil} = state, _tag, _now, _p, _o, _b), do: state
 
-  defp key_frame(%{episode: %{keys: keys}} = state, _tag, _now, _p, _o) when keys >= @max_key,
+  defp key_frame(%{episode: %{keys: keys}} = state, _tag, _now, _p, _o, _b) when keys >= @max_key,
     do: state
 
-  defp key_frame(state, tag, now, picture, orders) do
+  defp key_frame(state, tag, now, picture, orders, ball) do
     ep = state.episode
     file = "#{pad(ep.keys + ep.film)}-#{tag}.raw.z"
     saved = save(state, ep.dir, file, 1)
-    manifest(state, "key", tag, file, saved, now, picture, orders)
+    manifest(state, "key", tag, file, saved, now, %{picture: picture, orders: orders, ball: ball})
     %{state | episode: %{ep | keys: ep.keys + 1}}
+  end
+
+  # A MIRA ANUNCIADA E O CURSOR DE VERDADE, lado a lado. `Body.cursor/2` e
+  # respondido FORA da fila (e o caminho do panico), entao perguntar aqui nao
+  # atrasa tecla nenhuma.
+  defp aim(nil), do: nil
+
+  defp aim({x, y}) do
+    %{
+      anunciada: [x, y],
+      corpo: BarOffset.body({x, y}) |> Tuple.to_list(),
+      cursor: cursor()
+    }
+  end
+
+  defp cursor do
+    case Body.cursor(Body, 1_000) do
+      {:ok, {x, y}} -> [x, y]
+      other -> inspect(other)
+    end
+  catch
+    :exit, _body_ocupado -> "sem resposta"
+  end
+
+  @aim_re ~r/bola(?: \d+)? em (-?\d+),(-?\d+)/
+
+  defp aim_in(text) do
+    case Regex.run(@aim_re, text) do
+      [_, x, y] -> {String.to_integer(x), String.to_integer(y)}
+      _sem_ponto -> nil
+    end
   end
 
   defp film_frame(state, now, picture, orders) do
     ep = state.episode
     file = "#{pad(ep.keys + ep.film)}-filme.raw.z"
     saved = save(state, ep.dir, file, 2)
-    manifest(state, "film", "filme", file, saved, now, picture, orders)
+
+    manifest(state, "film", "filme", file, saved, now, %{
+      picture: picture,
+      orders: orders,
+      ball: nil
+    })
+
     %{state | episode: %{ep | film: ep.film + 1, last_film_at: now}}
   end
 
@@ -311,8 +364,11 @@ defmodule Pokex.Bots.BlackBox do
 
   # --- the manifest ------------------------------------------------------------------
 
-  defp manifest(state, kind, tag, file, saved, now, picture, orders) do
+  defp manifest(state, kind, tag, file, saved, now, %{} = extras) do
+    %{picture: picture, orders: orders, ball: ball} = extras
+
     line = %{
+      ball: ball,
       at: DateTime.to_iso8601(DateTime.utc_now()),
       mono: now,
       t_ms: now - state.episode.since,

@@ -84,6 +84,86 @@ defmodule Pokex.Bots.Engine.LogicTest do
 
   defp step(logic \\ Logic.new(), world, now), do: Logic.step(logic, world, @config, now)
 
+  # A TELA QUE NÃO É O JOGO.
+  #
+  # Em 14/09 o encerramento da noite mandou o logout às 06:11:20 e ELE PEGOU: a
+  # caixa-preta mostra rocha e Golem em 06:11:24.97 e a tela de seleção de
+  # personagem em 06:11:26.97. O que veio depois é o defeito. O manifesto do
+  # quadro de 06:11:49, lido na tela de login, diz:
+  #
+  #     picture = {"rows": 2, "enemies": 1, "own_hp": 29, "special?": true}
+  #     minimap = {"pos": null, "coord_blank?": true}
+  #
+  # Duas linhas de batalha, um inimigo, a vida dele em 29% e um shiny — tudo
+  # inventado a partir de uma arte de menu. Só o minimapa disse a verdade. O bot
+  # jogou 45 segundos contra aquilo: 5 revives despachados, combos disparados, e
+  # no fim a saída de emergência, que desarma a frota inteira (1h32 parada).
+  #
+  # Um recorte sempre devolve pixels. O que ele nunca devolve sozinho é "isto
+  # não é o jogo".
+  describe "the screen that is not the game" do
+    defp fora_do_mundo(extra \\ %{}),
+      do:
+        world(%{situation: situation(Map.merge(%{bar_seen?: false, coord_blank?: true}, extra))})
+
+    test "both opposite corners dark for five seconds stops the hunt" do
+      {logic, orders} = step(fora_do_mundo(), 1_000)
+      refute orders.phase == :stranded, "um tique não prova nada"
+
+      {logic, orders} = Logic.step(logic, fora_do_mundo(), @config, 6_000)
+
+      assert logic.state == :stranded
+      assert orders.route == :hold
+      assert orders.fire == :hold
+      assert orders.why =~ "não estou vendo o mundo do jogo"
+    end
+
+    # A FRASE NÃO ESCOLHE UMA CAUSA. Dizer "outro programa abriu algo por cima"
+    # com toda a confiança é conselho errado em dois dos três casos, e o
+    # `:stranded` já pagou essa lição uma vez.
+    test "and it names the three causes instead of guessing one" do
+      {logic, _} = step(fora_do_mundo(), 1_000)
+      {_logic, orders} = Logic.step(logic, fora_do_mundo(), @config, 6_000)
+
+      assert orders.why =~ "saiu do jogo"
+      assert orders.why =~ "por cima"
+      assert orders.why =~ "mudou de lugar"
+    end
+
+    # UM CANTO SÓ NÃO PROVA NADA, que é a razão de existirem dois. A barra some
+    # por recorte mal ensinado e some com o pokémon no chão; a coordenada some
+    # com uma janela sobre o minimapa. Cada uma sozinha é um alarme, não um
+    # freio.
+    test "the skill bar alone does not stop the hunt" do
+      cega = world(%{situation: situation(%{bar_seen?: false, coord_blank?: false})})
+      {logic, _} = step(cega, 1_000)
+      {logic, orders} = Logic.step(logic, cega, @config, 20_000)
+
+      refute logic.state == :stranded
+      refute orders.why =~ "não estou vendo o mundo do jogo"
+    end
+
+    test "and the blank coordinate alone does not either" do
+      cega = world(%{situation: situation(%{bar_seen?: true, coord_blank?: true})})
+      {logic, _} = step(cega, 1_000)
+      {logic, orders} = Logic.step(logic, cega, @config, 20_000)
+
+      refute logic.state == :stranded
+      refute orders.why =~ "não estou vendo o mundo do jogo"
+    end
+
+    # E A VISTA VOLTANDO ZERA O RELÓGIO: uma janela que cobre por 4s e sai não
+    # pode deixar a caçada a um tique do freio pelo resto da noite.
+    test "the clock restarts when the world comes back" do
+      {logic, _} = step(fora_do_mundo(), 1_000)
+      {logic, _} = Logic.step(logic, world(), @config, 4_000)
+      {logic, orders} = Logic.step(logic, fora_do_mundo(), @config, 8_000)
+
+      refute logic.state == :stranded
+      refute orders.why =~ "não estou vendo o mundo do jogo"
+    end
+  end
+
   # A RÉGUA CORRE ANDANDO. Não existe mais "perna de mobada": o que decide se a
   # caçada anda ou para é a contagem do que está ao redor, e ela roda em todo
   # tique de estrada.

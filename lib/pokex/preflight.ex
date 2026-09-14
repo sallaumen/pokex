@@ -16,6 +16,7 @@ defmodule Pokex.Preflight do
       |> check_character()
       |> check_active_pokemon()
       |> check_bar_fits()
+      |> check_revive_bag()
       |> check_tile()
       |> check_screen(rig)
 
@@ -49,6 +50,33 @@ defmodule Pokex.Preflight do
       [
         "nenhum personagem ativo — o bot usaria o time legado, que pode ser de OUTRO " <>
           "personagem; escolha o seu no seletor do cabeçalho"
+        | errors
+      ]
+    else
+      errors
+    end
+  end
+
+  # UMA CAÇADA NÃO COMEÇA JÁ ENCERRANDO. Em 14/09, 07:44:50, ele relogou e
+  # soltou a caçada; o PRIMEIRO tique do cérebro disse "11 revive(s) no bolso e
+  # a tela limpa — encerrando a noite: tentando sair do jogo", despachou um
+  # revive, e dez segundos depois o logout falhava. O caderninho tinha guardado
+  # os 11 revives que sobraram da madrugada, e o encerramento entra em 20.
+  #
+  # O caderninho está CERTO — quem repõe é ele, com o pote na mão, e digitar o
+  # estoque no /config É o botão de repor. O que faltava era alguém dizer isso
+  # ANTES de a caçada gastar tecla e tentar sair do jogo. É a mesma regra do
+  # resto deste módulo: recusar na porta é barato, descobrir andando custa a
+  # noite.
+  defp check_revive_bag(errors) do
+    limiar = Pokex.Settings.get(:engine_wind_down_at)
+    resta = Pokex.Bots.ReviveLedger.remaining()
+
+    if limiar > 0 and is_integer(resta) and resta <= limiar do
+      [
+        "o caderninho diz #{resta} revive(s) no bolso, e a caçada encerra em #{limiar} — " <>
+          "ela começaria já tentando sair do jogo. Conte a bag e digite o estoque no /config " <>
+          "(digitar É o botão de repor)"
         | errors
       ]
     else

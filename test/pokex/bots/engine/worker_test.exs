@@ -61,6 +61,44 @@ defmodule Pokex.Bots.Engine.WorkerTest do
       assert texto =~ "trazendo a janela do jogo pra frente"
     end
 
+    # A FRASE NÃO ESCOLHE UMA CAUSA QUANDO NÃO SABE.
+    #
+    # Em 14/09 esta linha disse "outro programa pode ter aberto algo por cima"
+    # oito vezes seguidas enquanto o personagem já estava na tela de seleção de
+    # personagem: o logout do encerramento tinha funcionado às 06:11:20, o jogo
+    # voltou pro menu entre 06:11:25 e 06:11:27 (a caixa-preta gravou os dois
+    # quadros), e nada tinha sido aberto por cima de nada.
+    #
+    # Subir a janela continua valendo — é barato e conserta um dos três casos.
+    # O que não vale é afirmar o caso errado com toda a confiança.
+    test "with both corners dark it names the three suspects, not one" do
+      agora = System.monotonic_time(:millisecond)
+      WorldState.put(:minimap, %{pos: nil, coord_blank?: true}, agora)
+      on_exit(fn -> WorldState.forget(:minimap) end)
+
+      w = worker_que_conta(self())
+      cego_por(w, 5_000)
+
+      assert_receive {:engine_log, :macro, "quadro: 🪟" <> texto}, 2_000
+      assert texto =~ "saiu do jogo"
+      assert texto =~ "por cima"
+      assert texto =~ "mudou de lugar"
+    end
+
+    # …e com UM canto só apagado a frase continua sendo a de sempre: ali a
+    # janela por cima é mesmo o palpite certo.
+    test "with one corner dark the message stays the old one" do
+      agora = System.monotonic_time(:millisecond)
+      WorldState.put(:minimap, %{pos: {10, 20, 5}, coord_blank?: false}, agora)
+      on_exit(fn -> WorldState.forget(:minimap) end)
+
+      w = worker_que_conta(self())
+      cego_por(w, 5_000)
+
+      assert_receive {:engine_log, :macro, "quadro: 🪟" <> texto}, 2_000
+      assert texto =~ "outro programa pode ter aberto algo por cima"
+    end
+
     # Uma tentativa por vez: `front_game/0` custa dois round trips de osascript e
     # a janela leva um instante pra subir.
     test "and it does not fight itself: one attempt per window" do

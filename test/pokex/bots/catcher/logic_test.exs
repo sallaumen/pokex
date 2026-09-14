@@ -60,6 +60,59 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     assert logic.queue == [{300, 300}]
   end
 
+  # O CAÇADO FURA A FILA.
+  #
+  # "Parece que a etapa de captura nao ta rolando… ele acha o shiny, mata mas
+  # nao tenta capturar nunca" (13/09). A fila é FIFO com UMA bola no ar, e o
+  # #658 pôs o rastro inteiro dentro dela: o corpo do shiny passou a esperar
+  # atrás de cada vizinho comum que caiu junto. Medido no diário dele —
+  # queda de shiny com bola no próprio ponto em 90 s: **76 % antes** do vizinho
+  # entrar na fila (mediana 0 s), **11 % depois** (mediana 42 s).
+  #
+  # O vizinho é seguro para quando a cor NÃO marcou qual rastro era o do shiny.
+  # Ele nunca foi pra passar na frente dele.
+  test "the hunted corpse cuts the line ahead of the neighbours" do
+    vizinho = %{name: "vizinho", px: 40, hunted?: false}
+    shiny = %{name: "Shiny Golem", px: 394, hunted?: true}
+
+    leitura = %{
+      scanning?: true,
+      source: :anchor,
+      corpses: [{100, 100}, {200, 200}, {300, 300}],
+      known: %{{100, 100} => vizinho, {200, 200} => vizinho, {300, 300} => shiny},
+      captured_at: 10
+    }
+
+    {logic, actions} = Logic.step(armed(), leitura, 10)
+
+    assert Enum.any?(actions, &match?({:capture_sequence, {300, 300}, _}, &1))
+    assert logic.throw.point == {300, 300}
+  end
+
+  # …e ele fura a fila que JÁ ESTAVA lá: os vizinhos foram admitidos primeiro e
+  # o shiny cai um instante depois.
+  test "the hunted corpse cuts a line that was already waiting" do
+    vizinho = %{name: "vizinho", px: 40, hunted?: false}
+    shiny = %{name: "Shiny Golem", px: 394, hunted?: true}
+
+    antes = %{
+      scanning?: true,
+      source: :anchor,
+      corpses: [{100, 100}, {200, 200}],
+      known: %{{100, 100} => vizinho, {200, 200} => vizinho},
+      captured_at: 10
+    }
+
+    {logic, _} = Logic.step(armed(), antes, 10)
+    assert logic.queue == [{200, 200}]
+
+    depois = %{antes | corpses: antes.corpses ++ [{300, 300}], captured_at: 20}
+    depois = %{depois | known: Map.put(depois.known, {300, 300}, shiny)}
+
+    {logic, _} = Logic.step(logic, depois, 20)
+    assert logic.queue == [{300, 300}, {200, 200}]
+  end
+
   test "the corpse vanishing after the flight window confirms and throws the next in one step" do
     {logic, _} = Logic.step(armed(), obs([{100, 200}], 10), 10)
 

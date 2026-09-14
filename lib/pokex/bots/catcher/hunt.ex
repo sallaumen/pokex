@@ -218,7 +218,8 @@ defmodule Pokex.Bots.Catcher.Hunt do
       px: anchor.px || 0,
       point: anchor.screen,
       in_frame: anchor.screen,
-      fallen_at: anchor.fallen_at
+      fallen_at: anchor.fallen_at,
+      hunted?: Map.get(anchor, :hunted?, false)
     }
   end
 

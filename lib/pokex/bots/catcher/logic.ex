@@ -260,7 +260,30 @@ defmodule Pokex.Bots.Catcher.Logic do
         Enum.any?(busy, &near?(&1, c, tolerance)) or vetoed?(logic, obs, c, tolerance)
       end)
 
-    %{logic | queue: logic.queue ++ fresh}
+    {hunted, common} = Enum.split_with(fresh, &hunted?(obs, &1, tolerance))
+
+    %{logic | queue: hunted ++ logic.queue ++ common}
+  end
+
+  # O CAÇADO FURA A FILA.
+  #
+  # "Ele acha o shiny, mata mas nao tenta capturar nunca" (13/09). A fila é
+  # FIFO com UMA bola no ar, e o #658 pôs o rastro INTEIRO dentro dela: o corpo
+  # do shiny passou a esperar atrás de cada vizinho comum que caiu junto, e o
+  # corpo apodrece antes da vez dele. Medido no diário — queda de shiny com
+  # bola no próprio ponto em até 90 s: **76 % antes** do vizinho entrar na fila
+  # (mediana 0 s), **11 % depois** (mediana 42 s).
+  #
+  # O vizinho é seguro para quando a cor NÃO marcou qual rastro era o do shiny;
+  # nunca foi pra passar na frente dele. A ordem é decidida AQUI, na admissão,
+  # porque é o único instante em que a leitura ainda sabe quem é cada ponto —
+  # uma foto da outra lente não conhece a âncora e rebaixaria o caçado.
+  defp hunted?(obs, point, tolerance) do
+    obs
+    |> Map.get(:known, %{})
+    |> Enum.any?(fn {p, info} ->
+      near?(p, point, tolerance) and Map.get(info, :hunted?) == true
+    end)
   end
 
   # The ignore veto is by IDENTITY when possible: a point vetoed as "Pet" must

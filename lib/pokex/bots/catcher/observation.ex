@@ -82,7 +82,11 @@ defmodule Pokex.Bots.Catcher.Observation do
       # existe é a contagem de pixels do brilho. Postos no mesmo campo, os
       # 1,2 milhão de pixels da mancha dele viravam "reconhecido (120000000%)"
       # no registro da captura.
-      known: Map.new(candidates, &{&1.point, %{name: &1.name, px: &1.px}}),
+      known:
+        Map.new(
+          candidates,
+          &{&1.point, %{name: &1.name, px: &1.px, hunted?: Map.get(&1, :hunted?, false)}}
+        ),
       candidates: candidates,
       region: {0, 0, 0, 0},
       captured_at: at

@@ -7,12 +7,12 @@ defmodule Pokex.Screen.BarOffsetTest do
   # In the black box of 14/09 (`20260914T025428Z-shiny`, frame 000) his
   # `player_point` is (1695, 686), his own name line sits at y 617 — 69 px above
   # it — and the Golem standing one tile below him publishes (1720, 918) while
-  # its body is at y ~836. The published point is one tile below the bar by
-  # construction (`CrowdScan.place/4`) and the bar floats only 69 px, so the
-  # point lands 82 px UNDER the creature.
+  # its drawn body is at y ~808. The published point is one tile below the bar by
+  # construction (`CrowdScan.place/4`) and the bar floats only 69 px over the
+  # creature's foot, so the point lands 110 px UNDER the body.
   describe "the vector from the published point to the body" do
     test "on his ultrawide it lifts the aim by the tile the eye added" do
-      assert {:ok, {0, -82}} = BarOffset.for_screen({3440, 1440})
+      assert {:ok, {0, -110}} = BarOffset.for_screen({3440, 1440})
     end
 
     # A BOLA JOGAVA PRA BAIXO. Whatever the sign argument, the aim must end up

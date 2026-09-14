@@ -55,8 +55,8 @@ defmodule Pokex.Bots.Catcher.BallTest do
   #
   # Cada ponto que o bot tem de um bicho nasce da BARRA de vida, que flutua acima
   # da cabeça — e `CrowdScan.place/4` soma UM TILE a ela antes de publicar. No
-  # ultrawide dele a barra flutua 69 px, não 151: o tile a mais joga o ponto 82
-  # px ABAIXO do bicho, e a bola caía no chão entre duas fileiras. Medido no
+  # ultrawide dele a barra flutua 69 px, não 151: o tile a mais joga o ponto 110
+  # px ABAIXO do corpo, e a bola caía no chão entre duas fileiras. Medido no
   # quadro de 14/09 contra o único ponto marcado à mão, o personagem dele.
   describe "the aim leaves the published point and lands on the body" do
     @tag :tmp_dir
@@ -66,7 +66,7 @@ defmodule Pokex.Bots.Catcher.BallTest do
       on_exit(&Pokex.TestHome.restore/0)
       Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
 
-      assert [{:move_checked, {1418, 686}} | _] = Ball.sequence({1418, 768})
+      assert [{:move_checked, {1418, 658}} | _] = Ball.sequence({1418, 768})
     end
 
     @tag :tmp_dir
@@ -78,8 +78,8 @@ defmodule Pokex.Bots.Catcher.BallTest do
 
       actions = Ball.sequence({1418, 768})
 
-      assert {:move_checked, {1418, 686}} = List.first(actions)
-      assert {:click, :left, {1418, 686}} in actions
+      assert {:move_checked, {1418, 658}} = List.first(actions)
+      assert {:click, :left, {1418, 658}} in actions
     end
 
     # Palpite aqui erraria a bola de um jeito NOVO. O que não foi medido não

@@ -20,12 +20,15 @@ defmodule Pokex.Screen.BarOffset do
   E os Golem colados nele, uma casa abaixo:
 
       marca crua da barra ............ y 767
-      corpo do Golem ................. y ~836   → 69 px abaixo da barra
-      ponto PUBLICADO (marca + tile) . y 918    → 82 px ABAIXO do corpo
+      o pé do Golem (barra + 69) ..... y ~836
+      o CORPO desenhado dele ......... y ~808   → o sprite sobe ~28 px do pé
+      ponto PUBLICADO (marca + tile) . y 918    → 110 px ABAIXO do corpo
 
-  Ou seja: a barra flutua **69 px** sobre o corpo, não os 151 que o `+ tile`
-  assume. O tile a mais joga o ponto 82 px abaixo do bicho — meia casa — e é por
-  isso que a bola caía no chão entre duas fileiras.
+  Ou seja: a barra flutua **69 px** sobre o pé do bicho, não os 151 que o `+ tile`
+  assume. O tile a mais joga o ponto 110 px abaixo do corpo desenhado — e é por
+  isso que a bola caía no chão entre duas fileiras. Conferido em três cenas
+  independentes de 14/09: nas três a mira de hoje cai em pedra vazia e a nova cai
+  em cima do bicho.
 
   **Correção de rota (14/09):** a primeira versão desta tabela trazia
   `{-25, 70}` e empurrava a bola 70 px pra BAIXO, dobrando o erro em vez de
@@ -48,8 +51,9 @@ defmodule Pokex.Screen.BarOffset do
   """
 
   @measured %{
-    # o ultrawide dele: 151 (o tile somado) menos 69 (a barra sobre o corpo)
-    {3440, 1440} => {0, -82}
+    # o ultrawide dele: 151 (o tile somado) menos 69 (a barra sobre o pé) mais
+    # os 28 que o sprite sobe do pé — a bola quer o CORPO, não a sombra dele
+    {3440, 1440} => {0, -110}
   }
 
   @doc """

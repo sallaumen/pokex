@@ -220,7 +220,7 @@ defmodule Pokex.Bots.Engine.Worker do
     |> narrate(picture, orders)
     |> watch_hp_blindness(picture, now)
     |> watch_bar_blindness(picture, now)
-    |> rescue_the_window(now)
+    |> rescue_the_window(picture, now)
     |> forget_the_window()
     |> sample_vitals(picture, orders, now, config, mode)
     |> Map.merge(%{picture: picture, orders: orders, logic: logic})
@@ -296,7 +296,7 @@ defmodule Pokex.Bots.Engine.Worker do
   # tentado e é pior do que não ter: a condição não tem como ser falsa, nenhum
   # teste consegue exercê-la, e ela lê como uma tranca que não é. Quem
   # acrescentar um segundo chamador de `observe/1` tem que ler isto.
-  defp rescue_the_window(state, now) do
+  defp rescue_the_window(state, picture, now) do
     cego_desde = state.hp_blind_since || state.bar_blind_since
     prazo = Settings.get(:focus_recover_after_ms)
 
@@ -307,7 +307,7 @@ defmodule Pokex.Bots.Engine.Worker do
       log(
         :macro,
         "🪟 #{div(now - cego_desde, 1_000)}s sem enxergar a tela do jogo — trazendo a janela " <>
-          "do jogo pra frente (outro programa pode ter aberto algo por cima)"
+          "do jogo pra frente #{window_suspects(picture)}"
       )
 
       %{state | fronted_at: now}
@@ -315,6 +315,21 @@ defmodule Pokex.Bots.Engine.Worker do
       state
     end
   end
+
+  # A FRASE NÃO ESCOLHE UMA CAUSA QUANDO NÃO SABE. Em 14/09 esta linha disse
+  # "outro programa pode ter aberto algo por cima" oito vezes seguidas enquanto
+  # o personagem já estava na tela de seleção de personagem — o logout do
+  # encerramento tinha funcionado às 06:11:20 e ninguém percebeu. Não tinha nada
+  # por cima: o jogo é que não estava mais lá.
+  #
+  # Com os dois cantos apagados juntos (a barra de skills e a faixa da
+  # coordenada), subir a janela conserta UM dos três casos — e continua valendo
+  # a pena tentar, é barato. O que não vale é afirmar o caso errado com
+  # confiança, que é a mesma lição que o `:stranded` já pagou uma vez.
+  defp window_suspects(%{bar_seen?: false, coord_blank?: true}),
+    do: "(o personagem saiu do jogo, outra janela está por cima, ou o jogo mudou de lugar)"
+
+  defp window_suspects(_um_canto_so), do: "(outro programa pode ter aberto algo por cima)"
 
   # A VISTA VOLTOU: o acelerador é POR TRECHO de cegueira, não pela noite. Sem
   # zerar aqui, uma segunda janela cobrindo o jogo 3 s depois da primeira seria
@@ -511,6 +526,7 @@ defmodule Pokex.Bots.Engine.Worker do
       ready_keys:
         SkillClock.ready(screen, Loadout.keys(state.loadout), cooldowns(state.loadout), now),
       bar_seen?: is_list(screen),
+      coord_blank?: coord_blank?(now),
       damage_keys: damage_keys(state.loadout, config, mode),
       control_back_in_ms: control_back_in_ms(state.loadout, now),
       revive_left: ReviveLedger.remaining(),
@@ -621,6 +637,18 @@ defmodule Pokex.Bots.Engine.Worker do
     case Perception.minimap(now) do
       {:ok, %{pos: pos}} -> pos
       _unknown -> nil
+    end
+  end
+
+  # NÃO TEM TINTA NENHUMA onde o número da coordenada mora — diferente de "tem
+  # tinta e eu não reconheci". Lido do quadro-negro e NÃO por
+  # `Perception.minimap/1`, pelo mesmo motivo que o Cavebot: aquele responde "a
+  # posição, ou não sei", então um fato SEM posição nunca volta por ele — e um
+  # fato sem posição é exatamente esta pergunta.
+  defp coord_blank?(now) do
+    case WorldState.get(:minimap, Settings.get(:cavebot_minimap_fact_max_age_ms), now) do
+      {:ok, %{coord_blank?: true}} -> true
+      _outro -> false
     end
   end
 

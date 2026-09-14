@@ -130,6 +130,10 @@ defmodule Pokex.Bots.Engine.Situation do
           combo_left_ms: non_neg_integer | nil,
           combo_stun_age_ms: non_neg_integer | nil,
           bar_seen?: boolean,
+          # A FAIXA DA COORDENADA ESTÁ EM BRANCO? Não é "não consegui ler o
+          # número": é "não tem tinta nenhuma onde o número mora". Ver
+          # `Perception.Interpret.Minimap`.
+          coord_blank?: boolean,
           spent?: boolean | nil,
           prepared?: boolean | nil,
           control_back_in_ms: non_neg_integer | nil,
@@ -251,6 +255,10 @@ defmodule Pokex.Bots.Engine.Situation do
       # ser a foto ou pode ser ninguém. O reset é cobrado POR IMAGEM (regra
       # dele, 01/09): sem foto, a promessa fica em aberto.
       bar_seen?: Map.get(inputs, :bar_seen?, false),
+      # …E O OUTRO CANTO DA TELA. A barra sozinha não distingue "recorte mal
+      # ensinado" de "não estou vendo o jogo": ela some nas duas. A faixa da
+      # coordenada mora no canto oposto e some só na segunda.
+      coord_blank?: Map.get(inputs, :coord_blank?, false),
       spent?:
         spent?(
           Map.get(inputs, :damage_keys, []),

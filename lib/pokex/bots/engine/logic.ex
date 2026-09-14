@@ -186,6 +186,11 @@ defmodule Pokex.Bots.Engine.Logic do
             # há foto a esperar — só o relógio (18:37 de 02/09: 8s parado a
             # cada revive, a caçada inteira, por um portão que recusava a barra)
             bar_blind_since: nil,
+            # desde quando a tela NÃO É O MUNDO DO JOGO: a barra de skills sem
+            # leitura E a faixa da coordenada sem tinta, os dois cantos opostos
+            # apagados ao mesmo tempo. Campo próprio porque nenhum dos dois
+            # sozinho significa isso.
+            world_blind_since: nil,
             # A CORRENTE VISTA SAINDO no tique anterior — é o que permite ver a
             # borda em que ela ACABA, sem relógio próprio
             chain_seen?: false,
@@ -266,6 +271,7 @@ defmodule Pokex.Bots.Engine.Logic do
       logic
       |> track_hp_blind(situation, now)
       |> track_bar_blind(situation, now)
+      |> track_world_blind(situation, now)
       |> track_survivors(situation, now)
       |> track_heavy(situation)
       |> track_own_row(situation, now)
@@ -502,6 +508,62 @@ defmodule Pokex.Bots.Engine.Logic do
 
   defp track_bar_blind(logic, %{bar_seen?: false}, _now), do: logic
   defp track_bar_blind(logic, _vista, _now), do: %{logic | bar_blind_since: nil}
+
+  # OS DOIS CANTOS OPOSTOS, JUNTOS. A barra de skills sozinha apaga por três
+  # motivos (recorte mal ensinado, janela por cima, pokémon no chão) e a
+  # `coord_blank?` sozinha apaga por dois — mas as duas ao mesmo tempo só
+  # acontecem quando a TELA NÃO É O MUNDO DO JOGO. Elas ficam em pontas opostas
+  # do monitor: a barra embaixo no meio, a coordenada em cima à direita.
+  #
+  # `coord_blank?` é "não tem tinta nenhuma onde o número mora", não "tem tinta
+  # e não reconheci" — as duas coisas que o leitor do minimapa separa de
+  # propósito.
+  defp track_world_blind(%{world_blind_since: nil} = logic, situation, now) do
+    if world_gone?(situation), do: %{logic | world_blind_since: now}, else: logic
+  end
+
+  defp track_world_blind(logic, situation, _now) do
+    if world_gone?(situation), do: logic, else: %{logic | world_blind_since: nil}
+  end
+
+  defp world_gone?(%{bar_seen?: false, coord_blank?: true}), do: true
+  defp world_gone?(_alguma_coisa_na_tela), do: false
+
+  # CINCO SEGUNDOS, não os oito da vida cega, e o motivo é a força da prova:
+  # ali é UM leitor calado e aqui são DOIS cantos opostos da tela calados ao
+  # mesmo tempo. Uma piscada de tique não faz isso.
+  #
+  # E o prazo importa: em 14/09 o encerramento da noite mandou o logout às
+  # 06:11:20, o jogo voltou pra tela de personagem entre 06:11:25 e 06:11:27
+  # (provado pela caixa-preta) e o bot passou QUARENTA E CINCO SEGUNDOS jogando
+  # contra a tela de login — despachou 5 revives, disparou combos, leu "29% de
+  # vida" e "um shiny na tela" de uma arte de menu, e terminou chamando a saída
+  # de emergência, que desarma a frota inteira. Nada disso é um defeito da
+  # decisão: é a decisão obedecendo a fatos inventados.
+  @world_blind_stop_ms 5_000
+
+  defp world_blind_out?(%{logic: %{world_blind_since: since}, now: now}) when is_integer(since),
+    do: now - since >= @world_blind_stop_ms
+
+  defp world_blind_out?(_vendo), do: false
+
+  # TRÊS CAUSAS, E A FRASE NÃO ESCOLHE UMA. O `:stranded` já pagou essa lição
+  # uma vez (#650, quando o bloqueio acusava o revive em todas as quatro): dizer
+  # "outro programa abriu algo por cima" com toda a confiança é conselho errado
+  # em dois dos três casos, e seguir conselho errado custa a noite.
+  defp world_blind_stop(t) do
+    segundos = div(t.now - t.logic.world_blind_since, 1_000)
+
+    {%{t.logic | state: :stranded},
+     Orders.standing(
+       :stranded,
+       t.band,
+       "não estou vendo o mundo do jogo há #{segundos}s — a barra de skills e a faixa da " <>
+         "coordenada estão as duas apagadas: o personagem saiu do jogo, outra janela está " <>
+         "por cima, ou o jogo mudou de lugar. Parando: daqui pra frente tudo que eu ler é " <>
+         "invenção"
+     )}
+  end
 
   @hp_blind_stop_ms 8_000
 
@@ -822,6 +884,14 @@ defmodule Pokex.Bots.Engine.Logic do
       # a vida sem leitura). Oito segundos sem a barra do pokémon e a mesma
       # fase do freio do chão: a rota segura e a frota bloqueia até gente
       # recalibrar. O alarme (3s, no worker) vem antes; isto é o que garante.
+      # …E ANTES DELA, A TELA QUE NÃO É O JOGO. A vida cega pergunta a UM
+      # leitor, e em 14/09 esse leitor respondeu "29%" lendo a tela de seleção
+      # de personagem — junto com "2 linhas de batalha", "1 inimigo" e "um shiny
+      # na tela". Um recorte sempre devolve pixels; o que ele nunca devolve é
+      # "isto não é o jogo". Quem responde isso são os dois cantos apagados
+      # juntos, e essa resposta tem que vencer a outra: ela nomeia a causa certa
+      # e chega três segundos antes.
+      world_blind_out?(t) -> world_blind_stop(t)
       hp_blind_out?(t) -> hp_blind_stop(t)
       # O ESPECIAL ACORDADO NÃO ESPERA BANDA NENHUMA.
       #

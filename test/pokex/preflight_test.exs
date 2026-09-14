@@ -31,6 +31,80 @@ defmodule Pokex.PreflightTest do
     assert Preflight.run(Pokex.Rig.Fake) == :ok
   end
 
+  # UMA CAÇADA NÃO COMEÇA JÁ ENCERRANDO.
+  #
+  # 14/09, 07:44:50: ele relogou o personagem e soltou a caçada. O PRIMEIRO
+  # tique do cérebro disse "11 revive(s) no bolso e a tela limpa — encerrando a
+  # noite: tentando sair do jogo", despachou um revive (11 → 10) e dez segundos
+  # depois o logout falhava. O caderninho tinha guardado os 11 que sobraram da
+  # madrugada, e o encerramento entra em 20.
+  #
+  # O caderninho está certo. O que faltava era dizer isso na porta, antes de
+  # gastar tecla.
+  describe "o bolso de revives na partida" do
+    @describetag :tmp_dir
+    setup %{tmp_dir: tmp} do
+      Application.put_env(:pokex, :home_dir, tmp)
+
+      Calibration.save(%Calibration{
+        scale: 2.0,
+        screen_w: 1000,
+        screen_h: 700,
+        tile_px: 40,
+        water_point: {1, 1},
+        glow_region: {0, 0, 8, 8},
+        battle_region: {0, 0, 8, 8},
+        neutral_point: {1, 1}
+      })
+
+      Pokex.TeamFixtures.ready!()
+      Pokex.SettingsStash.stash!(engine_wind_down_at: 20, revive_stock: 1_000)
+      Pokex.Bots.ReviveLedger.reset()
+
+      on_exit(fn ->
+        Pokex.Bots.ReviveLedger.reset()
+        Pokex.TestHome.restore()
+      end)
+
+      :ok
+    end
+
+    test "a bag above the threshold starts" do
+      assert Preflight.run(Pokex.Rig.Fake) == :ok
+    end
+
+    test "a bag at the threshold is refused, and the message says how to restock" do
+      Enum.each(1..989, fn _ -> Pokex.Bots.ReviveLedger.note() end)
+      assert Pokex.Bots.ReviveLedger.remaining() == 11
+
+      assert {:error, msgs} = Preflight.run(Pokex.Rig.Fake)
+      msg = Enum.find(msgs, &(&1 =~ "caderninho"))
+
+      assert msg =~ "11 revive(s) no bolso"
+      assert msg =~ "encerra em 20"
+      assert msg =~ "/config"
+    end
+
+    # DIGITAR O ESTOQUE É O BOTÃO DE REPOR — a porta abre no mesmo gesto.
+    test "typing the stock again opens the door" do
+      Enum.each(1..989, fn _ -> Pokex.Bots.ReviveLedger.note() end)
+      assert {:error, _} = Preflight.run(Pokex.Rig.Fake)
+
+      Pokex.Settings.put(:revive_stock, 500)
+
+      assert Preflight.run(Pokex.Rig.Fake) == :ok
+    end
+
+    # COM O ORÇAMENTO DESLIGADO NÃO HÁ CONTA, e sem conta não há recusa: quem
+    # não quer contar revive não pode ser barrado por um número que não existe.
+    test "the budget switched off never blocks the start" do
+      Pokex.Settings.put(:revive_stock, 0)
+      assert Pokex.Bots.ReviveLedger.remaining() == nil
+
+      assert Preflight.run(Pokex.Rig.Fake) == :ok
+    end
+  end
+
   # The shared bar is gone (see `Pokex.Bots.ActiveBar`): a bot that starts
   # without the pokémon on the field carrying its own bar and the job of every
   # key is a bot reading another creature's icons and rotating keys nobody

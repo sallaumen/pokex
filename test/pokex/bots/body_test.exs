@@ -194,6 +194,25 @@ defmodule Pokex.Bots.BodyTest do
     assert calls == [{:press, "1"}, {:move, {5, 5}}, {:move, {500, 500}}]
   end
 
+  # O MOVE QUE CONFERE — a hora da bola.
+  #
+  # "Ele move o mouse mas acho que ta errando o corpo" (13/09). `Rig.Mac.gated/1`
+  # engole a entrada com o portão fechado e ainda responde `:ok`, e a tecla da
+  # bola NÃO carrega posição: o jogo usa onde ele acha que o mouse está. Um move
+  # engolido seguido de um F1 virava "You cannot use this object" no cliente e
+  # "bola em X,Y" no diário, sem nada no meio que dissesse qual das duas era.
+  # O ponteiro do `Rig.Fake` fica em {500, 500}: pedir OUTRO ponto é um move que
+  # não chegou, e pedir esse mesmo é um que chegou.
+  test "a checked move that did not arrive refuses out loud", %{body: body} do
+    assert {:error, {:mouse_did_not_arrive, {500, 500}, {500, 400}}} =
+             Body.perform([{:move_checked, {500, 400}}], :normal, body)
+  end
+
+  test "a checked move that arrived is just a move", %{body: body} do
+    assert :ok = Body.perform([{:move_checked, {500, 500}}], :normal, body)
+    assert {:move, {500, 500}} in Fake.calls()
+  end
+
   test "a KEY-ONLY sequence never reads or moves the cursor (no restore overhead)", %{body: body} do
     assert :ok = Body.perform([{:press, "a"}, {:press, "b"}], :normal, body)
 

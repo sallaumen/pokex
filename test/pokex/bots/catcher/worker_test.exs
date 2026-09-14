@@ -111,7 +111,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert Worker.status(worker).pending_corpses == 0
 
     world!(worker, corpses_obs([{150, 250}]))
-    assert_receive {:performed, :high, [{:move, {150, 250}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {150, 250}} | _]}, 1_000
     assert Worker.status(worker).pending_corpses == 1
 
     gone = corpses_obs([])
@@ -123,7 +123,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   @tag :tmp_dir
   test "a corpse observation makes it throw a ball at :high", %{worker: worker} do
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {130, 224}} | _]}, 1_000
     assert Worker.status(worker).counters.throws == 1
   end
 
@@ -194,7 +194,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     world!(worker, obs)
 
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {130, 224}} | _]}, 1_000
     assert_log_eventually("🎯 Corsola reconhecido (87%)")
   end
 
@@ -206,7 +206,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
 
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {130, 224}} | _]}, 1_000
 
     refute_receive {:shiny_ball, _info}, 300
   end
@@ -221,7 +221,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     world!(worker, corpses_obs([{130, 224}]))
 
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {130, 224}} | _]}, 1_000
     # o prefixo colado prova a ausência da estrela: com ela a linha seria
     # "captura: 🌟 bola em 130,224"
     assert_log_eventually("captura: bola em 130,224")
@@ -270,7 +270,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     WorldState.put(@staged_scan, obs, obs.captured_at)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
-    assert_receive {:performed, :high, [{:move, {140, 230}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {140, 230}} | _]}, 1_000
   end
 
   @tag :tmp_dir
@@ -312,7 +312,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     WorldState.put(@staged_scan, fresh, fresh.captured_at)
     send(worker, {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}})
 
-    assert_receive {:performed, :high, [{:move, {150, 250}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {150, 250}} | _]}, 1_000
     assert Worker.status(worker).hold_reason == nil
     assert %{text: "bola arremessada" <> _, at: at} = Worker.status(worker).last_action
     assert is_integer(at)
@@ -338,7 +338,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     WorldState.forget(:mini_game)
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {130, 224}} | _]}, 1_000
   end
 
   # A post-relearn warmup frame (scanning?: false) must not read as "corpse vanished" —
@@ -346,7 +346,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   @tag :tmp_dir
   test "relearn resets pending state", %{worker: worker} do
     world!(worker, corpses_obs([{160, 260}]))
-    assert_receive {:performed, :high, [{:move, {160, 260}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {160, 260}} | _]}, 1_000
     assert Worker.status(worker).counters.throws == 1
 
     :ok = Worker.relearn(worker)
@@ -367,7 +367,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     :ok = Worker.run(worker)
 
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {130, 224}} | _]}, 1_000
   end
 
   @tag :tmp_dir
@@ -380,10 +380,10 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     WorldState.put(@staged_scan, obs, obs.captured_at)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
-    refute_receive {:performed, _, [{:move, _} | _]}, 400
+    refute_receive {:performed, _, [{:move_checked, _} | _]}, 400
 
     world!(worker, corpses_obs([{140, 230}]))
-    refute_receive {:performed, _, [{:move, _} | _]}, 300
+    refute_receive {:performed, _, [{:move_checked, _} | _]}, 300
   end
 
   @tag :tmp_dir
@@ -391,7 +391,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
 
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {130, 224}} | _]}, 1_000
     assert Worker.status(worker).pending_corpses == 1
 
     blind = %{
@@ -452,7 +452,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     world!(worker, corpses_obs([{130, 224}]))
 
-    refute_receive {:performed, _p, [{:move, _} | _]}, 300
+    refute_receive {:performed, _p, [{:move_checked, _} | _]}, 300
     assert_log_eventually("SEGURADA")
 
     assert Worker.status(worker).counters.throws == 0
@@ -460,7 +460,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     InputGate.set_focus_ok(true)
     world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {130, 224}} | _]}, 1_000
   end
 
   @tag :tmp_dir
@@ -496,7 +496,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     WorldState.put(@staged_scan, obs, obs.captured_at)
     Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
 
-    refute_receive {:performed, _p, [{:move, _} | _]}, 300
+    refute_receive {:performed, _p, [{:move_checked, _} | _]}, 300
   end
 
   @tag :tmp_dir
@@ -516,7 +516,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       {:combat, %{state: :hunting, counters: %{}, error: nil, locked_row: nil}}
     )
 
-    assert_receive {:performed, :high, [{:move, {130, 224}} | _]}, 1_000
+    assert_receive {:performed, :high, [{:move_checked, {130, 224}} | _]}, 1_000
   end
 
   # --- Varredura cega ---------------------------------------------------------
@@ -609,7 +609,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
           ] do
         # :normal, not :high — the sweep is a background guarantee and must
         # never get ahead of the rod or of a ball aimed at a real corpse
-        assert_receive {:performed, :normal, [{:move, ^point} | rest]}, 1_000
+        assert_receive {:performed, :normal, [{:move_checked, ^point} | rest]}, 1_000
         assert {:press, "f1"} in rest
       end
 
@@ -634,7 +634,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
       :ok = Worker.sweep_now(worker)
       assert_receive {:sweep_result, "varrendo 7 tile(s)…"}, 1_000
-      refute_receive {:performed, :normal, [{:move, {600, 350}} | _]}, 300
+      refute_receive {:performed, :normal, [{:move_checked, {600, 350}} | _]}, 300
     end
 
     @tag :tmp_dir
@@ -645,11 +645,11 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
       worker: worker
     } do
       send(worker, :sweep)
-      refute_receive {:performed, :normal, [{:move, _} | _]}, 300
+      refute_receive {:performed, :normal, [{:move_checked, _} | _]}, 300
 
       Settings.put(:sweep_enabled, true)
       send(worker, :sweep)
-      assert_receive {:performed, :normal, [{:move, _} | _]}, 1_000
+      assert_receive {:performed, :normal, [{:move_checked, _} | _]}, 1_000
     end
 
     @tag :tmp_dir
@@ -810,7 +810,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     send(worker, {:capture_now})
 
     assert_log_eventually("bola na âncora do Shiny Golem em 600,250")
-    assert_receive {:performed, :high, [{:move, {600, 250}} | _]}, 3_000
+    assert_receive {:performed, :high, [{:move_checked, {600, 250}} | _]}, 3_000
     assert_receive {:shiny_ball, %{point: {600, 250}, name: "Shiny Golem"}}, 1_000
   end
 
@@ -888,7 +888,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     send(worker, {:capture_now})
 
     assert_log_eventually("bola na âncora do Shiny Golem em 600,250")
-    assert_receive {:performed, :high, [{:move, {600, 250}} | _]}, 3_000
+    assert_receive {:performed, :high, [{:move_checked, {600, 250}} | _]}, 3_000
 
     SettingsStash.stash!(shiny_always_ball: false)
     send(worker, {:crowd, seen.([Map.merge(%{point: {700, 250}}, shiny)])})
@@ -919,7 +919,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     assert_log_eventually("Shiny Golem caiu em 600,250")
     assert_log_eventually("bola na âncora do Shiny Golem em 600,250")
-    assert_receive {:performed, :high, [{:move, {600, 250}} | _]}, 3_000
+    assert_receive {:performed, :high, [{:move_checked, {600, 250}} | _]}, 3_000
     assert_receive {:shiny_ball, %{point: {600, 250}, name: "Shiny Golem"}}, 1_000
   end
 
@@ -1011,7 +1011,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     send(worker, {:capture_now})
 
     assert_log_eventually("bola na âncora do Shiny Golem em 600,250")
-    assert_receive {:performed, :high, [{:move, {600, 250}} | _]}, 3_000
+    assert_receive {:performed, :high, [{:move_checked, {600, 250}} | _]}, 3_000
   end
 
   # A BARRA CAI NUM CAÇADOR QUE NUNCA RODOU. The eye's reading is a broadcast:
@@ -1077,7 +1077,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     world!(worker, corpses_obs([{130, 224}]))
 
     assert_receive {:performed, :high, acoes}, 1_000
-    assert {:move, {130, 224}} in acoes
+    assert {:move_checked, {130, 224}} in acoes
     assert {:press, Pokex.Settings.get(:ball_key)} in acoes
 
     # …e o cérebro fica sabendo que há bola na conta, pra segurar os pés.
@@ -1108,7 +1108,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     world!(worker, corpses_obs([{700, 32}, {130, 224}]))
 
     assert_receive {:performed, :high, acoes}, 1_000
-    assert {:move, {130, 224}} in acoes
+    assert {:move_checked, {130, 224}} in acoes
     refute {:move, {700, 32}} in acoes
   end
 
@@ -1165,7 +1165,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     world!(worker, corpses_obs([{130, 224}]))
 
     assert_receive {:performed, :high, acoes}, 1_000
-    assert {:move, {130, 224}} in acoes
+    assert {:move_checked, {130, 224}} in acoes
     refute Worker.status(worker).hold_reason == "esperando fim da luta"
   end
 

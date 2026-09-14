@@ -20,7 +20,7 @@ defmodule Pokex.Bots.Catcher.BallTest do
   # waits 30ms and works.
   test "moves, waits for the settle, and only then presses the shortcut" do
     assert [
-             {:move, {500, 400}},
+             {:move_checked, {500, 400}},
              {:wait, 30},
              {:press, "f1"},
              {:wait, _hold}
@@ -65,7 +65,7 @@ defmodule Pokex.Bots.Catcher.BallTest do
       on_exit(&Pokex.TestHome.restore/0)
       Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
 
-      assert [{:move, {1393, 838}} | _] = Ball.sequence({1418, 768})
+      assert [{:move_checked, {1393, 838}} | _] = Ball.sequence({1418, 768})
     end
 
     @tag :tmp_dir
@@ -77,7 +77,7 @@ defmodule Pokex.Bots.Catcher.BallTest do
 
       actions = Ball.sequence({1418, 768})
 
-      assert {:move, {1393, 838}} = List.first(actions)
+      assert {:move_checked, {1393, 838}} = List.first(actions)
       assert {:click, :left, {1393, 838}} in actions
     end
 
@@ -89,7 +89,7 @@ defmodule Pokex.Bots.Catcher.BallTest do
       on_exit(&Pokex.TestHome.restore/0)
       Calibration.save(%Calibration{scale: 1.0, screen_w: 1234, screen_h: 567})
 
-      assert [{:move, {1418, 768}} | _] = Ball.sequence({1418, 768})
+      assert [{:move_checked, {1418, 768}} | _] = Ball.sequence({1418, 768})
     end
   end
 

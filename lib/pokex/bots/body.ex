@@ -299,6 +299,7 @@ defmodule Pokex.Bots.Body do
   defp actuators({:click, :middle, _point}), do: [:keys, :mouse]
   defp actuators({:click, _button, _point}), do: [:mouse]
   defp actuators({:move, _point}), do: [:mouse]
+  defp actuators({:move_checked, _point}), do: [:mouse]
   defp actuators({:focus_click, _point}), do: [:mouse]
   defp actuators(_not_actuation), do: []
 
@@ -548,6 +549,21 @@ defmodule Pokex.Bots.Body do
   defp execute(:still), do: :ok
   defp execute({:click, button, point}), do: Rig.impl().click(button, point)
   defp execute({:move, point}), do: Rig.impl().move(point)
+
+  # O MOVE QUE CONFERE, e é a hora da bola que precisa dele.
+  #
+  # `Rig.Mac.gated/1` engole a entrada com o portão fechado e ainda responde
+  # `:ok`, e a tecla da bola NÃO carrega posição: o jogo usa onde ele acha que o
+  # mouse está. Um move engolido seguido de um F1 vira "You cannot use this
+  # object" no cliente e "bola em X,Y" no diário — as duas coisas que o Lucas
+  # viu em 13/09, sem nada no meio que dissesse qual das duas era.
+  #
+  # Então este pergunta de volta. O erro sobe pela sequência e o
+  # `Catcher.Worker` já sabe dizer "⚠️ a bola não saiu".
+  defp execute({:move_checked, point}) do
+    with :ok <- Rig.impl().move(point), do: arrived?(point)
+  end
+
   defp execute({:tap, combo}), do: Rig.impl().tap(combo)
   defp execute({:focus_click, point}), do: Rig.impl().focus_click(point)
   # A pause WITHIN a sequence: lets one atomic perform hold a game-response gap
@@ -586,6 +602,22 @@ defmodule Pokex.Bots.Body do
   defp sliced_wait(ms) do
     Process.sleep(@wait_slice_ms)
     if InputGate.allowed?(), do: sliced_wait(ms - @wait_slice_ms), else: :ok
+  end
+
+  @mouse_tolerance_px 4
+
+  defp arrived?({x, y} = point) do
+    case Rig.impl().cursor_position() do
+      {:ok, {cx, cy}}
+      when abs(cx - x) <= @mouse_tolerance_px and abs(cy - y) <= @mouse_tolerance_px ->
+        :ok
+
+      {:ok, where} ->
+        {:error, {:mouse_did_not_arrive, where, point}}
+
+      _sem_leitura ->
+        :ok
+    end
   end
 
   defp mini_game_gate(action) do

@@ -43,7 +43,7 @@ defmodule Pokex.Bots.Catcher.Ball do
     key = ball_key || key()
     alvo = BarOffset.body(point)
 
-    [{:move, alvo}, {:wait, Settings.get(:capture_aim_settle_ms)}, {:press, key}] ++
+    [{:move_checked, alvo}, {:wait, Settings.get(:capture_aim_settle_ms)}, {:press, key}] ++
       clique(alvo) ++
       [{:wait, Settings.get(:capture_hold_ms)}]
   end

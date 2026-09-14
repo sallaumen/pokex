@@ -60,7 +60,14 @@ defmodule Pokex.Bots.Catcher.Trail do
   # cada comum morto viraria bola, a noite inteira.
   @shiny_scene_ms 30_000
 
-  defstruct tracks: %{}, next_id: 1, anchors: [], pos: nil, sparkle_at: nil
+  # AS QUEDAS QUE ESTA OLHADA JOGOU FORA por velhice, pro worker poder DIZER.
+  #
+  # "Às vezes eu preciso usar uns 5, 6 revives pra matar um shiny, e nesses
+  # casos ele não joga pokébola" (Lucas, 14/09). Medido no diário: um terço das
+  # brigas com brilho na tela nunca produz a linha `caiu em` — e o descarte por
+  # `@corpse_fresh_ms` era MUDO, então não havia como saber se era este ou
+  # outro. Vale só pra olhada mais recente.
+  defstruct tracks: %{}, next_id: 1, anchors: [], pos: nil, sparkle_at: nil, dropped: []
 
   @type point :: {integer, integer}
   @type world :: {float, float}
@@ -143,12 +150,11 @@ defmodule Pokex.Bots.Catcher.Trail do
     # …E ELA FICA DE PÉ NO MODO LARGO. O gêmeo velho não é um alvo a mais: é o
     # MESMO shiny contado duas vezes, e a segunda bola cai na areia. O que o
     # modo largo abre é trilha de OUTRO bicho; fantasma continua fora.
-    fresco = freshest_hunted(tracks)
-    fallen = Enum.filter(fallen, &(not &1.hunted? or &1.seen_at == fresco))
+    fallen = drop_twins(fallen, tracks)
 
     # only a bar seen just before the sparkle left is a body; a hunted bar lost
     # far longer wandered off — no corpse there, and no ball at the stale spot.
-    corpses = Enum.filter(fallen, &(now - &1.seen_at <= @corpse_fresh_ms))
+    {corpses, velhos} = Enum.split_with(fallen, &(now - &1.seen_at <= @corpse_fresh_ms))
     kept = Enum.reject(alive, &lost?/1)
 
     %{
@@ -156,11 +162,12 @@ defmodule Pokex.Bots.Catcher.Trail do
       | tracks: Map.new(kept ++ born, &{&1.id, &1}),
         next_id: trail.next_id + length(born),
         anchors: Enum.map(corpses, &fall(&1, now)) ++ trail.anchors,
+        dropped: Enum.map(velhos, &%{name: &1.name, hunted?: &1.hunted?, age: now - &1.seen_at}),
         sparkle_at: sparkle_at
     }
   end
 
-  def observe(trail, _unread, _ref, _now), do: trail
+  def observe(trail, _unread, _ref, _now), do: %{trail | dropped: []}
 
   @doc """
   The guard's blob when the eye's reading did not carry the mark: the track
@@ -313,9 +320,34 @@ defmodule Pokex.Bots.Catcher.Trail do
     {hits ++ misses, left}
   end
 
-  defp freshest_hunted(tracks) do
-    tracks |> Enum.filter(& &1.hunted?) |> Enum.map(& &1.seen_at) |> Enum.max(fn -> nil end)
+  # O GÊMEO É O QUE ESTÁ NO MESMO LUGAR, não o que é mais velho.
+  #
+  # Com o minimapa congelado embaixo de uma tela que rola, o MESMO shiny virou
+  # dois rastros caçados a DOIS TILES um do outro e os dois caíram — uma bola na
+  # areia de cada lado do corpo (19:50 de 11/09). A peneira que nasceu dali
+  # guardava só a trilha caçada MAIS NOVA, e isso confundia duas coisas
+  # diferentes: "o mesmo bicho contado duas vezes" e "dois bichos".
+  #
+  # "Quando tem dois shinies na minha tela, normalmente ele joga pokébola só em
+  # um" (Lucas, 14/09). Era isto: dois shinies de verdade, em cantos diferentes,
+  # e o mais velho descartado como fantasma.
+  #
+  # Fantasma é quem tem outra trilha caçada MAIS NOVA em cima dele. Longe, é
+  # outro bicho.
+  @twin_tiles 2.5
+
+  defp drop_twins(fallen, tracks) do
+    Enum.reject(fallen, fn track ->
+      track.hunted? and Enum.any?(tracks, &twin_of?(&1, track))
+    end)
   end
+
+  defp twin_of?(other, track) do
+    other.hunted? and other.id != track.id and other.seen_at > track.seen_at and
+      tiles_apart(other.world, track.world) <= @twin_tiles
+  end
+
+  defp tiles_apart({ax, ay}, {bx, by}), do: :math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
 
   defp nearest(hostiles, {gx, gy}) do
     hostiles

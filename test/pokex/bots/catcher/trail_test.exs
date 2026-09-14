@@ -343,6 +343,93 @@ defmodule Pokex.Bots.Catcher.TrailTest do
     assert trail.anchors == []
   end
 
+  # A QUEDA DESCARTADA POR VELHICE DEIXA RASTRO.
+  #
+  # "Às vezes eu preciso usar uns 5, 6 revives pra matar um shiny, e nesses
+  # casos ele não joga pokébola" (14/09). O descarte por `@corpse_fresh_ms` era
+  # MUDO: um terço das brigas com brilho na tela não produz a linha `caiu em` e
+  # não havia como saber se era este motivo ou outro.
+  test "a fall whose bar is older than the corpse window is reported, not swallowed" do
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+    bicho = at(-2, -3, shiny)
+
+    trail =
+      Trail.new()
+      |> look([bicho], 0, sparkle: true)
+      |> look([bicho], 250, sparkle: true)
+      # o pet cobre a barra por um bom tempo, e só então a pilha zera
+      |> look([], 8_000, pile: :dead)
+      |> look([], 8_250, pile: :dead)
+      |> look([], 8_500, pile: :dead)
+
+    assert trail.anchors == []
+    assert [%{hunted?: true, name: "Shiny Golem", age: idade}] = trail.dropped
+    assert idade > 6_000
+  end
+
+  # …e uma olhada limpa depois disso não arrasta a queixa da anterior
+  test "the dropped list belongs to the LAST look only" do
+    shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+    bicho = at(-2, -3, shiny)
+
+    trail =
+      Trail.new()
+      |> look([bicho], 0, sparkle: true)
+      |> look([bicho], 250, sparkle: true)
+      |> look([], 8_000, pile: :dead)
+      |> look([], 8_250, pile: :dead)
+      |> look([], 8_500, pile: :dead)
+
+    assert trail.dropped != []
+    assert look(trail, [], 8_750, pile: :dead).dropped == []
+  end
+
+  # DOIS SHINIES SÃO DOIS CORPOS. O gêmeo é o que está no MESMO LUGAR.
+  #
+  # "Quando tem dois shinies na minha tela, normalmente ele joga pokébola só em
+  # um" (14/09). A peneira do gêmeo guardava só a trilha caçada MAIS NOVA, e
+  # isso confundia "o mesmo bicho contado duas vezes" (o fantasma do minimapa
+  # congelado, a dois tiles) com "dois bichos".
+  describe "two shinies are two bodies" do
+    test "two hunted tracks far apart both become anchors" do
+      shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+      a = at(-3, -3, shiny)
+      b = at(3, 3, shiny)
+
+      # o de cima fica um instante oculto, então os dois caem com `seen_at`
+      # DIFERENTES — que era tudo o que a peneira velha olhava
+      trail =
+        Trail.new()
+        |> look([a, b], 0, sparkle: true)
+        |> look([a, b], 250, sparkle: true)
+        |> look([b], 500, sparkle: true)
+        |> look([], 750, pile: :dead)
+        |> look([], 1_000, pile: :dead)
+        |> look([], 1_250, pile: :dead)
+
+      assert length(trail.anchors) == 2
+    end
+
+    # …e o fantasma continua fora: a dois tiles é o MESMO shiny, e a segunda
+    # bola cai na areia.
+    test "a hunted track a couple of tiles from a fresher one is the ghost, not a body" do
+      shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+
+      # o fantasma nasce com o minimapa congelado e PARA de ser visto; o de
+      # verdade segue sendo lido a dois tiles dali
+      trail =
+        Trail.new()
+        |> look([at(-3, -3, shiny), at(-3, -1, shiny)], 0, sparkle: true)
+        |> look([at(-3, -1, shiny)], 250, sparkle: true)
+        |> look([at(-3, -1, shiny)], 500, sparkle: true)
+        |> look([], 750, pile: :dead)
+        |> look([], 1_000, pile: :dead)
+        |> look([], 1_250, pile: :dead)
+
+      assert length(trail.anchors) == 1
+    end
+  end
+
   # O RASTRO INTEIRO VIRA ALVO ENQUANTO A CENA É DE SHINY.
   #
   # "Bora fazer ele tentar jogar a bola no rastro inteiro, pra garantir, mesmo

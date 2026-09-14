@@ -53,7 +53,8 @@ defmodule Pokex.Bots.Catcher.Trail do
   # …and the body lies where the bar was JUST before the sparkle left. A hunted
   # bar lost far longer than this wandered off (or the guard hallucinated a
   # sparkle elsewhere): there is no body at that stale spot — drop it, no ball.
-  @corpse_fresh_ms 6_000
+  # O número mora no `Settings` (`corpse_fresh_ms`): ele nasceu 6 s, era curto
+  # pra briga longa, e o ótimo é do dono da caçada.
   # …E QUANTO TEMPO UMA CENA CONTINUA SENDO "A CENA DO SHINY". Passado isto sem
   # nenhum brilho, a caçada é uma caçada comum de novo e o rastro volta a só
   # marcar corpo do bicho que a cor apontou. É a trava do modo largo: sem ela
@@ -154,7 +155,7 @@ defmodule Pokex.Bots.Catcher.Trail do
 
     # only a bar seen just before the sparkle left is a body; a hunted bar lost
     # far longer wandered off — no corpse there, and no ball at the stale spot.
-    {corpses, velhos} = Enum.split_with(fallen, &(now - &1.seen_at <= @corpse_fresh_ms))
+    {corpses, velhos} = Enum.split_with(fallen, &(now - &1.seen_at <= corpse_fresh_ms()))
     kept = Enum.reject(alive, &lost?/1)
 
     %{
@@ -348,6 +349,8 @@ defmodule Pokex.Bots.Catcher.Trail do
   end
 
   defp tiles_apart({ax, ay}, {bx, by}), do: :math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
+
+  defp corpse_fresh_ms, do: Settings.get(:corpse_fresh_ms)
 
   defp nearest(hostiles, {gx, gy}) do
     hostiles

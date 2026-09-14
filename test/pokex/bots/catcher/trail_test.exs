@@ -358,13 +358,13 @@ defmodule Pokex.Bots.Catcher.TrailTest do
       |> look([bicho], 0, sparkle: true)
       |> look([bicho], 250, sparkle: true)
       # o pet cobre a barra por um bom tempo, e só então a pilha zera
-      |> look([], 8_000, pile: :dead)
-      |> look([], 8_250, pile: :dead)
-      |> look([], 8_500, pile: :dead)
+      |> look([], 20_000, pile: :dead)
+      |> look([], 20_250, pile: :dead)
+      |> look([], 20_500, pile: :dead)
 
     assert trail.anchors == []
     assert [%{hunted?: true, name: "Shiny Golem", age: idade}] = trail.dropped
-    assert idade > 6_000
+    assert idade > Pokex.Settings.get(:corpse_fresh_ms)
   end
 
   # …e uma olhada limpa depois disso não arrasta a queixa da anterior
@@ -376,12 +376,12 @@ defmodule Pokex.Bots.Catcher.TrailTest do
       Trail.new()
       |> look([bicho], 0, sparkle: true)
       |> look([bicho], 250, sparkle: true)
-      |> look([], 8_000, pile: :dead)
-      |> look([], 8_250, pile: :dead)
-      |> look([], 8_500, pile: :dead)
+      |> look([], 20_000, pile: :dead)
+      |> look([], 20_250, pile: :dead)
+      |> look([], 20_500, pile: :dead)
 
     assert trail.dropped != []
-    assert look(trail, [], 8_750, pile: :dead).dropped == []
+    assert look(trail, [], 20_750, pile: :dead).dropped == []
   end
 
   # DOIS SHINIES SÃO DOIS CORPOS. O gêmeo é o que está no MESMO LUGAR.

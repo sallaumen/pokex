@@ -639,6 +639,17 @@ defmodule PokexWeb.ConfigLive do
               "os comuns. Gasta bola pra não deixar shiny pra trás quando a cor não marcou " <>
               "qual dos rastros era o dele. Desligado, só o rastro que a cor apontou.",
           keywords: "captura bola shiny rastro trilha vizinho brilho"
+        },
+        %{
+          key: :corpse_fresh_ms,
+          kind: :int,
+          label: "Idade máxima da barra pra virar corpo",
+          unit: "ms",
+          hint:
+            "O corpo fica onde a barra estava JUSTO antes de o brilho sair. Curto demais e a " <>
+              "briga longa não vira corpo nenhum (a barra fica coberta pelo pet e pela névoa " <>
+              "da corrente); longo demais e a bola cai onde o bicho ANDOU, em chão vazio.",
+          keywords: "captura corpo barra idade queda rastro"
         }
       ]
     },

@@ -120,7 +120,7 @@ defmodule Pokex.Bots.Catcher.LogicTest do
   # chegou, o portão engoliu a tecla), o ponto já
   # tinha saído da fila e o `throw` já estava de pé: o corpo era consumido sem
   # bola nenhuma, e o apodrecimento dele lia como "capturado (tardio)".
-  test "a refused ball goes back to the FRONT of the queue, with nothing in flight" do
+  test "a refused ball goes back to the END of the queue, with nothing in flight" do
     {logic, _} = Logic.step(armed(), obs([{100, 200}, {300, 300}], 10), 10)
     assert logic.throw.point == {100, 200}
     assert logic.queue == [{300, 300}]
@@ -129,9 +129,29 @@ defmodule Pokex.Bots.Catcher.LogicTest do
     logic = Logic.ball_refused(logic)
 
     assert logic.throw == nil
-    assert logic.queue == [{100, 200}, {300, 300}]
+    # pro FIM: a recusa é da MÃO, e devolver pra frente trava a fila inteira
+    # atrás de um alvo impossível — 99 recusas no mesmo ponto em 14/09
+    assert logic.queue == [{300, 300}, {100, 200}]
     # desfazer a contagem é o que faz a âncora NÃO ser gasta lá no worker
     assert logic.counters.throws == 0
+  end
+
+  # …e um alvo que nunca vai dar certo não circula pra sempre.
+  test "a point refused three times in a row is vetoed, not requeued" do
+    logic =
+      Enum.reduce(1..3, armed(), fn vez, logic ->
+        # cada passo com foto MAIS NOVA: a lógica descarta observação repetida
+        {logic, _} = Logic.step(logic, obs([{100, 200}], vez * 10), vez * 10)
+        Logic.ball_refused(logic)
+      end)
+
+    assert logic.queue == []
+    assert Map.has_key?(logic.ignored, {100, 200})
+
+    # e o veto segura a próxima leitura do mesmo ponto
+    {logic, acoes} = Logic.step(logic, obs([{100, 200}], 100), 100)
+    assert logic.queue == []
+    refute Enum.any?(acoes, &match?({:capture_sequence, _, _}, &1))
   end
 
   test "refusing with nothing in flight changes nothing" do

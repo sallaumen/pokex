@@ -53,19 +53,20 @@ defmodule Pokex.Bots.Catcher.BallTest do
 
   # A MIRA DESCE PRO CORPO — e sem isto a bola errava mais do que acertava.
   #
-  # Cada ponto que o bot tem de um bicho é o centro da BARRA de vida, que flutua
-  # acima da cabeça: medido em 33 marcas das caixas-pretas de 13/09, 70 px acima
-  # e 25 px à direita no ultrawide dele. Pra decidir tile isso some no
-  # arredondamento; pra apontar o mouse, não — num tile de 151 a bola saía na
-  # fronteira entre o tile do corpo e o de cima.
-  describe "the aim leaves the bar and lands on the body" do
+  # Cada ponto que o bot tem de um bicho nasce da BARRA de vida, que flutua acima
+  # da cabeça — e `CrowdScan.place/4` soma UM TILE a ela antes de publicar. No
+  # ultrawide dele a barra flutua 69 px, não 151: o tile a mais joga o ponto 110
+  # px ABAIXO do corpo, e a bola caía no chão entre duas fileiras. Medido no
+  # quadro de 14/09 contra o único ponto marcado à mão, o personagem dele.
+  describe "the aim leaves the published point and lands on the body" do
     @tag :tmp_dir
-    test "on the measured ultrawide the cursor drops 70 and moves 25 left", %{tmp_dir: tmp} do
+    test "on the measured ultrawide the cursor climbs the tile the eye added",
+         %{tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(&Pokex.TestHome.restore/0)
       Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
 
-      assert [{:move_checked, {1393, 838}} | _] = Ball.sequence({1418, 768})
+      assert [{:move_checked, {1418, 658}} | _] = Ball.sequence({1418, 768})
     end
 
     @tag :tmp_dir
@@ -77,8 +78,8 @@ defmodule Pokex.Bots.Catcher.BallTest do
 
       actions = Ball.sequence({1418, 768})
 
-      assert {:move_checked, {1393, 838}} = List.first(actions)
-      assert {:click, :left, {1393, 838}} in actions
+      assert {:move_checked, {1418, 658}} = List.first(actions)
+      assert {:click, :left, {1418, 658}} in actions
     end
 
     # Palpite aqui erraria a bola de um jeito NOVO. O que não foi medido não

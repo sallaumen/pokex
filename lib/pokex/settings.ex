@@ -468,6 +468,13 @@ defmodule Pokex.Settings do
     # (bundle com.tavano.pokealliance) — por isso este nome é separado do
     # `game_app_name`, que é o nome do PROCESSO. Vazio = filma a principal.
     game_window_owner: "PokeAlliance",
+    # A TELA FIXADA À MÃO, no formato "<largura>x<altura>" em PONTOS (ex.:
+    # "1512x982") — o mesmo formato com que a calibração nomeia os perfis por
+    # monitor. Vazio = automático, pela janela do jogo. Fixar VENCE a janela:
+    # quando ele diz em que tela o jogo está, uma janela em outro lugar não
+    # desmente. Trocar isto só vale depois que a câmera reinicia (a página da
+    # calibração faz isso ao selecionar).
+    game_display: "",
     # SAFETY: pause everything while the game window isn't frontmost.
     pause_when_unfocused: true,
     # How often the Focus poller checks the frontmost app.

@@ -96,4 +96,26 @@ defmodule Pokex.Screen.Display do
   """
   @spec main?() :: boolean
   def main?, do: origin() == {0, 0}
+
+  @doc """
+  The monitors as the calibration page needs to draw them: each one told apart
+  by its FORMAT (`"<w>x<h>"` in points — the same string the per-monitor
+  calibration profiles are named by), plus the two facts he chooses between
+  them on: is the eye filming this one, and was this format ever calibrated.
+
+  Pure on purpose — the filmed size, the pinned format and the "already
+  calibrated" answer all come from the caller, so the shape of the list can be
+  fenced without a live backend, a settings file or a calibration on disk.
+  """
+  @spec roll([map], {:ok, point} | :unknown, String.t(), (point -> boolean)) :: [map]
+  def roll(displays, filmed, pinned, calibrated?) do
+    Enum.map(displays, fn %{w: w, h: h} = display ->
+      Map.merge(display, %{
+        size: "#{w}x#{h}",
+        filmed?: filmed == {:ok, {w, h}},
+        pinned?: pinned == "#{w}x#{h}",
+        calibrated?: calibrated?.({w, h})
+      })
+    end)
+  end
 end

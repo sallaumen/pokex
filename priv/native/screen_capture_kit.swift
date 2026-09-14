@@ -262,23 +262,28 @@ final class CaptureRuntime: @unchecked Sendable {
   let display: SCDisplay
   let scale: CGFloat
   let foundBy: String
+  let roll: [[String: Any]]
   let store: FrameStore
   let stream: SCStream
 
   private init(
-    display: SCDisplay, scale: CGFloat, foundBy: String, store: FrameStore, stream: SCStream
+    display: SCDisplay, scale: CGFloat, foundBy: String, roll: [[String: Any]],
+    store: FrameStore, stream: SCStream
   ) {
     self.display = display
     self.scale = scale
     self.foundBy = foundBy
+    self.roll = roll
     self.store = store
     self.stream = stream
   }
 
-  static func start(from content: SCShareableContent, owner: String?) async throws
-    -> CaptureRuntime
+  static func start(from content: SCShareableContent, owner: String?, pinned: String?)
+    async throws -> CaptureRuntime
   {
-    let (display, scale, foundBy) = try gameDisplayAndScale(from: content, owner: owner)
+    let (display, scale, foundBy) = try gameDisplayAndScale(
+      from: content, owner: owner, pinned: pinned
+    )
     let store = FrameStore(pointToPixelScale: scale)
     let filter = SCContentFilter(display: display, excludingWindows: [])
     let configuration = SCStreamConfiguration()
@@ -304,7 +309,8 @@ final class CaptureRuntime: @unchecked Sendable {
     _ = try store.waitForFrame(timeout: 5.0)
 
     return CaptureRuntime(
-      display: display, scale: scale, foundBy: foundBy, store: store, stream: stream
+      display: display, scale: scale, foundBy: foundBy, roll: displayRoll(from: content),
+      store: store, stream: stream
     )
   }
 }
@@ -351,20 +357,59 @@ enum CaptureError: Error, CustomStringConvertible {
 /// With no owner given, or no window of that owner on screen, this is exactly
 /// the old behaviour — `CGMainDisplayID` — so a single-monitor setup is
 /// untouched.
-func gameDisplayAndScale(from content: SCShareableContent, owner: String?) throws
+///
+/// `pinned` wins over the window: "the game is on the 1512×982 screen" is HIS
+/// answer, and a human who says which monitor is not to be overruled by a
+/// window that happens to be somewhere else.
+func gameDisplayAndScale(from content: SCShareableContent, owner: String?, pinned: String?) throws
   -> (SCDisplay, CGFloat, String)
 {
-  let byWindow = owner.flatMap { gameDisplay(from: content, owner: $0) }
+  let byPin = pinned.flatMap { pinnedDisplay(from: content, size: $0) }
+  let byWindow = byPin == nil ? owner.flatMap { gameDisplay(from: content, owner: $0) } : nil
   let mainDisplayID = CGMainDisplayID()
 
-  guard let display = byWindow
+  guard let display = byPin ?? byWindow
           ?? content.displays.first(where: { $0.displayID == mainDisplayID })
           ?? content.displays.first
   else {
     throw CaptureError.writeFailed("no capturable display found")
   }
 
-  return (display, scaleFor(display), byWindow == nil ? "main" : "window")
+  let foundBy = byPin != nil ? "pinned" : (byWindow != nil ? "window" : "main")
+
+  return (display, scaleFor(display), foundBy)
+}
+
+/// The display whose size in POINTS is written "<w>x<h>". Points, not pixels:
+/// that is the format he sees named in his calibration profiles, and the only
+/// one that means the same thing on a retina screen and a plain one.
+private func pinnedDisplay(from content: SCShareableContent, size: String) -> SCDisplay? {
+  content.displays.first { display in
+    let scale = scaleFor(display)
+    let w = Int((CGFloat(display.width) / scale).rounded())
+    let h = Int((CGFloat(display.height) / scale).rounded())
+
+    return "\(w)x\(h)" == size
+  }
+}
+
+/// Every display macOS can film, as the page needs to draw them: point size,
+/// where it sits, and whether it is the main one.
+func displayRoll(from content: SCShareableContent) -> [[String: Any]] {
+  content.displays.map { display in
+    let scale = scaleFor(display)
+    let bounds = CGDisplayBounds(display.displayID)
+
+    return [
+      "id": display.displayID,
+      "w": Int((CGFloat(display.width) / scale).rounded()),
+      "h": Int((CGFloat(display.height) / scale).rounded()),
+      "x": Int(bounds.origin.x.rounded()),
+      "y": Int(bounds.origin.y.rounded()),
+      "scale": Double(scale),
+      "main": display.displayID == CGMainDisplayID(),
+    ]
+  }
 }
 
 /// The display whose global bounds hold the centre of the game's biggest
@@ -526,11 +571,15 @@ struct ScreenCaptureKitHelper {
             onScreenWindowsOnly: true
           )
 
-          // argv[1] names the app whose window says which monitor to film.
+          // argv[1] names the app whose window says which monitor to film;
+          // argv[2], when he pinned one, names that monitor's point size.
           let owner = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
+          let pinned = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : ""
 
           return try await CaptureRuntime.start(
-            from: content, owner: owner.isEmpty ? nil : owner
+            from: content,
+            owner: owner.isEmpty ? nil : owner,
+            pinned: pinned.isEmpty ? nil : pinned
           )
         }
 
@@ -551,6 +600,7 @@ struct ScreenCaptureKitHelper {
           "display_width": runtime.display.width,
           "display_height": runtime.display.height,
           "display_found_by": runtime.foundBy,
+          "displays": runtime.roll,
           "scale": Double(runtime.scale),
         ])
       } catch {

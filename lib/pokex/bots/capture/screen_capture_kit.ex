@@ -248,7 +248,7 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
         :binary,
         :exit_status,
         {:line, 65_536},
-        {:args, [game_window_owner()]}
+        {:args, [setting(:game_window_owner), setting(:game_display)]}
       ])
 
     {:ok, port}
@@ -256,13 +256,51 @@ defmodule Pokex.Bots.Capture.ScreenCaptureKit do
     e in ErlangError -> {:error, {:open_failed, e.original}}
   end
 
-  # Settings may be down (a bare unit test, a boot race): no name means the main
-  # display, which is what the house did before there was a name at all.
-  defp game_window_owner do
-    Pokex.Settings.get(:game_window_owner) || ""
+  # Settings may be down (a bare unit test, a boot race): no answer means the
+  # main display, which is what the house did before there was an answer at all.
+  defp setting(key) do
+    case Pokex.Settings.get(key) do
+      value when is_binary(value) -> value
+      _absent -> ""
+    end
   catch
     :exit, _no_settings -> ""
   end
+
+  @doc """
+  Every display macOS can film, from the helper's ready metadata:
+  `[%{id:, w:, h:, x:, y:, scale:, main?:}]` in SCREEN POINTS, or `[]` when the
+  helper did not say (an older binary, or no helper at all).
+  """
+  def displays(%__MODULE__{metadata: %{"displays" => roll}}) when is_list(roll) do
+    Enum.flat_map(roll, fn
+      %{"id" => id, "w" => w, "h" => h, "x" => x, "y" => y} = display ->
+        [
+          %{
+            id: id,
+            w: round(w),
+            h: round(h),
+            x: round(x),
+            y: round(y),
+            scale: Map.get(display, "scale", 1.0),
+            main?: Map.get(display, "main", false) == true
+          }
+        ]
+
+      _malformed ->
+        []
+    end)
+  end
+
+  def displays(_backend), do: []
+
+  @doc """
+  How the filmed display was chosen: `:pinned` (he said so), `:window` (the
+  game's window was there) or `:main` (nothing else answered).
+  """
+  def display_found_by(%__MODULE__{metadata: %{"display_found_by" => "pinned"}}), do: :pinned
+  def display_found_by(%__MODULE__{metadata: %{"display_found_by" => "window"}}), do: :window
+  def display_found_by(_backend), do: :main
 
   defp wait_ready(port, timeout_ms) do
     case read_line(port, timeout_ms) do

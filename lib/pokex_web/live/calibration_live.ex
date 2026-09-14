@@ -15,6 +15,7 @@ defmodule PokexWeb.CalibrationLive do
   alias Pokex.GameFocus
   alias Pokex.Home
   alias Pokex.Perception.Interpret.Minimap
+  alias Pokex.Screen.Display
   alias Pokex.Screenshot
   alias PokexWeb.CalibrationClick
   alias PokexWeb.CalibrationLibrary
@@ -120,6 +121,7 @@ defmodule PokexWeb.CalibrationLive do
        done: false,
        calibrated?: Calibration.exists?(),
        screen_check: screen_check(),
+       displays: display_roll(),
        profiles: load_profiles(),
        review: nil,
        error: nil,
@@ -468,6 +470,33 @@ defmodule PokexWeb.CalibrationLive do
        |> maybe_reprobe_coord(key, review)}
     else
       _cannot -> {:noreply, socket}
+    end
+  end
+
+  # EM QUAL TELA ESTÁ O JOGO. Everything on this page is written in the
+  # coordinates of the display the eye films, so picking the wrong monitor makes
+  # every later step a careful measurement of the wrong screen.
+  #
+  # Pinning restarts the capture backend on purpose: the stream binds its filter
+  # to one display when it starts, so the answer only becomes true after a
+  # restart — and telling him it took effect before it did would be the worst
+  # kind of lie on this page.
+  def handle_event("pin_display", %{"size" => size}, socket) do
+    size = if size == "auto", do: "", else: size
+    Settings.put(:game_display, size)
+
+    case Capture.refilm() do
+      {:ok, _displays} ->
+        {:noreply,
+         socket
+         |> assign(displays: display_roll(), screen_check: screen_check(), error: nil)
+         |> assign(skillbar_msg: pinned_message(size))}
+
+      :no_broker ->
+        {:noreply,
+         assign(socket,
+           error: "a câmera não está rodando — a tela só troca quando o servidor reiniciar"
+         )}
     end
   end
 
@@ -3000,6 +3029,50 @@ defmodule PokexWeb.CalibrationLive do
     _kind, _reason -> :unknown
   end
 
+  # The monitors, each carrying the two things he needs to choose between them:
+  # whether the eye is filming it right now, and whether this FORMAT was ever
+  # calibrated. A format with no calibration is not an error — it is the "new
+  # screen" case, and saying so up front is the whole point of the picker.
+  defp display_roll do
+    filmed = display_points()
+    pinned = Settings.get(:game_display)
+
+    %{
+      pinned: pinned,
+      screens:
+        Display.roll(safe_displays(), filmed, pinned, &(Calibration.last_for_screen(&1) != :none))
+    }
+  end
+
+  # A wedged backend is "I don't know which monitors there are", never a page
+  # that fails to mount.
+  defp safe_displays do
+    Capture.displays()
+  catch
+    _kind, _reason -> []
+  end
+
+  defp pinned_message("") do
+    "Voltei pro automático: filmo a tela onde está a janela do jogo. Reinicie os bots " <>
+      "(Parar/Iniciar) pra valer."
+  end
+
+  defp pinned_message(size) do
+    aviso =
+      case size |> String.split("x") |> Enum.map(&Integer.parse/1) do
+        [{w, _}, {h, _}] ->
+          if Calibration.last_for_screen({w, h}) == :none,
+            do: " Esta tela ainda NÃO tem calibração guardada — calibre os 9 passos aqui.",
+            else:
+              " Esta tela já tem calibração guardada: use 'Usar a última calibração desta tela'."
+
+        _ilegivel ->
+          ""
+      end
+
+    "Agora filmo a tela #{size}." <> aviso <> " Reinicie os bots (Parar/Iniciar) pra valer."
+  end
+
   # A quick fix marks a point on the screenshot it JUST took, so the geometry of
   # that screenshot is the geometry the whole file must claim. Merging a fresh
   # point into a calibration that still carries the OLD screen (he calibrated on
@@ -3177,6 +3250,73 @@ defmodule PokexWeb.CalibrationLive do
         >
           {@error}
         </p>
+        <%!-- EM QUAL TELA ESTÁ O JOGO. Primeiro de tudo porque é a pergunta de
+              que todo o resto depende: cada ponto marcado aqui é escrito nas
+              coordenadas da tela filmada, então escolher o monitor errado
+              transforma nove passos cuidadosos numa medição precisa da tela
+              errada. Só aparece com mais de um monitor — num só não há escolha
+              a fazer, e uma pergunta sem resposta possível é ruído. --%>
+        <section
+          :if={length(@displays.screens) > 1}
+          class="space-y-2 rounded-xl border border-pk-line bg-pk-surface p-4"
+        >
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <h2 class="text-pk-title font-bold text-pk-text">Em qual tela está o jogo</h2>
+            <p class="text-pk-body text-pk-text-2">
+              o olho filma UMA tela. No automático ele acha a janela do jogo sozinho; fixe aqui se
+              ele errar.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button
+              phx-click="pin_display"
+              phx-value-size="auto"
+              class={[
+                "cursor-pointer rounded-lg border px-3 py-2 text-left hover:brightness-125",
+                @displays.pinned == "" && "border-pk-ok-line bg-pk-ok-dim",
+                @displays.pinned != "" && "border-pk-line bg-pk-raised"
+              ]}
+            >
+              <span class="block text-pk-body font-semibold text-pk-text">Automático</span>
+              <span class="block text-pk-body text-pk-text-2">pela janela do jogo</span>
+            </button>
+
+            <button
+              :for={screen <- @displays.screens}
+              phx-click="pin_display"
+              phx-value-size={screen.size}
+              class={[
+                "cursor-pointer rounded-lg border px-3 py-2 text-left hover:brightness-125",
+                screen.pinned? && "border-pk-ok-line bg-pk-ok-dim",
+                not screen.pinned? && "border-pk-line bg-pk-raised"
+              ]}
+            >
+              <span class="block pk-num text-pk-body font-semibold text-pk-text">
+                {screen.w}×{screen.h}
+                <span :if={screen.main?} class="ml-1 font-normal text-pk-text-2">principal</span>
+              </span>
+              <span class="block text-pk-body">
+                <span :if={screen.filmed?} class="text-pk-ok">● filmando agora</span>
+                <span :if={not screen.filmed?} class="text-pk-text-2">○ não é a filmada</span>
+              </span>
+              <%!-- O "formato novo" que ele pediu como ALERTA: um monitor que o
+                    bot nunca calibrou não é erro, é o caso de estrear uma tela,
+                    e dizer isso ANTES de ele escolher evita nove passos num
+                    monitor que ele nem queria. --%>
+              <span
+                :if={not screen.calibrated?}
+                class="mt-0.5 block text-pk-body font-semibold text-pk-warn"
+              >
+                ⚠ formato novo — sem calibração
+              </span>
+              <span :if={screen.calibrated?} class="mt-0.5 block text-pk-body text-pk-text-2">
+                ✓ já calibrada
+              </span>
+            </button>
+          </div>
+        </section>
+
         <%!-- Whose bar this is. The page has accepted `?bar=<name>` and saved to
               that pokémon since the feature landed, and said NOTHING about it —
               so a calibration aimed at one creature looked exactly like the

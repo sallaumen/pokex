@@ -310,6 +310,14 @@ defmodule PokexWeb.SiegeComponents do
     if now - at <= max, do: :fresh, else: {:stale, now - at}
   end
 
+  # A reading with no HOUR. Every real one carries `at` (`CrowdScan` stamps it
+  # when the look starts), so this is a fact somebody published half-built — and
+  # the answer to that is "no eye", never a crash that takes every page down
+  # with it. That is the whole lesson of the `:situation` half-fact in #656: the
+  # card is a witness, and a witness that dies is worse than one that says it
+  # does not know.
+  defp state(_no_hour, _now, _max), do: :none
+
   defp headline(:none, _reading, _now), do: "sem olho — nenhuma leitura ainda"
   defp headline({:stale, age}, _reading, _now), do: "sem olho (foto de #{age} ms)"
   defp headline(:unread, %{reason: reason}, _now), do: "não deu pra olhar: #{reason(reason)}"

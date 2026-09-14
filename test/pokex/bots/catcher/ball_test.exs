@@ -51,22 +51,20 @@ defmodule Pokex.Bots.Catcher.BallTest do
     assert List.last(Ball.sequence({1, 1})) == {:wait, 250}
   end
 
-  # A MIRA DESCE PRO CORPO — e sem isto a bola errava mais do que acertava.
-  #
-  # Cada ponto que o bot tem de um bicho nasce da BARRA de vida, que flutua acima
-  # da cabeça — e `CrowdScan.place/4` soma UM TILE a ela antes de publicar. No
-  # ultrawide dele a barra flutua 69 px, não 151: o tile a mais joga o ponto 110
-  # px ABAIXO do corpo, e a bola caía no chão entre duas fileiras. Medido no
-  # quadro de 14/09 contra o único ponto marcado à mão, o personagem dele.
-  describe "the aim leaves the published point and lands on the body" do
+  # A MIRA NAO DESCE, E ISSO E UM RESULTADO. Duas correcoes foram tentadas e as
+  # duas PIORARAM a captura: taxa de captura por bola no diario dele foi 36 %
+  # com o ponto publicado cru (1098 bolas), 24 % com o `+70` do #657 (337) e
+  # 5 % com o `-110` do #664 (111). A bola nao e jogada num bicho DE PE — e
+  # jogada num CORPO deitado na tile, e as duas medicoes de quadro mediram o
+  # sprite errado. Ver `Pokex.Screen.BarOffset`.
+  describe "the aim goes to the point the eye published" do
     @tag :tmp_dir
-    test "on the measured ultrawide the cursor climbs the tile the eye added",
-         %{tmp_dir: tmp} do
+    test "on his ultrawide, untouched", %{tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(&Pokex.TestHome.restore/0)
       Calibration.save(%Calibration{scale: 1.0, screen_w: 3440, screen_h: 1440})
 
-      assert [{:move_checked, {1418, 658}} | _] = Ball.sequence({1418, 768})
+      assert [{:move_checked, {1418, 768}} | _] = Ball.sequence({1418, 768})
     end
 
     @tag :tmp_dir
@@ -78,14 +76,12 @@ defmodule Pokex.Bots.Catcher.BallTest do
 
       actions = Ball.sequence({1418, 768})
 
-      assert {:move_checked, {1418, 658}} = List.first(actions)
-      assert {:click, :left, {1418, 658}} in actions
+      assert {:move_checked, {1418, 768}} = List.first(actions)
+      assert {:click, :left, {1418, 768}} in actions
     end
 
-    # Palpite aqui erraria a bola de um jeito NOVO. O que não foi medido não
-    # entra: numa tela desconhecida a mira continua onde sempre esteve.
     @tag :tmp_dir
-    test "on a screen nobody measured the point goes through untouched", %{tmp_dir: tmp} do
+    test "on any other screen, untouched too", %{tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)
       on_exit(&Pokex.TestHome.restore/0)
       Calibration.save(%Calibration{scale: 1.0, screen_w: 1234, screen_h: 567})

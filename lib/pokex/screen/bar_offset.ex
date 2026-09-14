@@ -2,63 +2,59 @@ defmodule Pokex.Screen.BarOffset do
   @moduledoc """
   Onde está o CORPO, dado o ponto que o olho PUBLICA de uma criatura.
 
-  Tudo que este bot sabe sobre onde um bicho está vem da barra de vida dele. O
-  `point` de um hostil (`Pokex.Bots.CrowdScan`) não é a barra crua: `place/4`
-  soma UM TILE à marca antes de publicar, porque "o corpo fica um tile abaixo da
-  barra" (`Pokex.Vision.CreatureMarks`). Pra decidir tile isso some no
-  arredondamento de `offset/3`. Pra APONTAR O MOUSE não some, e é o único lugar
-  onde importa.
+  **HOJE A TABELA ESTÁ VAZIA, e isso é um resultado, não um esquecimento.**
+  Duas correções foram tentadas e as duas PIORARAM a captura no jogo dele. Até
+  alguém medir uma terceira **no campo** — não na geometria de um quadro — a bola
+  mira no ponto publicado, como sempre mirou.
 
-  ## Medido no quadro dele (14/09, caixa-preta `20260914T025428Z-shiny`)
+  ## As três miras, medidas no diário dele pela taxa de captura por bola
 
-  A régua é o próprio personagem, que é o único ponto marcado à mão e portanto o
-  único que não se discute:
+      mira                      bolas   capturado na hora
+      ------------------------  -----   -----------------
+      ponto publicado, cru       1098         36 %
+      #657  publicado +70        337          24 %
+      #664  publicado -110       111           5 %
 
-      player_point (1695, 686) ....... no corpo dele, altura da cintura
-      a linha do NOME dele ........... y 617, na cabeça  → 69 px acima
+  A conta é `capturado` (o corpo sumiu do ponto na janela do arremesso) sobre
+  bolas lançadas, nos três trechos separados pelos merges. O melhor regime é o
+  que não mexe em nada, e é também o de longe mais bem medido.
 
-  E os Golem colados nele, uma casa abaixo:
+  ## Por que as duas tentativas erraram
 
-      marca crua da barra ............ y 767
-      o pé do Golem (barra + 69) ..... y ~836
-      o CORPO desenhado dele ......... y ~808   → o sprite sobe ~28 px do pé
-      ponto PUBLICADO (marca + tile) . y 918    → 110 px ABAIXO do corpo
+  O `point` publicado não é a barra crua: `Pokex.Bots.CrowdScan.place/4` soma UM
+  TILE à marca antes de publicar. Medindo a geometria de um quadro, o corpo
+  DESENHADO de um bicho VIVO fica ~110 px acima desse ponto — foi o que o #664
+  corrigiu, e o quadro não mentia.
 
-  Ou seja: a barra flutua **69 px** sobre o pé do bicho, não os 151 que o `+ tile`
-  assume. O tile a mais joga o ponto 110 px abaixo do corpo desenhado — e é por
-  isso que a bola caía no chão entre duas fileiras. Conferido em três cenas
-  independentes de 14/09: nas três a mira de hoje cai em pedra vazia e a nova cai
-  em cima do bicho.
+  **Mas a bola não é jogada num bicho vivo: é jogada num CORPO no chão.** O corpo
+  é desenhado deitado, na tile, sem a altura do sprite de pé — e o ponto
+  publicado, que a medição de quadro dizia estar "abaixo do bicho", está em cima
+  do corpo. Medir o sprite errado foi o erro, nas duas vezes:
 
-  **Correção de rota (14/09):** a primeira versão desta tabela trazia
-  `{-25, 70}` e empurrava a bola 70 px pra BAIXO, dobrando o erro em vez de
-  desfazê-lo. Os `-70` de então saíram de comparar o ponto publicado com
-  `me + {dx, dy} * tile` — o que mede a sobra do ARREDONDAMENTO, não a distância
-  da barra ao corpo — e os `+25`, de `player_point` estar marcado 25 px à
-  esquerda da coluna da grade. "Ele jogou pra baixo, tem que ser mais pra cima"
-  (Lucas, 14/09).
+    * o #657 comparou o publicado com `me + {dx, dy} * tile`, o que mede a sobra
+      do ARREDONDAMENTO, e ainda aplicou o sinal invertido;
+    * o #664 mediu o sprite de um bicho DE PÉ e mirou no peito dele.
 
-  ## Por que uma tabela por tela, e não uma conta
+  ## O que falta pra uma terceira tentativa ser honesta
 
-  Não escala com o tile: no ultrawide a barra flutua 69 px sobre um tile de 151
-  (0,46 casa) e no notebook a proporção é outra. São duas geometrias do cliente,
-  não uma proporção — do mesmo jeito que `Pokex.Screen.Tile` é tabela e não
-  fórmula.
+  Um quadro de `hora-da-bola` com um CORPO de verdade no chão e o ponto publicado
+  marcado em cima dele — e depois um A/B de pelo menos algumas centenas de bolas.
+  A caixa-preta já grava o quadro (`Pokex.Bots.BlackBox`, tags `hora-da-bola` e
+  `depois-da-bola`) com `anunciada`, `corpo` e o cursor de verdade.
 
-  Tela não medida devolve `:unknown`, e quem pergunta continua mirando no ponto
-  publicado como sempre mirou: um palpite aqui erraria a bola de um jeito novo, e
-  o que não foi medido não entra.
+  Enquanto isso: tela não medida devolve `:unknown` e quem pergunta mira no ponto
+  publicado. O que não foi medido NO CAMPO não entra.
   """
 
-  @measured %{
-    # o ultrawide dele: 151 (o tile somado) menos 69 (a barra sobre o pé) mais
-    # os 28 que o sprite sobe do pé — a bola quer o CORPO, não a sombra dele
-    {3440, 1440} => {0, -110}
-  }
+  # VAZIA DE PROPÓSITO — ver o moduledoc. Uma entrada aqui muda a mira de TODA
+  # bola; ela só volta com um A/B de campo do lado dela, nunca com a geometria de
+  # um quadro sozinha.
+  @measured %{}
 
   @doc """
   O vetor que leva do ponto PUBLICADO ao CORPO, nesta tela: `{dx, dy}` em pontos
-  de tela, pra somar. `:unknown` numa tela que ninguém mediu.
+  de tela, pra somar. `:unknown` numa tela que ninguém mediu — que hoje são
+  todas.
   """
   @spec for_screen({term, term}) :: {:ok, {integer, integer}} | :unknown
   def for_screen({w, h}) when is_integer(w) and is_integer(h) do

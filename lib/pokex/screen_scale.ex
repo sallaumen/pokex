@@ -71,11 +71,7 @@ defmodule Pokex.ScreenScale do
     :corpse_scan_refine_px,
     :corpse_match_tolerance_px,
     :fishing_bubble_radius_px,
-    :glow_search_margin,
-    :mini_game_bar_offset_px,
-    :mini_game_bar_width_px,
-    :mini_game_above_px,
-    :mini_game_strip_height_px
+    :glow_search_margin
   ]
 
   @area [

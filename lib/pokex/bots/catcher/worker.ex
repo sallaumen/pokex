@@ -36,7 +36,6 @@ defmodule Pokex.Bots.Catcher.Worker do
   alias Pokex.Bots.Engine
   alias Pokex.Bots.InputGate
   alias Pokex.Calibration
-  alias Pokex.Perception
   alias Pokex.Perception.WorldState
   alias Pokex.Pokedex.ShinyLog
   alias Pokex.Settings
@@ -417,7 +416,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # The safety net UNDER the aimed capture (see Catcher.Sweep for the geometry
   # and the why). It lives in THIS process, rather than a worker of its own,
   # because every gate it needs is already computed here — the
-  # combat-engagement mirror, the mini-game fact, the player mode and the input
+  # combat-engagement mirror, the player mode and the input
   # gate — and a second process would have to rebuild all four to reach the
   # same answer, then disagree with this one the first time they drifted.
 
@@ -477,9 +476,6 @@ defmodule Pokex.Bots.Catcher.Worker do
       # quick strip (2026-08-11): a promise on screen the code did not keep.
       not Settings.get(:capture_enabled) ->
         "a captura está desligada"
-
-      Perception.mini_game_playing?() ->
-        "mini-game em jogo"
 
       state.combat_engaged? ->
         "luta em andamento"
@@ -570,18 +566,11 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # The mode gate lives HERE, not only in attach/detach: a late in-flight {:world,...} event
   # (or a test-injected one) right after flipping to moving must never throw a ball.
-  # The mini-game gate comes first: no admissions, throws or confirms while it
-  # plays. The catcher is event-driven — the next corpse/kill/combat event after
-  # the fact clears resumes the flow on its own.
   defp advance(state, obs) do
     state = contar(state, obs)
 
     state =
       cond do
-        Perception.mini_game_playing?() ->
-          explain_no_ball(obs, state, "o mini-game está em curso")
-          state
-
         # a âncora do shiny é uma afirmação sobre o chão, não uma foto: nenhum
         # modo manda nela (`Catcher.Observation`)
         match?(%{source: :anchor}, obs) ->
@@ -603,7 +592,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   # Rescheduling lives HERE, not inside run_step: the branches that held the
-  # step (engaged fight, closed gate, mini-game) returned without scheduling,
+  # step (engaged fight, closed gate) returned without scheduling,
   # and a ball in flight stayed pending forever if no new event arrived.
   # Priority: (1) Logic has pending work → wake at its real deadline; (2) the
   # kill scan found nothing and rescans remain → re-look at the ground.
@@ -820,7 +809,7 @@ defmodule Pokex.Bots.Catcher.Worker do
 
     # Logic says "throw at X"; Catcher.Ball knows HOW (position, settle, hit the
     # configured hotkey, hold the cursor). Each step passes the input and
-    # mini-game gates instead of an opaque Rig primitive.
+    # gates instead of an opaque Rig primitive.
     result = throw_balls(performs, obs, state.body)
 
     # The return used to be DISCARDED — a real actuation error vanished and the
@@ -868,14 +857,13 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # The kill-anchored observation. Gates BEFORE the capture: scanning with a
   # fight engaged would match the adjacent LIVE sprite (a standing pokémon's
-  # palette equals its taught corpse's); moving/capture-off don't even look;
-  # the mini-game owns the moment. nil = a step that proves nothing (Logic
-  # ignores it), never a false confirmation.
+  # palette equals its taught corpse's); moving/capture-off don't even look.
+  # nil = a step that proves nothing (Logic ignores it), never a false
+  # confirmation.
   defp scan_obs(state) do
-    if fight_on?(state) or not standing?() or
-         not capture_allowed?(state) or Perception.mini_game_playing?(),
-       do: nil,
-       else: state.scanner |> safe_scan() |> narrate() |> with_pos() |> with_spots(state)
+    if fight_on?(state) or not standing?() or not capture_allowed?(state),
+      do: nil,
+      else: state.scanner |> safe_scan() |> narrate() |> with_pos() |> with_spots(state)
   end
 
   # QUEM DIZ QUE A LUTA ACABOU É O CÉREBRO, na caçada. O estado do Combat não
@@ -1179,8 +1167,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   end
 
   # Computed at broadcast time from live state — the engage/disengage edge above
-  # guarantees the fight reason appears/clears promptly; the mini-game one rides
-  # on whatever event broadcasts while the game plays (the catcher is passive then).
+  # guarantees the fight reason appears/clears promptly.
   # As FRASES são de `Catcher.Narration`; os portões ficam aqui — são os mesmos
   # que `standing?/0` e `scan_obs/1` leem, e uma segunda cópia deles dentro de
   # um narrador seria duas contas da mesma verdade.
@@ -1190,7 +1177,6 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp hold_reason(state) do
     Narration.hold_reason(%{
-      mini_game?: Perception.mini_game_playing?(),
       still?: Settings.get(:player_mode) == "still",
       road_held?: road_held?(),
       screen_clear?: screen_clear?(),

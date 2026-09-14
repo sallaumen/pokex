@@ -319,28 +319,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
   end
 
   @tag :tmp_dir
-  # A throw mid mini-game would move the cursor off the capsule the player is driving.
-  test "the mini-game fact freezes throws; the next event after it clears acts", %{
-    worker: worker
-  } do
-    WorldState.put(
-      :mini_game,
-      %{playing?: true, confidence: 1.0},
-      System.monotonic_time(:millisecond)
-    )
-
-    on_exit(fn -> WorldState.forget(:mini_game) end)
-
-    obs = corpses_obs([{130, 224}])
-    WorldState.put(@staged_scan, obs, obs.captured_at)
-    Phoenix.PubSub.broadcast(Pokex.PubSub, Worker.kill_topic(), {:kill})
-    refute_receive {:performed, _p, _a}, 300
-
-    WorldState.forget(:mini_game)
-    world!(worker, corpses_obs([{130, 224}]))
-    assert_receive {:performed, :high, [{:move_checked, {130, 224}} | _]}, 1_000
-  end
-
   # A post-relearn warmup frame (scanning?: false) must not read as "corpse vanished" —
   # it would falsely confirm a capture and aim the next queued throw at the old spot.
   @tag :tmp_dir
@@ -672,19 +650,6 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     end
 
     @tag :tmp_dir
-    test "the mini-game holds the sweep", %{worker: worker} do
-      WorldState.put(
-        :mini_game,
-        %{playing?: true, confidence: 1.0},
-        System.monotonic_time(:millisecond)
-      )
-
-      on_exit(fn -> WorldState.forget(:mini_game) end)
-
-      :ok = Worker.sweep_now(worker)
-      assert_receive {:sweep_result, "não varreu: mini-game em jogo"}, 1_000
-    end
-
     @tag :tmp_dir
     test "the game out of focus holds the sweep", %{worker: worker} do
       InputGate.set_focus_ok(false)

@@ -37,10 +37,7 @@ defmodule Pokex.Sim.RunnerTest do
   # hunt where the monsters always won looked like a finding about the engine.
   # It was invisible because the bench had its own loadout and killed fine.
   setup do
-    # :mini_game rides the cleanup list although the runner never publishes it:
-    # a fact left behind by another test is exactly what the new assertion below
-    # must not mistake for one of ours.
-    for key <- [:battle, :pokemon, :skill_bar, :minimap, :crowd, :mini_game],
+    for key <- [:battle, :pokemon, :skill_bar, :minimap, :crowd],
         do: WorldState.forget(key)
 
     counter = :counters.new(1, [])
@@ -129,13 +126,6 @@ defmodule Pokex.Sim.RunnerTest do
 
     assert is_list(battle.enemies)
     assert is_list(battle.enemies_detail)
-  end
-
-  test "it publishes no mini game fact — a hunt never sees the capsule", %{server: server} do
-    Runner.play(server)
-    Runner.tick_now(server)
-
-    assert WorldState.get(:mini_game, 5_000, now()) == :missing
   end
 
   test "a fact is not republished before its own cadence is due", %{

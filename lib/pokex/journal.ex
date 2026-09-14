@@ -31,7 +31,7 @@ defmodule Pokex.Journal do
 
   alias Pokex.Bots.Session
 
-  @topics ~w(fishing combat catcher mini_game game body cavebot logout engine settings)
+  @topics ~w(fishing combat catcher game body cavebot logout engine settings)
   @journal_topic "journal"
   @max_events 500
   @keep_days 14
@@ -94,7 +94,6 @@ defmodule Pokex.Journal do
              :fishing_log,
              :combat_log,
              :catcher_log,
-             :mini_game_log,
              :game_log,
              :body_log,
              :cavebot_log,
@@ -171,7 +170,6 @@ defmodule Pokex.Journal do
   defp source_of(:fishing_log), do: :fishing
   defp source_of(:combat_log), do: :combat
   defp source_of(:catcher_log), do: :catcher
-  defp source_of(:mini_game_log), do: :mini_game
   defp source_of(:game_log), do: :suporte
   defp source_of(:body_log), do: :body
   defp source_of(:cavebot_log), do: :cavebot

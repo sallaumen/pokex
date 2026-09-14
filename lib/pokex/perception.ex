@@ -56,45 +56,6 @@ defmodule Pokex.Perception do
   defp feeds_active?, do: Application.get_env(:pokex, :perception_feeds_active, true)
 
   @doc """
-  Is the fishing mini-game being played right now, per the `:mini_game` fact the
-  MiniGame worker publishes every tick?
-
-  This is THE coordination read: peers hold themselves and the Body blocks inputs
-  on it, instead of being paused/guarded by the mini-game worker directly. It is
-  deliberately fail-open — a stale or missing fact (worker crashed, never ran,
-  capture stuck past `mini_game_fact_max_age_ms`) reads as "not playing", so a
-  dead mini-game worker can never strand the rest of the bot.
-
-  OUTSIDE THE FISHING MODE THERE IS NO GAME TO BE PLAYING. The capsule only
-  appears over a rod, so a mode that runs no rod answers false without reading
-  the blackboard at all — no fact left over from the last fishing session, no
-  hand-written one, nothing can hold a hunt on something that cannot happen
-  ("não existe o minigame fora da pesca", Lucas, 2026-08-25). It also keeps the
-  hunt's hot path free of a question that only ever has one answer.
-  """
-  @spec mini_game_playing?(integer) :: boolean
-  def mini_game_playing?(now_ms \\ System.monotonic_time(:millisecond)) do
-    Pokex.Modes.watches_mini_game?() and playing_fact?(now_ms)
-  end
-
-  defp playing_fact?(now_ms) do
-    case WorldState.get(:mini_game, Settings.get(:mini_game_fact_max_age_ms), now_ms) do
-      {:ok, %{playing?: playing?}} -> playing?
-      _stale_or_missing -> false
-    end
-  end
-
-  @doc """
-  `mini_game_playing?/1` in the shape input gates want: `:ok` to act,
-  `{:blocked, :mini_game_active}` to stop. Used by the Body around every
-  guarded input and by combat around its key bursts.
-  """
-  @spec mini_game_gate(integer) :: :ok | {:blocked, :mini_game_active}
-  def mini_game_gate(now_ms \\ System.monotonic_time(:millisecond)) do
-    if mini_game_playing?(now_ms), do: {:blocked, :mini_game_active}, else: :ok
-  end
-
-  @doc """
   The `:pokemon` fact PlayerSupport publishes every monitor tick: the active
   Pokémon's HP (`hp_pct`) and whether the HP bar was readable at all
   (`readable?: false` = party window minimized or no Pokémon out of the ball).

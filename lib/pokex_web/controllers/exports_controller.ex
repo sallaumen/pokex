@@ -1,10 +1,10 @@
 defmodule PokexWeb.ExportsController do
   @moduledoc """
-  Serves diagnostics exports (JSON dumps, event logs, mini-game evidence
+  Serves diagnostics exports (JSON dumps, event logs, evidence
   bundles) written under `~/.pokex/exports/`, so a UI link can download or view
   them. Mirrors CapturesController.
 
-  Bundles are DIRECTORIES (`mini_game-<stamp>/summary.json`), so the route takes
+  Bundles are DIRECTORIES (`<kind>-<stamp>/summary.json`), so the route takes
   a wildcard path — and `Path.safe_relative/1` is what keeps that path inside
   the exports dir: it rejects absolute paths and any `..` that would escape.
   """

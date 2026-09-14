@@ -109,7 +109,7 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   `maybe_throw/3` conta o arremesso na DECISÃO, não na tecla — é o que deixa a
   janela de conferência começar da atuação. Mas quando a atuação FALHA (o
-  ponteiro não chegou, o portão engoliu a tecla, o mini-game cortou no meio) o
+  ponteiro não chegou, o portão engoliu a tecla) o
   ponto já tinha saído da fila, o `throw` já estava de pé e o `Catcher` já tinha
   gasto a âncora: o corpo era consumido sem bola nenhuma, e o apodrecimento dele
   lia como "capturado (tardio)".

@@ -104,10 +104,8 @@ defmodule PokexWeb.CalibrationReview do
             Como estas áreas são escolhidas
           </summary>
           <p class="mt-1.5 max-w-prose leading-relaxed text-pk-text-2">
-            Duas são <b>automáticas</b>, tiradas do seu personagem: a caixa do <b>mini game</b>
-            (3 tiles pra cada lado, de 3 acima a 7 abaixo dele) e a <b>busca de corpos</b>
-            (raio em tiles, no ⚙️). Marcar a faixa do mini game à mão continua valendo mais —
-            deixa a busca ainda mais barata e certeira.
+            A <b>busca de corpos</b> é <b>automática</b>, tirada do seu personagem: o raio em
+            tiles fica no ⚙️.
           </p>
         </details>
 
@@ -135,7 +133,6 @@ defmodule PokexWeb.CalibrationReview do
                 pokemon_hp_region={@review.calib.pokemon_hp_region}
                 player_hp_region={@review.calib.player_hp_region}
                 pokemon_photo_point={@review.calib.pokemon_photo_point}
-                mini_game_region={Calibration.mini_game_region(@review.calib)}
                 minimap_region={Calibration.minimap_region(@review.calib)}
                 minimap_coord_region={Calibration.minimap_coord_region(@review.calib)}
                 minimap_player_point={Calibration.minimap_player_point(@review.calib)}

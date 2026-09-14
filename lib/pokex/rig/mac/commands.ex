@@ -50,7 +50,7 @@ defmodule Pokex.Rig.Mac.Commands do
     "tab" => 48
   }
 
-  # Keys the mini-game holds. `key down`/`key up` only accept the CHARACTER form
+  # Keys the bot HOLDS. `key down`/`key up` only accept the CHARACTER form
   # ("key down \" \"") — a nested `key code` executes as a full press first
   # (measured live 2026-07-10) — so named keys must map to their character here.
   @hold_chars %{"space" => " "}
@@ -93,7 +93,7 @@ defmodule Pokex.Rig.Mac.Commands do
 
   @doc """
   Hold or release a key — a real `key down` / `key up` event pair split across
-  two calls, for keys the game expects HELD (the mini-game raises its bar while
+  two calls, for keys the game expects HELD (an arrow walks while
   Space stays down). Plain single characters pass through; named keys need a
   mapping in @hold_chars.
   """

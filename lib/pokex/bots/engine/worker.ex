@@ -31,9 +31,6 @@ defmodule Pokex.Bots.Engine.Worker do
       DEMAND-DRIVEN (`Perception.Feed`, "the feed only captures while at least
       one consumer is attached") — without attaching, the engine would be
       deciding over a picture nobody is painting whenever combat is idle.
-    * While the fishing mini-game is on screen the feeds skip their captures on
-      purpose, so every fact freezes. Publishing a picture built from frozen
-      reads would be publishing a lie with a fresh timestamp — so it holds.
   """
   use GenServer
 
@@ -163,10 +160,6 @@ defmodule Pokex.Bots.Engine.Worker do
   @impl true
   def handle_info(:tick, %{running?: false} = state), do: {:noreply, %{state | timer: nil}}
 
-  # No mini-game branch here on purpose: the engine is the HUNT's brain and the
-  # fishing capsule cannot appear over a rod nobody is holding. The gate lives
-  # once, in `Perception.mini_game_playing?/1`, which answers false outside the
-  # fishing mode — so a hunt tick has nothing to ask.
   def handle_info(:tick, state), do: {:noreply, state |> observe() |> schedule_tick()}
 
   # The team file changed under us: a swap changes both the name that identifies

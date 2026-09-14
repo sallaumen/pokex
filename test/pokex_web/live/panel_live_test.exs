@@ -184,7 +184,6 @@ defmodule PokexWeb.PanelLiveTest do
 
     assert html =~ "Pesca"
     assert html =~ "Batalha"
-    assert html =~ "Mini game"
     assert html =~ "Automações"
     assert html =~ "parado"
     assert has_element?(view, "#quick-toggles")
@@ -991,12 +990,6 @@ defmodule PokexWeb.PanelLiveTest do
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat, Map.put(busy, :locked_row, nil)})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "catcher", {:catcher, Map.put(busy, :mode, "still")})
 
-    Phoenix.PubSub.broadcast(
-      Pokex.PubSub,
-      "mini_game",
-      {:mini_game, Map.merge(busy, %{in_game?: false, confidence: 0.0})}
-    )
-
     Phoenix.PubSub.broadcast(Pokex.PubSub, "game", {:game, Map.put(busy, :hp_pct, nil)})
 
     html = render(view)
@@ -1004,68 +997,13 @@ defmodule PokexWeb.PanelLiveTest do
     refute html =~ "Parar bot"
   end
 
-  test "a mini game broadcast updates the mini game pill", %{conn: conn} do
-    {:ok, view, _} = live(conn, ~p"/")
-
-    snapshot = %{
-      state: :playing,
-      in_game?: true,
-      confidence: 0.91,
-      counters: %{detections: 1, clears: 0, failures: 0},
-      error: nil,
-      transition: :entered
-    }
-
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game, snapshot})
-
-    assert render(view) =~ "em jogo"
-    assert has_element?(view, "[data-testid=mini-game-pill][data-state=playing]")
-  end
-
-  # the old assertion `render(view) =~ "mudo"` passed by accident: "mudou" in
-  # three unrelated texts contains the substring, so the mute was never verified
-  test "mini game transitions push the sound event unless muted", %{conn: conn} do
-    original = Pokex.Settings.get(:mini_game_sound)
-    on_exit(fn -> Pokex.Settings.put(:mini_game_sound, original) end)
-    Pokex.Settings.put(:mini_game_sound, true)
-
-    {:ok, view, _} = live(conn, ~p"/")
-
-    snapshot = %{
-      state: :playing,
-      in_game?: true,
-      confidence: 0.91,
-      counters: %{detections: 1, clears: 0, failures: 0},
-      error: nil,
-      transition: :entered
-    }
-
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game, snapshot})
-    assert_push_event(view, "mini-game-transition", %{transition: :entered})
-
-    view |> element(~s(button[phx-click="toggle_mini_game_sound"])) |> render_click()
-    assert Pokex.Settings.get(:mini_game_sound) == false
-
-    assert has_element?(
-             view,
-             ~s(button[phx-click="toggle_mini_game_sound"][title*="MUDO"])
-           )
-
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game, snapshot})
-    assert render(view) =~ "em jogo"
-    refute_push_event(view, "mini-game-transition", %{})
-  end
-
   test "macro worker logs append to the activity feed", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/")
 
     Phoenix.PubSub.broadcast(Pokex.PubSub, "fishing", {:fishing_log, :macro, "lançando a linha"})
     Phoenix.PubSub.broadcast(Pokex.PubSub, "combat", {:combat_log, :macro, "mirando linha 0"})
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "mini_game", {:mini_game_log, :macro, "pausando"})
-
     assert eventually(fn -> render(view) =~ "lançando a linha" end, 500)
     assert eventually(fn -> render(view) =~ "mirando linha 0" end, 500)
-    assert eventually(fn -> render(view) =~ "pausando" end, 500)
   end
 
   test "debug logs are hidden until the debug toggle is on", %{conn: conn} do
@@ -1700,7 +1638,7 @@ defmodule PokexWeb.PanelLiveTest do
     test "worker states are not written in spaced uppercase", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
-      for testid <- ~w(fishing combat catcher mini-game support cavebot) do
+      for testid <- ~w(fishing combat catcher support cavebot) do
         row = view |> element(~s([data-testid="#{testid}-pill"])) |> render()
 
         refute row =~ "uppercase",

@@ -14,7 +14,6 @@ defmodule Pokex.Bots.Catcher.NarrationTest do
     setup do
       %{
         facts: %{
-          mini_game?: false,
           still?: true,
           road_held?: true,
           screen_clear?: true,
@@ -22,11 +21,6 @@ defmodule Pokex.Bots.Catcher.NarrationTest do
           capture_enabled?: true
         }
       }
-    end
-
-    test "the mini-game comes first", %{facts: facts} do
-      assert Narration.hold_reason(%{facts | mini_game?: true, fight?: true}) ==
-               "mini-game em jogo"
     end
 
     test "a hunt with the road walking says so before the fight", %{facts: facts} do

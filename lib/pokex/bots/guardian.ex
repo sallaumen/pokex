@@ -21,14 +21,8 @@ defmodule Pokex.Bots.Guardian do
 
   ## What counts as a sign of life
 
-  Kill + WON MINI-GAME. **Not** a hook: a hook is the rod pull, and with the
-  mini-game stuck the rod hooks all night catching no fish — the counter
-  climbs, the clock resets, and the rule sleeps while stamina burns (exactly
-  how a whole night on the main account was lost). Hooks count again only
-  while the mini-game watcher is stopped (mini-game played by hand), otherwise
-  the rule would fire mid-fishing that was going fine. The three counters ride
-  the snapshots combat, fishing and mini-game already publish; this process
-  subscribes to all three.
+  Kill + HOOK. The counters ride the snapshots combat and fishing already
+  publish; this process subscribes to both.
 
   Logging out is the action that actually saves stamina: stopping the bot
   saves nothing, the character stays online. `Pokex.Bots.Logout` (injectable
@@ -77,7 +71,6 @@ defmodule Pokex.Bots.Guardian do
   alias Pokex.Bots.Corner
   alias Pokex.Bots.InputGate
   alias Pokex.Bots.Logout
-  alias Pokex.Bots.MiniGame.Worker
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
 
@@ -144,11 +137,6 @@ defmodule Pokex.Bots.Guardian do
       command_fired?: false,
       fights: 0,
       hooked: 0,
-      clears: 0,
-      # is the mini-game watcher running? Until heard from, assume NOT — the
-      # safe default, since its absence is what makes hooks count as signs of
-      # life again.
-      mini_game_running?: false,
       # last time a REAL sign of life was SEEN (monotonic ms; nil = none
       # yet this run) — the anti-stagnation rule measures silence from here
       last_activity_at: nil,
@@ -172,8 +160,6 @@ defmodule Pokex.Bots.Guardian do
     Phoenix.PubSub.subscribe(Pokex.PubSub, @combat_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, @fishing_topic)
     Phoenix.PubSub.subscribe(Pokex.PubSub, @engine_topic)
-    # the REAL fish (won mini-game) and whether the watcher is up
-    Phoenix.PubSub.subscribe(Pokex.PubSub, Worker.topic())
     if state.auto_poll?, do: schedule_poll(state.poll_ms)
     {:ok, state}
   end
@@ -212,22 +198,10 @@ defmodule Pokex.Bots.Guardian do
   def handle_info({:combat, snapshot}, state),
     do: {:noreply, track_counter(state, :fights, get_in(snapshot, [:counters, :fights]))}
 
-  # A HOOK is the rod pull, not the fish. With the mini-game watcher running,
-  # the real fish is `clears`: a stuck mini-game hooks all night catching
-  # nothing — exactly how a night of stamina was lost. With the watcher off
-  # (mini-game played by hand) the hook is again the best signal we have;
-  # without that fallback the rule would log out mid-fishing that was fine.
+  # A HOOK is the rod pull, and it is the best sign of life fishing has: the
+  # rule would log out mid-fishing that was going fine without it.
   def handle_info({:fishing, snapshot}, state) do
-    hooked = get_in(snapshot, [:counters, :hooked])
-
-    if state.mini_game_running?,
-      do: {:noreply, store_counter(state, :hooked, hooked)},
-      else: {:noreply, track_counter(state, :hooked, hooked)}
-  end
-
-  def handle_info({:mini_game, snapshot}, state) do
-    state = %{state | mini_game_running?: Map.get(snapshot, :state) != :off}
-    {:noreply, track_counter(state, :clears, get_in(snapshot, [:counters, :clears]))}
+    {:noreply, track_counter(state, :hooked, get_in(snapshot, [:counters, :hooked]))}
   end
 
   # A PILE THAT VANISHES AFTER THE BRAIN ENGAGED IT IS ACTIVITY. In the Auto
@@ -270,12 +244,6 @@ defmodule Pokex.Bots.Guardian do
         Map.put(state, key, value)
     end
   end
-
-  # Stores the counter WITHOUT marking activity. Exists so turning the
-  # mini-game watcher off mid-session doesn't pass the accumulated hook jump
-  # off as a sign of life that never happened.
-  defp store_counter(state, key, value) when is_integer(value), do: Map.put(state, key, value)
-  defp store_counter(state, _key, _value), do: state
 
   defp panic(state) do
     # LATCH FIRST, halt second: the latch is what forbids every auto-resume path (the Focus
@@ -371,8 +339,7 @@ defmodule Pokex.Bots.Guardian do
     if BotSupervisor.any_active?([
          status.fishing,
          status.combat,
-         status.cavebot,
-         status.mini_game
+         status.cavebot
        ]) do
       Phoenix.PubSub.broadcast(
         Pokex.PubSub,
@@ -443,7 +410,7 @@ defmodule Pokex.Bots.Guardian do
     end
   end
 
-  # The anti-stagnation rule: silence (no kill, no won mini-game) measured from
+  # The anti-stagnation rule: silence (no kill, no hook) measured from
   # the LATER of session start / last activity / last ring — so the alarm
   # action re-rings only after ANOTHER full silent window (its own cooldown),
   # and a fresh session never inherits old silence.

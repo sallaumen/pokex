@@ -23,10 +23,6 @@ defmodule Pokex.Sim.Runner do
   each tick would erase the most interesting problem the bot has: facts of
   different ages, arriving out of step.
 
-  There is no `:mini_game` fact here, and there is no need for one: the capsule
-  only appears over a rod, so outside the fishing mode the gate answers false
-  without reading the blackboard. A simulated hunt has nothing to say about it.
-
   ## It is registered under its own name for a reason
 
   `Pokex.Rig.Sim` reports every key to whatever is registered as

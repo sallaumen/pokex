@@ -45,7 +45,7 @@ defmodule Pokex.Sim.FenceTest do
   end
 
   defp status_of(running) do
-    Map.new([:fishing, :combat, :catcher, :mini_game, :player_support, :cavebot], fn name ->
+    Map.new([:fishing, :combat, :catcher, :player_support, :cavebot], fn name ->
       {name, %{state: if(name in running, do: :walking, else: :idle)}}
     end)
   end

@@ -89,11 +89,6 @@ defmodule PokexWeb.WorldLive do
   defp freshness(age) when age <= @aging_ms, do: :aging
   defp freshness(_age), do: :stale
 
-  defp summary(:mini_game, %{playing?: playing?} = obs) do
-    status = if playing?, do: "jogando", else: "fora do jogo"
-    "#{status} · confiança #{Map.get(obs, :confidence, 0.0)}"
-  end
-
   # "Não vejo a lista" é um FATO, não um erro: `enemies: nil` é o que a
   # percepção publica quando a janela de batalha não pôde ser lida (janela
   # coberta, HUD fora do lugar), e o resto do app já fala assim

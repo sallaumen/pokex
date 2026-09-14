@@ -55,7 +55,6 @@ defmodule PokexWeb.Layouts do
        {:calibration, "Calibração", "hero-viewfinder-circle"},
        {:diagnostics, "Diagnóstico", "hero-beaker"},
        {:fishing_lab, "Laboratório", "hero-sparkles"},
-       {:mini_game, "Mini-game", "hero-puzzle-piece"},
        {:sim, "Simulador", "hero-play-circle"}
      ]}
   ]
@@ -680,12 +679,12 @@ defmodule PokexWeb.Layouts do
   end
 
   # The id becomes DOM: `:fishing_lab` -> "app-nav-fishing-lab" (underscores in
-  # markup ids are noise, and a test doing `refute html =~ "mini_game"` would
-  # match the id).
+  # markup ids are noise, and a test doing `refute html =~ "<key>"` would match
+  # the id).
   defp nav_id(key), do: "app-nav-" <> dashed(key)
 
   # Same rule for every id built from an atom — the alarm sectors learned it the
-  # same way the nav did, by a `refute html =~ "mini_game"` matching an id.
+  # same way the nav did, by a `refute html =~ "<key>"` matching an id.
   defp dashed(key), do: String.replace(to_string(key), "_", "-")
 
   defp nav_path(:panel), do: ~p"/"
@@ -693,7 +692,6 @@ defmodule PokexWeb.Layouts do
   defp nav_path(:calibration), do: ~p"/calibration"
   defp nav_path(:diagnostics), do: ~p"/diagnostics"
   defp nav_path(:fishing_lab), do: ~p"/fishing-lab"
-  defp nav_path(:mini_game), do: ~p"/mini-game"
   defp nav_path(:world), do: ~p"/world"
   defp nav_path(:cavebot), do: ~p"/cavebot"
   defp nav_path(:sim), do: ~p"/sim"

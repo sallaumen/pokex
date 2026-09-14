@@ -1,7 +1,7 @@
 defmodule Pokex.Rig.Mac.KeyEvents do
   @moduledoc """
   Persistent native key-event helper (CGEvents): ~1-2ms per hold/release
-  versus ~60-100ms per osascript spawn — the mini-game actuation hot path.
+  versus ~60-100ms per osascript spawn — the actuation hot path.
 
   Mirrors the ScreenCaptureKit helper's lifecycle: the Swift source at
   `priv/native/key_events.swift` is compiled to `~/.pokex/bin/key_events`

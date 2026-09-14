@@ -104,7 +104,6 @@ defmodule Pokex.Bots.Combat.Worker do
        loadout_view: nil,
        feed_ref: nil,
        reattach_attempts: 0,
-       held?: false,
        # os controles que a ÚLTIMA ordem do cérebro trazia na abertura: o press
        # do controle é disparado na BORDA em que ele aparece (ver
        # `press_engine_crowd/2`), e sem memória a mesma ordem repetida a cada
@@ -160,7 +159,6 @@ defmodule Pokex.Bots.Combat.Worker do
               mode: mode,
               feed_ref: ref,
               reattach_attempts: 0,
-              held?: false,
               last_action: nil,
               cured?: false
           }
@@ -187,7 +185,7 @@ defmodule Pokex.Bots.Combat.Worker do
     safe_detach(:skill_bar)
     Pokex.Bots.HandWatch.detach()
     demonitor_feed(state.feed_ref)
-    state = %{state | logic: logic, feed_ref: nil, reattach_attempts: 0, held?: false}
+    state = %{state | logic: logic, feed_ref: nil, reattach_attempts: 0}
     broadcast(logic, state)
     {:reply, :ok, cancel_timer(state)}
   end
@@ -325,8 +323,7 @@ defmodule Pokex.Bots.Combat.Worker do
   # -- the step pipeline -------------------------------------------------------
 
   # `:mode` não é um ajuste do Settings: é a escolha da rota, guardada aqui pelo
-  # tempo da luta pra que o `Combat.Plan` responda igual no retomar depois do
-  # minigame.
+  # tempo da luta pra que o `Combat.Plan` responda igual do começo ao fim dela.
   defp config_for(mode) do
     Settings.all() |> Map.take(@config_keys) |> Map.put(:mode, mode)
   end
@@ -334,13 +331,7 @@ defmodule Pokex.Bots.Combat.Worker do
   defp advance(%{logic: %Logic{state: s}} = state, _obs) when s in [:idle, :error],
     do: cancel_timer(state)
 
-  defp advance(state, obs) do
-    cond do
-      Perception.mini_game_playing?() -> hold(state)
-      state.held? -> state |> resume_from_hold() |> step(current_obs())
-      true -> step(state, obs)
-    end
-  end
+  defp advance(state, obs), do: step(state, obs)
 
   defp step(state, obs) do
     {posture, combo, orders} = posture()
@@ -592,26 +583,6 @@ defmodule Pokex.Bots.Combat.Worker do
   defp own_pokemon_out?,
     do: match?({:ok, %{hp_pct: pct}} when is_integer(pct), Perception.pokemon())
 
-  # Frozen while the mini-game plays: no steps, no bursts. Combat is
-  # event-driven and a static battle would never deliver the resume edge, so
-  # poll :wake while held (every :wake funnels back through advance/2).
-  # The freeze EDGE broadcasts once so the panel shows WHY combat stopped.
-  @held_poll_ms 250
-  defp hold(state) do
-    if not state.held?, do: broadcast(state.logic, %{state | held?: true})
-    state = cancel_timer(state)
-    %{state | held?: true, timer: Process.send_after(self(), :wake, @held_poll_ms)}
-  end
-
-  # The fight state frozen many seconds ago is garbage — restart the machine,
-  # exactly what the old external halt+run pair produced.
-  defp resume_from_hold(state) do
-    {logic, _actions} = Logic.start(Logic.new(config_for(state.mode)), now())
-    state = %{state | logic: logic, held?: false}
-    broadcast(logic, state)
-    state
-  end
-
   defp apply_step(state, logic, actions) do
     previous = state.logic
     previous_action = state.last_action
@@ -857,8 +828,7 @@ defmodule Pokex.Bots.Combat.Worker do
       jitter_ms: Settings.get(:combat_skill_jitter_ms) |> non_neg_int(0)
     ]
 
-    with :ok <- Perception.mini_game_gate(),
-         :ok <- let_go(special?),
+    with :ok <- let_go(special?),
          # THE STATUS POTION, and it comes AFTER letting go of the arrows: the
          # `e` is a press like any other, and the arrows are `Body` state the
          # burst cannot see (the lesson of #495). It comes before the stamp
@@ -891,8 +861,7 @@ defmodule Pokex.Bots.Combat.Worker do
          {:sent, sent} <-
            keys
            |> Pokex.Rig.impl().press_many(opts ++ [halt?: tail_fence(keys)])
-           |> burst_result(keys, parent),
-         :ok <- Perception.mini_game_gate() do
+           |> burst_result(keys, parent) do
       # The clock of the receipt is the LAST key, never the first. A burst of n
       # keys takes (n-1) x gap_ms to leave the hand (3,3s with his 500) while
       # the bar is published every `feed_skill_bar_ms`, so judging against the
@@ -948,7 +917,6 @@ defmodule Pokex.Bots.Combat.Worker do
 
       receipt
     else
-      {:blocked, :mini_game_active} -> :ok
       {:error, reason} -> send(parent, {:key_burst_failed, reason})
     end
   catch
@@ -1276,7 +1244,6 @@ defmodule Pokex.Bots.Combat.Worker do
   # Why combat is quiet, in the ONE slot the panel already reads. A silent
   # combat with a full battle list is the most alarming thing this bot can
   # show; holding fire on purpose must never look like that.
-  defp hold_reason(_logic, %{held?: true}), do: "mini-game em jogo"
   defp hold_reason(%Logic{posture: :hold_fire}, _state), do: "segurando o fogo (trecho de mob)"
   defp hold_reason(_logic, _state), do: nil
 

@@ -73,7 +73,7 @@ defmodule Pokex.Rig.Mac.CommandsTest do
     assert Commands.keycode("z") == :error
   end
 
-  test "hold builds real key down/up events (mini-game Space hold)" do
+  test "hold builds real key down/up events (a held key)" do
     # NOT `key down (key code 49)`: nested `key code` executes as a full press
     # first (measured live 2026-07-10); System Events accepts the character form.
     assert Commands.hold("space", :down) ==

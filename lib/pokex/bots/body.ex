@@ -9,7 +9,7 @@ defmodule Pokex.Bots.Body do
   """
   use GenServer
   alias Pokex.Bots.{InputGate, Perf, SkillClock}
-  alias Pokex.{Perception, Rig}
+  alias Pokex.Rig
 
   @topic "body"
 
@@ -460,9 +460,10 @@ defmodule Pokex.Bots.Body do
     :exit, _reason -> false
   end
 
-  # The survival combo (:critical) bypasses the mini-game gate entirely — recalling and
-  # max-reviving the Pokémon must run even while the mini-game overlay is up.
-  defp run_guarded(actions, :critical) do
+  # ONE pass, in order, stopping at the first refusal. A checked step
+  # (`move_checked`/`press_checked`) is what turns a swallowed input into an
+  # error instead of a silent success — see `execute/1`.
+  defp run_guarded(actions, _priority) do
     Enum.reduce_while(actions, :ok, fn action, :ok ->
       case execute(action) do
         :ok -> {:cont, :ok}
@@ -470,44 +471,6 @@ defmodule Pokex.Bots.Body do
       end
     end)
   end
-
-  # UMA SEQUÊNCIA CORTADA NO MEIO NÃO É UMA QUE NÃO ACONTECEU — PRA QUEM PEDIU.
-  #
-  # O `:ok` de uma sequência suprimida é contrato, e ele está certo pro caso
-  # comum: o mini-game é estado NORMAL do jogo, não defeito, e transformar isso
-  # em erro faria cada chamador gritar por uma coisa que ele deve só esperar
-  # passar. É o que a cerca "the mini game fact stops the rest of a sequence the
-  # moment it appears mid-run" fixa, e ela continua valendo.
-  #
-  # Mas a hora da bola é outra história: cortada no meio, o ponteiro JÁ está em
-  # cima do corpo, e o `Catcher` anotava "bola em X,Y" e dava a âncora por gasta
-  # com bola nenhuma no ar — "ele levou o mouse e não jogou a pokébola" (14/09).
-  #
-  # Então a verdade é opcional e se pede pelo PASSO: uma sequência que usou
-  # `move_checked`/`press_checked` recebe o corte como erro; as outras seguem no
-  # silêncio de sempre.
-  defp run_guarded(actions, _priority) do
-    actions
-    |> Enum.reduce_while({:ok, false}, fn action, {:ok, checked?} ->
-      with :ok <- mini_game_gate(action),
-           :ok <- execute(action),
-           :ok <- mini_game_gate(action) do
-        {:cont, {:ok, checked? or checked_step?(action)}}
-      else
-        {:blocked, :mini_game_active} when checked? -> {:halt, {:error, :cut_by_mini_game}}
-        {:blocked, :mini_game_active} -> {:halt, {:ok, checked?}}
-        {:error, r} -> {:halt, {:error, r}}
-      end
-    end)
-    |> case do
-      {:ok, _checked?} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp checked_step?({:move_checked, _point}), do: true
-  defp checked_step?({:press_checked, _key}), do: true
-  defp checked_step?(_plain), do: false
 
   # Diff, never a blind re-press: pressing a key that is already down repeats
   # it, and releasing one that is not is noise the game can misread.
@@ -638,10 +601,6 @@ defmodule Pokex.Bots.Body do
   # Alarms ride the action list like logs: the worker plays them, not the Body.
   defp execute({:alarm, _}), do: :ok
 
-  # Lock-free ETS read of the :mini_game blackboard fact — the input hot path never
-  # blocks on the mini-game worker's mailbox (which is busy capturing). Checked before
-  # AND after each input so a sequence already running when the game opens stops
-  # between inputs instead of finishing.
   defp sliced_wait(ms) when ms <= @wait_slice_ms do
     Process.sleep(ms)
     :ok
@@ -667,17 +626,6 @@ defmodule Pokex.Bots.Body do
         :ok
     end
   end
-
-  defp mini_game_gate(action) do
-    if guarded_input?(action), do: Perception.mini_game_gate(), else: :ok
-  end
-
-  defp guarded_input?({:press, _key}), do: true
-  defp guarded_input?({:press_checked, _key}), do: true
-  defp guarded_input?({:tap, _combo}), do: true
-  defp guarded_input?({:focus_click, _point}), do: true
-  defp guarded_input?({:click, _button, _point}), do: true
-  defp guarded_input?(_action), do: false
 
   defp body_label(priority, actions), do: "#{priority}/#{first_action(actions)}"
 

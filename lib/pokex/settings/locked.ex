@@ -172,40 +172,6 @@ defmodule Pokex.Settings.Locked do
     logout_confirm_delay_ms: {"Logout (mecânica)", "pausa antes do Enter"},
     logout_verify_delay_ms: {"Logout (mecânica)", "1,5s pra tela trocar antes de conferir"},
     logout_attempts: {"Logout (mecânica)", "tenta 3 vezes"},
-    # --- Mini-game da pesca ---
-    mini_game_manual_alert_ms:
-      {"Mini-game da pesca", "o aviso 'resolve o minigame' repete a cada 5s"},
-    mini_game_diag_samples_max: {"Mini-game da pesca", "amostras de diagnóstico por jogo"},
-    mini_game_diag_frames_max: {"Mini-game da pesca", "quadros guardados por jogo"},
-    mini_game_preview_ms: {"Mini-game da pesca", "a prévia da página atualiza a cada 0,5s"},
-    mini_game_export_keep: {"Mini-game da pesca", "guarda até 20 exportações"},
-    mini_game_export_max_mb: {"Mini-game da pesca", "e até 200MB delas"},
-    mini_game_tick_ms: {"Mini-game da pesca", "o detector olha a cada 150ms"},
-    mini_game_enter_streak:
-      {"Mini-game da pesca", "2 quadros seguidos com o overlay antes de entrar"},
-    mini_game_exit_streak: {"Mini-game da pesca", "2 quadros sem ele antes de sair"},
-    mini_game_min_confidence: {"Mini-game da pesca", "confiança mínima da detecção"},
-    mini_game_min_dark_ratio:
-      {"Mini-game da pesca", "proporção de escuro que caracteriza a faixa"},
-    mini_game_bar_offset_px: {"Mini-game da pesca", "deslocamento da faixa derivada"},
-    mini_game_bar_width_px: {"Mini-game da pesca", "largura da faixa"},
-    mini_game_above_px: {"Mini-game da pesca", "quanto acima do personagem"},
-    mini_game_strip_height_px: {"Mini-game da pesca", "altura da faixa"},
-    mini_game_anchor_tolerance:
-      {"Mini-game da pesca", "meia-largura da janela onde a barra pode estar"},
-    mini_game_play_tick_ms: {"Mini-game da pesca", "jogando, decide a cada 80ms"},
-    mini_game_min_toggle_ms: {"Mini-game da pesca", "piso entre segurar e soltar o espaço"},
-    mini_game_no_capsule_exit_ticks:
-      {"Mini-game da pesca", "25 tiques sem cápsula = jogo acabou"},
-    mini_game_max_game_ms: {"Mini-game da pesca", "jogo de 90s é leitura presa, não jogo"},
-    mini_game_deadband_pct: {"Mini-game da pesca", "zona morta ao redor do peixe"},
-    mini_game_fish_max_speed: {"Mini-game da pesca", "velocidade máxima plausível do peixe"},
-    mini_game_fish_reacquire_ms:
-      {"Mini-game da pesca", "leitura mais velha que 0,7s é abandonada"},
-    mini_game_brake_up: {"Mini-game da pesca", "freio subindo"},
-    mini_game_brake_down: {"Mini-game da pesca", "freio descendo (o jogo é assimétrico)"},
-    mini_game_fact_max_age_ms:
-      {"Mini-game da pesca", "fato do minigame mais velho que 2s = não está jogando"},
     # --- Minimap (vision) ---
     minimap_px_per_tile: {"Minimapa (visão)", "medido: 2px por tile"},
     # --- O modo decide ---

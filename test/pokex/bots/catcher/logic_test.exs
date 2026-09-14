@@ -117,7 +117,7 @@ defmodule Pokex.Bots.Catcher.LogicTest do
   #
   # `maybe_throw/3` conta o arremesso na DECISÃO — é o que faz a janela de
   # conferência começar da atuação. Quando a atuação FALHA (o ponteiro não
-  # chegou, o portão engoliu a tecla, o mini-game cortou no meio), o ponto já
+  # chegou, o portão engoliu a tecla), o ponto já
   # tinha saído da fila e o `throw` já estava de pé: o corpo era consumido sem
   # bola nenhuma, e o apodrecimento dele lia como "capturado (tardio)".
   test "a refused ball goes back to the FRONT of the queue, with nothing in flight" do

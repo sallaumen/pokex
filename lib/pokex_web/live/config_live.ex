@@ -751,19 +751,11 @@ defmodule PokexWeb.ConfigLive do
         :player_mode,
         :alarm_sound,
         :alarm_muted_categories,
-        :mini_game_sound,
         :cavebot_measure_walk,
         :hook_skill_keys,
         :glow_threshold,
         :after_kill_hold_ms
       ]
-    },
-    %{
-      href: "/mini-game",
-      icon: "hero-play",
-      label: "Mini-game",
-      sub: "o que o bot faz quando o minigame da pesca abre",
-      keys: [:mini_game_mode]
     }
   ]
 

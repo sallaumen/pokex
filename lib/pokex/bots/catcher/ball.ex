@@ -7,7 +7,7 @@ defmodule Pokex.Bots.Catcher.Ball do
   wait between move and press (the rod waits `wait_after_equip_ms` = 30ms and
   works), and dropped the `move` return — `Rig.Mac.gated/1` answers `:ok` when it
   SUPPRESSES, so the panel logged a throw no key ever delivered. As a Body
-  sequence every step passes the input and mini-game gates, the wait is
+  sequence every step passes the input gate, the wait is
   configurable, and the return is real.
 
   `ball_needs_click` covers what only the game can answer: whether the PokeTibia hotkey

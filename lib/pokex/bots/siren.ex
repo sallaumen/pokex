@@ -33,7 +33,7 @@ defmodule Pokex.Bots.Siren do
 
   alias Pokex.Settings
 
-  @topics ~w(fishing combat catcher mini_game game body cavebot logout engine settings)
+  @topics ~w(fishing combat catcher game body cavebot logout engine settings)
   @sounds %{
     mortal: "/System/Library/Sounds/Basso.aiff",
     setup: "/System/Library/Sounds/Submarine.aiff",

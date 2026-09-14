@@ -1,5 +1,5 @@
 // Native key-event helper: posts CGEvents for hold/release/press with ~1-2ms
-// latency, replacing the ~60-100ms per-event osascript spawn on the mini-game's
+// latency, replacing the ~60-100ms per-event osascript spawn on the
 // hot path. Line-based JSON protocol over stdio, one response per command:
 //
 //   -> {"op":"ping"}

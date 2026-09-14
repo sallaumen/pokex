@@ -84,7 +84,7 @@ Pokex.Supervisor  (:one_for_one)
 ├── Bots.BotSupervisor ....... the fleet
 │   ├── Body ................. THE SINGLE HANDS — only process that drives the mouse
 │   ├── Guardian ............. panic corner + session stop conditions
-│   └── Worker × 7 ........... fishing, combat, cavebot, catcher, mini-game,
+│   └── Worker × 6 ........... fishing, combat, cavebot, catcher,
 │                             player-support, timers
 │
 ├── Bots.ShinyGuard .......... always-on watchdog
@@ -202,8 +202,7 @@ Two hot paths were too slow through shell-outs, so they became ports to small
 Swift helpers speaking line-delimited JSON over stdio:
 
 - **[`key_events.swift`](priv/native/key_events.swift)** — CGEvents at ~1–2ms per
-  hold/release, versus ~60–100ms per `osascript` spawn. That difference is the
-  whole reason the fishing mini-game is playable.
+  hold/release, versus ~60–100ms per `osascript` spawn — the actuation hot path.
 - **[`screen_capture_kit.swift`](priv/native/screen_capture_kit.swift)** —
   ScreenCaptureKit instead of the `screencapture` binary.
 

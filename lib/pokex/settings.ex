@@ -194,61 +194,6 @@ defmodule Pokex.Settings do
     # Consecutive ticks the enemy must be GONE from the Battle list before the fight is
     # declared over — filters a 1-frame HP-bar blink on a hit/death animation.
     target_lost_streak: 1,
-    # What the bot DOES when the overlay opens (see Pokex.Bots.MiniGame.Mode): "manual_assist"
-    # (default, safe: detect + hold the other workers + alert, Lucas plays),
-    mini_game_mode: "manual_assist",
-    # How often the "resolve o minigame" alert repeats while a manual game waits.
-    mini_game_manual_alert_ms: 5_000,
-    # Per-game diagnostics (always collected, in every mode — a game Lucas played by hand is the
-    # most informative recording there is).
-    mini_game_diag_samples_max: 3_000,
-    # Frames kept per game beyond the fixed first/last/worst-error slots (source flips, rejected
-    # readings, :no_track, :no_fish). Ring buffer: newest wins, oldest is dropped.
-    mini_game_diag_frames_max: 8,
-    # How often the /mini-game page's preview image is refreshed from the frame that was
-    # ACTUALLY analysed (a file copy of the captured PNG — never a second capture). 0 = off.
-    mini_game_preview_ms: 500,
-    # Export bundle retention, applied after each game, oldest first: at most this many bundles
-    # and at most this many MB total under ~/.pokex/exports.
-    mini_game_export_keep: 20,
-    mini_game_export_max_mb: 200,
-    # Fishing mini-game monitor. It only detects the overlay and coordinates worker pause/resume.
-    mini_game_tick_ms: 150,
-    # 2 consecutive present frames (~300ms) before entering: the overlay lasts many seconds,
-    # and one dark thing crossing the anchor for a single frame must not pause every worker.
-    mini_game_enter_streak: 2,
-    mini_game_exit_streak: 2,
-    mini_game_min_confidence: 0.62,
-    mini_game_min_dark_ratio: 0.34,
-    # Half-width of the mini-game band; the rest comes from the anchors (character above,
-    # skill bar below).
-    mini_game_bar_offset_px: 12,
-    mini_game_bar_width_px: 24,
-    mini_game_above_px: 16,
-    mini_game_strip_height_px: 474,
-    # Half-width (screen points) of the window around the player point where the bar may sit.
-    mini_game_anchor_tolerance: 70,
-    # Playing the mini-game (hold/release Space chasing the fish).
-    mini_game_play_tick_ms: 80,
-    mini_game_min_toggle_ms: 50,
-    # End-of-game detection is DEFENSE IN DEPTH — the "track gone" exit streak alone hung the
-    # whole bot (2026-07-20): after a WIN the world behind the strip held a
-    mini_game_no_capsule_exit_ticks: 25,
-    # Hard duration cap per game — the backstop for ANY unseen wedge (same philosophy as
-    # hook_hold_max_ms): no real game lasts minutes; a "game" that does is a stuck reading.
-    mini_game_max_game_ms: 90_000,
-    mini_game_deadband_pct: 0.011,
-    # Stopping-distance braking (track/s²), per direction — the REAL game is asymmetric: thrust
-    # arrests a fall almost instantly (brake late: sink to the fish before
-    mini_game_fish_max_speed: 2.0,
-    # ...unless the last plausible reading is older than this — then the new reading is adopted
-    # and the history restarts (bounded blindness beats chasing ghosts, and
-    mini_game_fish_reacquire_ms: 700,
-    mini_game_brake_up: 0.8,
-    mini_game_brake_down: 3.0,
-    # Browser alert on enter/leave (panel mute button). Muting stops the panel
-    # from pushing the sound event at all.
-    mini_game_sound: true,
     # Session ALARMS (panel): sound on a worker error edge or the Pokémon's HP crossing below
     # the rescue threshold.
     alarm_sound: true,
@@ -329,9 +274,6 @@ defmodule Pokex.Settings do
     # screen takes longer, one attempt is wasted — it still converges.
     logout_verify_delay_ms: 1_500,
     logout_attempts: 3,
-    # Max age of the :mini_game WorldState fact before readers treat it as unknown (= not
-    # playing, fail-open).
-    mini_game_fact_max_age_ms: 2_000,
     humanize_max_ms: 0,
     # Anti-bot: a RANDOM 0..this ms jitter before each CAST (the rod throw), so the bot doesn't
     # fish on a perfectly fixed cadence.
@@ -990,10 +932,6 @@ defmodule Pokex.Settings do
     # floor 5s: a sweep of 80 tiles already takes ~15s of Body time — a shorter
     # cadence than that would be a sweep that never stops
     sweep_interval_ms: 5_000..3_600_000,
-    mini_game_bar_offset_px: -2000..2000,
-    mini_game_bar_width_px: 4..2000,
-    mini_game_above_px: 0..2000,
-    mini_game_strip_height_px: 20..4000,
     tick_ms_watching: 20..600_000,
     tick_ms_default: 20..600_000,
     settle_max_ms: 100..600_000,
@@ -1448,6 +1386,51 @@ defmodule Pokex.Settings do
     Enum.find(@setting_keys, &(Atom.to_string(&1) == key_string))
   end
 
+  # OS NOMES APOSENTADOS — os que este build NÃO tem mais e não quer de volta.
+  #
+  # Tirar uma chave da semente, sozinho, faz este build se declarar MAIS VELHO
+  # que o settings.json dele (`older_build?/1`: o arquivo declara algo que eu
+  # não conheço E conhece tudo que eu tenho) — e um build que se acha velho LÊ
+  # sem ESCREVER. Foi o #506/#507, dois dias de /config perdidos em silêncio, e
+  # é por isso que a casa vinha deixando chave morta declarada pra sempre.
+  #
+  # Aqui a chave sai de verdade — não carrega, não grava, não aparece na página
+  # — e só o CRACHÁ ainda a reconhece, que é o bastante pra ela não acusar. O
+  # valor dela no arquivo viaja intacto na escrita (`foreign_keys/1`).
+  @retired_keys ~w(
+    mini_game_above_px
+    mini_game_anchor_tolerance
+    mini_game_bar_offset_px
+    mini_game_bar_width_px
+    mini_game_brake_down
+    mini_game_brake_up
+    mini_game_deadband_pct
+    mini_game_diag_frames_max
+    mini_game_diag_samples_max
+    mini_game_enter_streak
+    mini_game_exit_streak
+    mini_game_export_keep
+    mini_game_export_max_mb
+    mini_game_fact_max_age_ms
+    mini_game_fish_max_speed
+    mini_game_fish_reacquire_ms
+    mini_game_manual_alert_ms
+    mini_game_max_game_ms
+    mini_game_min_confidence
+    mini_game_min_dark_ratio
+    mini_game_min_toggle_ms
+    mini_game_mode
+    mini_game_no_capsule_exit_ticks
+    mini_game_play_tick_ms
+    mini_game_preview_ms
+    mini_game_sound
+    mini_game_strip_height_px
+    mini_game_tick_ms
+  )
+
+  @doc false
+  def retired_keys, do: @retired_keys
+
   # The alphabet the writing build knew, stamped on every write. Not a setting but the file's
   # badge, hence excluded from `foreign_keys/1`.
   @alphabet_key "__keys__"
@@ -1484,7 +1467,7 @@ defmodule Pokex.Settings do
   def older_build?(path) do
     case Map.get(read_json(path), @alphabet_key) do
       alfabeto when is_list(alfabeto) ->
-        Enum.any?(alfabeto, &(known_key(&1) == nil)) and
+        Enum.any?(alfabeto, &(known_key(&1) == nil and &1 not in @retired_keys)) and
           Enum.all?(@setting_keys, &(Atom.to_string(&1) in alfabeto))
 
       _sem_cracha ->

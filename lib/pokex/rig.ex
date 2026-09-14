@@ -16,7 +16,7 @@ defmodule Pokex.Rig do
   @callback key_down(String.t()) :: :ok | {:error, term}
   @callback key_up(String.t()) :: :ok | {:error, term}
   # Expected time for a hold/release command to LAND in the game — consumers
-  # (the mini-game pilot) extrapolate the bar over it. The implementation knows
+  # extrapolate over it. The implementation knows
   # which backend is live (native CGEvents vs scripted osascript); callers
   # must not reach around the port to ask.
   @callback hold_latency_ms() :: non_neg_integer

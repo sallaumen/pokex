@@ -159,11 +159,11 @@ const liveSocket = new LiveSocket("/live", Socket, {
   },
 })
 
-let miniGameAudioContext
+let audioContext
 
 // One enveloped burst of sequential notes. Muting lives on the SERVER (the
-// panel simply stops pushing the event), so this always plays when called.
-const playMiniGameChirp = (ctx, notes, at, {type, peak, noteLength, gap}) => {
+// page simply stops pushing the event), so this always plays when called.
+const playChirp = (ctx, notes, at, {type, peak, noteLength, gap}) => {
   const gain = ctx.createGain()
   gain.connect(ctx.destination)
   gain.gain.setValueAtTime(0.0001, at)
@@ -180,59 +180,19 @@ const playMiniGameChirp = (ctx, notes, at, {type, peak, noteLength, gap}) => {
   })
 }
 
-const playMiniGameTone = transition => {
-  const AudioContext = window.AudioContext || window.webkitAudioContext
-  if (!AudioContext) return
-
-  miniGameAudioContext = miniGameAudioContext || new AudioContext()
-
-  if (miniGameAudioContext.state === "suspended") {
-    miniGameAudioContext.resume().catch(() => {})
-  }
-
-  const now = miniGameAudioContext.currentTime
-
-  if (transition === "entered") {
-    // ALARM: three loud rising square-wave bursts (~1.3s) — must yank
-    // attention from another window, per Lucas (the old sine at 0.12 was
-    // too quiet to notice).
-    for (let burst = 0; burst < 3; burst++) {
-      playMiniGameChirp(miniGameAudioContext, [880, 1244.5], now + burst * 0.42, {
-        type: "square",
-        peak: 0.4,
-        noteLength: 0.16,
-        gap: 0.14,
-      })
-    }
-  } else {
-    // calm: one soft descending pair — it ended, nothing to react to
-    playMiniGameChirp(miniGameAudioContext, [784, 523.25], now, {
-      type: "sine",
-      peak: 0.07,
-      noteLength: 0.24,
-      gap: 0.18,
-    })
-  }
-}
-
-window.addEventListener("phx:mini-game-transition", event => {
-  playMiniGameTone(event.detail?.transition)
-})
-
-// Session ALARM (worker error / critical HP): two urgent bursts, pitched a
-// third below the mini-game's so the ear tells them apart.
+// Session ALARM (worker error / critical HP): two urgent bursts.
 window.addEventListener("phx:alarm", () => {
   const AudioContext = window.AudioContext || window.webkitAudioContext
   if (!AudioContext) return
 
-  miniGameAudioContext = miniGameAudioContext || new AudioContext()
-  if (miniGameAudioContext.state === "suspended") {
-    miniGameAudioContext.resume().catch(() => {})
+  audioContext = audioContext || new AudioContext()
+  if (audioContext.state === "suspended") {
+    audioContext.resume().catch(() => {})
   }
 
-  const now = miniGameAudioContext.currentTime
+  const now = audioContext.currentTime
   for (let burst = 0; burst < 2; burst++) {
-    playMiniGameChirp(miniGameAudioContext, [659.25, 987.77], now + burst * 0.5, {
+    playChirp(audioContext, [659.25, 987.77], now + burst * 0.5, {
       type: "square",
       peak: 0.35,
       noteLength: 0.2,

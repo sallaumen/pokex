@@ -75,26 +75,6 @@ defmodule Pokex.Perception.FeedTest do
   end
 
   @tag :tmp_dir
-  # measured: feed captures queued behind the minigame's strip stretched its cadence from 80ms to ~250ms
-  test "pauses capture while a minigame is playing and resumes on exit", %{tmp_dir: tmp} do
-    a = png!(tmp, "a.png", 8)
-    b = png!(tmp, "b.png", 12)
-    {:ok, _} = Fake.start_link(%{capture: [{:ok, a}, {:ok, b}, {:ok, b}]})
-
-    WorldState.put(:mini_game, %{playing?: true, confidence: 0.9}, now())
-    on_exit(fn -> WorldState.forget(:mini_game) end)
-
-    Phoenix.PubSub.subscribe(Pokex.PubSub, "world")
-    {:ok, feed} = Feed.start_link(spec: spec(), name: nil)
-    :ok = Feed.attach(feed)
-
-    refute_receive {:world, :feed_test, _}, 300
-    assert WorldState.get(:feed_test, 60_000, now()) == :missing
-
-    WorldState.put(:mini_game, %{playing?: false, confidence: 0.0}, now())
-    assert_receive {:world, :feed_test, %{width: 8}}, 1_000
-  end
-
   @tag :tmp_dir
   test "a capture error keeps the last good entry and does not crash", %{tmp_dir: tmp} do
     a = png!(tmp, "a.png", 8)

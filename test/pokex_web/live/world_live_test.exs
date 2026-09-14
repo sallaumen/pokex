@@ -57,7 +57,7 @@ defmodule PokexWeb.WorldLiveTest do
   end
 
   test "renders the empty state before anything is published", %{conn: conn} do
-    Enum.each([:battle, :minimap, :mini_game], &WorldState.forget/1)
+    Enum.each([:battle, :minimap, :crowd], &WorldState.forget/1)
 
     {:ok, _view, html} = live(conn, ~p"/world")
 
@@ -68,8 +68,6 @@ defmodule PokexWeb.WorldLiveTest do
   test "shows each fact with a per-key summary and its age", %{conn: conn} do
     now = System.monotonic_time(:millisecond)
 
-    WorldState.put(:mini_game, %{playing?: true, confidence: 0.87}, now)
-
     WorldState.put(
       :battle,
       %{enemies: [0, 2], red: [], locked?: true, locked_row: 0, captured_at: now},
@@ -79,10 +77,6 @@ defmodule PokexWeb.WorldLiveTest do
     WorldState.put(:minimap, %{pos: {316, 297, 7}}, now)
 
     {:ok, _view, html} = live(conn, ~p"/world")
-
-    assert html =~ "mini_game"
-    assert html =~ "jogando"
-    assert html =~ "0.87"
 
     assert html =~ "battle"
     assert html =~ "2 na lista"
@@ -142,25 +136,25 @@ defmodule PokexWeb.WorldLiveTest do
   end
 
   test "the periodic refresh picks up facts published after mount", %{conn: conn} do
-    Enum.each([:battle, :minimap, :mini_game], &WorldState.forget/1)
+    Enum.each([:battle, :minimap, :crowd], &WorldState.forget/1)
 
     {:ok, view, _html} = live(conn, ~p"/world")
-    # scoped to the page's OWN snapshot: the header rides on every route and
-    # carries a `mini_game` alarm sector, so a bare substring over the whole
-    # document stopped answering the question this test asks
+    # scoped to the page's OWN snapshot: the header rides on every route, so a
+    # bare substring over the whole document stopped answering the question
+    # this test asks
     refute has_element?(view, "#world-facts")
 
     WorldState.put(
-      :mini_game,
-      %{playing?: false, confidence: 0.1},
+      :minimap,
+      %{pos: {316, 297, 7}},
       System.monotonic_time(:millisecond)
     )
 
     send(view.pid, :refresh)
     html = view |> element("#world-facts") |> render()
 
-    assert html =~ "mini_game"
-    assert html =~ "fora do jogo"
+    assert html =~ "minimap"
+    assert html =~ "posição 316, 297 (andar 7)"
   end
 
   # A tela do quadro-negro morria justamente quando havia algo estranho pra

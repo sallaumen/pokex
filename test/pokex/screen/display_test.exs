@@ -62,6 +62,49 @@ defmodule Pokex.Screen.DisplayTest do
     end
   end
 
+  describe "the roll the calibration page picks from" do
+    # His two monitors, 14/09: the game on the built-in, the bot on the ultrawide.
+    @telas [
+      %{id: 4, w: 3440, h: 1440, x: 0, y: 0, scale: 1.0, main?: true},
+      %{id: 1, w: 1512, h: 982, x: 3440, y: 1007, scale: 2.0, main?: false}
+    ]
+
+    test "each screen is told apart by its FORMAT, the same string the profiles use" do
+      [grande, pequena] =
+        Display.roll(@telas, {:ok, {1512, 982}}, "", fn _screen -> true end)
+
+      assert grande.size == "3440x1440"
+      assert pequena.size == "1512x982"
+      refute grande.filmed?
+      assert pequena.filmed?
+    end
+
+    test "a format never calibrated is flagged, not hidden — it is the 'new screen' case" do
+      calibrada? = fn {w, _h} -> w == 3440 end
+
+      [grande, pequena] = Display.roll(@telas, :unknown, "", calibrada?)
+
+      assert grande.calibrated?
+      refute pequena.calibrated?
+      # No proof of what is being filmed is not "the main one is".
+      refute grande.filmed?
+      refute pequena.filmed?
+    end
+
+    test "the pinned format is the one he chose, whatever is being filmed right now" do
+      # Pinned the notebook while the eye still films the ultrawide: the page has
+      # to show BOTH facts, because the difference is exactly what tells him the
+      # camera has not restarted yet.
+      [grande, pequena] =
+        Display.roll(@telas, {:ok, {3440, 1440}}, "1512x982", fn _screen -> true end)
+
+      refute grande.pinned?
+      assert pequena.pinned?
+      assert grande.filmed?
+      refute pequena.filmed?
+    end
+  end
+
   test "the main display at the origin is not 'another screen'" do
     Display.put({0, 0, 3440, 1440})
 

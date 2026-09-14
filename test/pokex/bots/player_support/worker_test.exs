@@ -1204,7 +1204,15 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
   # perigo" (Lucas, 14/09). Os ataques são de ÁREA: estar perto é o que garante
   # que a corrente pega.
   describe "walking to the enemy after the revive" do
+    # O FATO É DEVOLVIDO NO FIM. `WorldState` é UM ETS pra suíte inteira: esta
+    # leitura de mentira (sem `at`, sem `listed` — o worker só olha `hostiles` e
+    # `me`) ficava lá depois do teste, e o primeiro teste de página a renderizar
+    # o cartão do cerco depois dela caía em `SiegeComponents.state/3`, que não
+    # tem cláusula pra leitura sem hora. CI vermelha, local verde, e nada a ver
+    # com quem quebrou — a mesma armadilha do `:situation` pela metade (#656).
     defp crowd!(hostiles) do
+      on_exit(fn -> WorldState.forget(:crowd) end)
+
       WorldState.put(
         :crowd,
         %{read?: true, hostiles: hostiles, pet: nil, me: {1695, 686}},

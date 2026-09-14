@@ -148,6 +148,37 @@ defmodule Pokex.Bots.CaptureTest do
            }) == :unknown
   end
 
+  # The stream binds its filter to ONE display when it starts, so re-picking the
+  # monitor is a restart and nothing less. A call that answered without stopping
+  # the old helper would leave two SCStreams alive — the 2026-07-10 death spiral.
+  test "refilm stops the running helper and starts a fresh one" do
+    telas = [%{id: 1, w: 1512, h: 982, x: 3440, y: 1007, scale: 2.0, main?: false}]
+
+    start_supervised!(
+      {Pokex.CaptureBackendFake,
+       %{
+         start: [{:ok, :sck_backend}, {:ok, :outro_backend}],
+         display_region: [{:ok, {0, 0, 1512, 982}}],
+         displays: [telas]
+       }}
+    )
+
+    {:ok, pid} =
+      Capture.start_link(name: :cap_refilm, screen_capture_kit: Pokex.CaptureBackendFake)
+
+    assert {:ok, ^telas} = Capture.refilm(:cap_refilm)
+
+    chamadas = Pokex.CaptureBackendFake.calls()
+    assert {:stop, :sck_backend} in chamadas
+    assert Enum.count(chamadas, &match?({:start, _opts}, &1)) == 2
+
+    GenServer.stop(pid)
+  end
+
+  test "refilm says so when there is no broker to restart" do
+    assert Capture.refilm(:nenhuma_corretora) == :no_broker
+  end
+
   test "the filmed display pairs the local SIZE with the global PLACE" do
     assert Capture.filmed_display({:ok, {0, 0, 1512, 982}}, {:ok, {3440, 1007}}) ==
              {3440, 1007, 1512, 982}

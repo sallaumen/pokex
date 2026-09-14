@@ -738,8 +738,11 @@ defmodule PokexWeb.ConfigLive do
       href: "/calibration",
       icon: "hero-viewfinder-circle",
       label: "Calibração",
-      sub: "barra de skills, janela de batalha, minimapa",
-      keys: [:skill_bar_count, :battle_row_height, :minimap_coord_ink]
+      sub: "em qual tela está o jogo, barra de skills, janela de batalha, minimapa",
+      # `game_display` mora LÁ e não aqui de propósito: escolher o monitor sem
+      # ver quais existem, qual está sendo filmado e qual já tem calibração é
+      # digitar um formato no escuro. A página da calibração mostra os três.
+      keys: [:game_display, :skill_bar_count, :battle_row_height, :minimap_coord_ink]
     },
     %{
       href: "/cavebot",

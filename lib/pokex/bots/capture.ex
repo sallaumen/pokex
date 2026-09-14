@@ -116,6 +116,32 @@ defmodule Pokex.Bots.Capture do
     end
   end
 
+  @doc """
+  Every display macOS can film, in SCREEN POINTS —
+  `[%{id:, w:, h:, x:, y:, scale:, main?:}]`, or `[]` without a live helper.
+  """
+  def displays(server \\ __MODULE__) do
+    case GenServer.whereis(server) do
+      nil -> []
+      pid -> GenServer.call(pid, :displays, :infinity)
+    end
+  end
+
+  @doc """
+  Restarts the capture backend so it re-picks which monitor to film, and answers
+  with the new roll of displays — `{:ok, displays}`.
+
+  The stream binds its filter to ONE display when it starts, so a changed
+  `game_display` (or a game window that moved to the other screen) only takes
+  effect through here. `:no_broker` when nothing is running to restart.
+  """
+  def refilm(server \\ __MODULE__) do
+    case GenServer.whereis(server) do
+      nil -> :no_broker
+      pid -> GenServer.call(pid, :refilm, :infinity)
+    end
+  end
+
   @display_key {__MODULE__, :display_points}
 
   @doc """
@@ -393,6 +419,34 @@ defmodule Pokex.Bots.Capture do
     record_queue(:grab_uncached, filename, requested_at)
     {reply, state} = capture_path(state, region, filename)
     {:reply, reply, prune_cache(state)}
+  end
+
+  def handle_call(:displays, _from, state) do
+    {:reply, displays_of(state), state}
+  end
+
+  # Restarting is the ONLY way to change the filmed display: the stream binds its
+  # filter to one `SCDisplay` when it starts, so a new pick needs a new helper.
+  # Serialized here like every capture, so no reader ever sees a half-swapped
+  # backend.
+  def handle_call(:refilm, _from, state) do
+    stop_backend(state)
+    {backend, recoverable?} = start_backend(state.sck_opts, state.sck)
+
+    state = %{
+      state
+      | backend: backend,
+        sck_recoverable?: recoverable? and sck_recoverable?(state.sck),
+        recovering?: false,
+        sck_recover_at: nil,
+        sck_recover_backoff_ms: state.sck_recover_interval_ms,
+        # A different display makes a different set of regions reachable.
+        impossible_regions: %{}
+    }
+
+    cache_display(state)
+
+    {:reply, {:ok, displays_of(state)}, state}
   end
 
   def handle_call(:backend_info, _from, state) do
@@ -889,6 +943,14 @@ defmodule Pokex.Bots.Capture do
   end
 
   defp connect_backend(_backend, _owner), do: :ok
+
+  defp stop_backend(%{backend: {:screen_capture_kit, backend}, sck: sck}), do: sck.stop(backend)
+  defp stop_backend(_state), do: :ok
+
+  defp displays_of(%{backend: {:screen_capture_kit, backend}, sck: sck}),
+    do: sck.displays(backend)
+
+  defp displays_of(_state), do: []
 
   defp fallback_backend(%{backend: {:screen_capture_kit, backend}, sck: sck} = state) do
     sck.stop(backend)

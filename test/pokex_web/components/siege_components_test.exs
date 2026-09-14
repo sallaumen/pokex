@@ -69,6 +69,17 @@ defmodule PokexWeb.SiegeComponentsTest do
     assert html =~ ~s(phx-click="crowd_scan")
   end
 
+  # A CERCA DA CI VERMELHA DE 14/09. Um fato `:crowd` publicado pela metade — sem
+  # `at` — derrubava o cartão com FunctionClauseError, e como o `WorldState` é um
+  # ETS só pra suíte inteira, o primeiro teste de PÁGINA a renderizar depois dele
+  # caía junto: seis testes do cabeçalho vermelhos, nenhum deles culpado. O
+  # cartão é testemunha: uma que diz "não sei" serve, uma que morre não.
+  test "a reading with no hour is no eye, not a crash that takes the page down" do
+    html = card(%{reading: %{read?: true, me: {906, 720}, hostiles: [], pet: nil}})
+
+    assert html =~ "sem olho — nenhuma leitura ainda"
+  end
+
   test "an unreadable screen shows the reason" do
     html = card(%{reading: %{read?: false, reason: :not_calibrated}})
     assert html =~ "não deu pra olhar: o /calibrar nunca rodou nesta tela"

@@ -16,6 +16,7 @@ defmodule Pokex.Bots.Catcher.Logic do
             config: nil,
             queue: [],
             throw: nil,
+            refusals: %{},
             ignored: %{},
             last_obs_at: nil,
             # Consecutive balls RESOLVED without a confirmed capture ("not a
@@ -104,6 +105,10 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   def ball_flown(logic, _at), do: logic
 
+  # Um alvo recusado tantas vezes seguidas não é a mão tropeçando: é um ponto
+  # que nunca vai dar certo (fora da tela depois da mira, por exemplo).
+  @refusals_before_giving_up 3
+
   @doc """
   A BOLA VOLTA PRA FILA: a mão recusou, então nada saiu.
 
@@ -116,18 +121,48 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   Desfazer a contagem é o que faz a âncora NÃO ser gasta: quem decide isso é
   `Catcher.Worker.throw_at_anchors/1`, comparando o contador antes e depois.
+
+  ## E ELE VOLTA PRO FIM DA FILA, com um teto
+
+  A primeira versão devolvia pra FRENTE, e isso travou a caçada: um alvo
+  impossível (um corpo nos 110 px de cima da tela, que a mira leva pra fora do
+  monitor) voltava pra cabeça, era recusado de novo, e a fila inteira parava
+  atrás dele — **99 recusas no mesmo ponto em 14/09**, com uma bola no ar por
+  vez. A recusa é da MÃO, não daquele corpo em particular: ele merece outra
+  chance, não a frente da fila.
+
+  E com teto: depois de #{@refusals_before_giving_up} recusas seguidas no mesmo
+  ponto ele entra no veto por TTL, como qualquer não-corpo — senão um alvo que
+  nunca vai dar certo circula pra sempre.
   """
   @spec ball_refused(t) :: t
-  def ball_refused(%__MODULE__{throw: %{point: point}} = logic) do
-    %{
+  def ball_refused(%__MODULE__{throw: %{point: point}, config: config} = logic) do
+    vezes = Map.get(logic.refusals, point, 0) + 1
+
+    logic = %{
       logic
       | throw: nil,
-        queue: [point | logic.queue],
         counters: %{logic.counters | throws: max(logic.counters.throws - 1, 0)}
     }
+
+    if vezes >= @refusals_before_giving_up do
+      entrada = %{ate: now_of(logic) + config.corpse_ignore_ttl_ms, name: nil}
+
+      %{
+        logic
+        | ignored: Map.put(logic.ignored, point, entrada),
+          refusals: Map.delete(logic.refusals, point)
+      }
+    else
+      %{logic | queue: logic.queue ++ [point], refusals: Map.put(logic.refusals, point, vezes)}
+    end
   end
 
   def ball_refused(%__MODULE__{} = logic), do: logic
+
+  # O relógio que a lógica tem é o da última observação; sem nenhuma, zero.
+  defp now_of(%__MODULE__{last_obs_at: at}) when is_integer(at), do: at
+  defp now_of(_nunca_olhou), do: 0
 
   @doc """
   Corpses still being worked (queued + the one ball in flight) — the post-fight

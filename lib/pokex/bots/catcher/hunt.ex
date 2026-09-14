@@ -19,6 +19,7 @@ defmodule Pokex.Bots.Catcher.Hunt do
   alias Pokex.Bots.CrowdScan
   alias Pokex.Bots.ShinyGuard
   alias Pokex.Calibration
+  alias Pokex.Screen.BarOffset
   alias Pokex.Perception.WorldState
   alias Pokex.Settings
 
@@ -104,10 +105,23 @@ defmodule Pokex.Bots.Catcher.Hunt do
     end
 
     anchors =
-      Enum.filter(Trail.anchors(state.trail, ref, at), &(on_screen?(&1.screen) and free?.(&1)))
+      Enum.filter(Trail.anchors(state.trail, ref, at), &(aimable?(&1.screen) and free?.(&1)))
 
     {Enum.map(anchors, &candidate/1), anchors}
   end
+
+  @doc """
+  Este ponto pode receber bola? ELE e a MIRA dele têm que caber na tela.
+
+  A mira desce (`Screen.BarOffset`, -110 na tela dele desde o #667), e a cerca
+  olhava o ponto ANTES da descida: um bicho nos 110 px de cima da tela passava
+  com a barra dentro e virava alvo `(2324, -97)`. O sistema gruda o cursor na
+  borda, a bola é usada no nada, e o corpo volta pra fila pra tentar de novo —
+  **99 recusas no MESMO alvo em 14/09**, com uma bola no ar por vez, a fila
+  inteira parada atrás dele.
+  """
+  @spec aimable?({integer, integer}) :: boolean
+  def aimable?(point), do: dentro?(point) and dentro?(BarOffset.body(point))
 
   @doc """
   A bola voou nestas âncoras: elas estão gastas.
@@ -223,7 +237,7 @@ defmodule Pokex.Bots.Catcher.Hunt do
     }
   end
 
-  defp on_screen?({x, y}) do
+  defp dentro?({x, y}) do
     case Calibration.load() do
       {:ok, %{screen_w: w, screen_h: h}} when is_integer(w) and is_integer(h) ->
         x >= 0 and y >= 0 and x < w and y < h

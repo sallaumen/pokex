@@ -123,6 +123,25 @@ defmodule Pokex.Bots.Catcher.Narration do
   end
 
   @doc """
+  A QUEDA QUE O RASTRO JOGOU FORA por velhice — o silêncio que faltava.
+
+  "Às vezes eu preciso usar uns 5, 6 revives pra matar um shiny, e nesses casos
+  ele não joga pokébola" (14/09). Medido no diário: um terço das brigas com
+  brilho na tela nunca produz a linha `caiu em`. O `Catcher.Trail` descarta a
+  queda cuja barra foi vista há mais de 6 s (ela andou, não morreu ali) — e
+  fazia isso sem dizer nada, então não dava pra separar este motivo dos outros.
+
+  Só o CAÇADO ganha linha: comum que some é o feijão com arroz da caçada.
+  """
+  @spec drops([map]) :: [String.t()]
+  def drops(dropped) do
+    for %{hunted?: true} = d <- List.wrap(dropped) do
+      "🌟 #{d.name || "shiny"} sumiu, mas a barra dele era de #{div(d.age, 1000)}s atrás — " <>
+        "sem corpo onde mirar, nenhuma bola"
+    end
+  end
+
+  @doc """
   Por que a captura está parada, na ordem em que ele quer saber.
 
   Recebe o que o worker já mediu — este módulo não lê portão nenhum. As

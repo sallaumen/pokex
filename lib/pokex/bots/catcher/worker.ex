@@ -912,6 +912,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     {state, falls} = Hunt.follow(state, reading, screen_clear?(), now())
 
     for line <- Narration.falls(falls), do: log(:macro, line)
+    for line <- Narration.drops(state.trail.dropped), do: log(:macro, line)
 
     if falls != [], do: ball_the_fall(state), else: state
   end

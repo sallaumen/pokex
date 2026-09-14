@@ -521,6 +521,20 @@ defmodule Pokex.Settings do
     # o padrão fica em 6 s e o número virou DIAL: dá pra subir no /config, sem
     # deploy, e medir a noite com o alarme de bolas secas.
     corpse_fresh_ms: 6_000,
+    # DEPOIS DO REVIVE, O POKÉMON ANDA ATÉ O INIMIGO (clique do meio).
+    #
+    # "Toda vez que ele usa um revive, o meu pokémon anda para uma localização
+    # aleatória. Às vezes essa localização vai para o lado oposto de onde está o
+    # shiny. Aí, quando ele usa o auto combo, a skill de controle acaba não
+    # acertando" (Lucas, 14/09) — e uma corrente que não acerta o shiny é a
+    # janela em que ele morre.
+    #
+    # Os ataques dele são de ÁREA: estar perto do inimigo é o que garante que a
+    # corrente pega. O clique do meio é o "anda até aqui" do jogo, e o bot já o
+    # usa pra estacionar o pokémon (`Cavebot.park_click`, `reposition_enabled`)
+    # — o que muda é o destino e a hora: o inimigo, e logo depois do revive,
+    # dentro da janela que o combo já espera.
+    revive_walk_to_enemy: true,
     corpse_ignore_ttl_ms: 45_000,
     corpse_confirm_after_ms: 800,
     # N consecutive balls resolved WITHOUT a confirmed capture → :capture

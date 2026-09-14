@@ -22,7 +22,7 @@ defmodule Pokex.Bots.Catcher.BallTest do
     assert [
              {:move_checked, {500, 400}},
              {:wait, 30},
-             {:press, "f1"},
+             {:press_checked, "f1"},
              {:wait, _hold}
            ] = Ball.sequence({500, 400})
   end
@@ -30,7 +30,7 @@ defmodule Pokex.Bots.Catcher.BallTest do
   test "the ball key is configurable" do
     Pokex.Settings.put(:ball_key, "f3")
 
-    assert [_move, _wait, {:press, "f3"} | _] = Ball.sequence({1, 2})
+    assert [_move, _wait, {:press_checked, "f3"} | _] = Ball.sequence({1, 2})
     assert Ball.key() == "f3"
   end
 
@@ -40,7 +40,7 @@ defmodule Pokex.Bots.Catcher.BallTest do
     actions = Ball.sequence({300, 200})
 
     assert {:click, :left, {300, 200}} in actions
-    key_position = Enum.find_index(actions, &match?({:press, _}, &1))
+    key_position = Enum.find_index(actions, &match?({:press_checked, _}, &1))
     click_position = Enum.find_index(actions, &match?({:click, _, _}, &1))
     assert click_position > key_position
   end

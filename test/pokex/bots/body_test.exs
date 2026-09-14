@@ -213,6 +213,49 @@ defmodule Pokex.Bots.BodyTest do
     assert {:move, {500, 500}} in Fake.calls()
   end
 
+  # A TECLA QUE CONFERE — o par do move acima.
+  #
+  # "Ele levou o mouse até em cima do corpo, na posição correta, e não jogou a
+  # pokébola" (14/09). O `:ok` do rig com o portão fechado é um input ENGOLIDO, e
+  # a cláusula da prensa JÁ perguntava ao portão (pra decidir o carimbo do
+  # relógio) e jogava a resposta fora.
+  test "a checked key swallowed by the shut gate refuses out loud", %{body: body} do
+    InputGate.set_focus_ok(false)
+    on_exit(fn -> InputGate.set_focus_ok(true) end)
+
+    assert {:error, :input_gate_closed} =
+             Body.perform([{:press_checked, "f1"}], :normal, body)
+  end
+
+  test "a checked key with the gate open is just a key", %{body: body} do
+    assert :ok = Body.perform([{:press_checked, "f1"}], :normal, body)
+    assert {:press, "f1"} in Fake.calls()
+  end
+
+  # UMA SEQUÊNCIA CORTADA NO MEIO NÃO É UMA QUE NÃO ACONTECEU.
+  #
+  # O `:ok` da sequência suprimida vale pro corte ANTES do primeiro passo:
+  # nada saiu, ninguém precisa saber. Cortada no MEIO, o que já saiu saiu — na
+  # hora da bola o ponteiro já está em cima do corpo, e o `Catcher` recebia
+  # `:ok`, anotava "bola em X,Y" e dava a âncora por gasta.
+  test "the mini-game cutting a sequence in the middle is an error, not a silence",
+       %{body: body} do
+    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
+    on_exit(fn -> WorldState.forget(:mini_game) end)
+
+    assert {:error, :cut_by_mini_game} =
+             Body.perform([{:move_checked, {500, 500}}, {:press, "f1"}], :normal, body)
+  end
+
+  # …e uma sequência que NÃO pediu conferência segue no silêncio de sempre: o
+  # mini-game é estado normal do jogo, não defeito.
+  test "a sequence that did not ask to be checked keeps the old silence", %{body: body} do
+    WorldState.put(:mini_game, %{playing?: true, confidence: 1.0}, now_ms())
+    on_exit(fn -> WorldState.forget(:mini_game) end)
+
+    assert :ok = Body.perform([{:move, {500, 500}}, {:press, "f1"}], :normal, body)
+  end
+
   test "a KEY-ONLY sequence never reads or moves the cursor (no restore overhead)", %{body: body} do
     assert :ok = Body.perform([{:press, "a"}, {:press, "b"}], :normal, body)
 

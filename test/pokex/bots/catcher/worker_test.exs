@@ -160,7 +160,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     world!(worker, obs)
 
     assert_receive {:performed, :high, actions}, 1_000
-    assert {:press, "f2"} in actions
+    assert {:press_checked, "f2"} in actions
     assert_log_eventually("🔴 Aquática (f2) para Tentacool shiny")
   end
 
@@ -181,7 +181,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     world!(worker, obs)
 
     assert_receive {:performed, :high, actions}, 1_000
-    assert {:press, "f1"} in actions
+    assert {:press_checked, "f1"} in actions
   end
 
   @tag :tmp_dir
@@ -610,7 +610,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
         # :normal, not :high — the sweep is a background guarantee and must
         # never get ahead of the rod or of a ball aimed at a real corpse
         assert_receive {:performed, :normal, [{:move_checked, ^point} | rest]}, 1_000
-        assert {:press, "f1"} in rest
+        assert {:press_checked, "f1"} in rest
       end
 
       assert Worker.status(worker).sweep.balls == 8
@@ -945,7 +945,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     for _ <- 1..3, do: send(worker, {:crowd, seen.([])})
 
     assert_receive {:performed, :high, actions}, 3_000
-    assert {:press, "f3"} in actions
+    assert {:press_checked, "f3"} in actions
   end
 
   # A LEITURA DO OLHO CHEGA A TODO CATCHER VIVO. `{:crowd, …}` é transmissão, não
@@ -1078,7 +1078,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     assert_receive {:performed, :high, acoes}, 1_000
     assert {:move_checked, {130, 224}} in acoes
-    assert {:press, Pokex.Settings.get(:ball_key)} in acoes
+    assert {:press_checked, Pokex.Settings.get(:ball_key)} in acoes
 
     # …e o cérebro fica sabendo que há bola na conta, pra segurar os pés.
     assert eventually(

@@ -389,10 +389,16 @@ defmodule Pokex.Bots.Catcher.Trail do
   # O NOME DIZ DE QUEM É O CORPO. A âncora do modo largo é de um bicho que a cor
   # NÃO apontou — chamá-la de "shiny" faria o diário mentir em cada bola.
   defp fall(%{hunted?: true} = track, now),
-    do: %{world: track.world, name: track.name || "shiny", px: track.px, fallen_at: now}
+    do: %{
+      world: track.world,
+      name: track.name || "shiny",
+      px: track.px,
+      fallen_at: now,
+      hunted?: true
+    }
 
   defp fall(track, now),
-    do: %{world: track.world, name: "vizinho", px: track.px, fallen_at: now}
+    do: %{world: track.world, name: "vizinho", px: track.px, fallen_at: now, hunted?: false}
 
   defp put_track(trail, track), do: %{trail | tracks: Map.put(trail.tracks, track.id, track)}
 end

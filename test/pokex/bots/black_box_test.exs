@@ -1,6 +1,8 @@
 defmodule Pokex.Bots.BlackBoxTest do
   use ExUnit.Case, async: false
 
+  import Pokex.TestWait
+
   alias Pokex.Bots.BlackBox
   alias Pokex.Calibration
   alias Pokex.Vision.Frame
@@ -93,6 +95,59 @@ defmodule Pokex.Bots.BlackBoxTest do
     # the frame on disk is the arena, zlib-packed PXRW
     packed = File.read!(Path.join([incidents(tmp), dir, "000-abertura.raw.z"]))
     assert <<"PXRW", 1, _::binary>> = :zlib.uncompress(packed)
+  end
+
+  # O QUADRO DEPOIS DA BOLA.
+  #
+  # "Ele move o mouse mas acho que ta errando o corpo" (13/09) — e nenhum
+  # artefato sabia responder. O quadro da borda sai NO arremesso, antes de o
+  # cliente desenhar coisa alguma; este sai depois, com a mira anunciada, o
+  # ponto pra onde o mouse foi e o CURSOR de verdade — que é o que separa "o
+  # mouse não chegou" de "chegou e o jogo ignorou".
+  @tag :tmp_dir
+  test "the ball earns a second frame, with the aim and the real cursor", %{tmp_dir: tmp} do
+    box = start_box()
+
+    send(
+      box,
+      {:engine, picture(1), orders("sobrevivente da corrente (2 de 6): revive e de novo em cima")}
+    )
+
+    :sys.get_state(box)
+    send(box, {:catcher_log, :macro, "captura: 🌟 bola em 1418,617"})
+    :sys.get_state(box)
+
+    [dir] = File.ls!(incidents(tmp))
+
+    assert Enum.any?(
+             File.ls!(Path.join(incidents(tmp), dir)),
+             &String.ends_with?(&1, "-bola.raw.z")
+           )
+
+    # o quadro atrasado: espera o recado de volta
+    assert eventually(
+             fn ->
+               Enum.any?(
+                 File.ls!(Path.join(incidents(tmp), dir)),
+                 &String.ends_with?(&1, "-depois-da-bola.raw.z")
+               )
+             end,
+             3_000
+           )
+
+    :sys.get_state(box)
+
+    linha =
+      Path.join([incidents(tmp), dir, "manifest.jsonl"])
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.find(&(&1["tag"] == "depois-da-bola"))
+
+    assert linha["ball"]["anunciada"] == [1418, 617]
+    # a mira desce pro corpo quando a tela é medida, e nunca é um palpite
+    assert [_, _] = linha["ball"]["corpo"]
+    assert Map.has_key?(linha["ball"], "cursor")
   end
 
   @tag :tmp_dir

@@ -462,6 +462,12 @@ defmodule Pokex.Settings do
     # System Events knows its process as "wine"; update game_app_name if it ever changes client.
     ensure_game_focus: true,
     game_app_name: "wine",
+    # QUAL MONITOR. O olho filma a tela onde está a JANELA deste app, não a tela
+    # principal do macOS. System Events não enxerga janela nenhuma do Wine, mas a
+    # lista de janelas do sistema sim: lá o cliente se chama "PokeAlliance"
+    # (bundle com.tavano.pokealliance) — por isso este nome é separado do
+    # `game_app_name`, que é o nome do PROCESSO. Vazio = filma a principal.
+    game_window_owner: "PokeAlliance",
     # SAFETY: pause everything while the game window isn't frontmost.
     pause_when_unfocused: true,
     # How often the Focus poller checks the frontmost app.

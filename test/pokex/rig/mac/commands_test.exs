@@ -231,4 +231,21 @@ defmodule Pokex.Rig.Mac.CommandsTest do
 
     assert Commands.capture_screen("/tmp/s.png") == {"screencapture", ["-x", "-m", "/tmp/s.png"]}
   end
+
+  # `-m` is a fence as much as a speedup: it films the MAIN display, so with the
+  # game on another monitor it photographs the wrong screen. The region is
+  # already global by the time it gets here (`Pokex.Screen.Display`), and a
+  # global `-R` without `-m` reaches the second display — measured 2026-09-14.
+  test "off the main display the -m fence drops and the global region names the screen" do
+    assert Commands.capture({3450, 1100, 30, 40}, "/tmp/x.png", false) ==
+             {"screencapture", ["-x", "-R", "3450,1100,30,40", "/tmp/x.png"]}
+  end
+
+  # A bare `screencapture` films the main display too (measured the same day:
+  # one file, 3440×1440), so the full screen of another monitor is only
+  # reachable as that monitor's own rectangle.
+  test "the full screen of another display is its rectangle, not a flag" do
+    assert Commands.capture_screen("/tmp/s.png", {3440, 1007, 1512, 982}) ==
+             {"screencapture", ["-x", "-R", "3440,1007,1512,982", "/tmp/s.png"]}
+  end
 end

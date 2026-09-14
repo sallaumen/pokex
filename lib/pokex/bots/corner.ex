@@ -6,10 +6,22 @@ defmodule Pokex.Bots.Corner do
   (polling, whole-bot stop) so the geometry is defined exactly once.
   """
 
-  @doc "True when the cursor point sits in the top-left panic corner (mouse-to-corner = emergency stop)."
+  @doc """
+  True when the cursor point sits in the top-left panic corner (mouse-to-corner
+  = emergency stop).
+
+  BOUNDED ON BOTH SIDES, and that is not decoration. Cursor points are LOCAL to
+  the display the eye films (`Pokex.Screen.Display`), and a local coordinate goes
+  NEGATIVE the moment another monitor sits above or to the left of the game's —
+  Lucas's ultrawide is the whole rectangle from (-3440, -1007) to (0, 433) once
+  the game moves to the built-in screen. With only `<= 10` to answer to, every
+  one of those points read as "in the panic corner" and the gate would sit
+  closed, silently, through most of a session with his hand on the panel.
+  """
   @spec in_kill_corner?(term) :: boolean
-  def in_kill_corner?({x, y}) when is_number(x) and is_number(y) and x <= 10 and y <= 10,
-    do: true
+  def in_kill_corner?({x, y})
+      when is_number(x) and is_number(y) and x >= 0 and y >= 0 and x <= 10 and y <= 10,
+      do: true
 
   def in_kill_corner?(_), do: false
 
@@ -29,7 +41,7 @@ defmodule Pokex.Bots.Corner do
   @spec in_command_corner?(term, term) :: boolean
   def in_command_corner?({x, y}, screen_w)
       when is_number(x) and is_number(y) and is_number(screen_w) and x >= screen_w - 10 and
-             y <= 10,
+             y >= 0 and y <= 10,
       do: true
 
   def in_command_corner?(_point, _screen_w), do: false

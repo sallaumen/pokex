@@ -153,6 +153,8 @@ defmodule Pokex.Settings.Locked do
     key_modifier_settle_ms: {"Foco e teclado", "shift segurado 30ms antes da tecla (Wine)"},
     ensure_game_focus: {"Foco e teclado", "tecla só sai com o jogo na frente"},
     game_app_name: {"Foco e teclado", "o jogo roda sob Wine"},
+    game_window_owner:
+      {"Foco e teclado", "de quem é a janela que diz em QUAL monitor o olho filma"},
     pause_when_unfocused: {"Foco e teclado", "tudo pausa com o jogo atrás"},
     focus_poll_ms: {"Foco e teclado", "quem está na frente é conferido a cada 250ms"},
     focus_settle_ms:

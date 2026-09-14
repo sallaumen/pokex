@@ -17,6 +17,7 @@ defmodule Pokex.Bots.Capture do
 
   alias Pokex.Bots.{Capture.ScreenCaptureKit, Perf}
   alias Pokex.Rig
+  alias Pokex.Screen.Display
   alias Pokex.Vision.Frame
   require Logger
 
@@ -216,7 +217,7 @@ defmodule Pokex.Bots.Capture do
     # Seed the lock-free copy at boot: without it the first page to ask would
     # read :unknown and stay silent about a calibration from another screen
     # until someone opened /calibration.
-    cache_display_points(current_display_points(state))
+    cache_display(state)
 
     {:ok, state}
   end
@@ -381,7 +382,7 @@ defmodule Pokex.Bots.Capture do
   end
 
   def handle_call(:display_points, _from, state) do
-    {:reply, cache_display_points(current_display_points(state)), state}
+    {:reply, cache_display(state), state}
   end
 
   # A fresh photograph, never a cached path: the caller is guarding against a
@@ -428,7 +429,7 @@ defmodule Pokex.Bots.Capture do
 
     # "another display" is the whole point: a monitor plugged mid-session comes
     # in through here, and the lock-free copy has to learn it too.
-    cache_display_points(current_display_points(state))
+    cache_display(state)
 
     {:noreply, state}
   end
@@ -547,12 +548,40 @@ defmodule Pokex.Bots.Capture do
 
   defp screen_region(_state), do: :unknown
 
-  defp current_display_points(state) do
-    case screen_region(state) do
-      {:ok, {_x, _y, w, h}} -> {:ok, {w, h}}
-      :unknown -> :unknown
+  # The broker is the only one who knows WHICH monitor is filmed, so it publishes
+  # both halves of that answer: the SIZE, which tells a page whether a
+  # calibration belongs to another screen, and the ORIGIN, which is what the
+  # mouse needs to land on this display at all (`Pokex.Screen.Display`).
+  defp cache_display(state) do
+    region = screen_region(state)
+    publish_display(region, screen_origin(state))
+    cache_display_points(display_points_of(region))
+  end
+
+  defp display_points_of({:ok, {_x, _y, w, h}}), do: {:ok, {w, h}}
+  defp display_points_of(:unknown), do: :unknown
+
+  defp screen_origin(%{backend: {:screen_capture_kit, backend}, sck: sck}),
+    do: sck.display_origin(backend)
+
+  defp screen_origin(_state), do: :unknown
+
+  # Same fence as the points cache: only the app-wide singleton speaks for the
+  # whole VM. Half an answer publishes nothing, and no answer at all leaves the
+  # last known display alone — a monitor does not move because a backend died.
+  defp publish_display(region, origin) do
+    case filmed_display(region, origin) do
+      :unknown -> :ok
+      display -> if global_broker?(), do: Display.put(display), else: :ok
     end
   end
+
+  @doc false
+  # The filmed display as one rectangle: the SIZE comes from a region that is
+  # local (top-left always `{0, 0}`), the PLACE from the origin. Pure so the
+  # pairing can be fenced without owning the VM-wide singleton's name.
+  def filmed_display({:ok, {_x, _y, w, h}}, {:ok, {ox, oy}}), do: {ox, oy, w, h}
+  def filmed_display(_region, _origin), do: :unknown
 
   # No SCK metadata: `screencapture -m` answers in PIXELS and never says which
   # display it filmed. A region probe through the SAME CLI gives its pixels per

@@ -236,12 +236,33 @@ defmodule Pokex.Rig.Mac.Commands do
   # `-m` = capture ONLY the main display. MEASURED on Lucas's multi-monitor Mac (2026-07-09):
   # without it, `screencapture` syncs every display and takes ~1.7-2.9s PER call (even a 1×1
   # region), which — at 2 captures per fighting tick — made skills fire ~5s apart. With `-m` the
-  # exact same region comes back in ~0.2-0.35s (byte-identical output). The game must be on the
-  # main display anyway (see calibration), so this is pure speedup.
-  def capture({x, y, w, h}, path),
-    do: {"screencapture", ["-x", "-m", "-R", "#{x},#{y},#{w},#{h}", path]}
+  # exact same region comes back in ~0.2-0.35s (byte-identical output).
+  #
+  # But `-m` is also a FENCE, and it used to be an unstated one: this file said
+  # "the game must be on the main display anyway" until Lucas put the game on the
+  # built-in screen (2026-09-14) and every emergency capture came back filming
+  # the ultrawide. With the game elsewhere the flag has to go, and the region —
+  # already in GLOBAL coordinates, `Pokex.Screen.Display` — reaches the right
+  # monitor on its own. Measured the same day: `-R 3440,1007,200,100` with no
+  # `-m` lands on the second display. The slow path is the price of filming the
+  # right screen, and this whole CLI route only runs when ScreenCaptureKit is
+  # down.
+  def capture(region, path, on_main? \\ true)
+
+  def capture({x, y, w, h}, path, on_main?),
+    do: {"screencapture", ["-x"] ++ main_flag(on_main?) ++ ["-R", "#{x},#{y},#{w},#{h}", path]}
 
   def capture_screen(path), do: {"screencapture", ["-x", "-m", path]}
+
+  # The game on another monitor: `-m` films the main display, and so does a bare
+  # `screencapture` with no region (measured 2026-09-14 on his two screens: one
+  # file, 3440×1440, the ultrawide). Naming the right screen takes its own global
+  # rectangle — there is no flag for "the display I am filming".
+  def capture_screen(path, {x, y, w, h}),
+    do: {"screencapture", ["-x", "-R", "#{x},#{y},#{w},#{h}", path]}
+
+  defp main_flag(true), do: ["-m"]
+  defp main_flag(false), do: []
 
   # The window server's desktop bounds ("0, 0, 4952, 1989") are NOT the screen:
   # they are the union of every monitor. Asking it for the screenshot's scale

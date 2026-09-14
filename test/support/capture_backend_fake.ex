@@ -16,6 +16,9 @@ defmodule Pokex.CaptureBackendFake do
   def display_region(backend),
     do: record({:display_region, backend}, :display_region, :unknown)
 
+  def display_origin(backend),
+    do: record({:display_origin, backend}, :display_origin, :unknown)
+
   def stop(backend), do: record({:stop, backend}, :stop, :ok)
 
   defp record(call, key, default) do

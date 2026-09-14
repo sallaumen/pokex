@@ -261,18 +261,24 @@ final class FrameStore: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked S
 final class CaptureRuntime: @unchecked Sendable {
   let display: SCDisplay
   let scale: CGFloat
+  let foundBy: String
   let store: FrameStore
   let stream: SCStream
 
-  private init(display: SCDisplay, scale: CGFloat, store: FrameStore, stream: SCStream) {
+  private init(
+    display: SCDisplay, scale: CGFloat, foundBy: String, store: FrameStore, stream: SCStream
+  ) {
     self.display = display
     self.scale = scale
+    self.foundBy = foundBy
     self.store = store
     self.stream = stream
   }
 
-  static func start(from content: SCShareableContent) async throws -> CaptureRuntime {
-    let (display, scale) = try mainDisplayAndScale(from: content)
+  static func start(from content: SCShareableContent, owner: String?) async throws
+    -> CaptureRuntime
+  {
+    let (display, scale, foundBy) = try gameDisplayAndScale(from: content, owner: owner)
     let store = FrameStore(pointToPixelScale: scale)
     let filter = SCContentFilter(display: display, excludingWindows: [])
     let configuration = SCStreamConfiguration()
@@ -297,7 +303,9 @@ final class CaptureRuntime: @unchecked Sendable {
 
     _ = try store.waitForFrame(timeout: 5.0)
 
-    return CaptureRuntime(display: display, scale: scale, store: store, stream: stream)
+    return CaptureRuntime(
+      display: display, scale: scale, foundBy: foundBy, store: store, stream: stream
+    )
   }
 }
 
@@ -327,15 +335,63 @@ enum CaptureError: Error, CustomStringConvertible {
   }
 }
 
-func mainDisplayAndScale(from content: SCShareableContent) throws -> (SCDisplay, CGFloat) {
+/// The display the GAME sits on, which is not necessarily the one macOS calls
+/// main. Returns the display, its point-to-pixel scale, and HOW it was found.
+///
+/// Filming the main display while the game is on another monitor is not an
+/// offset, it is a different picture: measured 2026-09-14 on Lucas's two
+/// screens, with the game on the built-in (global origin 3440,1007) and every
+/// frame showing the ultrawide desktop instead.
+///
+/// The game's window is the evidence. `SCShareableContent` names the Wine
+/// client ("PokeAlliance", bundle "com.tavano.pokealliance") even though System
+/// Events cannot see its windows at all, so the window list is a better witness
+/// here than the focus helper's process name ("wine").
+///
+/// With no owner given, or no window of that owner on screen, this is exactly
+/// the old behaviour — `CGMainDisplayID` — so a single-monitor setup is
+/// untouched.
+func gameDisplayAndScale(from content: SCShareableContent, owner: String?) throws
+  -> (SCDisplay, CGFloat, String)
+{
+  let byWindow = owner.flatMap { gameDisplay(from: content, owner: $0) }
   let mainDisplayID = CGMainDisplayID()
 
-  guard let display = content.displays.first(where: { $0.displayID == mainDisplayID })
-        ?? content.displays.first
+  guard let display = byWindow
+          ?? content.displays.first(where: { $0.displayID == mainDisplayID })
+          ?? content.displays.first
   else {
     throw CaptureError.writeFailed("no capturable display found")
   }
 
+  return (display, scaleFor(display), byWindow == nil ? "main" : "window")
+}
+
+/// The display whose global bounds hold the centre of the game's biggest
+/// on-screen window. `nil` when no such window is up (game closed, minimised,
+/// or a renamed client).
+private func gameDisplay(from content: SCShareableContent, owner: String) -> SCDisplay? {
+  let wanted = owner.lowercased()
+
+  let window = content.windows
+    .filter { window in
+      let app = window.owningApplication
+      return app?.applicationName.lowercased() == wanted
+        || app?.bundleIdentifier.lowercased() == wanted
+    }
+    // A client's tooltip or splash is not the game board. The real window is
+    // the biggest one the app has up.
+    .filter { $0.frame.width >= 200 && $0.frame.height >= 200 }
+    .max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+
+  guard let window else { return nil }
+
+  let centre = CGPoint(x: window.frame.midX, y: window.frame.midY)
+
+  return content.displays.first { CGDisplayBounds($0.displayID).contains(centre) }
+}
+
+private func scaleFor(_ display: SCDisplay) -> CGFloat {
   let screen = NSScreen.screens.first { screen in
     guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
             as? NSNumber
@@ -354,7 +410,7 @@ func mainDisplayAndScale(from content: SCShareableContent) throws -> (SCDisplay,
     scale = NSScreen.main?.backingScaleFactor ?? 1.0
   }
 
-  return (display, max(scale, 1.0))
+  return max(scale, 1.0)
 }
 
 func intField(_ object: [String: Any], _ key: String) throws -> Int {
@@ -470,17 +526,31 @@ struct ScreenCaptureKitHelper {
             onScreenWindowsOnly: true
           )
 
-          return try await CaptureRuntime.start(from: content)
+          // argv[1] names the app whose window says which monitor to film.
+          let owner = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
+
+          return try await CaptureRuntime.start(
+            from: content, owner: owner.isEmpty ? nil : owner
+          )
         }
 
         // Publish the runtime BEFORE announcing ready, so a capture that races the announcement
         // can never see "stream not ready".
         holder.set(runtime)
 
+        // The origin is in screen POINTS, global and top-left — the same space
+        // `cliclick` moves the mouse in. Crops are LOCAL to this display, so
+        // this is the vector between the two, and it is zero on the main one.
+        let bounds = CGDisplayBounds(runtime.display.displayID)
+
         writer.write([
           "ready": true,
+          "display_id": runtime.display.displayID,
+          "display_x": Int(bounds.origin.x.rounded()),
+          "display_y": Int(bounds.origin.y.rounded()),
           "display_width": runtime.display.width,
           "display_height": runtime.display.height,
+          "display_found_by": runtime.foundBy,
           "scale": Double(runtime.scale),
         ])
       } catch {

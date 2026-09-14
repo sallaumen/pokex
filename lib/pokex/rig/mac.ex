@@ -6,6 +6,7 @@ defmodule Pokex.Rig.Mac do
 
   alias Pokex.Bots.{InputGate, Perf}
   alias Pokex.Rig.Mac.{Commands, KeyEvents, OsaBus}
+  alias Pokex.Screen.Display
 
   @impl true
   def press(combo), do: gated(fn -> do_press(combo) end)
@@ -153,16 +154,30 @@ defmodule Pokex.Rig.Mac do
     :exit, _reason -> nil
   end
 
+  # THE BORDER BETWEEN THE TWO POINT SPACES.
+  #
+  # Everything above this module speaks the display the eye films: calibration,
+  # the trail, the aim, every region — all local to that monitor, top-left
+  # `{0, 0}`. cliclick and CGEvent speak the whole desktop, whose origin is the
+  # top-left of the MAIN display. `Pokex.Screen.Display` is the vector between
+  # them, and it is `{0, 0}` whenever the game is on the main display — which
+  # was every setup the house had until 2026-09-14.
+  #
+  # Translate ONCE, here, at the edge: a point that crosses twice lands a
+  # monitor further out, and a point that never crosses lands on the wrong
+  # screen entirely.
   @impl true
   # Middle button: cliclick has no middle click, so it goes through the native
   # CGEvent helper — and ONLY through it. No fallback: an {:error, _} means the
   # click did not happen (positioning is best-effort; the caller logs it).
-  def click(:middle, point), do: gated(fn -> KeyEvents.middle_click(point, focus_app()) end)
+  def click(:middle, point),
+    do: gated(fn -> KeyEvents.middle_click(Display.to_global(point), focus_app()) end)
 
-  def click(button, point), do: gated(fn -> run(Commands.click(button, point)) end)
+  def click(button, point),
+    do: gated(fn -> run(Commands.click(button, Display.to_global(point))) end)
 
   @impl true
-  def move(point), do: gated(fn -> run(Commands.move(point)) end)
+  def move(point), do: gated(fn -> run(Commands.move(Display.to_global(point))) end)
 
   @impl true
   # UNGATED on purpose — one of the two calibration-only exceptions (with
@@ -179,7 +194,7 @@ defmodule Pokex.Rig.Mac do
   # KEYS: Lucas's arrows landed in the BROWSER (2026-08-10). A click INSIDE the
   # game window is what macOS treats as real focus — aimed at the calibrated
   # neutral point (his own tile), which is a click-to-walk no-op by design.
-  def focus_click(point), do: run(Commands.click(:left, point))
+  def focus_click(point), do: run(Commands.click(:left, Display.to_global(point)))
 
   # The hard safety floor: no ACTUATION (key/click/move) leaves this process while the InputGate
   # is closed — the cursor is in the panic corner OR the game window isn't frontmost. Suppressed
@@ -191,7 +206,14 @@ defmodule Pokex.Rig.Mac do
   end
 
   @impl true
-  def middle_watch, do: KeyEvents.middle_watch()
+  # He clicks on the GAME and the helper reports it in desktop coordinates —
+  # the route recorder above expects the display the eye films.
+  def middle_watch do
+    case KeyEvents.middle_watch() do
+      {:ok, %{point: point} = watch} -> {:ok, %{watch | point: Display.to_local(point)}}
+      other -> other
+    end
+  end
 
   @impl true
   def key_watch(codes), do: KeyEvents.key_watch(codes)
@@ -200,7 +222,7 @@ defmodule Pokex.Rig.Mac do
   def cursor_position do
     with {:ok, out} <- run_capture_output(Commands.cursor_position()),
          {:ok, point} <- Commands.parse_point(out) do
-      {:ok, point}
+      {:ok, Display.to_local(point)}
     else
       :error -> {:error, :unparseable_cursor}
       err -> err
@@ -217,7 +239,7 @@ defmodule Pokex.Rig.Mac do
     # fish). Each process reuses its own file, so nothing accumulates.
     path = Path.join(Pokex.Home.captures_dir(), per_process(filename))
 
-    case run(Commands.capture(region, path)) do
+    case run(Commands.capture(Display.to_global_region(region), path, Display.main?())) do
       :ok -> {:ok, path}
       err -> err
     end
@@ -227,9 +249,20 @@ defmodule Pokex.Rig.Mac do
   def capture_screen do
     path = Path.join(Pokex.Home.captures_dir(), "screen.png")
 
-    case run(Commands.capture_screen(path)) do
+    case run(screen_command(path)) do
       :ok -> {:ok, path}
       err -> err
+    end
+  end
+
+  # The full screen is the FILMED display's rectangle, not "the screen". Without
+  # a named display `-m` is both the old behaviour and the fast one, so nothing
+  # changes on a single monitor.
+  defp screen_command(path) do
+    case Display.region() do
+      {0, 0, _w, _h} -> Commands.capture_screen(path)
+      :unknown -> Commands.capture_screen(path)
+      region -> Commands.capture_screen(path, region)
     end
   end
 

@@ -295,6 +295,7 @@ defmodule Pokex.Bots.Body do
   end
 
   defp actuators({:press, _key}), do: [:keys]
+  defp actuators({:press_checked, _key}), do: [:keys]
   defp actuators({:tap, _combo}), do: [:keys]
   defp actuators({:click, :middle, _point}), do: [:keys, :mouse]
   defp actuators({:click, _button, _point}), do: [:mouse]
@@ -470,18 +471,43 @@ defmodule Pokex.Bots.Body do
     end)
   end
 
+  # UMA SEQUÊNCIA CORTADA NO MEIO NÃO É UMA QUE NÃO ACONTECEU — PRA QUEM PEDIU.
+  #
+  # O `:ok` de uma sequência suprimida é contrato, e ele está certo pro caso
+  # comum: o mini-game é estado NORMAL do jogo, não defeito, e transformar isso
+  # em erro faria cada chamador gritar por uma coisa que ele deve só esperar
+  # passar. É o que a cerca "the mini game fact stops the rest of a sequence the
+  # moment it appears mid-run" fixa, e ela continua valendo.
+  #
+  # Mas a hora da bola é outra história: cortada no meio, o ponteiro JÁ está em
+  # cima do corpo, e o `Catcher` anotava "bola em X,Y" e dava a âncora por gasta
+  # com bola nenhuma no ar — "ele levou o mouse e não jogou a pokébola" (14/09).
+  #
+  # Então a verdade é opcional e se pede pelo PASSO: uma sequência que usou
+  # `move_checked`/`press_checked` recebe o corte como erro; as outras seguem no
+  # silêncio de sempre.
   defp run_guarded(actions, _priority) do
-    Enum.reduce_while(actions, :ok, fn action, :ok ->
+    actions
+    |> Enum.reduce_while({:ok, false}, fn action, {:ok, checked?} ->
       with :ok <- mini_game_gate(action),
            :ok <- execute(action),
            :ok <- mini_game_gate(action) do
-        {:cont, :ok}
+        {:cont, {:ok, checked? or checked_step?(action)}}
       else
-        {:blocked, :mini_game_active} -> {:halt, :ok}
+        {:blocked, :mini_game_active} when checked? -> {:halt, {:error, :cut_by_mini_game}}
+        {:blocked, :mini_game_active} -> {:halt, {:ok, checked?}}
         {:error, r} -> {:halt, {:error, r}}
       end
     end)
+    |> case do
+      {:ok, _checked?} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
+
+  defp checked_step?({:move_checked, _point}), do: true
+  defp checked_step?({:press_checked, _key}), do: true
+  defp checked_step?(_plain), do: false
 
   # Diff, never a blind re-press: pressing a key that is already down repeats
   # it, and releasing one that is not is noise the game can misread.
@@ -564,6 +590,28 @@ defmodule Pokex.Bots.Body do
     with :ok <- Rig.impl().move(point), do: arrived?(point)
   end
 
+  # A TECLA QUE CONFERE, o par do move acima.
+  #
+  # "Ele levou o mouse até em cima do corpo, na posição correta, e não jogou a
+  # pokébola" (Lucas, 14/09). O `:ok` do rig com o portão fechado é um input
+  # ENGOLIDO, e esta cláusula JÁ sabia disso — ela pergunta `InputGate.allowed?`
+  # pra decidir se carimba o relógio da skill, e jogava a resposta fora. Com o
+  # ponteiro já em cima do corpo, uma tecla engolida é exatamente o que ele viu:
+  # o mouse vai, volta, e bola nenhuma.
+  #
+  # Só a bola usa. As outras teclas seguem com o contrato antigo de propósito —
+  # mudar o retorno de TODA prensa do bot é outra conversa, com outros donos.
+  defp execute({:press_checked, key}) do
+    with :ok <- Rig.impl().press(key) do
+      if InputGate.allowed?() do
+        SkillClock.pressed(key)
+        :ok
+      else
+        {:error, :input_gate_closed}
+      end
+    end
+  end
+
   defp execute({:tap, combo}), do: Rig.impl().tap(combo)
   defp execute({:focus_click, point}), do: Rig.impl().focus_click(point)
   # A pause WITHIN a sequence: lets one atomic perform hold a game-response gap
@@ -625,6 +673,7 @@ defmodule Pokex.Bots.Body do
   end
 
   defp guarded_input?({:press, _key}), do: true
+  defp guarded_input?({:press_checked, _key}), do: true
   defp guarded_input?({:tap, _combo}), do: true
   defp guarded_input?({:focus_click, _point}), do: true
   defp guarded_input?({:click, _button, _point}), do: true

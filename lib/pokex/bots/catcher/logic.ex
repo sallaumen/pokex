@@ -105,6 +105,31 @@ defmodule Pokex.Bots.Catcher.Logic do
   def ball_flown(logic, _at), do: logic
 
   @doc """
+  A BOLA VOLTA PRA FILA: a mão recusou, então nada saiu.
+
+  `maybe_throw/3` conta o arremesso na DECISÃO, não na tecla — é o que deixa a
+  janela de conferência começar da atuação. Mas quando a atuação FALHA (o
+  ponteiro não chegou, o portão engoliu a tecla, o mini-game cortou no meio) o
+  ponto já tinha saído da fila, o `throw` já estava de pé e o `Catcher` já tinha
+  gasto a âncora: o corpo era consumido sem bola nenhuma, e o apodrecimento dele
+  lia como "capturado (tardio)".
+
+  Desfazer a contagem é o que faz a âncora NÃO ser gasta: quem decide isso é
+  `Catcher.Worker.throw_at_anchors/1`, comparando o contador antes e depois.
+  """
+  @spec ball_refused(t) :: t
+  def ball_refused(%__MODULE__{throw: %{point: point}} = logic) do
+    %{
+      logic
+      | throw: nil,
+        queue: [point | logic.queue],
+        counters: %{logic.counters | throws: max(logic.counters.throws - 1, 0)}
+    }
+  end
+
+  def ball_refused(%__MODULE__{} = logic), do: logic
+
+  @doc """
   Corpses still being worked (queued + the one ball in flight) — the post-fight
   policy signal: support can wait for this to hit zero before healing/moving.
   """

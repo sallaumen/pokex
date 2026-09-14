@@ -765,9 +765,12 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   # The return used to be DISCARDED — a real actuation error vanished and the
   # feed wrote "bola arremessada" anyway.
+  # E A BOLA VOLTA PRA FILA. Reclamar não bastava: o ponto já tinha saído da
+  # fila e a âncora ia ser gasta assim mesmo, então o corpo era consumido sem
+  # bola nenhuma e o apodrecimento dele lia como "capturado (tardio)".
   defp after_throw(logic, {:error, reason}, _performs) do
-    log(:macro, "⚠️ a bola não saiu: #{inspect(reason)}")
-    logic
+    log(:macro, "⚠️ a bola não saiu: #{inspect(reason)} — o corpo volta pra fila")
+    Logic.ball_refused(logic)
   end
 
   # The confirmation window counts from ACTUATION (the sequence takes ~200ms),

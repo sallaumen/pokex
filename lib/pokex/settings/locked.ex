@@ -204,6 +204,9 @@ defmodule Pokex.Settings.Locked do
       {"Onde estão os monstros (visão)", "a foto ao redor cobre a tela do jogo inteira (8 tiles)"},
     crowd_scan_every_ms:
       {"Onde estão os monstros (visão)", "em luta olha 4× por segundo (~30 ms cada)"},
+    hud_fact_max_age_ms:
+      {"Captura (prova da bola)",
+       "leitura do HUD mais velha que isto não serve de prova de que a bola saiu"},
     crowd_fact_max_age_ms:
       {"Onde estão os monstros (visão)", "foto mais velha que 0,6 s não vale"},
     crowd_scan_evidence_shrink:

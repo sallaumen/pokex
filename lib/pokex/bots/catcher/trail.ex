@@ -15,7 +15,7 @@ defmodule Pokex.Bots.Catcher.Trail do
   WORLD tiles — the minimap's position plus the screen offset over the tile —
   so a track survives the character walking, and follows each creature from
   look to look by nearest neighbour with a small velocity guess. The guard's
-  blob (`CrowdScan.mark_special/3`) names ONE of those tracks the hunted one;
+  blobs (`CrowdScan.mark_special/3`) mark the tracks under their sightings;
   when the hunted bar is gone for a couple of looks, its last place is the
   ANCHOR: the tile the corpse is lying on, colour or no colour, item light or
   not. His own pokémon standing on the hunted creature (it covered the Golem
@@ -75,6 +75,7 @@ defmodule Pokex.Bots.Catcher.Trail do
   @type ref :: %{me: point, tile: pos_integer, pos: {integer, integer, integer} | nil}
   @type track :: %{
           id: pos_integer,
+          companions: MapSet.t(pos_integer),
           world: world,
           prev: world | nil,
           screen: point,
@@ -120,6 +121,7 @@ defmodule Pokex.Bots.Catcher.Trail do
     may_fall? = not sparkle_on? and (Map.get(reading, :pile_dead?, false) or sparkle_gone_long?)
 
     {tracks, left} = match(Map.values(trail.tracks), seen, pet, now)
+    tracks = remember_companions(tracks)
 
     born =
       left
@@ -177,41 +179,51 @@ defmodule Pokex.Bots.Catcher.Trail do
   """
   @spec hunt_at(t, point, String.t(), non_neg_integer | nil, ref, integer) :: t
   def hunt_at(trail, {_, _} = point, name, px, ref, now) do
+    {trail, _id} = hunt_one(trail, point, name, px, ref, now, [])
+    trail
+  end
+
+  @doc "Assigns simultaneous sightings to distinct tracks."
+  def hunt_all(trail, sightings, ref, now) do
+    {trail, _used} =
+      Enum.reduce(sightings, {trail, []}, fn sighting, {trail, used} ->
+        {trail, id} =
+          hunt_one(trail, sighting.point, sighting.name, Map.get(sighting, :px), ref, now, used)
+
+        {trail, [id | used]}
+      end)
+
+    trail
+  end
+
+  defp hunt_one(trail, point, name, px, ref, now, used) do
     ref = frame(trail, ref)
     world = to_world(point, ref)
+    available = trail.tracks |> Map.drop(used) |> Map.values()
 
-    case nearest(Map.values(trail.tracks), world) do
-      {track, _rest} ->
-        # O BRILHO É UM AVISTAMENTO, não uma etiqueta. Ele dizia só "este é o
-        # caçado" e deixava a posição e a hora da BARRA — então um rastro que o
-        # olho tinha perdido oito segundos antes seguia sendo a evidência mais
-        # nova do shiny, e o corpo era cravado onde ele NÃO estava (19:50 de
-        # 11/09: a barra vista pela última vez em 1720,918, o brilho já em
-        # 1418,842, a bola na areia um tile ao lado do corpo). Ver a estrela é
-        # ver o bicho: onde ela está, ele está, agora.
-        put_track(trail, %{
-          track
-          | hunted?: true,
-            name: name,
-            px: px,
-            prev: track.world,
-            world: world,
-            screen: point,
-            seen_at: now,
-            misses: 0,
-            occluded: 0
-        })
+    {trail, track} =
+      case nearest(available, world) do
+        {track, _rest} ->
+          {trail, %{track | prev: track.world}}
 
-      nil ->
-        track = birth(%{point: point, world: world}, trail.next_id, now)
+        nil ->
+          {%{trail | next_id: trail.next_id + 1},
+           birth(%{point: point, world: world}, trail.next_id, now)}
+      end
 
-        put_track(%{trail | next_id: trail.next_id + 1}, %{
-          track
-          | hunted?: true,
-            name: name,
-            px: px
-        })
-    end
+    track = %{
+      track
+      | hunted?: true,
+        name: name,
+        px: px,
+        world: world,
+        screen: point,
+        seen_at: now,
+        misses: 0,
+        occluded: 0
+    }
+
+    {put_track(trail, track), track.id}
   end
 
   @doc "The hunted creature still standing, with today's screen point — or nil."
@@ -345,7 +357,28 @@ defmodule Pokex.Bots.Catcher.Trail do
 
   defp twin_of?(other, track) do
     other.hunted? and other.id != track.id and other.seen_at > track.seen_at and
+      not MapSet.member?(track.companions, other.id) and
       tiles_apart(other.world, track.world) <= @twin_tiles
+  end
+
+  defp remember_companions(tracks) do
+    visible =
+      tracks
+      |> Enum.filter(&(&1.hunted? and &1.misses == 0 and &1.occluded == 0 and &1.prev != nil))
+      |> MapSet.new(& &1.id)
+
+    current = MapSet.new(tracks, & &1.id)
+
+    Enum.map(tracks, fn track ->
+      companions = MapSet.intersection(track.companions, current)
+
+      companions =
+        if MapSet.member?(visible, track.id),
+          do: MapSet.union(companions, MapSet.delete(visible, track.id)),
+          else: companions
+
+      %{track | companions: companions}
+    end)
   end
 
   defp tiles_apart({ax, ay}, {bx, by}), do: :math.sqrt((ax - bx) ** 2 + (ay - by) ** 2)
@@ -392,6 +425,7 @@ defmodule Pokex.Bots.Catcher.Trail do
   defp birth(hostile, id, now) do
     %{
       id: id,
+      companions: MapSet.new(),
       world: hostile.world,
       prev: nil,
       screen: hostile.point,

@@ -275,7 +275,7 @@ defmodule Pokex.Bots.Catcher.Worker do
     do: {:noreply, Hunt.hunt(state, vistos, now())}
 
   def handle_info(:wake, %{logic: %Logic{state: :armed}} = state),
-    do: {:noreply, advance(state, scan_obs(state))}
+    do: {:noreply, state |> throw_at_anchors() |> then(&advance(&1, scan_obs(&1)))}
 
   def handle_info(:wake, state), do: {:noreply, state}
 
@@ -298,6 +298,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   # esvazia entre as fisgadas. Agora o cérebro avisa no fim da rodada, que é
   # quando os corpos estão no chão e a estrada já está parada.
   def handle_info({:capture_now}, %{logic: %Logic{state: :armed}} = state) do
+    state = throw_at_anchors(state)
     obs = scan_obs(state)
     say(Narration.cue(obs))
     state = advance(%{state | repiques: @repiques}, obs)
@@ -786,10 +787,10 @@ defmodule Pokex.Bots.Catcher.Worker do
 
   defp note_throw(state, [], _obs), do: state
 
-  defp note_throw(state, _performs, obs) do
+  defp note_throw(state, [{:capture_sequence, point, name} | _], obs) do
     # …e a bola do shiny acende a faixa do cabeçalho em toda página
     # (`HeaderState`): o "🌟 bola em" era uma linha no feed.
-    if shiny_reading?(obs, state), do: announce_shiny_ball(obs)
+    if shiny_reading?(obs, state), do: announce_shiny_ball(point, name)
 
     # A BOLA DO SHINY, não qualquer bola. Isto rodava em TODO arremesso: uma bola
     # em corpo comum da varredura carimbava "bola" na prateleira do shiny — uma
@@ -799,17 +800,22 @@ defmodule Pokex.Bots.Catcher.Worker do
 
     state
     |> start_proof_clock()
-    |> Map.put(:last_action, %{text: "bola arremessada (#{Ball.key()})", at: now()})
+    |> Map.put(:last_action, %{
+      text: "bola arremessada (#{Balls.key_for(name, target_kind(obs))})",
+      at: now()
+    })
   end
 
   @proof_after_ms 2_000
 
   defp prepare_proof(state, [], _obs), do: state
 
-  defp prepare_proof(state, [{:capture_sequence, _point, name} | _], obs) do
-    state
-    |> check_proof()
-    |> watch_stock(Balls.key_for(name, target_kind(obs)))
+  defp prepare_proof(state, [{:capture_sequence, point, name} | _], obs) do
+    state = watch_stock(state, Balls.key_for(name, target_kind(obs)))
+
+    if state.proof,
+      do: %{state | proof: Map.merge(state.proof, %{point: point, name: name})},
+      else: state
   end
 
   defp watch_stock(state, key) do
@@ -883,11 +889,25 @@ defmodule Pokex.Bots.Catcher.Worker do
     if now() - at < @proof_after_ms, do: state, else: judge_proof(state)
   end
 
-  defp judge_proof(%{proof: %{source: source, before: before}} = state) do
-    case stuck?(before, stock(source)) do
-      :unread -> %{state | proof: nil}
-      false -> %{state | proof: nil, stuck_balls: 0}
-      true -> ball_did_not_leave(state)
+  defp judge_proof(%{proof: %{source: source, before: before} = proof} = state) do
+    after_count = stock(source)
+
+    case stuck?(before, after_count) do
+      :unread ->
+        %{state | proof: nil}
+
+      false ->
+        {x, y} = proof.point
+
+        log(
+          :macro,
+          "🥎 estoque de #{proof.slot}: #{before} → #{after_count} após bola em #{x},#{y} (#{proof.name || "corpo"})"
+        )
+
+        %{state | proof: nil, stuck_balls: 0}
+
+      true ->
+        ball_did_not_leave(state)
     end
   end
 
@@ -932,14 +952,20 @@ defmodule Pokex.Bots.Catcher.Worker do
   defp shiny_reading?(%{source: :anchor}, _state), do: true
   defp shiny_reading?(_ordinary_reading, _state), do: false
 
-  defp announce_shiny_ball(%{corpses: [point | _]} = obs) do
-    name = get_in(obs, [:known, point, :name]) || "shiny"
-    Phoenix.PubSub.broadcast(Pokex.PubSub, "shiny", {:shiny_ball, %{point: point, name: name}})
+  defp announce_shiny_ball(point, name) do
+    Phoenix.PubSub.broadcast(
+      Pokex.PubSub,
+      "shiny",
+      {:shiny_ball, %{point: point, name: name || "shiny"}}
+    )
   end
 
-  defp announce_shiny_ball(_no_corpse_in_the_reading), do: :ok
-
   defp run_step(state, obs) do
+    state = check_proof(state)
+    if state.proof, do: state, else: perform_step(state, obs)
+  end
+
+  defp perform_step(state, obs) do
     {logic, actions} = Logic.step(state.logic, obs, now())
 
     performs = Enum.filter(actions, &match?({:capture_sequence, _, _}, &1))
@@ -959,7 +985,7 @@ defmodule Pokex.Bots.Catcher.Worker do
       Phoenix.PubSub.broadcast(Pokex.PubSub, @topic, {:rule_alarm, :capture, msg})
     end
 
-    state = note_throw(state, performs, obs)
+    state = finish_throw(state, performs, obs, result)
 
     star = shiny_star(obs, state)
 
@@ -992,6 +1018,10 @@ defmodule Pokex.Bots.Catcher.Worker do
 
     %{state | logic: logic}
   end
+
+  defp finish_throw(state, performs, obs, :ok), do: note_throw(state, performs, obs)
+  defp finish_throw(state, _performs, _obs, {:error, _reason}), do: %{state | proof: nil}
+  defp finish_throw(state, _performs, _obs, nil), do: state
 
   # The kill-anchored observation. Gates BEFORE the capture: scanning with a
   # fight engaged would match the adjacent LIVE sprite (a standing pokémon's
@@ -1101,28 +1131,37 @@ defmodule Pokex.Bots.Catcher.Worker do
   # (`Catcher.Observation`), então a bola fura o portão de modo, o "🌟 bola em"
   # sai e a faixa acende.
   defp throw_at_anchors(state) do
-    at = Hunt.fresher_than(state.logic, now())
+    if standing?() do
+      at = Hunt.fresher_than(state.logic, now())
+      {candidates, anchors} = Hunt.anchor_targets(state, at)
+      advance_anchors(state, candidates, anchors, at)
+    else
+      state
+    end
+  end
 
-    case Hunt.anchor_targets(state, at) do
-      {[], _nenhuma} ->
-        state
+  defp advance_anchors(state, [], _anchors, at) do
+    if Logic.pending_source?(state.logic, :anchor),
+      do: advance(state, Observation.anchors([], at, %{anchor: true}) |> with_pos()),
+      else: state
+  end
 
-      {candidates, anchors} ->
-        for candidate <- candidates, do: log(:macro, Narration.anchor_ball(candidate, at))
+  defp advance_anchors(state, candidates, anchors, at) do
+    obs = Observation.anchors(candidates, at, %{anchor: true}) |> with_pos()
+    throws_before = state.logic.counters.throws
+    state = advance(state, obs)
 
-        obs = Observation.anchors(candidates, at, %{anchor: true})
-        throws_before = state.logic.counters.throws
-        state = advance(state, obs)
+    if state.logic.counters.throws > throws_before do
+      point = state.logic.throw.point
 
-        # GASTA SÓ O QUE A BOLA LEVOU. Às 17:26:00 de 11/09 as duas âncoras
-        # foram gastas numa chamada que não virou bola, e o corpo do shiny ficou
-        # no chão. Sem bola nova, as âncoras esperam a próxima hora da bola.
-        if state.logic.counters.throws > throws_before do
-          Hunt.spend(state, anchors)
-        else
-          log(:macro, "🌟 a âncora ficou pra próxima hora da bola — nenhuma bola saiu agora")
-          state
-        end
+      for candidate <- candidates,
+          candidate.point == point,
+          do: log(:macro, Narration.anchor_ball(candidate, at))
+
+      Hunt.spend(state, Enum.filter(anchors, &(&1.screen == point)))
+    else
+      log(:macro, "🌟 a âncora ficou pra próxima hora da bola — nenhuma bola saiu agora")
+      state
     end
   end
 

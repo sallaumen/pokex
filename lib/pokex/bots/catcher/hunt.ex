@@ -76,12 +76,23 @@ defmodule Pokex.Bots.Catcher.Hunt do
     ref = ref(%{})
     half = div(ref.tile, 2)
 
-    trail =
-      Enum.reduce(vistos, state.trail, fn %{point: {x, y}, name: name} = visto, trail ->
-        Trail.hunt_at(trail, {x, y + half}, name, Map.get(visto, :px), ref, now)
-      end)
+    sightings =
+      vistos
+      |> Enum.sort_by(&(-Map.get(&1, :px, 0)))
+      |> Enum.reduce([], &keep_distinct(&1, &2, half))
+      |> Enum.map(fn %{point: {x, y}} = sighting -> %{sighting | point: {x, y + half}} end)
+
+    trail = Trail.hunt_all(state.trail, sightings, ref, now)
 
     %{state | trail: trail}
+  end
+
+  defp keep_distinct(%{point: {x, y}} = sighting, distinct, radius) do
+    if Enum.any?(distinct, fn %{point: {dx, dy}} ->
+         abs(dx - x) <= radius and abs(dy - y) <= radius
+       end),
+       do: distinct,
+       else: distinct ++ [sighting]
   end
 
   @doc """

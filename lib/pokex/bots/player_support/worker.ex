@@ -1142,8 +1142,21 @@ defmodule Pokex.Bots.PlayerSupport.Worker do
   # shiny, sempre é o shiny; se tiver algum inimigo aleatório, pode ser o
   # inimigo aleatório mesmo" — 14/09). Sem shiny, o mais PERTO: é o que a
   # corrente de área pega junto com o resto.
+  # A LEITURA PODE SER VELHA, E TEM QUE PODER.
+  #
+  # `crowd_fact_max_age_ms` é 600 ms — a régua de quem decide ATAQUE, onde meio
+  # segundo muda o alvo. Mas o `CrowdWatch` só olha a 250 ms enquanto a luta
+  # está de pé; assim que o revive sai e a fase vira `:post_fight` sem bicho
+  # listado, a cadência cai pra `@walk_ms` (1000 ms) — MAIOR que a janela. A
+  # leitura boa é recusada por idade justo no instante em que este passo roda.
+  #
+  # E pra ANDAR até o inimigo uma posição de segundos atrás serve: bicho não se
+  # teleporta, o clique do meio é ordem de caminhada e não mira fina, e o combo
+  # é de ÁREA — chegar perto é o que importa.
+  @walk_crowd_max_age_ms 4_000
+
   defp enemy_to_walk_to do
-    case WorldState.get(:crowd, Settings.get(:crowd_fact_max_age_ms), now()) do
+    case WorldState.get(:crowd, @walk_crowd_max_age_ms, now()) do
       {:ok, %{read?: true, hostiles: [_ | _]} = reading} ->
         # o fato PUBLICADO não traz `special?`: quem junta o brilho do vigia com
         # a barra do olho é esta função, a mesma que o Catcher usa

@@ -1241,7 +1241,10 @@ defmodule Pokex.Bots.PlayerSupport.WorkerTest do
 
     @tag :tmp_dir
     test "the switch off keeps the revive exactly as it was", %{tmp: tmp, body: body} do
-      Pokex.Settings.put(:revive_walk_to_enemy, false)
+      # `stash!`, NÃO `put`: a chave é devolvida no fim. Um `put` cru vazava o
+      # desligamento pro teste seguinte e o clique do meio "sumia" — vermelho
+      # por SEMENTE, que é o que a CI do #676 pegou.
+      SettingsStash.stash!(revive_walk_to_enemy: false)
       low = hp_png(tmp, "walk_off.png", 6)
       {:ok, _} = Fake.start_link(%{capture: [{:ok, low}]})
       orders!(:now)

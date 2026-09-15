@@ -9,6 +9,7 @@ defmodule Pokex.Bots.Body do
   """
   use GenServer
   alias Pokex.Bots.{InputGate, Perf, SkillClock}
+  alias Pokex.Engine.Events
   alias Pokex.Rig
 
   @topic "body"
@@ -64,10 +65,10 @@ defmodule Pokex.Bots.Body do
     do: GenServer.call(server, {:hold, keys})
 
   @doc "Lets go of everything held. Safe to call when nothing is."
-  @spec release(GenServer.server()) :: :ok
+  @spec release(GenServer.server()) :: :ok | {:error, term}
   def release(server \\ __MODULE__), do: hold([], server)
 
-  @doc "What is held right now — the panel's proof that nothing is stuck down."
+  @doc "Keys whose down command was attempted and whose release has not succeeded."
   @spec held(GenServer.server()) :: [String.t()]
   def held(server \\ __MODULE__), do: GenServer.call(server, :held)
 
@@ -224,6 +225,7 @@ defmodule Pokex.Bots.Body do
          last_priority: nil,
          # keys currently held down, and the watchdog that outlives their caller
          held: [],
+         pending_release: [],
          hold_timer: nil
        }}
 
@@ -242,7 +244,10 @@ defmodule Pokex.Bots.Body do
   # Held keys are handled INLINE, not through the action queue: a key_down is
   # ~2ms (native CGEvent) and, more importantly, the set of held keys is STATE
   # — the queue's executor runs in a throwaway process and could not own it.
-  def handle_call({:hold, []}, _from, state), do: {:reply, :ok, apply_hold(state, [])}
+  def handle_call({:hold, []}, _from, state) do
+    {result, state} = apply_hold(state, [])
+    {:reply, result, state}
+  end
 
   def handle_call({:hold, keys}, _from, state) do
     # Refuses OUT LOUD, like every other walking primitive: the gate SWALLOWS a
@@ -250,9 +255,11 @@ defmodule Pokex.Bots.Body do
     # held believes in progress that never happens. Whatever was down is let go
     # on the way out — a shut gate must not leave an arrow pressed.
     if InputGate.allowed?() do
-      {:reply, :ok, apply_hold(state, Enum.uniq(keys))}
+      {result, state} = apply_hold(state, Enum.uniq(keys))
+      {:reply, result, state}
     else
-      {:reply, {:error, :input_gate_closed}, apply_hold(state, [])}
+      {_result, state} = apply_hold(state, [])
+      {:reply, {:error, :input_gate_closed}, state}
     end
   end
 
@@ -310,8 +317,9 @@ defmodule Pokex.Bots.Body do
   # The watchdog: whoever was holding stopped refreshing (crashed, wedged,
   # halted). Let go — a held arrow with nobody watching is the character
   # walking away on its own.
-  def handle_info(:release_hold, state) do
-    {:noreply, apply_hold(%{state | hold_timer: nil}, [])}
+  def handle_info({:timeout, timer, :release_hold}, %{hold_timer: timer} = state) do
+    {_result, state} = apply_hold(%{state | hold_timer: nil}, [], :watchdog)
+    {:noreply, state}
   end
 
   def handle_info({:done, item, result}, state) do
@@ -387,7 +395,8 @@ defmodule Pokex.Bots.Body do
     # held BEFORE it fires, here in the Body loop where the held set is state and the
     # release is atomic with the press. The cavebot releases on ITS tick (200ms); the revive
     # does not wait for it.
-    state = if :still in item.actions, do: apply_hold(state, []), else: state
+    {release_result, state} =
+      if :still in item.actions, do: apply_hold(state, [], :still), else: {:ok, state}
 
     state = %{
       state
@@ -396,7 +405,12 @@ defmodule Pokex.Bots.Body do
     }
 
     broadcast_queue(:start, state, item.actions, item.priority, item.requested_at)
-    run(item)
+
+    case release_result do
+      :ok -> run(item)
+      error -> send(self(), {:done, item, error})
+    end
+
     state
   end
 
@@ -472,27 +486,75 @@ defmodule Pokex.Bots.Body do
     end)
   end
 
-  # Diff, never a blind re-press: pressing a key that is already down repeats
-  # it, and releasing one that is not is noise the game can misread.
-  defp apply_hold(state, keys) do
-    rig = Rig.impl()
-    Enum.each(state.held -- keys, &rig.key_up/1)
-    Enum.each(keys -- state.held, &rig.key_down/1)
+  defp apply_hold(state, keys, cause \\ :request) do
+    releases = Enum.uniq((state.held -- keys) ++ state.pending_release)
+    {held, errors} = change_keys(state.held, releases, :up, cause)
 
-    if state.held != keys,
-      do:
-        Phoenix.PubSub.broadcast(
-          Pokex.PubSub,
-          @topic,
-          {:body_log, :debug, "segurando #{inspect(keys)}"}
-        )
+    {held, errors} =
+      if errors == [], do: change_keys(held, keys -- held, :down, cause), else: {held, errors}
 
-    %{state | held: keys, hold_timer: reschedule_release(state.hold_timer, keys)}
+    pending = Enum.map(errors, fn {_action, key, _reason} -> key end)
+    result = if errors == [], do: :ok, else: {:error, {:hold_failed, errors}}
+
+    if state.held != held do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:body_log, :debug, "segurando #{inspect(held)}"}
+      )
+    end
+
+    next = %{
+      state
+      | held: held,
+        pending_release: pending,
+        hold_timer: reschedule_release(state.hold_timer, held, pending)
+    }
+
+    {result, next}
   end
 
-  defp reschedule_release(timer, keys) do
+  defp change_keys(held, keys, action, cause) do
+    Enum.reduce(keys, {held, []}, fn key, {held, errors} ->
+      result = change_key(action, key, cause)
+      held = if action == :down, do: Enum.uniq(held ++ [key]), else: held
+
+      case result do
+        :ok -> {if(action == :up, do: held -- [key], else: held), errors}
+        {:error, reason} -> {held, errors ++ [{action, key, reason}]}
+      end
+    end)
+  end
+
+  defp change_key(action, key, cause) do
+    started_at = now()
+    result = safe_key(action, key)
+
+    Events.record(:held_key, %{
+      action: action,
+      key: key,
+      cause: cause,
+      result: inspect(result),
+      elapsed_ms: now() - started_at
+    })
+
+    result
+  end
+
+  defp safe_key(action, key) do
+    case apply(Rig.impl(), if(action == :up, do: :key_up, else: :key_down), [key]) do
+      :ok -> :ok
+      {:error, _reason} = error -> error
+      other -> {:error, {:unexpected_result, other}}
+    end
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  defp reschedule_release(timer, keys, pending) do
     if timer, do: Process.cancel_timer(timer)
-    if keys != [], do: Process.send_after(self(), :release_hold, hold_max_ms())
+    delay = if pending == [], do: hold_max_ms(), else: 200
+    if keys != [], do: :erlang.start_timer(delay, self(), :release_hold)
   end
 
   defp hold_max_ms do
@@ -504,8 +566,7 @@ defmodule Pokex.Bots.Body do
   @impl true
   # Nothing may outlive this process holding a key down.
   def terminate(_reason, state) do
-    rig = Rig.impl()
-    Enum.each(state.held, &rig.key_up/1)
+    Enum.each(state.held, &safe_key(:up, &1))
     :ok
   end
 

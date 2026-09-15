@@ -35,7 +35,7 @@ defmodule Pokex.Bots.Catcher.StockProofTest do
     worker = start_supervised!({Worker, name: nil, body: body, scanner: scanner})
     Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
     WorldState.put(:situation, %{enemies: 0}, now())
-    %{worker: worker, before_path: before_path, after_path: after_path}
+    %{worker: worker, body: body, before_path: before_path, after_path: after_path}
   end
 
   test "photographs before the throw and proves the decrease without a HUD", context do
@@ -58,6 +58,7 @@ defmodule Pokex.Bots.Catcher.StockProofTest do
          capture: [
            {:ok, context.before_path},
            {:ok, context.after_path},
+           {:ok, context.after_path},
            {:ok, context.after_path}
          ]
        }}
@@ -66,12 +67,44 @@ defmodule Pokex.Bots.Catcher.StockProofTest do
     :ok = Worker.run(context.worker)
     send(context.worker, {:kill})
     assert_receive {:ball_thrown, 1}, 1_000
-    assert_receive {:ball_thrown, 2}, 2_000
-    assert await_captures(3)
+    assert_receive {:ball_thrown, 3}, 4_000
+    assert await_captures(4)
     assert Worker.status(context.worker).stuck_balls == 1
 
     assert_receive {:catcher_log, :macro,
                     "captura: 🥎 a bola não saiu da mão: o estoque de f1 continua em 123" <> _}
+  end
+
+  test "uses separate before and after counts for two different queued targets", context do
+    start_supervised!(
+      {Fake,
+       %{
+         capture: [
+           {:ok, context.before_path},
+           {:ok, context.after_path},
+           {:ok, context.after_path},
+           {:ok, context.after_path}
+         ]
+       }}
+    )
+
+    scene = start_supervised!({Agent, fn -> [{150, 250}, {350, 250}] end})
+    scanner = fn -> %{scanning?: true, corpses: Agent.get(scene, & &1), captured_at: now()} end
+
+    worker =
+      start_supervised!({Worker, name: nil, body: context.body, scanner: scanner},
+        id: :multiple_stock_worker
+      )
+
+    :ok = Worker.run(worker)
+    send(worker, {:kill})
+    assert_receive {:ball_thrown, 1}, 1_000
+    Agent.update(scene, fn _ -> [{350, 250}] end)
+    assert_receive {:ball_thrown, 3}, 4_000
+    Agent.update(scene, fn _ -> [] end)
+    assert await_captures(4)
+    assert Worker.status(worker).stuck_balls == 1
+    assert Pokex.TestWait.eventually(fn -> Worker.status(worker).pending_corpses == 0 end, 2_000)
   end
 
   test "does not accuse when the marked count becomes unreadable despite a readable HUD",

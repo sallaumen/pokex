@@ -15,6 +15,7 @@ defmodule Pokex.Bots.Catcher.Logic do
   defstruct state: :idle,
             config: nil,
             queue: [],
+            targets: %{},
             throw: nil,
             refusals: %{},
             ignored: %{},
@@ -30,6 +31,7 @@ defmodule Pokex.Bots.Catcher.Logic do
           state: :idle | :armed,
           config: map | nil,
           queue: [{integer, integer}],
+          targets: %{optional({integer, integer}) => map},
           throw: map | nil,
           ignored: map,
           last_obs_at: integer | nil,
@@ -41,11 +43,19 @@ defmodule Pokex.Bots.Catcher.Logic do
   def new(config), do: %__MODULE__{config: config}
 
   def start(%__MODULE__{} = logic, _now) do
-    {%{logic | state: :armed, queue: [], throw: nil, ignored: %{}, last_obs_at: nil, error: nil},
-     []}
+    {%{
+       logic
+       | state: :armed,
+         queue: [],
+         targets: %{},
+         throw: nil,
+         ignored: %{},
+         last_obs_at: nil,
+         error: nil
+     }, []}
   end
 
-  def stop(logic), do: {%{logic | state: :idle, queue: [], throw: nil}, []}
+  def stop(logic), do: {%{logic | state: :idle, queue: [], targets: %{}, throw: nil}, []}
 
   @doc "Observation step. obs = %{corpses: [{x,y}], captured_at: ms} | nil (nothing fresh)."
   def step(%__MODULE__{state: :idle} = logic, _obs, _now), do: {logic, []}
@@ -66,10 +76,13 @@ defmodule Pokex.Bots.Catcher.Logic do
     logic = %{prune_ignored(logic, now) | last_obs_at: obs.captured_at}
 
     {logic, walk_actions} = forget_old_screen(logic, obs)
+    logic = retain_eligible_anchors(logic, obs)
     {logic, confirm_actions} = confirm(logic, obs, now)
     logic = admit(logic, obs)
     {logic, throw_actions} = maybe_throw(logic, obs, now)
 
+    active = logic.queue ++ if(logic.throw, do: [logic.throw.point], else: [])
+    logic = %{logic | targets: Map.take(logic.targets, active)}
     {logic, walk_actions ++ confirm_actions ++ throw_actions}
   end
 
@@ -194,6 +207,8 @@ defmodule Pokex.Bots.Catcher.Logic do
   defp confirm(%{throw: nil} = logic, _obs, _now), do: {logic, []}
 
   defp confirm(%{throw: throw, config: config} = logic, obs, now) do
+    tolerance = match_tolerance(logic, throw)
+
     cond do
       # the ball is still flying — this frame proves nothing
       obs.captured_at < throw.at + config.corpse_confirm_after_ms ->
@@ -220,11 +235,11 @@ defmodule Pokex.Bots.Catcher.Logic do
 
       # OTHER species present at the point: the original corpse is GONE — captured.
       # (Missing a name on either side falls to the presence branches below: conservative.)
-      outra_especie?(obs, throw, config.corpse_match_tolerance_px) ->
+      outra_especie?(obs, throw, tolerance) ->
         captured(logic, obs, now)
 
       # past the flight window, still there (moved-or-not is irrelevant) → retry
-      present?(obs.corpses, throw.point, config.corpse_match_tolerance_px) and
+      present?(obs.corpses, throw.point, tolerance) and
           throw.balls < config.corpse_max_balls ->
         logic = update_in(logic.counters.throws, &(&1 + 1))
 
@@ -237,12 +252,12 @@ defmodule Pokex.Bots.Catcher.Logic do
       # past the window, still there, and out of balls → not a corpse; ignore
       # for the TTL — storing the IDENTITY: a NEW corpse of another species
       # landing on the same tile must not inherit this veto.
-      present?(obs.corpses, throw.point, config.corpse_match_tolerance_px) ->
+      present?(obs.corpses, throw.point, tolerance) ->
         logic = update_in(logic.counters.ignored, &(&1 + 1))
 
         entrada = %{
           ate: now + config.corpse_ignore_ttl_ms,
-          name: name_in(obs, throw.point, config.corpse_match_tolerance_px)
+          name: name_in(obs, throw.point, tolerance)
         }
 
         dry(
@@ -312,7 +327,7 @@ defmodule Pokex.Bots.Catcher.Logic do
   end
 
   defp admit(logic, obs) do
-    tolerance = logic.config.corpse_match_tolerance_px
+    tolerance = match_tolerance(logic, obs)
     busy = logic.queue ++ if logic.throw, do: [logic.throw.point], else: []
 
     fresh =
@@ -320,9 +335,30 @@ defmodule Pokex.Bots.Catcher.Logic do
         Enum.any?(busy, &near?(&1, c, tolerance)) or vetoed?(logic, obs, c, tolerance)
       end)
 
-    {hunted, common} = Enum.split_with(fresh, &hunted?(obs, &1, tolerance))
+    targets =
+      Enum.reduce(fresh, logic.targets, fn point, targets ->
+        Map.put(targets, point, target_from(obs, point, tolerance))
+      end)
 
-    %{logic | queue: hunted ++ logic.queue ++ common}
+    targets =
+      Enum.reduce(logic.queue, targets, fn point, targets ->
+        if hunted?(obs, point, tolerance),
+          do: Map.put(targets, point, target_from(obs, point, tolerance)),
+          else: targets
+      end)
+
+    {hunted, common} = Enum.split_with(fresh, &hunted?(obs, &1, tolerance))
+    queue = Enum.sort_by(hunted ++ logic.queue ++ common, &(not targets[&1].hunted?))
+    %{logic | queue: queue, targets: targets}
+  end
+
+  defp target_from(obs, point, tolerance) do
+    %{
+      name: name_in(obs, point, tolerance),
+      source: source_of(obs),
+      from: Map.get(obs, :pos),
+      hunted?: hunted?(obs, point, tolerance)
+    }
   end
 
   # O CAÇADO FURA A FILA.
@@ -367,34 +403,36 @@ defmodule Pokex.Bots.Catcher.Logic do
 
   defp same_identity?(_entrada_antiga, _obs, _candidato, _tol), do: true
 
+  defp retain_eligible_anchors(logic, %{source: :anchor} = obs) do
+    queue =
+      Enum.reject(logic.queue, fn point ->
+        logic.targets[point].source == :anchor and
+          not present?(obs.corpses, point, 0)
+      end)
+
+    %{logic | queue: queue}
+  end
+
+  defp retain_eligible_anchors(logic, _obs), do: logic
+
+  @doc "Whether a detector still owns a queued target or an outstanding throw."
+  def pending_source?(logic, source) do
+    match?(%{source: ^source}, logic.throw) or
+      Enum.any?(logic.queue, &(logic.targets[&1].source == source))
+  end
+
   defp maybe_throw(%{throw: nil, queue: [point | rest]} = logic, obs, now) do
-    logic = update_in(logic.counters.throws, &(&1 + 1))
+    target = Map.fetch!(logic.targets, point)
 
-    # The name the scan saw at the point travels with the ball: it enables
-    # identity-based judging at confirmation (other species there = captured).
-    throw = %{
-      point: point,
-      balls: 1,
-      at: now,
-      name: name_in(obs, point, logic.config.corpse_match_tolerance_px),
-      # ONDE ELE ESTAVA quando a bola saiu. O juiz do `confirm/3` pergunta se o
-      # corpo continua no mesmo ponto de TELA, e isso só é prova enquanto o
-      # personagem não anda: um passo desloca a tela inteira e o corpo "some" do
-      # ponto sem ninguém ter capturado nada. Enquanto a captura era só do modo
-      # Parado a âncora era garantida de graça; na caçada, não é.
-      from: Map.get(obs, :pos),
-      # DE QUAL LENTE ESTA BOLA É. Duas leituras alimentam um `Logic` só e cada
-      # uma vê um conjunto diferente de corpos: a varredura só conhece os corpos
-      # ensinados na biblioteca de sprites, a mira por cor só conhece manchas da
-      # cor. Sem isto, a ausência numa lente dava por capturada a bola da outra.
-      source: source_of(obs)
-    }
+    if target.source == source_of(obs) do
+      throw = Map.merge(target, %{point: point, balls: 1, at: now})
+      logic = update_in(logic.counters.throws, &(&1 + 1))
 
-    # The name rides ALONG with the action, not just in the throw record: the
-    # worker is what turns a point into a key press, and which BALL to press is
-    # decided by who is lying there.
-    {%{logic | throw: throw, queue: rest},
-     [{:capture_sequence, point, throw.name}, {:log, "bola em #{point_str(point)}"}]}
+      {%{logic | throw: throw, queue: rest},
+       [{:capture_sequence, point, throw.name}, {:log, "bola em #{point_str(point)}"}]}
+    else
+      {logic, []}
+    end
   end
 
   defp maybe_throw(logic, _obs, _now), do: {logic, []}
@@ -409,13 +447,20 @@ defmodule Pokex.Bots.Catcher.Logic do
   defp forget_old_screen(%{throw: %{} = throw} = logic, obs) do
     if walked?(throw, obs),
       do:
-        dry(%{logic | throw: nil, queue: []}, [
+        dry(%{logic | throw: nil, queue: [], targets: %{}, ignored: %{}, refusals: %{}}, [
           {:log, "bola em #{point_str(throw.point)} sem conferência — ele andou, a tela é outra"}
         ]),
       else: {logic, []}
   end
 
-  defp forget_old_screen(logic, _obs), do: {logic, []}
+  defp forget_old_screen(logic, obs) do
+    if Enum.any?(logic.targets, fn {_point, target} -> walked?(target, obs) end) do
+      {%{logic | queue: [], targets: %{}, ignored: %{}, refusals: %{}},
+       [{:log, "fila de captura reposicionada — ele andou, a tela é outra"}]}
+    else
+      {logic, []}
+    end
+  end
 
   # Sem uma das duas leituras não dá pra afirmar que andou — e afirmar que NÃO
   # andou é o lado que mente. Só o par lido decide, e só a igualdade absolve.
@@ -430,6 +475,9 @@ defmodule Pokex.Bots.Catcher.Logic do
   defp ate(expiry) when is_integer(expiry), do: expiry
 
   # A varredura de corpos não se nomeia; a âncora sim (`Catcher.Observation`).
+  defp match_tolerance(_logic, %{source: :anchor}), do: 0
+  defp match_tolerance(logic, _source), do: logic.config.corpse_match_tolerance_px
+
   defp source_of(obs), do: Map.get(obs, :source, :corpse_scan)
 
   defp present?(corpses, point, tolerance),

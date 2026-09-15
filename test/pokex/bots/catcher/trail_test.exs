@@ -410,6 +410,24 @@ defmodule Pokex.Bots.Catcher.TrailTest do
       assert length(trail.anchors) == 2
     end
 
+    test "keeps two nearby shinies seen together across readings when one falls first" do
+      shiny = %{special?: true, special_name: "Shiny Golem", special_px: 394}
+      first = at(-3, -3, shiny)
+      second = at(-3, -1, shiny)
+
+      trail =
+        Trail.new()
+        |> look([first, second], 0, sparkle: true)
+        |> look([first, second], 250, sparkle: true)
+        |> look([second], 500, sparkle: true)
+        |> look([], 750, pile: :dead)
+        |> look([], 1_000, pile: :dead)
+        |> look([], 1_250, pile: :dead)
+
+      assert trail |> Trail.anchors(ref(), 1_250) |> Enum.map(& &1.screen) |> Enum.sort() ==
+               Enum.sort([first.point, second.point])
+    end
+
     # …e o fantasma continua fora: a dois tiles é o MESMO shiny, e a segunda
     # bola cai na areia.
     test "a hunted track a couple of tiles from a fresher one is the ghost, not a body" do

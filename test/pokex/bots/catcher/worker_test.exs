@@ -926,6 +926,95 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
     assert_log_eventually("a âncora ficou pra próxima hora da bola")
   end
 
+  @tag :tmp_dir
+  test "keeps the second shiny anchor until its own ball is sent" do
+    SettingsStash.stash!(
+      corpse_confirm_after_ms: 200,
+      capture_enabled: false,
+      shiny_always_ball: true,
+      shiny_ball_key: "f3",
+      ball_types: [%{"key" => "f1", "name" => "Poké Ball"}, %{"key" => "f3", "name" => "Ultra"}]
+    )
+
+    worker = start_hunt_worker(scanner: fn -> nil end)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+
+    hostiles = [
+      %{point: {200, 250}, special?: true, special_name: "Shiny Golem", special_px: 394},
+      %{point: {600, 250}, special?: true, special_name: "Shiny Onix", special_px: 410}
+    ]
+
+    reading = %{read?: true, me: {500, 350}, hostiles: hostiles, pet: nil}
+    send(worker, {:crowd, reading})
+    WorldState.put(:orders, %{route: :hold}, now())
+    list_empty()
+    for _ <- 1..3, do: send(worker, {:crowd, %{reading | hostiles: []}})
+
+    assert_receive {:performed, :high, [{:move_checked, first} | first_actions]}, 1_000
+    assert {:press_checked, "f3"} in first_actions
+    assert [%{screen: second}] = Worker.status(worker).trail.anchors
+    refute first == second
+    assert Worker.status(worker).pending_corpses == 2
+
+    assert_receive {:performed, :high, [{:move_checked, ^second} | second_actions]}, 2_000
+    assert {:press_checked, "f3"} in second_actions
+    assert_receive {:shiny_ball, %{point: ^second, name: second_name}}, 1_000
+    assert second_name == Enum.find(hostiles, &(&1.point == second)).special_name
+    assert eventually(fn -> Worker.status(worker).pending_corpses == 0 end, 2_000)
+  end
+
+  @tag :tmp_dir
+  test "tries the other shiny after a refusal and announces only successful dispatches" do
+    SettingsStash.stash!(
+      player_mode: "hunt",
+      capture_enabled: false,
+      shiny_always_ball: true,
+      corpse_confirm_after_ms: 200,
+      feed_corpses_ms: 200
+    )
+
+    body =
+      start_supervised!(
+        {Pokex.CaptureQueueBody, owner: self(), replies: [{:error, :unavailable}]}
+      )
+
+    worker =
+      start_supervised!({Worker, name: nil, body: body, scanner: fn -> nil end},
+        id: :refusing_worker
+      )
+
+    :ok = Worker.run(worker)
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+
+    reading = %{
+      read?: true,
+      me: {500, 350},
+      pet: nil,
+      hostiles: [
+        %{point: {200, 250}, special?: true, special_name: "Shiny Golem", special_px: 394},
+        %{point: {600, 250}, special?: true, special_name: "Shiny Onix", special_px: 410}
+      ]
+    }
+
+    send(worker, {:crowd, reading})
+    WorldState.put(:orders, %{route: :hold}, now())
+    list_empty()
+    for _ <- 1..3, do: send(worker, {:crowd, %{reading | hostiles: []}})
+
+    assert_receive {:capture_attempt, :high, [{:move_checked, first} | _],
+                    {:error, :unavailable}},
+                   1_000
+
+    assert length(Worker.status(worker).trail.anchors) == 2
+    refute_received {:shiny_ball, _}
+    assert_receive {:capture_attempt, :high, [{:move_checked, second} | _], :ok}, 1_000
+    refute first == second
+    assert_receive {:shiny_ball, %{point: ^second}}, 1_000
+    assert_receive {:capture_attempt, :high, [{:move_checked, ^first} | _], :ok}, 1_000
+    assert_receive {:shiny_ball, %{point: ^first}}, 1_000
+    assert eventually(fn -> Worker.status(worker).pending_corpses == 0 end, 1_000)
+  end
+
   # THE BALL AT THE FALL. 19:16:48 of 11/09: the anchor was minted 3 ms after
   # the round's hora da bola had already run, and the next one never came (he
   # stopped at 19:16:52 with the corpse on the ground). The fall is the moment

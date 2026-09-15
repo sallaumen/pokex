@@ -27,6 +27,28 @@ defmodule Pokex.Bots.Catcher.HuntTest do
     :ok
   end
 
+  test "keeps two simultaneous nearby sightings as distinct hunted tracks" do
+    sightings = [
+      %{point: {600, 300}, name: "Shiny Golem", px: 394},
+      %{point: {700, 300}, name: "Shiny Onix", px: 410}
+    ]
+
+    state = Hunt.hunt(%{trail: Pokex.Bots.Catcher.Trail.new()}, sightings, 100)
+    tracks = Map.values(state.trail.tracks)
+    assert length(tracks) == 2
+    assert Enum.sort(Enum.map(tracks, & &1.name)) == ["Shiny Golem", "Shiny Onix"]
+  end
+
+  test "treats overlapping color and sparkle detections as one sighting" do
+    sightings = [
+      %{point: {600, 300}, name: "Shiny Golem", px: 394},
+      %{point: {610, 305}, name: "Shiny (brilho)", px: 60}
+    ]
+
+    state = Hunt.hunt(%{trail: Pokex.Bots.Catcher.Trail.new()}, sightings, 100)
+    assert [%{name: "Shiny Golem"}] = Map.values(state.trail.tracks)
+  end
+
   # A MIRA TAMBÉM TEM QUE CABER NA TELA.
   #
   # A mira desce 110 px na tela dele. Um bicho nos 110 px de cima passava com a

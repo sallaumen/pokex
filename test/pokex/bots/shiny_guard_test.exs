@@ -311,6 +311,22 @@ defmodule Pokex.Bots.ShinyGuardTest do
              WorldState.get(:special, 5_000, System.monotonic_time(:millisecond))
   end
 
+  test "publishes both creatures when two shiny blobs are present in one frame", %{region: region} do
+    regra_provada()
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "shiny")
+    {rx, ry, width, height} = region
+    image = frame(width, height, {40, 40, 40}, bicho(70, 90) ++ bicho(230, 90))
+    start_guard(fn _region, _name -> {:ok, image} end)
+
+    assert_receive {:shiny_on_screen, %{vistos: sightings}}, 2_000
+    points = sightings |> Enum.map(& &1.point) |> Enum.sort()
+    assert [first, second] = points
+    assert_in_delta elem(first, 0), rx + 70, 6
+    assert_in_delta elem(second, 0), rx + 230, 6
+    assert_in_delta elem(first, 1), ry + 90, 6
+    assert_in_delta elem(second, 1), ry + 90, 6
+  end
+
   # -- a foto da morte ----------------------------------------------------------
 
   defp photos, do: Home.captures_dir() |> Path.join("shiny") |> Path.join("*") |> Path.wildcard()

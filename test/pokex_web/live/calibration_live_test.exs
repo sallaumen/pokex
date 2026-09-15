@@ -35,6 +35,45 @@ defmodule PokexWeb.CalibrationLiveTest do
     assert texto =~ "teste do alerta"
   end
 
+  @tag :tmp_dir
+  test "marks the F1 count and adjusts its saved crop", %{conn: conn, tmp_dir: tmp} do
+    Application.put_env(:pokex, :home_dir, tmp)
+    on_exit(fn -> Pokex.TestHome.restore() end)
+    Calibration.save(complete_calibration())
+    probe = Pokex.PngFixtures.write!(Path.join(tmp, "probe.png"), rows(200, 200, {9, 9, 9, 255}))
+
+    screen =
+      Pokex.PngFixtures.write!(Path.join(tmp, "screen.png"), rows(200, 150, {9, 9, 9, 255}))
+
+    start_supervised!({Fake, %{capture: [{:ok, probe}], capture_screen: [{:ok, screen}]}})
+    {:ok, view, _html} = live(conn, ~p"/calibration")
+    view |> element("#calibrate_ball_stock") |> render_click()
+    assert has_element?(view, "#calibration-screen")
+
+    for {x, y} <- [{10.0, 30.0}, {20.0, 35.0}] do
+      params = %{"x" => x, "y" => y, "cw" => 50.0, "ch" => 37.5, "nw" => 200.0, "nh" => 150.0}
+      render_hook(view, "img_click", params)
+      render_hook(view, "img_click", params)
+    end
+
+    assert {:ok, saved} = Calibration.load()
+    assert saved.ball_stock_region == {20, 60, 20, 10}
+    assert saved.skill_bar_region == complete_calibration().skill_bar_region
+    render_click(view, "review")
+    assert has_element?(view, "[phx-value-target=ball_stock_region]")
+
+    render_click(view, "adjust", %{
+      "target" => "ball_stock_region",
+      "dx" => "1",
+      "dy" => "0",
+      "dw" => "0",
+      "dh" => "0"
+    })
+
+    assert {:ok, adjusted} = Calibration.load()
+    assert adjusted.ball_stock_region == {25, 60, 20, 10}
+  end
+
   defp rows(w, h, color), do: List.duplicate(List.duplicate(color, w), h)
 
   # A tela de 200×150 com uma barra de `count` slots no retângulo `region`
@@ -78,6 +117,7 @@ defmodule PokexWeb.CalibrationLiveTest do
       battle_region: {70, 10, 20, 30},
       neutral_point: {52, 36},
       player_point: {40, 32},
+      ball_stock_region: {20, 60, 20, 10},
       skill_bar_region: {10, 60, 48, 10},
       skill_bar_count: 8,
       skill_slot_refs: List.duplicate({7, 7, 7}, 8),
@@ -221,7 +261,7 @@ defmodule PokexWeb.CalibrationLiveTest do
     # no numbered run at all — the question is "está tudo no lugar?"
     assert html =~ "confirm-saved"
     assert html =~ "Esta tela já está calibrada"
-    refute html =~ "Passo 1/9"
+    refute html =~ "Passo 1/11"
 
     # and the marks are DRAWN over the fresh photo, which is what he confirms
     assert html =~ "mark-overlays"
@@ -273,15 +313,16 @@ defmodule PokexWeb.CalibrationLiveTest do
     view |> element("button", "Capturar tela") |> render_click()
 
     html = view |> element("#confirm-saved-walk") |> render_click()
-    assert html =~ "Passo 1/9"
+    assert html =~ "Passo 1/11"
     # the saved mark is on the button, so keeping is a decision he can see
     assert html =~ "Manter"
 
-    # keep every mark: nine steps, no click on the picture
-    for _mark <- 1..6, do: view |> element("#keep-step") |> render_click()
+    # keep every mark: eleven steps, no click on the picture
+    for _mark <- 1..7, do: view |> element("#keep-step") |> render_click()
 
     assert {:ok, kept} = Calibration.load()
     assert kept.battle_region == saved.battle_region
+    assert kept.ball_stock_region == saved.ball_stock_region
     assert kept.skill_bar_region == saved.skill_bar_region
     assert kept.pokemon_photo_point == saved.pokemon_photo_point
     assert kept.skill_slot_refs == saved.skill_slot_refs
@@ -330,7 +371,7 @@ defmodule PokexWeb.CalibrationLiveTest do
 
     view |> element("button", "Capturar tela") |> render_click()
     # the run opens on the battle list: água is fishing gear and left it
-    assert render(view) =~ "Passo 1/9"
+    assert render(view) =~ "Passo 1/11"
     assert render(view) =~ "SUPERIOR-ESQUERDO"
 
     click = fn x, y ->
@@ -343,19 +384,22 @@ defmodule PokexWeb.CalibrationLiveTest do
     click.(45.0, 20.0)
     click.(26.0, 18.0)
 
-    assert render(view) =~ "Passo 4/9"
+    assert render(view) =~ "Passo 4/11"
     assert render(view) =~ "PERSONAGEM"
     click.(20.0, 16.0)
 
-    assert render(view) =~ "Passo 5/9"
+    assert render(view) =~ "Passo 5/11"
     click.(5.0, 30.0)
-    assert render(view) =~ "Passo 6/9"
+    assert render(view) =~ "Passo 6/11"
     click.(29.0, 35.0)
 
-    assert render(view) =~ "Passo 7/9"
+    assert render(view) =~ "Passo 7/11"
+    click.(10.0, 30.0)
+    click.(20.0, 35.0)
+    assert render(view) =~ "Passo 9/11"
     click.(15.0, 20.0)
     click.(45.0, 30.0)
-    assert render(view) =~ "Passo 9/9"
+    assert render(view) =~ "Passo 11/11"
 
     # the last click IS the end — no more "cast the line and wait" step
     click.(20.0, 25.0)

@@ -78,7 +78,7 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     worker = start_supervised!({Worker, name: nil, body: body, scanner: scanner})
     :ok = Worker.run(worker)
-    %{worker: worker}
+    %{worker: worker, body: body, scanner: scanner}
   end
 
   defp corpses_obs(points) do
@@ -235,6 +235,68 @@ defmodule Pokex.Bots.Catcher.WorkerTest do
 
     assert_receive {:rule_alarm, :capture, msg}, 1_000
     assert msg =~ "acervo de corpos VAZIO"
+  end
+
+  # A PROVA DE QUE A BOLA SAIU É O ESTOQUE DO ATALHO.
+  #
+  # "Tentando jogar pokébola e não conseguindo jogar no shiny" (Lucas, 15/09) —
+  # e o `🌟 capturado` não sabe responder: numa bola de âncora ele compara o
+  # ponto com as ÂNCORAS DO PRÓPRIO RASTRO, que somem quando o arremesso as
+  # gasta ou quando o TTL vence. Captura de verdade é ~1 a cada 12 h de caçada,
+  # então ela nunca poderia ser o sinal. O número embaixo do atalho é o que o
+  # JOGO escreve.
+  defp hud!(f1),
+    do: WorldState.put(:hud, %{slots: %{f1: f1}}, System.monotonic_time(:millisecond))
+
+  @tag :tmp_dir
+  test "a stock that did not move says the ball never left", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+    hud!(800)
+    list_empty()
+    world!(worker, corpses_obs([{150, 250}]))
+
+    assert_receive {:performed, :high, _}, 1_000
+    # o estoque segue em 800: a tecla não virou bola
+    hud!(800)
+
+    assert_log_eventually("a bola não saiu da mão", 4_000)
+  end
+
+  # uma bola por corpo: cada arremesso tem a SUA prova, e um segundo arremesso
+  # sem estoque novo acusaria com razão
+  # A REGRA, onde ela é determinística: o laço do worker é tempo, e tempo em
+  # teste é semente de flakiness — a cerca do worker guarda que a acusação SAI;
+  # esta guarda o que ela decide.
+  @tag :tmp_dir
+  test "the stock decides: dropped is a ball that left, unchanged is one that did not" do
+    refute Worker.stuck?(800, 799)
+    assert Worker.stuck?(800, 800)
+    # maior é ele repondo a bag no meio da caçada
+    assert Worker.stuck?(800, 900)
+    assert Worker.stuck?(800, nil) == :unread
+  end
+
+  # um estoque NÃO LIDO nunca é acusação — a lição do `StockAlerts`
+  @tag :tmp_dir
+  test "an unread stock never accuses", %{worker: worker} do
+    Phoenix.PubSub.subscribe(Pokex.PubSub, "catcher")
+    hud!(800)
+    list_empty()
+    world!(worker, corpses_obs([{150, 250}]))
+
+    assert_receive {:performed, :high, _}, 1_000
+    WorldState.forget(:hud)
+
+    refute never_log("a bola não saiu da mão", 3_000) == :apareceu
+  end
+
+  defp never_log(fragment, window) do
+    receive do
+      {:catcher_log, :macro, msg} ->
+        if msg =~ fragment, do: :apareceu, else: never_log(fragment, window)
+    after
+      window -> :silencio
+    end
   end
 
   defp assert_log_eventually(fragment, timeout \\ 1_000) do

@@ -714,6 +714,7 @@ defmodule PokexWeb.ConfigLive do
         :corpse_scan_radius_tiles,
         :corpse_match_min_similarity,
         :dry_balls_alarm,
+        :stuck_balls_alarm,
         :sweep_enabled,
         :sweep_interval_ms,
         :sweep_radius_tiles,

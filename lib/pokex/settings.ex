@@ -404,6 +404,16 @@ defmodule Pokex.Settings do
     feed_failure_warn_streak: 10,
     # HUD numbers change slowly (stocks, level); position changes as fast as Lucas walks, so the
     # minimap is read more often than the rest.
+    # Quão velha a leitura do HUD pode estar pra servir de prova da bola.
+    hud_fact_max_age_ms: 4_000,
+    # BOLAS SEGUIDAS QUE NÃO SAÍRAM DA MÃO antes do grito. 0 desliga.
+    #
+    # O estoque do atalho é o que o JOGO escreve: cair = a bola saiu. Este
+    # alarme substitui, pra bola, o `dry_balls_alarm` — que contava captura
+    # confirmada, e captura de verdade é ~1 a cada 12h de caçada ("capturados
+    # mesmo quase nunca ocorre", 15/09), então ele gritava por mecânica do jogo
+    # em vez de defeito.
+    stuck_balls_alarm: 4,
     stock_alerts_enabled: true,
     stock_alert_f1: 30,
     stock_alert_f2: 10,

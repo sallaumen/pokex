@@ -163,7 +163,13 @@ defmodule Pokex.Bots.Catcher.Worker do
        sweeps: 0,
        sweep_balls: 0,
        # last performed actuation as %{text, at} (monotonic ms; nil until the first) — panel-facing
-       last_action: nil
+       last_action: nil,
+       # A BOLA ESPERANDO PROVA — %{slot, antes, at}. Ver `watch_stock/2`.
+       proof: nil,
+       # bolas seguidas cujo estoque NÃO caiu: a tecla não virou bola
+       stuck_balls: 0,
+       # a queixa de "não consigo medir" sai UMA vez por corrida
+       stock_blind_said?: false
      }}
   end
 
@@ -272,7 +278,7 @@ defmodule Pokex.Bots.Catcher.Worker do
   def handle_info(:wake, state), do: {:noreply, state}
 
   def handle_info(:pulse, state) do
-    state = %{state | pulse_timer: nil}
+    state = %{state | pulse_timer: nil} |> check_proof()
 
     if armed?(state) do
       publish_capture(state)
@@ -789,7 +795,121 @@ defmodule Pokex.Bots.Catcher.Worker do
     # arremesso.
     if shiny_reading?(obs, state), do: ShinyLog.resolve_last("ball")
 
-    %{state | last_action: %{text: "bola arremessada (#{Ball.key()})", at: now()}}
+    state
+    |> watch_stock(obs)
+    |> Map.put(:last_action, %{text: "bola arremessada (#{Ball.key()})", at: now()})
+  end
+
+  # A PROVA DE QUE A BOLA SAIU NÃO É O `capturado`.
+  #
+  # Numa bola de âncora, `Logic.confirm/3` compara o ponto com as ÂNCORAS DO
+  # PRÓPRIO RASTRO (`Observation.anchors/3` põe os candidatos em `corpses`), e a
+  # âncora some quando o arremesso a gasta ou quando o TTL de 120 s vence: o
+  # `🌟 capturado` mede a contabilidade do bot, não o jogo. E captura de verdade
+  # é ~1 a cada 12 h de caçada ("capturados mesmo quase nunca ocorre" — Lucas,
+  # 15/09), então ela nunca poderia ser o sinal de que a bola SAIU.
+  #
+  # O JOGO JÁ ESCREVE A PROVA: o número embaixo do atalho da bola, que o bot já
+  # lê (`Bots.StockAlerts`, fato `:hud`, `slots: %{f1:, f2:, e:, s_q:}`).
+  # Estoque que CAI = bola que saiu. Estoque IGUAL = a tecla não virou bola —
+  # que é exatamente o "tentando jogar e não conseguindo" que ele vê, e o
+  # "You cannot use this object" que o cliente escreveu no vídeo de 22:40.
+  @proof_after_ms 2_000
+
+  defp watch_stock(state, obs) do
+    slot = slot_of(Balls.key_for(ball_name(obs), target_kind(obs)))
+
+    case stock(slot) do
+      nil -> stock_blind(state, slot)
+      antes -> %{state | proof: %{slot: slot, antes: antes, at: now()}}
+    end
+  end
+
+  # O INERTE TEM QUE FALAR. Sem o número do atalho não há como saber se a bola
+  # saiu — e um medidor que não mede em silêncio é o defeito que custou esta
+  # noite inteira. Uma linha por corrida, não por bola.
+  defp stock_blind(%{stock_blind_said?: true} = state, _slot), do: state
+
+  defp stock_blind(state, slot) do
+    log(
+      :macro,
+      "🥎 não sei dizer se a bola sai da mão: o estoque de #{slot || "atalho"} não está sendo " <>
+        "lido. É o HUD sem região — marque o contador da bola na Calibração."
+    )
+
+    %{state | stock_blind_said?: true}
+  end
+
+  defp ball_name(%{corpses: [point | _], known: known}) when is_map(known),
+    do: get_in(known, [point, :name])
+
+  defp ball_name(_sem_corpo), do: nil
+
+  defp slot_of("f1"), do: :f1
+  defp slot_of("f2"), do: :f2
+  defp slot_of(_fora_do_hud), do: nil
+
+  defp stock(nil), do: nil
+
+  defp stock(slot) do
+    case WorldState.get(:hud, Settings.get(:hud_fact_max_age_ms), now()) do
+      {:ok, %{slots: slots}} when is_map(slots) -> Map.get(slots, slot)
+      _sem_leitura -> nil
+    end
+  end
+
+  # UM ESTOQUE NÃO LIDO NUNCA É ACUSAÇÃO — a lição do `StockAlerts`: um alarme
+  # que grita por leitura ruim é um alarme que ele aprende a ignorar.
+  defp check_proof(%{proof: nil} = state), do: state
+
+  defp check_proof(%{proof: %{at: at}} = state) when is_integer(at) do
+    if now() - at < @proof_after_ms, do: state, else: judge_proof(state)
+  end
+
+  defp judge_proof(%{proof: %{slot: slot, antes: antes}} = state) do
+    case stuck?(antes, stock(slot)) do
+      :unread -> %{state | proof: nil}
+      false -> %{state | proof: nil, stuck_balls: 0}
+      true -> ball_did_not_leave(state)
+    end
+  end
+
+  @doc """
+  A bola ficou na mão? Compara o estoque do atalho antes e depois.
+
+  Caiu = saiu. Igual (ou maior, que é ele repondo) = a tecla não virou bola. E
+  um estoque NÃO LIDO nunca é acusação — a lição do `Bots.StockAlerts`: alarme
+  por leitura ruim é alarme que ele aprende a ignorar.
+  """
+  @spec stuck?(integer, integer | nil) :: boolean | :unread
+  def stuck?(_antes, nil), do: :unread
+  def stuck?(antes, agora) when agora < antes, do: false
+  def stuck?(_antes, _mesmo_ou_maior), do: true
+
+  defp ball_did_not_leave(%{proof: %{slot: slot, antes: antes}} = state) do
+    presas = state.stuck_balls + 1
+
+    log(
+      :macro,
+      "🥎 a bola não saiu da mão: o estoque de #{slot} continua em #{antes} — " <>
+        "#{presas} seguida(s)"
+    )
+
+    teto = Settings.get(:stuck_balls_alarm)
+
+    if teto > 0 and presas >= teto do
+      Phoenix.PubSub.broadcast(
+        Pokex.PubSub,
+        @topic,
+        {:rule_alarm, :capture,
+         "🥎 #{presas} bolas seguidas SEM sair da mão — o corpo ainda não está no chão, " <>
+           "ou o atalho não está chegando no jogo"}
+      )
+
+      %{state | proof: nil, stuck_balls: 0}
+    else
+      %{state | proof: nil, stuck_balls: presas}
+    end
   end
 
   defp shiny_reading?(%{source: :anchor}, _state), do: true
@@ -1153,6 +1273,8 @@ defmodule Pokex.Bots.Catcher.Worker do
       error: state.logic && state.logic.error,
       hold_reason: hold_reason(state),
       last_action: state.last_action,
+      # bolas seguidas que NÃO tiraram bola do bolso — a prova do estoque
+      stuck_balls: state.stuck_balls,
       # o rastro (`Catcher.Trail`): o shiny de pé e onde ele caiu, na tela de agora
       trail: Hunt.snapshot(state, ref, now()),
       sweep: %{

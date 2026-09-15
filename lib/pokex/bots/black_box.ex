@@ -26,6 +26,7 @@ defmodule Pokex.Bots.BlackBox do
   use GenServer
 
   alias Pokex.Bots.Body
+  alias Pokex.Bots.BotSupervisor
   alias Pokex.Bots.Capture
   alias Pokex.Bots.Catcher.SpotScan
   alias Pokex.Bots.Engine
@@ -58,7 +59,8 @@ defmodule Pokex.Bots.BlackBox do
       capture: Keyword.get(opts, :capture, &Capture.frame/2),
       quiet_to_close_ms: Keyword.get(opts, :quiet_to_close_ms, @quiet_to_close_ms),
       log: Keyword.get(opts, :log, &default_log/1),
-      episode: nil
+      episode: nil,
+      hunt_active?: true
     }
 
     case name do
@@ -90,7 +92,7 @@ defmodule Pokex.Bots.BlackBox do
     now = now()
 
     state =
-      state
+      %{state | hunt_active?: orders.phase != :idle}
       |> maybe_open(trigger(orders), picture, orders, now)
       |> tick(picture, orders, now)
 
@@ -148,6 +150,7 @@ defmodule Pokex.Bots.BlackBox do
 
   defp trigger(_orders), do: nil
 
+  defp maybe_open(%{hunt_active?: false} = state, _reason, _picture, _orders, _now), do: state
   defp maybe_open(state, nil, _picture, _orders, _now), do: state
   defp maybe_open(%{episode: %{}} = state, _reason, _p, _o, _now), do: state
 
@@ -387,6 +390,9 @@ defmodule Pokex.Bots.BlackBox do
             :named
           ]),
       orders: orders && Map.take(orders, [:phase, :route, :revive, :fire, :why, :capture]),
+      calibration: calibration(),
+      player: fact(:player, 5_000),
+      pokemon: fact(:pokemon, 5_000),
       crowd: fact(:crowd, 5_000),
       special: fact(:special, 5_000),
       battle: fact(:battle, 5_000) |> only([:enemies, :enemies_detail]),
@@ -406,6 +412,19 @@ defmodule Pokex.Bots.BlackBox do
     _cannot_write -> :ok
   end
 
+  defp calibration do
+    case Calibration.load() do
+      {:ok, calib} ->
+        calib
+        |> Map.take([:screen_w, :screen_h, :player_point, :player_hp_region, :pokemon_hp_region])
+        |> Map.put(:tile_px, Calibration.tile_px(calib))
+        |> plain()
+
+      _unavailable ->
+        nil
+    end
+  end
+
   defp fact(key, max_age) do
     case WorldState.get(key, max_age, now()) do
       {:ok, obs} -> plain(obs)
@@ -420,7 +439,7 @@ defmodule Pokex.Bots.BlackBox do
   defp only(other, _keys), do: other
 
   defp catcher do
-    Pokex.Bots.Catcher.Worker.status()
+    BotSupervisor.safe_status(Pokex.Bots.Catcher.Worker, %{})
     |> Map.take([
       :state,
       :aim?,

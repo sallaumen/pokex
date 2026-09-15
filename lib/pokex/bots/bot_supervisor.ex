@@ -518,7 +518,8 @@ defmodule Pokex.Bots.BotSupervisor do
   @doc "Do any of these snapshots/states mean RUNNING? Same rule as active?/1."
   def any_active?(states), do: Enum.any?(states, &active?/1)
 
-  defp safe_status(server, extra \\ %{}) do
+  @doc "Reads a worker with a bounded wait and returns a busy snapshot on failure."
+  def safe_status(server, extra \\ %{}) do
     GenServer.call(server, :status, @status_timeout_ms)
   catch
     :exit, _reason -> Map.merge(@busy_snapshot, extra)

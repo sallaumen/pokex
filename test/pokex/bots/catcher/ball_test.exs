@@ -62,6 +62,21 @@ defmodule Pokex.Bots.Catcher.BallTest do
   # responde esta pergunta.
   describe "the aim leaves the published point and lands on the body" do
     @tag :tmp_dir
+    test "correcting tile size preserves the screen aim relative to the observed bar", %{
+      tmp_dir: tmp
+    } do
+      Application.put_env(:pokex, :home_dir, tmp)
+      on_exit(&Pokex.TestHome.restore/0)
+      Calibration.save(%Calibration{scale: 1.0, screen_w: 1512, screen_h: 982, tile_px: 72})
+      Pokex.Settings.put(:ball_needs_click, true)
+
+      actions = Ball.sequence({755, 615})
+
+      assert {:move_checked, {755, 579}} = List.first(actions)
+      assert {:click, :left, {755, 579}} in actions
+    end
+
+    @tag :tmp_dir
     test "on the measured ultrawide the cursor climbs the tile the eye added",
          %{tmp_dir: tmp} do
       Application.put_env(:pokex, :home_dir, tmp)

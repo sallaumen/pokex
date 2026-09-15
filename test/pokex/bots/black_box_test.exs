@@ -50,6 +50,59 @@ defmodule Pokex.Bots.BlackBoxTest do
   defp incidents(tmp), do: Path.join([tmp, "captures", "incidents"])
 
   @tag :tmp_dir
+  test "records both health readings and the geometry used for the incident", %{tmp_dir: tmp} do
+    Pokex.Perception.WorldState.clear()
+    on_exit(fn -> Pokex.Perception.WorldState.clear() end)
+    at = System.monotonic_time(:millisecond)
+    Pokex.Perception.WorldState.put(:player, %{player_hp: 4, readable?: true}, at)
+    Pokex.Perception.WorldState.put(:pokemon, %{hp_pct: 100, readable?: true}, at)
+    box = start_box()
+    send(box, {:engine, picture(1), orders("sobrevivente da corrente (1 de 6)")})
+    :sys.get_state(box)
+    [dir] = File.ls!(incidents(tmp))
+
+    line =
+      Path.join([incidents(tmp), dir, "manifest.jsonl"])
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> hd()
+      |> Jason.decode!()
+
+    assert line["player"]["player_hp"] == 4
+    assert line["pokemon"]["hp_pct"] == 100
+    assert line["calibration"]["tile_px"] == 100
+    assert line["calibration"]["screen_w"] == 1000
+    assert line["calibration"]["player_point"] == [500, 350]
+  end
+
+  @tag :tmp_dir
+  test "preserves the incident when repeated sightings arrive after the hunt stops", %{
+    tmp_dir: tmp
+  } do
+    box = start_box()
+    send(box, {:engine, picture(1), orders("sobrevivente da corrente (1 de 6)")})
+    :sys.get_state(box)
+    send(box, {:engine, picture(1), orders("sem caçada rodando", %{phase: :idle})})
+    :sys.get_state(box)
+    assert BlackBox.status(box) == nil
+    [original] = File.ls!(incidents(tmp))
+
+    for _ <- 1..8 do
+      send(box, {:shiny_on_screen, %{vistos: [%{name: "Shiny", point: {500, 400}}]}})
+      send(box, {:engine, picture(1), orders("sem caçada rodando", %{phase: :idle})})
+    end
+
+    :sys.get_state(box)
+    assert File.ls!(incidents(tmp)) == [original]
+    assert BlackBox.status(box) == nil
+
+    send(box, {:engine, picture(1), orders("lutando")})
+    send(box, {:shiny_seen, %{name: "Shiny"}})
+    :sys.get_state(box)
+    assert BlackBox.status(box) != nil
+  end
+
+  @tag :tmp_dir
   test "the survivor of the chain opens an episode: a whole frame, the film, the manifest", %{
     tmp_dir: tmp
   } do

@@ -85,16 +85,28 @@ defmodule Pokex.Screen.BarOffset do
   @doc """
   O ponto publicado levado até o corpo, na tela salva na calibração.
 
-  Sem calibração ou numa tela não medida devolve o ponto como veio — nunca um
-  palpite.
+  A calibrated tile override changes the offset added by CrowdScan. Remove
+  that difference here to preserve the existing aim relative to the observed
+  bar. This is not a new measurement of the sprite.
+
+  Without a known screen reference, the point passes through unchanged.
   """
   @spec body({integer, integer}) :: {integer, integer}
   def body({x, y} = point) do
     with {:ok, calib} <- Pokex.Calibration.load(),
-         {:ok, {dx, dy}} <- for_screen({calib.screen_w, calib.screen_h}) do
-      {x + dx, y + dy}
+         {:ok, reference_tile} <- Pokex.Screen.Tile.for_screen({calib.screen_w, calib.screen_h}) do
+      {dx, dy} = measured_offset(calib)
+      added_tile = Pokex.Calibration.tile_px(calib) - reference_tile
+      {x + dx, y + dy - added_tile}
     else
-      _sem_medida -> point
+      _unmeasured -> point
+    end
+  end
+
+  defp measured_offset(calib) do
+    case for_screen({calib.screen_w, calib.screen_h}) do
+      {:ok, vector} -> vector
+      :unknown -> {0, 0}
     end
   end
 

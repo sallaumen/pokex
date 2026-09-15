@@ -370,6 +370,9 @@ defmodule PokexWeb.CalibrationLive do
   def handle_event("calibrate_neutral", _params, socket),
     do: start_quick_fix(socket, :neutral, :neutral_only)
 
+  def handle_event("calibrate_ball_stock", _params, socket),
+    do: start_quick_fix(socket, :ball_stock_a, :ball_stock_only)
+
   def handle_event("calibrate_hp", _params, socket),
     do: start_quick_fix(socket, :hp_a, :hp_only)
 
@@ -1149,6 +1152,7 @@ defmodule PokexWeb.CalibrationLive do
         battle_region: draft.battle_region,
         neutral_point: draft.neutral_point,
         player_point: draft[:player_point],
+        ball_stock_region: draft[:ball_stock_region],
         skill_bar_region: draft.skill_bar_region,
         skill_bar_count: draft.skill_bar_count,
         skill_slot_refs:
@@ -1211,6 +1215,7 @@ defmodule PokexWeb.CalibrationLive do
       battle_region: calib.battle_region,
       neutral_point: calib.neutral_point,
       player_point: calib.player_point,
+      ball_stock_region: calib.ball_stock_region,
       skill_bar_region: calib.skill_bar_region,
       skill_bar_count: skill_count,
       skill_slot_refs: calib.skill_slot_refs,
@@ -1227,7 +1232,7 @@ defmodule PokexWeb.CalibrationLive do
   # Every mark the numbered run asks for. Anything missing and the run walks:
   # confirming half a calibration would be confirming a hole.
   @wizard_marks ~w(battle_region neutral_point player_point skill_bar_region
-                   pokemon_hp_region pokemon_photo_point)a
+                   ball_stock_region pokemon_hp_region pokemon_photo_point)a
 
   defp complete?(draft), do: Enum.all?(@wizard_marks, &Map.has_key?(draft, &1))
 
@@ -1235,7 +1240,8 @@ defmodule PokexWeb.CalibrationLive do
   defp keep_after(step) when step in [:battle_a, :battle_b], do: :neutral
   defp keep_after(:neutral), do: :player
   defp keep_after(:player), do: :skill_a
-  defp keep_after(step) when step in [:skill_a, :skill_b], do: :hp_a
+  defp keep_after(step) when step in [:skill_a, :skill_b], do: :ball_stock_a
+  defp keep_after(step) when step in [:ball_stock_a, :ball_stock_b], do: :hp_a
   defp keep_after(step) when step in [:hp_a, :hp_b], do: :photo
   defp keep_after(:photo), do: :done
   defp keep_after(_no_mark_to_keep), do: :done
@@ -1246,6 +1252,10 @@ defmodule PokexWeb.CalibrationLive do
   defp keepable(:neutral, draft), do: draft[:neutral_point]
   defp keepable(:player, draft), do: draft[:player_point]
   defp keepable(step, draft) when step in [:skill_a, :skill_b], do: draft[:skill_bar_region]
+
+  defp keepable(step, draft) when step in [:ball_stock_a, :ball_stock_b],
+    do: draft[:ball_stock_region]
+
   defp keepable(step, draft) when step in [:hp_a, :hp_b], do: draft[:pokemon_hp_region]
   defp keepable(:photo, draft), do: draft[:pokemon_photo_point]
   defp keepable(_step, _draft), do: nil
@@ -2002,6 +2012,7 @@ defmodule PokexWeb.CalibrationLive do
     "minimap_player_point" => {:minimap_player_point, :point},
     "glow_region" => {:glow_region, :region},
     "battle_region" => {:battle_region, :region},
+    "ball_stock_region" => {:ball_stock_region, :region},
     "skill_bar_region" => {:skill_bar_region, :region},
     "pokemon_hp_region" => {:pokemon_hp_region, :region},
     "player_hp_region" => {:player_hp_region, :region},
@@ -2631,6 +2642,29 @@ defmodule PokexWeb.CalibrationLive do
     end
   end
 
+  defp record_step(:ball_stock_a, socket, point, draft) do
+    draft = draft |> Map.delete(:ball_stock_region) |> Map.put(:ball_stock_a, point)
+    assign(socket, draft: draft, step: :ball_stock_b)
+  end
+
+  defp record_step(:ball_stock_b, socket, point, draft) do
+    {_x, _y, width, height} = region = region_from(draft.ball_stock_a, point)
+
+    cond do
+      width == 0 or height == 0 ->
+        assign(socket, error: "Marque um retângulo que inclua o número inteiro.")
+
+      socket.assigns.mode == :ball_stock_only ->
+        save_mark(socket, %{ball_stock_region: region}, %{
+          ok: "Contador de F1 marcado — a captura passa a conferir se o estoque diminuiu.",
+          error: "não deu pra salvar o contador de F1"
+        })
+
+      true ->
+        assign(socket, draft: Map.put(draft, :ball_stock_region, region), step: :hp_a)
+    end
+  end
+
   defp record_step(:hp_a, socket, point, draft) do
     draft = draft |> Map.delete(:pokemon_hp_region) |> Map.put(:hp_a, point)
     assign(socket, draft: draft, step: :hp_b)
@@ -2726,7 +2760,7 @@ defmodule PokexWeb.CalibrationLive do
             draft
             |> Map.put(:skill_bar_region, region)
             |> Map.put(:skill_bar_count, count),
-          step: :hp_a,
+          step: :ball_stock_a,
           skillbar_msg: "Barra configurada com #{count} skills."
         )
 
@@ -2906,6 +2940,7 @@ defmodule PokexWeb.CalibrationLive do
   defp quick_fix(assigns) do
     ~H"""
     <button
+      id={@event}
       phx-click={@event}
       class="flex items-start gap-2.5 rounded-lg border border-pk-line bg-pk-sunken px-3 py-2.5 text-left transition hover:border-pk-ok/50 hover:bg-pk-raised"
     >
@@ -3409,8 +3444,7 @@ defmodule PokexWeb.CalibrationLive do
                   <h2 class="text-pk-title font-bold text-pk-text">Calibração completa</h2>
                   <p class="mt-0.5 max-w-prose text-pk-body leading-relaxed text-pk-text-2">
                     Se esta tela já foi calibrada, eu começo desenhando as marcas salvas em
-                    cima da foto nova — você só confirma, e nada se move. Se não, são os
-                    9 passos guiados: Battle, ponto neutro, personagem, skills e vida. Pode
+                    cima da foto nova — você só confirma, e nada se move. Se não, são os {@total_steps} passos guiados: Battle, ponto neutro, personagem, skills, contador de F1 e vida. Pode
                     deixar o jogo em TELA CHEIA — ao capturar, ele vem pra frente por ~1s,
                     tira a foto e volta pra cá sozinho.
                   </p>
@@ -3498,6 +3532,12 @@ defmodule PokexWeb.CalibrationLive do
                   icon="hero-cursor-arrow-rays"
                   title="Só o ponto neutro"
                   hint="onde o mouse descansa sem clicar em nada (1 clique)"
+                />
+                <.quick_fix
+                  event="calibrate_ball_stock"
+                  icon="hero-hashtag"
+                  title="Contador da bola · F1"
+                  hint="só o número no rodapé do atalho, sem o ícone (2 cliques); 12k não serve como prova"
                 />
                 <.quick_fix
                   event="calibrate_hp"
@@ -4404,6 +4444,7 @@ defmodule PokexWeb.CalibrationLive do
                 water_point={@draft[:water_point]}
                 glow_region={@draft[:glow_region]}
                 battle_region={@draft[:battle_region]}
+                ball_stock_region={@draft[:ball_stock_region]}
                 skill_bar_region={@draft[:skill_bar_region]}
                 skill_bar_count={@draft[:skill_bar_count] || 0}
                 neutral_point={@draft[:neutral_point]}

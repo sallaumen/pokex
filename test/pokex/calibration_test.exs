@@ -18,6 +18,22 @@ defmodule Pokex.CalibrationTest do
   end
 
   @tag :tmp_dir
+  test "preserves ball stock geometry and loads older calibrations without it", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "calibration.json")
+    marked = Map.put(sample(), :ball_stock_region, {1400, 1422, 30, 12})
+    assert :ok = Calibration.save(marked, path)
+    assert {:ok, loaded} = Calibration.load(path)
+    assert Map.get(loaded, :ball_stock_region) == {1400, 1422, 30, 12}
+
+    assert Map.get(Calibration.rescale(loaded, {864, 558}), :ball_stock_region) ==
+             {700, 711, 15, 6}
+
+    File.write!(path, ~s({"scale": 1.0}))
+    assert {:ok, old} = Calibration.load(path)
+    assert Map.get(old, :ball_stock_region) == nil
+  end
+
+  @tag :tmp_dir
   test "save/load round-trip", %{tmp_dir: tmp} do
     path = Path.join(tmp, "calibration.json")
     refute Calibration.exists?(path)

@@ -31,6 +31,11 @@ defmodule PokexWeb.CalibrationSteps do
         "referência de 'pronta' pro leitor.",
     skill_b:
       "Canto INFERIOR-DIREITO da barra, depois da última skill deste Pokémon. Não inclua outros botões.",
+    ball_stock_a:
+      "Canto SUPERIOR-ESQUERDO do NÚMERO no rodapé do atalho F1 da bola. " <>
+        "Inclua todos os dígitos e deixe o ícone de fora. Contagens como 12k não servem como prova.",
+    ball_stock_b:
+      "Canto INFERIOR-DIREITO do MESMO número de F1. Inclua o texto inteiro, inclusive k, m ou ponto se aparecerem.",
     hp_a:
       "Canto SUPERIOR-ESQUERDO da barra do Pokémon na POKEBAR — a linha do Ctrl+N que mostra a " <>
         "porcentagem. CUIDADO: a barra vermelha do painel 'Pokémon' é a vida do PERSONAGEM, " <>
@@ -101,6 +106,8 @@ defmodule PokexWeb.CalibrationSteps do
         :player,
         :skill_a,
         :skill_b,
+        :ball_stock_a,
+        :ball_stock_b,
         :hp_a,
         :hp_b,
         :photo,
@@ -126,11 +133,13 @@ defmodule PokexWeb.CalibrationSteps do
   def index(:player), do: 4
   def index(:skill_a), do: 5
   def index(:skill_b), do: 6
-  def index(:hp_a), do: 7
-  def index(:hp_b), do: 8
-  def index(:photo), do: 9
+  def index(:ball_stock_a), do: 7
+  def index(:ball_stock_b), do: 8
+  def index(:hp_a), do: 9
+  def index(:hp_b), do: 10
+  def index(:photo), do: 11
   def index(_), do: nil
 
   @doc "How many steps the FULL wizard has (the quick-fix flows are unnumbered)."
-  def total, do: 9
+  def total, do: 11
 end

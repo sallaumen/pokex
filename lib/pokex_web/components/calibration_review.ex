@@ -126,6 +126,7 @@ defmodule PokexWeb.CalibrationReview do
                 water_point={@review.calib.water_point}
                 glow_region={@review.calib.glow_region}
                 battle_region={@review.calib.battle_region}
+                ball_stock_region={@review.calib.ball_stock_region}
                 skill_bar_region={@review.calib.skill_bar_region}
                 skill_bar_count={@review.calib.skill_bar_count || 0}
                 neutral_point={@review.calib.neutral_point}

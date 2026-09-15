@@ -38,6 +38,7 @@ defmodule Pokex.Calibration do
     # Optional for backwards compatibility with calibrations created before the
     # skill bar became part of the main wizard.
     :skill_bar_region,
+    :ball_stock_region,
     :skill_bar_count,
     # The auto-located HUD layout (Pokex.Layout.Fix) in force for this load.
     # Resolved ONCE here so a feed's capture region and its interpreter's
@@ -178,6 +179,7 @@ defmodule Pokex.Calibration do
       "minimap_coord_region" => to_list(calib.minimap_coord_region),
       "pokemon_spot_point" => to_list(calib.pokemon_spot_point),
       "escape_point" => to_list(calib.escape_point),
+      "ball_stock_region" => to_list(calib.ball_stock_region),
       "skill_bar_region" => to_list(calib.skill_bar_region),
       "skill_bar_count" => calib.skill_bar_count,
       "skill_slot_refs" => calib.skill_slot_refs && Enum.map(calib.skill_slot_refs, &to_list/1),
@@ -220,6 +222,7 @@ defmodule Pokex.Calibration do
       minimap_coord_region: to_tuple(map["minimap_coord_region"]),
       pokemon_spot_point: to_tuple(map["pokemon_spot_point"]),
       escape_point: to_tuple(map["escape_point"]),
+      ball_stock_region: to_tuple(map["ball_stock_region"]),
       skill_bar_region: to_tuple(map["skill_bar_region"]),
       skill_bar_count: map["skill_bar_count"],
       skill_slot_refs: map["skill_slot_refs"] && Enum.map(map["skill_slot_refs"], &to_tuple/1),
@@ -569,7 +572,7 @@ defmodule Pokex.Calibration do
 
   @geometry ~w(water_point glow_region battle_region neutral_point player_point
                minimap_region minimap_player_point minimap_coord_region
-               pokemon_spot_point escape_point skill_bar_region pokemon_hp_region
+               pokemon_spot_point escape_point skill_bar_region ball_stock_region pokemon_hp_region
                pokemon_photo_point player_hp_region)a
 
   @doc """

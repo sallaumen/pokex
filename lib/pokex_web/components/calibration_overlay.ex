@@ -60,6 +60,7 @@ defmodule PokexWeb.CalibrationOverlay do
   attr :water_point, :any, default: nil
   attr :glow_region, :any, default: nil
   attr :battle_region, :any, default: nil
+  attr :ball_stock_region, :any, default: nil
   attr :skill_bar_region, :any, default: nil
 
   attr :skill_bar_count, :integer,
@@ -159,6 +160,18 @@ defmodule PokexWeb.CalibrationOverlay do
           class="overlay-label absolute -top-4 left-0 rounded bg-warning px-1 text-pk-meta font-bold text-warning-content"
         >
           Battle
+        </span>
+      </div>
+      <div
+        :if={@ball_stock_region}
+        class="absolute rounded border border-pk-line-strong"
+        style={region_style(@ball_stock_region, @screen)}
+      >
+        <span
+          :if={!@quiet}
+          class="overlay-label absolute -top-4 left-0 rounded bg-pk-raised px-1 text-pk-meta text-pk-text"
+        >
+          contador F1
         </span>
       </div>
       <div
@@ -505,6 +518,7 @@ defmodule PokexWeb.CalibrationOverlay do
     [
       {:pokemon_hp_region, "vida do Pokémon", :region, calib.pokemon_hp_region},
       {:player_hp_region, "vida do PERSONAGEM", :region, calib.player_hp_region},
+      {:ball_stock_region, "contador da bola · F1", :region, calib.ball_stock_region},
       {:skill_bar_region, "skills", :region, calib.skill_bar_region},
       {:battle_region, "janela Battle", :region, calib.battle_region},
       {:glow_region, "brilho (isca)", :region, calib.glow_region},
